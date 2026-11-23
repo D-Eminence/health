@@ -30,9 +30,10 @@ import { PharmacyCard, PharmacyCards } from './PharmacyQueue'
 import { PaperPrescription } from './PaperPrescription'
 import { PharmacyRecord } from './PharmacyRecord'
 import {
-  doseMissing, incomingCountText, inTab, matchesItem, PRESCRIPTIONS_EMPTY, PRESCRIPTIONS_LOAD_FAILED, PRESCRIPTIONS_REFRESH, prescriptionsIntro,
-  queueOrder, queueTone, routeAlert, statusOf, withdrawnReasonOf, type PharmacyTab,
+  doseMissing, incomingCountText, inTab, isWithdrawn, matchesItem, PRESCRIPTIONS_EMPTY, PRESCRIPTIONS_LOAD_FAILED, PRESCRIPTIONS_REFRESH,
+  prescriptionsIntro, queueOrder, queueTone, routeAlert, statusOf, withdrawnReasonOf, withdrawnWords, type PharmacyTab,
 } from './pharmacyText'
+import { useStaffNameLookup } from './staffNames'
 import { BillBadge } from '../commerce/BillBadge'
 import { pointOfCareOpen } from '../commerce/served'
 import { StockLine } from './pointOfCare'
@@ -113,6 +114,8 @@ function PrescriptionQueue() {
   // A dispensing or reversal being sent from the open record: Back to list waits for its outcome.
   const [recording, setRecording] = useState(false)
   const focus = useFocusById()
+  // Who accepted a prescription, by name (SX-9), asked only by an open record that shows an acceptance, once per member.
+  const staffName = useStaffNameLookup(facilityId ?? '')
   // The facility's payment setup (POINT_OF_CARE_SPEC §1), whether a bill must be paid before dispensing, is not read:
   // its address is proposed, not served (commerce/served.ts), so reading it on every open sent a request that always
   // failed. Unread, nothing waits for payment, as today. Pass it to the record again once Health ID serves it.
@@ -157,7 +160,9 @@ function PrescriptionQueue() {
     </DeptPage>
   )
   const here = facilityId
-  const notDispensable = (id: string) => undispensable.facilityId === here && undispensable.ids.has(id)
+  // Withdrawn work (ORD-2) is not dispensable from the start; other work only once Pharmacy refused it.
+  const withdrawnIds = new Set((visible ?? []).filter(isWithdrawn).map(item => item.id))
+  const notDispensable = (id: string) => withdrawnIds.has(id) || (undispensable.facilityId === here && undispensable.ids.has(id))
 
   function open(item: PharmacyWorkItem) {
     show(item.id)
@@ -283,6 +288,8 @@ function PrescriptionQueue() {
               const status = statusOf(item, notDispensable(item.id))
               const text = selected ? null : said.rowSaid(item.orderRoute?.id)
               const alert = routeAlert(item.orderRoute, late)
+              // ORD-2's words for a withdrawn item, by its own reason; nothing for a reason this page does not know.
+              const withdrawn = isWithdrawn(item) ? withdrawnWords(item.withdrawnReason) : null
               const bill = billOf(item)
               const stock = stockOf(item)
               // Work withdrawn by the prescribing team (0133) is not waiting: no bill, stock or missing dose is said of it.
@@ -294,7 +301,8 @@ function PrescriptionQueue() {
                 </> : undefined}
                 missing={waiting && doseMissing(item)} patientFallback={patientLabel(item)} when={dateText(item.acceptedAt)}
                 onOpen={() => open(item)}
-                below={item.orderRoute || alert ? <>
+                below={item.orderRoute || alert || withdrawn ? <>
+                  {withdrawn && <small className="hid-ehr-dept-pharmacy-alert">{withdrawn}</small>}
                   {text && item.orderRoute && <p id={`pharmacy-${item.id}-said`} className="hid-ehr-dept-pharmacy-said" role="alert" tabIndex={-1}>{text}</p>}
                   {item.orderRoute && <small className="hid-ehr-dept-reference">From {item.orderRoute.orderingFacilityName ?? 'the ordering facility'}</small>}
                   {alert && <small className="hid-ehr-dept-pharmacy-alert">{alert}</small>}
@@ -309,7 +317,7 @@ function PrescriptionQueue() {
           ids: new Set(current.facilityId === here ? current.ids : []).add(selected.id) }))}
         said={said.rowSaid(selected.orderRoute?.id)} holds={holds} crossFacilityWork={read.value?.crossFacilityWork}
         onChanged={read.refresh} onBusy={setRecording} onEnded={endedHere} onNotCompleted={notCompletedHere} onReread={said.reread}
-        next={nextItem ? nextItem.medication.display : null} onNext={openNext} onBack={back} />}
+        next={nextItem ? nextItem.medication.display : null} onNext={openNext} onBack={back} staffName={staffName} />}
     </DeptPage>
   )
 }

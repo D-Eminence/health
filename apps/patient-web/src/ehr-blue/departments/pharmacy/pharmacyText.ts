@@ -1,7 +1,7 @@
 import type { EhrBadgeTone } from '@hid/ui/ehr'
 import type { Tone } from '../../../kasuwa/ui'
 import { routeLabel } from '../../../plainLabels'
-import type { Facility, PharmacyWorkItem, WorkItemOrderRoute } from '../../../staff/api'
+import type { Facility, PharmacistAcceptance, PharmacyStep, PharmacyWorkItem, WorkItemOrderRoute } from '../../../staff/api'
 import { priorityLabel, routedWorkEndedText } from '../../../staff/orderRoutes'
 import { PHARMACY_WORK, refusedWorkText } from '../../../staff/refusedWork'
 import { matchesSearch } from '../parts/format'
@@ -49,6 +49,93 @@ export const WITHDRAWN_TEXT: Readonly<Record<WithdrawnReason, string>> = {
 export function statusOf(item: PharmacyWorkItem, undispensable: boolean): PharmacyStatus {
   return item.dispensing?.reversed ? 'reversed' : item.dispensing ? 'dispensed' : withdrawnReasonOf(item) ? 'withdrawn'
     : undispensable ? 'not dispensable' : 'accepted'
+}
+
+/** hid-system ORD-4: who may accept a prescription (the pharmacist role only). */
+export const ACCEPT_PERMISSION = 'pharmacy.work-item.accept'
+
+/**
+ * A step as a pharmacist says it (ORD-4). Only "Received" and "Accepted" add to the status badge: a dispensed or reversed
+ * item already says so there, in the same words the page used before the step existed.
+ */
+const STEP_WORD: Readonly<Record<PharmacyStep, string>> = {
+  received: 'Received', accepted: 'Accepted', dispensed: 'Dispensed', dispensing_reversed: 'Dispensing reversed',
+}
+
+/** Lagos is where the pharmacy works, so a time is said on its clock whatever the device's own zone (staff/orderRoutes.ts). */
+const LAGOS_DAY = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Africa/Lagos' })
+const LAGOS_CLOCK = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'Africa/Lagos' })
+
+/** "10:52" today, else "12 Nov 2026, 10:52" (ORD-4 screen notes write the time alone); empty when it is not a time. */
+export function clockText(value: string, now = Date.now()): string {
+  const at = new Date(value)
+  if (Number.isNaN(at.getTime())) return ''
+  const clock = LAGOS_CLOCK.format(at)
+  return LAGOS_DAY.format(at) === LAGOS_DAY.format(new Date(now)) ? clock : `${LAGOS_DAY.format(at)}, ${clock}`
+}
+
+/**
+ * Who accepted it, as SX-9 answered: a name; null for a member whose login was deleted (SX-9's "Former staff member");
+ * undefined when not known (not asked, not answered, or no row), and then no one is named and no id is ever shown.
+ */
+export type AcceptorName = string | null | undefined
+
+/** SX-9's words for a member with no name, as they read inside a sentence. */
+export const FORMER_STAFF_MEMBER = 'a former staff member'
+
+/**
+ * What the step adds beside the status, or null: nothing with no step (today's backend, ORD-4 "show no step"), nor for a
+ * dispensed or reversed item (its status says it). An acceptance says "Accepted by <name> 10:52" when the name is known
+ * (`who`, from SX-9), else "Accepted 10:52".
+ */
+export function stepText(item: Pick<PharmacyWorkItem, 'pharmacyStep' | 'pharmacistAcceptance'>, now = Date.now(), who?: AcceptorName): string | null {
+  if (item.pharmacyStep === 'received') return STEP_WORD.received
+  if (item.pharmacyStep !== 'accepted') return null
+  return item.pharmacistAcceptance ? acceptedText(item.pharmacistAcceptance, false, now, who) : STEP_WORD.accepted
+}
+
+/**
+ * "Accepted by <name> 10:52", or "Already accepted by <name> 10:52" when someone had accepted it first (ORD-4 screen
+ * notes). With no name known, "Accepted 10:52"; a member with no name is "a former staff member" (SX-9).
+ */
+export function acceptedText(acceptance: PharmacistAcceptance | null | undefined, already: boolean, now = Date.now(), who?: AcceptorName): string {
+  const said = already ? 'Already accepted' : 'Accepted'
+  const by = !acceptance || who === undefined ? '' : ` by ${who === null ? FORMER_STAFF_MEMBER : who}`
+  const time = acceptance ? clockText(acceptance.acceptedAt, now) : ''
+  return `${said}${by}${time ? ` ${time}` : ''}`
+}
+
+/**
+ * Whether Accept is offered (ORD-4 screen notes): on a received item that is not withdrawn (ORD-2), not refused by
+ * Pharmacy since it was opened, and not dispensed. Who may press it is checked by the record (ACCEPT_PERMISSION).
+ */
+export function acceptable(item: PharmacyWorkItem, undispensable: boolean): boolean {
+  return item.pharmacyStep === 'received' && item.withdrawn !== true && !undispensable && !item.dispensing
+}
+
+/** ORD-2's words for a withdrawn item, by its `withdrawnReason`. */
+export const WITHDRAWN_WORDS: Readonly<Record<string, string>> = {
+  changed: 'Changed or stopped by the prescribing team',
+  sent_elsewhere: 'Sent to another pharmacy by the prescribing team',
+}
+
+/**
+ * Why Pharmacy will not take on a prescription, by a `withdrawnReason` (the item's own, ORD-2, or a 409
+ * PHARMACY_PRESCRIPTION_NOT_DISPENSABLE's, ORD-4), never by any text; null for no reason or one this page does not know.
+ */
+export function withdrawnText(reason: string | null | undefined): string | null {
+  const words = withdrawnWords(reason)
+  return words ? `${words}. It can no longer be dispensed here.` : null
+}
+
+/** ORD-2's short words for a reason, as the list says them; null for no reason or one this page does not know. */
+export function withdrawnWords(reason: string | null | undefined): string | null {
+  return reason && Object.hasOwn(WITHDRAWN_WORDS, reason) ? WITHDRAWN_WORDS[reason] ?? null : null
+}
+
+/** A withdrawn item (ORD-2) can be neither accepted nor dispensed, whatever else it says. */
+export function isWithdrawn(item: Pick<PharmacyWorkItem, 'withdrawn' | 'dispensing'>): boolean {
+  return item.withdrawn === true && !item.dispensing
 }
 
 /** The design has one badge; only work that can't be dispensed is marked apart. */
@@ -135,7 +222,7 @@ export function notDispensableText(item: PharmacyWorkItem): string {
   return item.orderRoute
     ? `${item.orderRoute.orderingFacilityName ?? 'The prescribing facility'} changed or cancelled this prescription, or its time `
       + 'for dispensing has ended. A new prescription is needed.'
-    : 'This prescription is no longer active as Pharmacy accepted it, or it could not be checked. A new prescription and '
+    : 'This prescription is no longer active as Pharmacy received it, or it could not be checked. A new prescription and '
       + 'handoff are needed.'
 }
 

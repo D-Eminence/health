@@ -975,21 +975,110 @@ export interface PharmacyWorkItem {
   /** Novu since P4c, only on work from a prescription another facility sent here. */
   orderRoute?: WorkItemOrderRoute
   /**
-   * Present (always true) only on this facility's own item withdrawn before it was dispensed (hid-system 0133, pharmacy-api
-   * at 06f98040): Dispense answers 409 PHARMACY_PRESCRIPTION_NOT_DISPENSABLE, so it is never offered.
-   */
-  withdrawn?: boolean
-  /**
-   * Why, only with `withdrawn`: `changed` (the prescribing team put it on hold, cancelled, corrected, edited or resumed
-   * it after it was sent) or `sent_elsewhere` (sent to another facility's pharmacy before it was dispensed). Left out by
-   * pharmacy-api for any other value.
-   */
-  withdrawnReason?: string
-  /**
    * Who the patient is: on work from another facility (Novu since P4c) and, with the patient card on this facility's own
    * work (proposed, hid-system 0106), on own work too.
    */
   patient?: OrderRoutePatient
+  /**
+   * Where the item is at Pharmacy, and whether a pharmacist accepted it (hid-system ORD-4, Release B). Kept together, and
+   * only for a step and an `acceptedWith` this page knows (pharmacyStepsOf); absent from today's backend, and then every
+   * screen shows what it does today. `status: "accepted"` and `acceptedAt` keep their meaning: the pharmacy has it.
+   */
+  pharmacyStep?: PharmacyStep
+  pharmacistAcceptance?: PharmacistAcceptance | null
+  /**
+   * Present (always true) only on this facility's own item withdrawn by the prescribing team before it was dispensed
+   * (hid-system 0133 and ORD-2, pharmacy-api at 06f98040): it changed or was sent elsewhere after Pharmacy got it, so
+   * it can be neither accepted nor dispensed (Dispense answers 409 PHARMACY_PRESCRIPTION_NOT_DISPENSABLE). Read only
+   * through pharmacyText.ts withdrawnReasonOf.
+   */
+  withdrawn?: boolean
+  /**
+   * Why, kept only with `withdrawn: true`: `changed` (the prescribing team put it on hold, cancelled, corrected, edited
+   * or resumed it after it was sent) or `sent_elsewhere` (sent to another facility's pharmacy before it was dispensed).
+   * A code a page branches on, never shown as sent; pharmacy-api leaves it out (or null) for any other value.
+   */
+  withdrawnReason?: string | null
+}
+
+/** hid-system ORD-4: a pharmacy work item's step. */
+export type PharmacyStep = 'received' | 'accepted' | 'dispensed' | 'dispensing_reversed'
+/** hid-system ORD-4: how the item came to be accepted (Accept, its first dispensing, an order route, a hand-off). */
+export type PharmacistAcceptedWith = 'accept' | 'dispensing' | 'order_route' | 'hand_off'
+export interface PharmacistAcceptance {
+  acceptedAt: string
+  acceptedByMembershipId: string
+  acceptedWith: PharmacistAcceptedWith
+}
+/** hid-system ORD-4: POST /pharmacy/work-items/:id/accept answers 201 (recorded) or 200 (`alreadyAccepted: true`). */
+export interface PharmacyAcceptance {
+  workItemId: string
+  pharmacyStep?: PharmacyStep
+  pharmacistAcceptance?: PharmacistAcceptance | null
+  alreadyAccepted: boolean
+}
+
+const PHARMACY_STEPS: ReadonlySet<string> = new Set<PharmacyStep>(['received', 'accepted', 'dispensed', 'dispensing_reversed'])
+const ACCEPTED_WITH: ReadonlySet<string> = new Set<PharmacistAcceptedWith>(['accept', 'dispensing', 'order_route', 'hand_off'])
+
+const stepsNotRead = () => new HidApiError(502, 'Prescriptions could not be read. Please try again.', { code: 'INVALID_RESPONSE', retryable: false })
+const filled = (value: unknown): value is string => typeof value === 'string' && value.length > 0
+
+/**
+ * An answer's `pharmacyStep` and `pharmacistAcceptance` by INTERFACE_CONTRACT ORD-4 "Screen change": both kept only for
+ * a step and an `acceptedWith` this page knows; both left out (the item reads as today) when the step is absent or
+ * either value is one it does not know (a newer pharmacy-api), so one such item never fails the whole list. Only a wrong
+ * type is refused, as an unreadable answer: a step that is not a string (null included); next to a known step, an
+ * acceptance missing or neither null nor an object; an `acceptedWith` that is not a string; with a known `acceptedWith`,
+ * an `acceptedAt` or `acceptedByMembershipId` that is not a non-empty string.
+ */
+export function pharmacyStepsOf<T extends object>(answer: T): T {
+  const { pharmacyStep: step, pharmacistAcceptance: acceptance, ...rest } = answer as T & { pharmacyStep?: unknown; pharmacistAcceptance?: unknown }
+  const bare = rest as T
+  if (step === undefined) return bare
+  if (typeof step !== 'string') throw stepsNotRead()
+  if (!PHARMACY_STEPS.has(step)) return bare
+  if (acceptance === null) return { ...bare, pharmacyStep: step as PharmacyStep, pharmacistAcceptance: null }
+  if (typeof acceptance !== 'object' || Array.isArray(acceptance)) throw stepsNotRead()
+  const { acceptedWith, acceptedAt, acceptedByMembershipId } = acceptance as Record<string, unknown>
+  if (typeof acceptedWith !== 'string') throw stepsNotRead()
+  if (!ACCEPTED_WITH.has(acceptedWith)) return bare
+  if (!filled(acceptedAt) || !filled(acceptedByMembershipId)) throw stepsNotRead()
+  return { ...bare, pharmacyStep: step as PharmacyStep,
+    pharmacistAcceptance: { acceptedAt, acceptedByMembershipId, acceptedWith: acceptedWith as PharmacistAcceptedWith } }
+}
+
+/**
+ * One member of the working facility, past or present, by membership (hid-system SX-9, GET
+ * /identity/facility-staff-names). `name` is null for a member whose login was deleted: the screen then says "Former
+ * staff member". Names only: no email, role, licence or account id is answered.
+ */
+export interface FacilityStaffName { membershipId: string; name: string | null; current: boolean }
+/** SX-9's answer: the facility's own members, current ones first; `complete` is false when more than 500 were left out. */
+export interface FacilityStaffNames { facilityId: string; staff: FacilityStaffName[]; complete: boolean }
+/** SX-9 refuses more than 100 ids in one read (400 VALIDATION_FAILED). */
+export const FACILITY_STAFF_NAMES_MAX_IDS = 100
+
+const namesNotRead = () => new HidApiError(502, 'Staff names could not be read. Please try again.', { code: 'INVALID_RESPONSE', retryable: false })
+
+/**
+ * SX-9's answer as INTERFACE_CONTRACT writes it, `{ facilityId, staff, complete }`. An answer that is not that shape is
+ * refused as unreadable; a row that is not `{ membershipId, name (a string or null), current }` is left out, so it is
+ * never shown as someone else's name.
+ */
+export function facilityStaffNamesOf(answer: unknown): FacilityStaffNames {
+  const record = answer && typeof answer === 'object' ? answer as Record<string, unknown> : null
+  if (!record || typeof record.facilityId !== 'string' || !Array.isArray(record.staff) || typeof record.complete !== 'boolean') throw namesNotRead()
+  const staff = record.staff.flatMap((row: unknown): FacilityStaffName[] => {
+    const { membershipId, name, current } = (row && typeof row === 'object' ? row : {}) as Record<string, unknown>
+    return filled(membershipId) && (name === null || filled(name)) && typeof current === 'boolean' ? [{ membershipId, name, current }] : []
+  })
+  return { facilityId: record.facilityId, staff, complete: record.complete }
+}
+
+/** A Pharmacy work list with each item's steps read (pharmacyStepsOf); a list in another shape is left as it came. */
+function pharmacyListOf(list: WorkList<PharmacyWorkItem>): WorkList<PharmacyWorkItem> {
+  return Array.isArray(list?.items) ? { ...list, items: list.items.map(item => item && typeof item === 'object' ? pharmacyStepsOf(item) : item) } : list
 }
 
 /**
@@ -2446,6 +2535,15 @@ export const staffApi = {
   saveFacilityProfile: (facilityId: string, profile: FacilityProfileValues, version: number, idempotencyKey: string) =>
     client.post<FacilityProfileSaved>('/api/v1/identity/facility-profile', profile,
       { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), 'If-Match': `"${version}"`, ...keyHeaders(idempotencyKey) } }),
+  // The names of the working facility's members by membership (hid-system SX-9): any member active there, no permission
+  // beyond membership, read under healthcare operations whatever is sent. Only the ids asked for, 1 to 100 of them.
+  facilityStaffNames: (facilityId: string, membershipIds: readonly string[]) => {
+    if (membershipIds.length < 1 || membershipIds.length > FACILITY_STAFF_NAMES_MAX_IDS) {
+      return Promise.reject(new RangeError(`Ask for 1 to ${FACILITY_STAFF_NAMES_MAX_IDS} staff names at a time.`))
+    }
+    return client.get<unknown>('/api/v1/identity/facility-staff-names', { query: { membershipIds: membershipIds.join(',') },
+      headers: facilityHeaders(facilityId, 'healthcare-operations'), dedupe: false, retry: NO_RETRY }).then(facilityStaffNamesOf)
+  },
   setOnePersonLab: (facilityId: string, enabled: boolean, reason: string) =>
     client.post<OnePersonLabChange>('/api/v1/identity/facility-settings/one-person-lab', { enabled, reason },
       { headers: facilityHeaders(facilityId, 'healthcare-operations') }),
@@ -2795,7 +2893,13 @@ export const staffApi = {
     client.get<LabOrderReleasedResults>(`/api/v1/lab/ehr-orders/${encodeURIComponent(labRequestId)}/released-results`,
       { headers: facilityHeaders(facilityId, purpose), dedupe: false }),
   pharmacyWorkItems: (facilityId: string) =>
-    client.get<WorkList<PharmacyWorkItem>>('/api/v1/pharmacy/work-items', { headers: facilityHeaders(facilityId) }).then(keptSince),
+    client.get<WorkList<PharmacyWorkItem>>('/api/v1/pharmacy/work-items', { headers: facilityHeaders(facilityId) }).then(keptSince).then(pharmacyListOf),
+  // A pharmacist takes the item on (hid-system ORD-4): the body is exactly the item's version, with no reason. The key is
+  // the caller's, so a retry of the same press sends the same one and records nothing twice.
+  acceptPharmacyWorkItem: (facilityId: string, item: Pick<PharmacyWorkItem, 'id' | 'version'>, idempotencyKey: string) =>
+    client.post<PharmacyAcceptance>(`/api/v1/pharmacy/work-items/${encodeURIComponent(item.id)}/accept`,
+      { expectedWorkItemVersion: item.version },
+      { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }).then(pharmacyStepsOf),
   dispense: (facilityId: string, item: PharmacyWorkItem, quantityDispensed: number, quantityUnit: string, reason: string) =>
     client.post<unknown>(`/api/v1/pharmacy/work-items/${encodeURIComponent(item.id)}/dispensings`,
       { expectedWorkItemVersion: item.version, quantityDispensed, quantityUnit, reason },
