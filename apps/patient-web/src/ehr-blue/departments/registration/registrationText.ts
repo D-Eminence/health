@@ -1,3 +1,4 @@
+import { HidApiError } from '@hid/http'
 import type { RegistrationCase } from '../../../staff/api'
 import type { RefusedWork } from '../../../staff/refusedWork'
 import { registrationErrorText } from '../../../staff/registrationFlow'
@@ -84,7 +85,12 @@ export const CAPABILITY_FAILED_TITLE = 'Can’t check NINs right now'
 export const CAPABILITY_FAILED = 'We couldn’t check whether NIN checks are working.'
 /** Whether NIN checks work, in plain words: never the server's own state for them. */
 export const NIN_OFF_TITLE = 'NIN checks are off'
+/** Only where Identity offers no registration without a NIN either (a backend before hid-system 0130). */
 export const NIN_NOT_ENABLED = 'New registrations can’t start until they’re back on.'
+/** NIN checks are off and Identity takes a registration without a NIN (hid-system 0130): the desk is pointed to it. */
+export const NIN_OFF_WITHOUT_NIN = 'NIN checks are not available right now. You can still register a new patient without a NIN: choose Create record, then Register without a NIN. Their record will show NIN Not Verified.'
+/** The same, on the new form itself, above the form it points to. */
+export const NIN_OFF_FORM_NOTICE = 'NIN checks are not available right now, so this patient is registered without a NIN. Their record will show NIN Not Verified.'
 
 // ---- Check their NIN (Registration.tsx 123-160, 232-257) ------------------------------------------------------
 
@@ -112,6 +118,48 @@ export const NIN_NUMBER_FIELD = 'Check this number.'
 /** Registration.tsx 152, 156. */
 export const CASE_CREATED = 'NIN checked. See the result below.'
 export const CASE_CREATED_RELOAD = 'NIN checked. Refresh to see the result.'
+
+// ---- Register without a NIN (hid-system 0130, owner Q106; identity-api nin-registration.controller.ts) ----------
+
+export const WITHOUT_NIN_TITLE = 'Register without a NIN'
+export const WITHOUT_NIN_TEXT = 'Enter the patient’s name and date of birth as they give them, and why they are registered without a NIN. If nobody already registered could be the same person, the patient is registered straight away. Otherwise an approver at this facility reviews it first.'
+export const REASON_LABEL = 'Why is there no NIN?'
+export const SELECT_REASON = 'Choose a reason'
+/** Under the phone when the patient is a child: the contact is optional, and goes together. */
+export const CHILD_CONTACT_NOTE = 'Optional for a child. If you give any of the phone or address, give all of it.'
+export const REGISTER_WITHOUT_NIN = 'Register patient'
+export const REGISTERING = 'Registering…'
+/** outcome `registered`: the patient has a Health ID now. */
+export const REGISTERED_WITHOUT_NIN = 'The patient was registered and given a Health ID. Their record shows NIN Not Verified.'
+/** outcome `sent_for_review`: no other person's details are shown. */
+export const SENT_FOR_REVIEW = 'This may be someone who is already registered, so it was sent for review. An approver at this facility will decide before a record is made.'
+export const WITHOUT_NIN_RELOAD = 'The registration was saved, but it could not be shown. Choose Load case to open it.'
+export const WITHOUT_NIN_FAILED = 'The patient could not be registered. Check the details and try again.'
+/** On the record of a registration without a NIN that waits for an approver who did not start it. */
+export const SENT_FOR_REVIEW_NOTICE = 'Sent for review. This may be someone who is already registered. An approver at this facility, other than the person who started it, will decide.'
+export const NIN_FACT = 'NIN'
+export const ninStatusText = (status: NonNullable<RegistrationCase['ninStatus']>) => (status === 'verified' ? 'NIN Verified' : 'NIN Not Verified')
+
+/** identity-api registration-without-nin.service.ts WITHOUT_NIN_MESSAGES, by code: plain words, never Identity's own text. */
+export const WITHOUT_NIN_PHONE_REQUIRED = 'Enter the patient’s phone number and address. Only a child can be registered without them.'
+const WITHOUT_NIN_REFUSALS: Readonly<Record<string, string>> = {
+  PHONE_REQUIRED: WITHOUT_NIN_PHONE_REQUIRED,
+  NOT_A_CHILD: 'This date of birth makes the patient 18 or older. Choose another reason.',
+  REGISTRATION_WITHOUT_NIN_INVALID: 'Some details are missing or not valid. Check them and try again.',
+  VALIDATION_FAILED: 'Some details are missing or not valid. Check them and try again.',
+  REGISTRATION_WITHOUT_NIN_DENIED: 'You cannot register patients at this facility.',
+  REGISTRATION_WITHOUT_NIN_NOT_AVAILABLE: 'Registration without a NIN is not available at a demonstration or test facility.',
+  REGISTRATION_WITHOUT_NIN_UNAVAILABLE: 'Registration without a NIN is not available right now. Try again in a minute.',
+  IDEMPOTENCY_KEY_REUSED: 'This request was already sent with different details. Start a new registration.',
+}
+
+/** A refusal of a registration without a NIN in plain words, or its fallback. */
+export function withoutNinErrorText(caught: unknown): string {
+  if (caught instanceof HidApiError && Object.prototype.hasOwnProperty.call(WITHOUT_NIN_REFUSALS, caught.code)) {
+    return WITHOUT_NIN_REFUSALS[caught.code]!
+  }
+  return safeError(caught, WITHOUT_NIN_FAILED)
+}
 
 // ---- Continue a registration (Registration.tsx 104-121, 219-226) -----------------------------------------------
 

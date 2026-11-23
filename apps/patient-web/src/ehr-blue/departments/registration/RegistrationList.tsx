@@ -4,10 +4,11 @@ import { DeptPage, DeptSection } from '../parts/DeptPage'
 import { DeptLinkButton, DeptRecordName } from '../parts/DeptRecord'
 import { FIELD, type Availability, type CaseLoading, type VisitCase } from './registrationModel'
 import { ErrorBox, type FormProblems } from './registrationParts'
+import { offersWithoutNin } from './withoutNin'
 import {
   candidatesText, CAPABILITY_FAILED_TITLE, CAPABILITY_LOADING, CASE_ID_HINT, CASE_ID_LABEL, caseTitle, caseWhen, CHECK_AGAIN, CHECKING,
-  COMPLETED, CREATE_RECORD, DESCRIPTION, EYEBROW, FIND_TITLE, LOAD_CASE, LOADING, NIN_NOT_ENABLED, NIN_OFF_TITLE, NO_VISIT_MESSAGE,
-  NO_VISIT_TITLE, statusLabel, TITLE, TRY_AGAIN, VISIT_CAPTION,
+  COMPLETED, CREATE_RECORD, DESCRIPTION, EYEBROW, FIND_TITLE, LOAD_CASE, LOADING, NIN_NOT_ENABLED, NIN_OFF_TITLE, NIN_OFF_WITHOUT_NIN,
+  NO_VISIT_MESSAGE, NO_VISIT_TITLE, statusLabel, TITLE, TRY_AGAIN, VISIT_CAPTION,
 } from './registrationText'
 
 /**
@@ -100,7 +101,7 @@ function AvailabilityNotice({ availability }: { readonly availability: Availabil
     <DeptNotice tone={error ? 'critical' : 'caution'} title={error ? CAPABILITY_FAILED_TITLE : NIN_OFF_TITLE}
       className="hid-ehr-dept-registration-availability">
       <div className="hid-ehr-dept-registration-availability-row">
-        <div>{error ? <p role="alert">{error}</p> : <p>{NIN_NOT_ENABLED}</p>}</div>
+        <div>{error ? <p role="alert">{error}</p> : <p>{offersWithoutNin(capabilities) ? NIN_OFF_WITHOUT_NIN : NIN_NOT_ENABLED}</p>}</div>
         {/* Unavailable while it reads, not disabled: a disabled button would lose the focus it has. */}
         <EhrButton variant="secondary" size="sm" busy={loading} onClick={refresh}>{loading ? CHECKING : error ? TRY_AGAIN : CHECK_AGAIN}</EhrButton>
       </div>

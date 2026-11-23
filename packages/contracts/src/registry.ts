@@ -599,6 +599,15 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     `${COLLECTED_FIELDS} Body { nin, firstName, lastName, dateOfBirth, gender?, purpose } and, all or none from 0114 (required `
     + 'after the follow-up release; the website always sends them), the desk fields { phone, addressLine, city, stateCode, lga, hasExistingHealthId, existingHealthId (exactly when '
     + 'hasExistingHealthId) }; the answer adds contactRecorded. Allergies are refused as an unknown field.'),
+  // hid-system 0130 (ID-2, owner Q106): registration at the desk without a NIN, docs/INTERFACE_CONTRACT.md ID-2.
+  r('identity.registrationWithoutNin','identity','/api/v1/identity/registration-cases/without-nin',P,false,
+    one('POST','identity.registration.write'),
+    'X-Facility-ID, healthcare-operations, Idempotency-Key. Body { firstName, lastName, dateOfBirth, gender?, noNinReason, purpose, '
+    + 'phone, addressLine, city, stateCode, lga (together; all or none for noNinReason child), hasExistingHealthId, existingHealthId '
+    + '(exactly when hasExistingHealthId) }; 201 { caseId, status, version, outcome: registered | sent_for_review, identityEvidence: '
+    + 'none, ninStatus, replayed, patient? }. 400 PHONE_REQUIRED, NOT_A_CHILD, REGISTRATION_WITHOUT_NIN_INVALID; 403 '
+    + 'REGISTRATION_WITHOUT_NIN_DENIED, REGISTRATION_WITHOUT_NIN_NOT_AVAILABLE; 409 IDEMPOTENCY_KEY_REUSED; 503 '
+    + 'REGISTRATION_WITHOUT_NIN_UNAVAILABLE.'),
   r('identity.registrationCase','identity','/api/v1/identity/registration-cases/:caseId',G,false,one('GET','identity.registration.write')),
   r('identity.registrationApprove','identity','/api/v1/identity/registration-cases/:caseId/approve-new',P,false,one('POST','identity.registration.approve')),
   r('identity.registrationEnroll','identity','/api/v1/identity/registration-cases/:caseId/enroll',P,false,one('POST','identity.registration.approve')),

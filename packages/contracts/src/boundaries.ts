@@ -187,6 +187,8 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'identity.facilityAudit',
       'identity.registrationCapabilities', 'identity.resolveNin', 'identity.registrationCase',
       'identity.registrationApprove', 'identity.registrationEnroll', 'identity.registrationLink',
+      // hid-system 0130: registration at the desk without a NIN.
+      'identity.registrationWithoutNin',
       'identity.organizationVerifyCac',
       // The in-person check of facility-assisted registration (hid-system #85, ADR-063).
       'identity.assistedVerifications',
