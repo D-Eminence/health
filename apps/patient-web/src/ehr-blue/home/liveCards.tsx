@@ -19,6 +19,7 @@ import { roleLabels } from '../../staff/staffAccess'
 import { loginOpensSite, siteOf, siteServing, SITE_PRODUCT_NAMES } from '../../productSites'
 import { Badge, Button, Card, CardHeader, ListRow } from '../../kasuwa/ui'
 import { ChevronRight, Hospital, LayoutGrid, ScanText } from 'lucide-react'
+import { withdrawnReasonOf } from '../departments/pharmacy/pharmacyText'
 
 /**
  * Home's live cards. Each reads what today's Overview or work pages read, under the same permissions, with the same
@@ -248,7 +249,8 @@ export function TodayCard({ facilityId, lab, pharmacy }: { readonly facilityId: 
   const lines = [
     ...(labRead.state === 'ready' ? labRead.items.slice(0, 5).map(item => ({ key: `lab-${item.id}`, title: item.testName ?? 'Lab test',
       meta: `Laboratory · ${STAGE_LABEL[stageOf(item)]}`, to: '/provider/laboratory' })) : []),
-    ...(pharmacyRead.state === 'ready' ? pharmacyRead.items.slice(0, 5).map(item => ({ key: `rx-${item.id}`, title: item.medication?.display ?? 'Medicine',
+    // Work withdrawn by the prescribing team (0133) is neither to dispense nor dispensed: it is left out here.
+    ...(pharmacyRead.state === 'ready' ? pharmacyRead.items.filter(item => !withdrawnReasonOf(item)).slice(0, 5).map(item => ({ key: `rx-${item.id}`, title: item.medication?.display ?? 'Medicine',
       meta: `Pharmacy · ${item.dispensing && !item.dispensing.reversed ? 'dispensed' : 'to dispense'}`, to: '/provider/pharmacy' })) : []),
   ]
   const loading = labRead.state === 'loading' || pharmacyRead.state === 'loading'

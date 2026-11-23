@@ -58,7 +58,7 @@ import { useShareServed } from '../shareServed'
 import { shareDurationLabel, shareLevelLabel } from '../shareRecords'
 import { accessLevelLabel, countryLabel, fileSizeLabel, fileTypeLabel, genderLabel, labPriorityLabel, labRequestStatusLabel, medicineStatusLabel, patientAccessStatusLabel, plainCode,
   visitClassLabel, visitStatusLabel } from '../plainLabels'
-import { askedTo, byAccessPin, dayAndTime, endedEarly, groupByFacility, groupCounts, holder, holderAt, isOpen, purposeLabel, requester, staffName, stillOpenThere, theirReason, whoHasAccessTitle } from './whoHasAccess'
+import { askedTo, byAccessPin, dayAndTime, endedEarly, groupByFacility, groupCounts, holder, holderAt, isOpen, purposeLabel, requester, requesterKnown, staffName, stillOpenThere, theirReason, whoHasAccessTitle } from './whoHasAccess'
 import { SignInAgainButton } from './RecentSignIn'
 import { supportHref } from '../supportContact'
 
@@ -997,7 +997,7 @@ export function AccessPage() {
           <div className="mt-2"><SignInAgainButton back="/access" id={`sign-in-again-${open.accessRequestId}`} /></div></Alert>}
         {open.reason && !byAccessPin(open.reason) && <blockquote className="m-0 rounded-xl bg-subtle px-4 py-3 text-sm [overflow-wrap:anywhere] text-ink ring-1 ring-line">“{open.reason}”</blockquote>}
         <dl className="m-0 grid grid-cols-2 gap-x-4 gap-y-3 text-[13px]">
-          {(open.requesterName?.trim() || open.requesterRole?.trim()) && <div className="col-span-2"><dt className="text-ink-3">Asked by</dt><dd className="m-0 mt-0.5 font-medium [overflow-wrap:anywhere] text-ink">{requester(open)}</dd></div>}
+          {requesterKnown(open) && <div className="col-span-2"><dt className="text-ink-3">Asked by</dt><dd className="m-0 mt-0.5 font-medium [overflow-wrap:anywhere] text-ink">{requester(open)}</dd></div>}
           <div><dt className="text-ink-3">Access asked for</dt><dd className="m-0 mt-0.5 font-medium text-ink">{accessLevelLabel(open.scope)}</dd></div>
           <div><dt className="text-ink-3">For</dt><dd className="m-0 mt-0.5 font-medium text-ink">{forHowLong(open.requestedDurationMinutes).replace(/^ for /, '') || 'Not stated'}</dd></div>
           {open.status.toLowerCase() !== 'pending' && <div><dt className="text-ink-3">Status</dt><dd className="m-0 mt-0.5"><Badge tone={statusTone(open.status)} size="sm">{patientAccessStatusLabel(open.status)}</Badge></dd></div>}

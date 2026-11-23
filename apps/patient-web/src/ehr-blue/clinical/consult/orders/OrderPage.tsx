@@ -35,7 +35,8 @@ import {
 import { AllergyOverrides, OVERRIDES_NOT_SHOWN, membershipAt } from './AllergyOverrides'
 import { ACK_REFUSED_ERROR, storedMedicine, warnAfterRefusal } from './prescribingAllergies'
 import {
-  handoffRetryable, handoffText, OWN_SEND_FAILED, OWN_SEND_UNAVAILABLE, ownSendOffered, readPharmacyHandoff,
+  handoffRetryable, handoffText, OWN_SEND_FAILED, OWN_SEND_NOT_FOUND, OWN_SEND_UNAVAILABLE, OWN_SEND_VISIT_IN_ERROR, ownSendConsentEnded,
+  ownSendOffered, pharmacistHandoffOffered, readPharmacyHandoff,
 } from './ownPharmacySend'
 import { ownProgressText } from './progress'
 import { ReleasedResults } from './Results'
@@ -304,8 +305,11 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
   // Send to pharmacy for the prescriber (0133): this hospital's own pharmacy, at the version shown.
   const sendOwnPharmacy = !lab && ownSendOffered({ record, actor, facilityId: chart.facilityId, canWrite: chart.canWrite && chart.can('ehr.prescription.write'),
     routed, handoff })
-  // Today's pharmacist hand-off, never beside Send to pharmacy, which does the same for the prescriber.
+  // Today's pharmacist hand-off, never beside Send to pharmacy, which does the same for the prescriber, and only while this
+  // hospital's pharmacy has not received the prescription (it refuses the hand-off once it holds it, as after the
+  // automatic send on activation).
   const sendPharmacy = !lab && status === 'active' && chart.canWrite && chart.can('pharmacy.work-item.accept') && !routed && !taken && !sendOwnPharmacy
+    && pharmacistHandoffOffered(record, handoff)
   const sendLab = lab && status === 'active' && canWrite && rights.canSendToLab && !routed && !taken
   const results = lab && status !== 'draft' && chart.can('lab.result.released.read') && !routed
   const sendElsewhere = rights.canRoute(kind) && mayBeSent(record)
@@ -430,7 +434,17 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
       if (!isHidApiError(caught)) throw caught
       if (readAllergyRefusal(caught, false) || (allergyAcknowledgement && acknowledgementRefused(caught))) throw caught
       if (caught.code === 'OWN_PHARMACY_SEND_UNAVAILABLE') throw new PlainError(OWN_SEND_UNAVAILABLE)
-      const changed = prescriptionChanged(caught)
+      // The patient's approval for changes ended after the check above: said in the form, in the chart's words.
+      if (caught.code === 'CONSENT_REQUIRED') throw new PlainError(ownSendConsentEnded(patient))
+      // The visit was marked entered in error: nothing more can be sent from it, so the form closes and the page says so.
+      if (caught.code === 'VISIT_ENTERED_IN_ERROR') {
+        setSelected(null)
+        setPageError(OWN_SEND_VISIT_IN_ERROR)
+        setFocusIds([TITLE_ID])
+        return undefined
+      }
+      // Not found (404), or changed meanwhile: the prescription is read again, which says what it holds now.
+      const changed = caught.status === 404 ? OWN_SEND_NOT_FOUND : prescriptionChanged(caught)
       if (!changed) throw caught
       setSelected(null)
       const reloaded = await reload()

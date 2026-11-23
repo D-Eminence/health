@@ -994,6 +994,16 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'read by code) until the body carries the optional allergyAcknowledgement { reason, warningToken }. It is sent only '
     + 'after a warning, and again under the same Idempotency-Key (nothing is written on the 409); the reason is stored '
     + 'with the prescription as stage handoff.'),
+  // "Send to pharmacy" for the prescriber (hid-system 0133, ehr-api at 06f98040): no Idempotency-Key.
+  proposed(r('ehr.prescriptionOwnPharmacySend','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/prescriptions/:prescriptionId/own-pharmacy-send',P,false,
+    one('POST','ehr.prescription.write'),
+    'Novu: hid-system 0133 (ehr-api 06f98040); not served by hid-system main. X-Facility-ID and X-Purpose-Of-Use: direct-care. '
+    + 'No Idempotency-Key: sending twice sends once (one own pharmacy item per prescription). Body { expectedRowVersion, '
+    + 'allergyAcknowledgement? { reason, warningToken } } (the acknowledgement only after the 409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED '
+    + 'warning, as on ehr.prescriptionPharmacy, stored as stage handoff); 200 { pharmacyHandoff { status, reason?, message } }. '
+    + 'Refusals: 412 PRESCRIPTION_VERSION_CONFLICT, 409 PRESCRIPTION_NOT_ELIGIBLE, PRESCRIPTION_ROUTED or VISIT_ENTERED_IN_ERROR, '
+    + '403 CONSENT_REQUIRED, 404 CLINICAL_RESOURCE_NOT_FOUND or PRESCRIPTION_NOT_FOUND, and 503 OWN_PHARMACY_SEND_UNAVAILABLE '
+    + 'on a database without 0133.')),
   r('ehr.labRequests','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/lab-requests',GP,false,{GET:['ehr.lab-request.read'],POST:['ehr.lab-request.write']},
     ORDER_LISTS_P4C),
   r('ehr.labRequest','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/lab-requests/:requestId',GPA,false,{GET:['ehr.lab-request.read'],PATCH:['ehr.lab-request.write']},

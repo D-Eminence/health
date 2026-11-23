@@ -21,8 +21,14 @@ export const PRESCRIPTION_TRANSITIONS: Readonly<Record<string, readonly StatusOp
     { value: 'entered_in_error', label: 'Mark entered in error' }],
 }
 
-/** Clinical.tsx `PHARMACY_NOT_TOLD`. */
-export const PHARMACY_NOT_TOLD = 'Pharmacy is not told of this change, so if this prescription was sent to Pharmacy you must contact the pharmacy. A dispensing already recorded is not undone. Pharmacy may refuse to dispense the version it was sent once the prescription has been put on hold, completed, cancelled or marked entered in error, even after it is resumed: if treatment is to continue and the pharmacy cannot dispense it, create a new prescription and send it.'
+/**
+ * Clinical.tsx `PHARMACY_NOT_TOLD`, reworded for hid-system 0133 (Clinical.tsx keeps the earlier words). This hospital's
+ * own pharmacy cannot dispense the version it holds once the prescription is held, completed, cancelled, entered in
+ * error or resumed (0101), and when it got the prescription by the automatic send or Send to pharmacy, a hold,
+ * cancellation, entry in error or resumption withdraws that send, which the pharmacy sees (0133 D8; completing it marks
+ * nothing). A pharmacy at another facility is not told, and a dispensing already recorded is not undone.
+ */
+export const PHARMACY_NOT_TOLD = 'This hospital’s pharmacy can no longer dispense the version it was sent once this prescription is put on hold, completed, cancelled or marked entered in error, even after it is resumed. If it went to that pharmacy automatically or with Send to pharmacy, the pharmacy is told of a hold, cancellation, entry in error or resumption. A pharmacy at another facility is not told of this change: if this prescription was sent to one, contact that pharmacy. A dispensing already recorded is not undone. If treatment is to continue, create a new prescription and send it.'
 
 /** Clinical.tsx `ROUTED_LAB_CHOICES`: the changes offered for a lab request sent to another facility. */
 export const ROUTED_LAB_CHOICES: Readonly<Record<string, readonly StatusOption[]>> = {

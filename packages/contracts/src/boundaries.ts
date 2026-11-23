@@ -218,6 +218,8 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'ehr.importedRecords', 'ehr.importedAttachment', 'ehr.emergencyRecords', 'ehr.encounters', 'ehr.encounter', 'ehr.vitals', 'ehr.vital',
       'ehr.vitalCorrections', 'ehr.notes', 'ehr.note', 'ehr.noteRevisions', 'ehr.diagnoses',
       'ehr.diagnosis', 'ehr.prescriptions', 'ehr.prescription', 'ehr.prescriptionPharmacy',
+      // "Send to pharmacy" for the prescriber (hid-system 0133; Novu only).
+      'ehr.prescriptionOwnPharmacySend',
       'ehr.labRequests', 'ehr.labRequest', 'ehr.labRequestLabWorkItem',
       // Sending an order to another facility, its routes and their withdrawal, and the clinician's attestation (P4c; Novu only).
       'ehr.labRequestOrderRoutes', 'ehr.labRequestOrderRouteWithdraw', 'ehr.prescriptionOrderRoutes',
