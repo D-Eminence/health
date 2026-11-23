@@ -328,10 +328,14 @@ describe('Consultation record', () => {
     })
     const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {})
     await openEncounter()
+    await act(async () => {})
     const button = within(card('Actions')).getByRole('button', { name: 'Print discharge summary' })
-    await waitFor(() => expect(button.getAttribute('aria-disabled')).toBe('true'))
-    expect(within(card('Actions')).getByText(/can be printed once the visit’s diagnoses, note, tests and medicines have loaded/)).toBeTruthy()
+    // The wait line shows only once it is pressed.
+    expect(within(card('Actions')).queryByText(/can be printed once the visit’s diagnoses, note, tests and medicines have loaded/)).toBeNull()
     fireEvent.click(button)
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+    expect(within(card('Actions')).getByText(/can be printed once the visit’s diagnoses, note, tests and medicines have loaded/)).toBeTruthy()
+    await act(async () => {})
     expect(printSpy).not.toHaveBeenCalled()
   })
 
@@ -342,8 +346,10 @@ describe('Consultation record', () => {
     const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {})
     await openEncounter()
     const button = within(card('Actions')).getByRole('button', { name: 'Print discharge summary' })
-    expect(button.getAttribute('aria-disabled')).toBe('true')
+    expect(button.getAttribute('aria-disabled')).toBeNull()
     fireEvent.click(button)
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+    expect(within(card('Actions')).getByText(/can be printed once the visit’s diagnoses, note, tests and medicines have loaded/)).toBeTruthy()
     expect(printSpy).not.toHaveBeenCalled()
   })
 

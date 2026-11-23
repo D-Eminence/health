@@ -58,9 +58,9 @@ type Loaded =
 
 /**
  * Reads the encounter, with the first page of the patient's other encounters, after the chart's access check: reused
- * when the chart already passed it (a visit opened from the list, which checked), as classic re-checks on loading the
- * encounters, not on choosing one (staff/routes/Clinical.tsx:1316, :1838); made when it has not (the page reached by
- * its address). Every save still re-checks first (chart.verify).
+ * when a check already passed for the open patient (a visit opened from the list, which checked, as classic re-checks
+ * on loading the encounters, not on choosing one, staff/routes/Clinical.tsx:1316, :1838; or any earlier save, see
+ * Chart.checked), made when none has. Every save still re-checks first (chart.verify).
  */
 function EncounterLoader({ chart }: { chart: Chart }) {
   const href = useWorkspaceHref()
@@ -163,7 +163,7 @@ type Again = Readonly<Partial<Record<keyof PageLists, Reread>>>
  */
 type PageError = { readonly text: string; readonly again: Again; readonly said?: number }
 const NO_ERROR: PageError = { text: '', again: {} }
-/** Beside "Print discharge summary" while a part of the visit it prints is still loading or could not be loaded. */
+/** Beside "Print discharge summary", after a press, while a part of the visit it prints is still loading or could not be loaded. */
 const DISCHARGE_WAIT = 'The discharge summary can be printed once the visit’s diagnoses, note, tests and medicines have loaded. If one could not be loaded, try again.'
 /** The lists a cancel or entered in error changes, each read again after it. */
 const CLOSED_LISTS = ['notes', 'diagnoses', 'vitals', 'prescriptions', 'labs', 'documents'] as const
@@ -228,19 +228,23 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
   // the write (Clinical.tsx:28, 1853), so a role that can't see the diagnoses doesn't add one unseen.
   const addsDiagnosis = writes.diagnoses && reads.diagnoses
   // Classic reads only the open tab's records (staff/routes/Clinical.tsx:1350-1371). Here the lists the top of the page
-  // shows (the vitals, the note and the diagnoses it summarises) are read as the visit opens; the orders and the
-  // documents only once their card comes into view (or History's, which lists the orders), or a print asks for them.
+  // uses are read as the visit opens: the vitals, the note and the diagnoses it summarises, and the prescriptions that
+  // "Print prescription" (in the Actions card) prints. The lab requests and the documents are read only once their
+  // card comes into view (or History's, which lists the orders), or "Print discharge summary" asks for them.
   const [ordersRef, ordersSeen] = useSeen()
   const [documentsRef, documentsSeen] = useSeen()
   const [historyRef, historySeen] = useSeen()
-  const [printWanted, setPrintWanted] = useState(false)
-  const ordersWanted = ordersSeen || historySeen || printWanted
+  // "Print discharge summary" was pressed (the wait line shows from then on while a part is not ready), and a press is
+  // waiting for the summary to be ready to print it.
+  const [printPressed, setPrintPressed] = useState(false)
+  const [printQueued, setPrintQueued] = useState(false)
+  const labsWanted = ordersSeen || historySeen || printPressed
   const notes = useRecordList(chart, encounterId, 'clinical-notes', reads.notes)
   const diagnoses = useRecordList(chart, encounterId, 'diagnoses', reads.diagnoses)
   const vitals = useRecordList(chart, encounterId, 'vitals', reads.vitals)
   // Today's page learns from its orders answers what the order pages need (receiving-side reports, late corrections).
-  const prescriptions = useRecordList(chart, encounterId, 'prescriptions', reads.prescriptions && ordersWanted, learnFrom)
-  const labs = useRecordList(chart, encounterId, 'lab-requests', reads.labs && ordersWanted, learnFrom)
+  const prescriptions = useRecordList(chart, encounterId, 'prescriptions', reads.prescriptions, learnFrom)
+  const labs = useRecordList(chart, encounterId, 'lab-requests', reads.labs && labsWanted, learnFrom)
   const documents = useDocumentList(chart, encounterId, reads.documents && documentsSeen)
   // The Saved record summarises the encounter: its consultation note is read from the first page, whichever page the
   // Notes card shows.
@@ -550,12 +554,27 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
   }
   // The summary prints once every part the user may read has been read without error, so the paper never stands in
   // for a part still loading or that failed.
-  const summaryReady = [summary.diagnoses, summary.note, summary.tests, summary.drugs].every(part => part.state === 'shown' || part.state === 'no-right' || part.state === 'later-page')
+  const summaryParts = [summary.diagnoses, summary.note, summary.tests, summary.drugs]
+  const summaryReady = summaryParts.every(part => part.state === 'shown' || part.state === 'no-right' || part.state === 'later-page')
+  const summaryFailed = summaryParts.some(part => part.state === 'failed')
+  const printSummary = useLatest(() => print('discharge', <DischargeSummaryPaper summary={{ ...summary, printedAt: printedAt() }} />))
   const printDischarge = () => {
-    // A press before the orders were read asks for them; the summary prints once they are (DISCHARGE_WAIT says so).
-    if (!summaryReady) { setPrintWanted(true); return }
-    print('discharge', <DischargeSummaryPaper summary={{ ...summary, printedAt: printedAt() }} />)
+    setPrintPressed(true)
+    // A press before every part was read (the lab requests are read only now) prints once they are; DISCHARGE_WAIT says so.
+    if (!summaryReady) { setPrintQueued(!summaryFailed); return }
+    setPrintQueued(false)
+    printSummary.current()
   }
+  // The press waiting for the summary prints it once it is ready; a part that could not be read drops it (the wait line
+  // says to try again), so no print starts later on its own.
+  useEffect(() => {
+    if (!printQueued) return
+    if (summaryFailed) { setPrintQueued(false); return }
+    if (!summaryReady) return
+    setPrintQueued(false)
+    printSummary.current()
+  }, [printQueued, printSummary, summaryFailed, summaryReady])
+  const printWaiting = printPressed && !summaryReady
 
   // The page's one primary is "Sign note"; other note actions are secondary, and changes to the consultation itself sit
   // quietly behind More actions.
@@ -620,10 +639,10 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
             <>
               <ActionList>
                 {reads.prescriptions && toPrint.length > 0 ? <EhrButton variant="secondary" onClick={printPrescriptions}>Print prescription</EhrButton> : null}
-                <EhrButton variant="secondary" onClick={printDischarge} aria-disabled={!summaryReady || undefined}
-                  aria-describedby={summaryReady ? undefined : `${actionsId}-print-wait`}>Print discharge summary</EhrButton>
+                <EhrButton variant="secondary" onClick={printDischarge} aria-disabled={printWaiting || undefined}
+                  aria-describedby={printWaiting ? `${actionsId}-print-wait` : undefined}>Print discharge summary</EhrButton>
               </ActionList>
-              {summaryReady ? null : <p id={`${actionsId}-print-wait`} className="hid-ehr-clinical-note">{DISCHARGE_WAIT}</p>}
+              {printWaiting ? <p id={`${actionsId}-print-wait`} className="hid-ehr-clinical-note">{DISCHARGE_WAIT}</p> : null}
             </>
           ) : null}
           <MoreActions id={moreId} items={more.map(({ id, label }) => ({ id, label }))} selected={selected} onSelect={choose} />

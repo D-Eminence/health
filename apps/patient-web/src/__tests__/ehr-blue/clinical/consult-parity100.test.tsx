@@ -1,3 +1,4 @@
+import { HidApiError } from '@hid/http'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation, type InitialEntry } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -158,6 +159,32 @@ describe('rows 3 and 3b: the Vitals card on the consultation page', () => {
     expect(vitalsCard.queryByRole('button', { name: 'Save correction' })).toBeNull()
   })
 
+  it('says classic’s RETRACTED_SINCE when a 412 refuses a vital now entered in error, and CHANGED_SINCE when it was only corrected', async () => {
+    staff.permissions = ['ehr.encounter.read', 'ehr.vital.read', 'ehr.vital.write']
+    const attempt = async () => {
+      const vitalsCard = card('Vitals')
+      fireEvent.click(await vitalsCard.findByRole('button', { name: 'Correct these vitals' }))
+      const form = vitalsCard.getByRole('button', { name: 'Save correction' }).closest('form') as HTMLFormElement
+      fireEvent.change(within(form).getByLabelText('Pulse (bpm)'), { target: { value: '92' } })
+      fireEvent.change(within(form).getByLabelText(labelled('Reason for correction')), { target: { value: 'Repeat reading' } })
+      fireEvent.click(within(form).getByRole('button', { name: 'Save correction' }))
+    }
+    api.correctVital.mockRejectedValueOnce(new HidApiError(412, 'Changed', { code: 'PRECONDITION_FAILED' }))
+    await openVisit()
+    // Entered in error since it was loaded: the 412's read again finds it so.
+    vitals = [{ ...VITAL, status: 'entered_in_error', rowVersion: '2' }]
+    await attempt()
+    expect(await card('Vitals').findByText('These vitals were marked entered in error since they were loaded, so the correction was not saved. The list was reloaded.')).toBeTruthy()
+    cleanup()
+    staff.activePatient = activePatient()
+    vitals = [VITAL]
+    api.correctVital.mockRejectedValueOnce(new HidApiError(412, 'Changed', { code: 'PRECONDITION_FAILED' }))
+    await openVisit()
+    vitals = [{ ...VITAL, rowVersion: '2' }]
+    await attempt()
+    expect(await card('Vitals').findByText(/^These vitals changed since they were loaded, so the correction was not saved/)).toBeTruthy()
+  })
+
   it('offers no correction without vitals write, under a read-only grant, or for vitals entered in error', async () => {
     await openVisit()
     await card('Vitals').findByText('120/80')
@@ -179,26 +206,35 @@ describe('rows 3 and 3b: the Vitals card on the consultation page', () => {
   })
 })
 
+/** An IntersectionObserver that reports nothing in view until the test says so; what it watches is kept in `watched`. */
+function stubObserver() {
+  const watched: { element: Element; callback: IntersectionObserverCallback; observer: IntersectionObserver }[] = []
+  class Observer {
+    constructor(readonly callback: IntersectionObserverCallback) {}
+    observe(element: Element) { watched.push({ element, callback: this.callback, observer: this as unknown as IntersectionObserver }) }
+    disconnect() {}
+    unobserve() {}
+    takeRecords() { return [] }
+  }
+  vi.stubGlobal('IntersectionObserver', Observer)
+  return watched
+}
+
+const EVERY_LIST = ['ehr.encounter.read', 'ehr.vital.read', 'ehr.note.read', 'ehr.diagnosis.read', 'ehr.prescription.read', 'ehr.lab-request.read', 'ehr.document.read']
+
 describe('row 25: a visit reads each record list only once its card is in view', () => {
-  it('reads the orders and documents when their card comes into view, not when the visit opens', async () => {
-    const watched: { element: Element; callback: IntersectionObserverCallback; observer: IntersectionObserver }[] = []
-    class Observer {
-      constructor(readonly callback: IntersectionObserverCallback) {}
-      observe(element: Element) { watched.push({ element, callback: this.callback, observer: this as unknown as IntersectionObserver }) }
-      disconnect() {}
-      unobserve() {}
-      takeRecords() { return [] }
-    }
-    vi.stubGlobal('IntersectionObserver', Observer)
-    staff.permissions = ['ehr.encounter.read', 'ehr.vital.read', 'ehr.note.read', 'ehr.diagnosis.read', 'ehr.prescription.read', 'ehr.lab-request.read', 'ehr.document.read']
+  it('reads the lab requests and documents when their card comes into view, not when the visit opens', async () => {
+    const watched = stubObserver()
+    staff.permissions = EVERY_LIST
     await openVisit()
     await card('Vitals').findByText('120/80')
     await act(async () => {})
-    // The top of the page is read at once; the orders and documents are not.
+    // The top of the page is read at once, the prescriptions "Print prescription" prints with it; the lab requests and
+    // documents are not.
     expect(readsOf('vitals')).toHaveLength(1)
     expect(readsOf('clinical-notes')).toHaveLength(1)
     expect(readsOf('diagnoses')).toHaveLength(1)
-    expect(readsOf('prescriptions')).toHaveLength(0)
+    expect(readsOf('prescriptions')).toHaveLength(1)
     expect(readsOf('lab-requests')).toHaveLength(0)
     expect(api.documents).not.toHaveBeenCalled()
     const seen = (title: string) => {
@@ -208,10 +244,58 @@ describe('row 25: a visit reads each record list only once its card is in view',
     }
     seen('Documents')
     await waitFor(() => expect(api.documents).toHaveBeenCalledTimes(1))
-    expect(readsOf('prescriptions')).toHaveLength(0)
+    expect(readsOf('lab-requests')).toHaveLength(0)
     seen('Orders')
-    await waitFor(() => expect(readsOf('prescriptions')).toHaveLength(1))
-    expect(readsOf('lab-requests')).toHaveLength(1)
+    await waitFor(() => expect(readsOf('lab-requests')).toHaveLength(1))
+    expect(readsOf('prescriptions')).toHaveLength(1)
+  })
+
+  it('offers both print actions before the Orders card is in view: the prescription at once, the discharge summary in one press', async () => {
+    stubObserver()
+    staff.permissions = EVERY_LIST
+    const rx = { id: 'rx-1', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T08:40:00.000Z', status: 'active', medicationDisplay: 'Paracetamol', frequency: 'Daily' }
+    const lab = { id: 'lab-1', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T08:45:00.000Z', status: 'active', testDisplay: 'Malaria smear' }
+    let answerLabs: (page: { items: unknown[]; nextCursor: null }) => void = () => {}
+    api.records.mockImplementation(async (_f: string, _p: string, _e: string, kind: string) => {
+      if (kind === 'lab-requests') return new Promise(resolve => { answerLabs = resolve })
+      return { items: kind === 'vitals' ? vitals : kind === 'prescriptions' ? [rx] : [], nextCursor: null }
+    })
+    const papers: string[] = []
+    const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {
+      const paper = document.querySelector('[data-clinical-print]')
+      papers.push(`${paper?.getAttribute('data-clinical-print')}: ${paper?.textContent ?? ''}`)
+    })
+    try {
+      await openVisit()
+      const actions = card('Actions')
+      // "Print prescription" is there as the visit opens, with no scrolling.
+      fireEvent.click(await actions.findByRole('button', { name: 'Print prescription' }))
+      expect(printSpy).toHaveBeenCalledTimes(1)
+      expect(papers[0]).toMatch(/^prescription: .*Paracetamol/)
+      act(() => { window.dispatchEvent(new Event('afterprint')) })
+      // "Print discharge summary" is not shown as unavailable, and no wait line shows before a press.
+      const discharge = actions.getByRole('button', { name: 'Print discharge summary' })
+      expect(discharge.getAttribute('aria-disabled')).toBeNull()
+      expect(actions.queryByText(/can be printed once the visit’s diagnoses, note, tests and medicines have loaded/)).toBeNull()
+      expect(readsOf('lab-requests')).toHaveLength(0)
+      // One press reads the lab requests, says to wait, and prints once they are read, with no second press.
+      fireEvent.click(discharge)
+      await waitFor(() => expect(readsOf('lab-requests')).toHaveLength(1))
+      expect(discharge.getAttribute('aria-disabled')).toBe('true')
+      expect(actions.getByText(/can be printed once the visit’s diagnoses, note, tests and medicines have loaded/)).toBeTruthy()
+      expect(printSpy).toHaveBeenCalledTimes(1)
+      await act(async () => { answerLabs({ items: [lab], nextCursor: null }) })
+      await waitFor(() => expect(printSpy).toHaveBeenCalledTimes(2))
+      expect(papers[1]).toMatch(/^discharge: .*Malaria smear.*Paracetamol/)
+      expect(actions.queryByText(/can be printed once the visit’s diagnoses, note, tests and medicines have loaded/)).toBeNull()
+      expect(discharge.getAttribute('aria-disabled')).toBeNull()
+      act(() => { window.dispatchEvent(new Event('afterprint')) })
+      // It printed once: nothing prints again on its own.
+      await act(async () => {})
+      expect(printSpy).toHaveBeenCalledTimes(2)
+    } finally {
+      printSpy.mockRestore()
+    }
   })
 })
 

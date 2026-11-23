@@ -80,7 +80,7 @@ function OrderListPages({ kind, list }: { kind: OrderKind; list: RecordList<Clin
 
 /**
  * One order's row, as classic's list row (staff/routes/Clinical.tsx:1818-1852): its link and status, classic's detail
- * line (frequency; test code and priority) and when it was recorded, and, for an order sent to another facility,
+ * line (frequency; priority, with no test code: the row says no code) and when it was recorded, and, for an order sent to another facility,
  * classic's OrderRoutePanel words under it (OrderRoutes.tsx:384-393): where it went and where it stands, what to do
  * next, why it couldn't be completed, and the wrong-patient and late reports (RouteNotices), all read from the route
  * summary the list already carries, so it costs no read. The details, Withdraw and the order's other changes are on

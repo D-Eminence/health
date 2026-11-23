@@ -1627,7 +1627,9 @@ describe('Where each order stands, under its row in the orders list', () => {
     expect(within(rx).getByText('Twice daily')).toBeTruthy()
     expect(within(rx).getByText(`Recorded: ${formatWhen('2026-10-30T09:00:00.000Z')}`)).toBeTruthy()
     const lab = screen.getByRole('link', { name: 'Laboratory · Haemoglobin' }).closest('li')!
-    expect(within(lab as HTMLElement).getByText('718-7 · Routine')).toBeTruthy()
+    // Classic's test code is left off the row: no codes on facility screens.
+    expect(within(lab as HTMLElement).getByText('Routine')).toBeTruthy()
+    expect(within(lab as HTMLElement).queryByText(/718-7/)).toBeNull()
     expect(within(lab as HTMLElement).getByText(`Recorded: ${formatWhen('2026-10-30T09:05:00.000Z')}`)).toBeTruthy()
   })
 

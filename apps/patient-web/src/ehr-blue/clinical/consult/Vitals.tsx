@@ -115,7 +115,8 @@ export function VitalsCard({ chart, encounterId, list, canRecord }: {
  * :1738-1760): "Correct these vitals" opens the triage vitals form with the current values, "Close correction" closes
  * it. A save re-checks access, appends the correction with one key per attempt, and reads the visit's vitals again;
  * one refused because the vital changed (412) or was entered in error (409 VITAL_NOT_AMENDABLE) reads them again and
- * says so in classic's words. Offered only once the current values are known: nothing is corrected from values not seen.
+ * says so in classic's words, as the vital now reads (a 412 for one now entered in error says RETRACTED_SINCE).
+ * Offered only once the current values are known: nothing is corrected from values not seen.
  */
 function VitalCorrection({ chart, encounterId, vital, corrections, list, onSaid }: {
   chart: Chart
@@ -145,8 +146,12 @@ function VitalCorrection({ chart, encounterId, vital, corrections, list, onSaid 
       if (isHidApiError(caught) && (caught.status === 412 || caught.code === 'VITAL_NOT_AMENDABLE')) {
         attempt.current = null
         const failed = await list.reload()
-        const reloaded = failed === null ? { items: [] } : { failed }
-        onSaid(`${caught.code === 'VITAL_NOT_AMENDABLE' ? RETRACTED_SINCE : CHANGED_SINCE}${reloadSentence(reloaded, 'vitals', true)}`, true)
+        const items = failed === null ? list.latest() ?? [] : []
+        const reloaded = failed === null ? { items } : { failed }
+        // What is said follows the vital as read again, as classic's (Clinical.tsx:1754-1756): a 412 for a vital now
+        // entered in error says so, not that it changed.
+        const nowRetracted = caught.code === 'VITAL_NOT_AMENDABLE' || items.some(item => item.id === vital.id && isRetracted(item))
+        onSaid(`${nowRetracted ? RETRACTED_SINCE : CHANGED_SINCE}${reloadSentence(reloaded, 'vitals', true)}`, true)
         setOpen(false)
         return
       }

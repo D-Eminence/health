@@ -47,16 +47,22 @@ const ChartContext = createContext<ChartValue | null>(null)
 type WriteAnswer = { readonly allowed: boolean; readonly failed: boolean }
 
 /**
+ * The open patients whose re-check (Chart.verify) passed, at the facility and patient it was for, read by
+ * Chart.checked. Any passed check counts, wherever it was made: the encounter list's, or an earlier save in any
+ * workspace (a triage save hours ago, for example). Keyed on the open patient as the staff session holds it, so a new
+ * lookup clears it.
+ */
+const passedChecks = new WeakMap<object, string>()
+
+/**
  * What the current grant permits, asked once per open patient and shared by every workspace's chart, as classic's one
  * Clinical page asks it once (staff/routes/Clinical.tsx:1400-1409): each workspace mounts its own ChartProvider, and
  * without this each asked again. Keyed on the open patient as the staff session holds it, so a new grant (a new lookup,
  * even for the same patient) is asked about afresh. A check that failed is not kept: the next chart asks again.
  */
-/** The open patients whose re-check passed, at the facility and patient it was for (Chart.checked). */
-const passedChecks = new WeakMap<object, string>()
-
 const writeAnswers = new WeakMap<object, { readonly scope: string; readonly answer: Promise<WriteAnswer> }>()
 
+/** The write answer for the open patient: the one already asked (or being asked), else a new consentStatus read. */
 function askWriteAccess(patient: ActivePatient, facilityId: string, patientId: string): Promise<WriteAnswer> {
   const scope = JSON.stringify([facilityId, patientId])
   const held = writeAnswers.get(patient)
@@ -74,7 +80,8 @@ function askWriteAccess(patient: ActivePatient, facilityId: string, patientId: s
 
 /**
  * Holds, for one workspace, whether access to the open patient ended while it was in use, and what the current grant
- * permits (`consentStatus().writeAllowed`, direct care only). Nothing here outlives the page; nothing is stored.
+ * permits (`consentStatus().writeAllowed`, direct care only). The write answer itself is shared through
+ * `writeAnswers` (above), held only while the staff session keeps the same open patient; nothing else outlives the page.
  */
 export function ChartProvider({ children }: { children: ReactNode }) {
   const { facility, activePatient } = useClinical()
@@ -127,8 +134,11 @@ export interface Chart {
   /**
    * The chart's check, reused: resolves at once when `verify` already passed for the patient as open now (a new grant
    * or a new lookup is checked afresh), else runs it. For reads only, as a visit opened from the list (which checked):
-   * classic checks on loading the encounters, not again on choosing one (staff/routes/Clinical.tsx:1316, :1838). A
-   * page reached by its address with no check yet made still checks before it reads. Every save calls `verify`.
+   * classic checks on loading the encounters, not again on choosing one (staff/routes/Clinical.tsx:1316, :1838). The
+   * reuse is not limited to that move: any earlier passed check for the open patient counts (a save in another
+   * workspace, say), so a visit reached by its address after one makes no lookup either, and access that has ended
+   * since is answered by the server's refusal of the read, not ACCESS_ENDED. Only a page reached with no check yet
+   * made checks before it reads. Every save calls `verify`.
    */
   readonly checked: () => Promise<void>
   /** Close the patient and show "Access to this patient ended", after a refusal seen elsewhere. */
