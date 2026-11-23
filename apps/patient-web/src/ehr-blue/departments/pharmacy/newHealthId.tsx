@@ -6,6 +6,7 @@ import { staffApi, type RegistrationCapabilities, type RegistrationCase, type Re
 import { useFocusById } from '../../../staff/focus'
 import { REGISTRATION_COMPLETED, REGISTRATION_GENDERS, registrationErrorText, useCommandKey } from '../../../staff/registrationFlow'
 import { useDeptAccess } from '../parts/access'
+import { PrintHeader } from '../../frame/PrintHeader'
 import { DESK_FIELDS, DESK_HINTS, DESK_LABELS, deskFieldShown, deskProblems, deskValues, emptyDeskForm, type DeskForm } from '../../collected/deskFields'
 import { NIGERIA_STATES } from '../../collected/places'
 import type { MadeHealthId } from './walkIn'
@@ -271,6 +272,7 @@ export function NewHealthIdForm({ idBase, facilityId, place, otcFallback, onMade
 
 /** The new Health ID, large, where it was sent, and a slip to print for them. */
 export function MadeHealthIdPanel({ idBase, made }: { readonly idBase: string; readonly made: MadeHealthId }) {
+  const { facility } = useDeptAccess()
   return <div className="flex flex-col gap-4">
     <div className="flex flex-col items-start gap-2 rounded-xl bg-success-soft/60 px-5 py-4 ring-1 ring-inset ring-line">
       <p id={`${idBase}-made`} tabIndex={-1} className="m-0 inline-flex items-center gap-2 text-[15px] font-medium text-ink outline-none">
@@ -283,6 +285,7 @@ export function MadeHealthIdPanel({ idBase, made }: { readonly idBase: string; r
     </div>
     <section data-receipt-print="" aria-hidden="true" className="hidden print:block">
       <div className="flex flex-col gap-2 p-4 text-black">
+        <PrintHeader facility={facility?.name} stacked />
         <p className="m-0 text-[14px]">Health ID for</p>
         <p className="m-0 text-[18px] font-semibold">{made.name}</p>
         <p className="m-0 text-[26px] font-semibold tracking-[.06em]">{made.hid}</p>

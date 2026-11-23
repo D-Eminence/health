@@ -2,12 +2,14 @@
  * Clinical paper: a prescription (A5), a discharge summary and a lab result (A4). The paper is on the page only while it
  * prints, as a child of <body> (usePaperPrint puts it there), and is never shown on screen. In print the rest of the
  * page is display: none, so it takes no room and prints no blank pages after the paper, and the paper is an in-flow
- * block, so its named page (and so its paper size) applies. Black on white whatever the screen's theme.
+ * block, so its named page (and so its paper size) applies. Black on white whatever the screen's theme. The named pages
+ * have no margin, so the browser prints no web address, title or date of its own round the paper (print.css); the
+ * paper's margin is its padding instead, on every page it runs to.
  */
 [data-clinical-print] { display: none; }
 
-@page clinical-a5 { size: A5 portrait; margin: 10mm; }
-@page clinical-a4 { size: A4 portrait; margin: 14mm; }
+@page clinical-a5 { size: A5 portrait; margin: 0; }
+@page clinical-a4 { size: A4 portrait; margin: 0; }
 
 @media print {
   html:has(> body > [data-clinical-print]), body:has(> [data-clinical-print]) {
@@ -19,18 +21,20 @@
     display: block !important;
     position: static !important;
     width: auto !important;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
     background: #fff !important;
     color: #000 !important;
     font: 11pt/1.4 system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif !important;
   }
-  body > [data-clinical-print='prescription'] { page: clinical-a5; }
-  body > [data-clinical-print='discharge'], body > [data-clinical-print='lab-result'] { page: clinical-a4; }
+  body > [data-clinical-print='prescription'] { page: clinical-a5; padding: 10mm !important; }
+  body > [data-clinical-print='discharge'], body > [data-clinical-print='lab-result'] { page: clinical-a4; padding: 14mm !important; }
 }
 
 .hid-clinical-paper { display: flex; flex-direction: column; gap: 4mm; color: #000; background: #fff; }
 .hid-clinical-paper h1, .hid-clinical-paper h2, .hid-clinical-paper p { margin: 0; }
-.hid-clinical-paper-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 6mm; border-bottom: 1.5pt solid #000; padding-bottom: 2mm; }
-.hid-clinical-paper-facility { font-size: 14pt; font-weight: 700; }
+.hid-clinical-paper > .hid-ehr.hid-clinical-paper-brand { margin: 0; }
+.hid-clinical-paper-head { display: flex; justify-content: space-between; align-items: baseline; gap: 6mm; border-bottom: .5pt solid #666; padding-bottom: 2mm; }
 .hid-clinical-paper-kind { font-size: 11pt; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
 .hid-clinical-paper-patient { display: grid; grid-template-columns: auto 1fr; column-gap: 4mm; row-gap: 1mm; }
 .hid-clinical-paper-patient dt { font-weight: 600; }

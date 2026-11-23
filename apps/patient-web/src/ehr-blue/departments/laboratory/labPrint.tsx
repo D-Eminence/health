@@ -1,12 +1,14 @@
 import { useCallback, useLayoutEffect, useState, type ReactNode } from 'react'
 import type { LabAbnormalFlag } from '../../../staff/api'
+import { PrintHeader } from '../../frame/PrintHeader'
 import { FLAG_WORDS } from './labText'
 import './lab.css'
 
 /*
  * Printing a sample label or a result slip (lab.css). The paper is put on the page only while it prints, so nothing
  * else's print rules (a receipt's) meet it; window.print runs in the commit that shows it, and the paper goes once the
- * print dialog closes.
+ * print dialog closes. The result slip carries the shared print header (the Health ID logo and the facility); a sample
+ * label, a sticker about 60 mm wide for a sample tube, keeps to who, what and the request number.
  */
 
 type PaperKind = 'label' | 'slip'
@@ -62,7 +64,7 @@ export function ResultSlip({ facility, name, ageSex, hid, requestNumber, release
 }) {
   return <div className="flex flex-col gap-3 p-4 text-black">
     <div>
-      <p className="m-0 text-[16px] font-semibold">{facility}</p>
+      <PrintHeader facility={facility} />
       <p className="m-0 text-[13px]">Laboratory result</p>
     </div>
     <div className="text-[13px]">

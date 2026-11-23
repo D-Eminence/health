@@ -2,6 +2,7 @@ import { useCallback, useLayoutEffect, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { OutreachCampaign, OutreachCase } from '../../../staff/api'
 import { dateText } from '../parts/format'
+import { PrintHeader } from '../../frame/PrintHeader'
 import { ageText, caseName, sexText } from './outreachParts'
 import './outreachSlip.css'
 
@@ -88,8 +89,8 @@ export function OutreachSlip({ groupName, campaign, item, healthId, claimCode, c
   ]
   return (
     <article className="hid-outreach-slip">
+      <PrintHeader facility={groupName} className="hid-outreach-slip-brand" />
       <header className="hid-outreach-slip-head">
-        {groupName ? <p className="hid-outreach-slip-group">{groupName}</p> : null}
         <h1>Outreach registration slip</h1>
       </header>
       <dl className="hid-outreach-slip-facts">

@@ -1,13 +1,15 @@
 /*
  * Point of care: printing a receipt. Only the receipt prints, in black on white, on the page or on an 80 mm slip
- * printer, whatever the screen's theme. Everything else (the frame, the drawer, its buttons) is left off the paper.
+ * printer, whatever the screen's theme. Everything else (the frame, the drawer, its buttons) is left off the paper. The
+ * page has no margin (print.css: so the browser prints no web address round it), so the receipt's padding is its margin.
  */
 @media print {
   body:has([data-receipt-print]) * { visibility: hidden !important; }
   [data-receipt-print], [data-receipt-print] * { visibility: visible !important; }
   [data-receipt-print] {
     position: absolute !important; inset: 0 auto auto 0 !important;
-    width: 100% !important; max-width: 80mm !important; margin: 0 !important; padding: 0 !important;
+    width: 100% !important; max-width: 80mm !important; margin: 0 !important; padding: 5mm !important;
+    box-decoration-break: clone; -webkit-box-decoration-break: clone;
     background: #fff !important; color: #000 !important; box-shadow: none !important;
     --color-ink: #000; --color-ink-2: #000; --color-ink-3: #333; --color-line: #999;
   }
