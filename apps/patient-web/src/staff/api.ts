@@ -901,6 +901,8 @@ export interface PharmacyWorkItem {
   pharmacistAcceptance?: PharmacistAcceptance | null
   /** The prescription changed or was sent elsewhere after Pharmacy got it (hid-system ORD-2), so it can't be worked. */
   withdrawn?: boolean
+  /** Why, with `withdrawn` (ORD-2): `changed` or `sent_elsewhere`, a code a page branches on, never shown as sent. */
+  withdrawnReason?: string | null
 }
 
 /** hid-system ORD-4: a pharmacy work item's step. */
@@ -948,6 +950,34 @@ export function pharmacyStepsOf<T extends object>(answer: T): T {
   if (!filled(acceptedAt) || !filled(acceptedByMembershipId)) throw stepsNotRead()
   return { ...bare, pharmacyStep: step as PharmacyStep,
     pharmacistAcceptance: { acceptedAt, acceptedByMembershipId, acceptedWith: acceptedWith as PharmacistAcceptedWith } }
+}
+
+/**
+ * One member of the working facility, past or present, by membership (hid-system SX-9, GET
+ * /identity/facility-staff-names). `name` is null for a member whose login was deleted: the screen then says "Former
+ * staff member". Names only: no email, role, licence or account id is answered.
+ */
+export interface FacilityStaffName { membershipId: string; name: string | null; current: boolean }
+/** SX-9's answer: the facility's own members, current ones first; `complete` is false when more than 500 were left out. */
+export interface FacilityStaffNames { facilityId: string; staff: FacilityStaffName[]; complete: boolean }
+/** SX-9 refuses more than 100 ids in one read (400 VALIDATION_FAILED). */
+export const FACILITY_STAFF_NAMES_MAX_IDS = 100
+
+const namesNotRead = () => new HidApiError(502, 'Staff names could not be read. Please try again.', { code: 'INVALID_RESPONSE', retryable: false })
+
+/**
+ * SX-9's answer as INTERFACE_CONTRACT writes it, `{ facilityId, staff, complete }`. An answer that is not that shape is
+ * refused as unreadable; a row that is not `{ membershipId, name (a string or null), current }` is left out, so it is
+ * never shown as someone else's name.
+ */
+export function facilityStaffNamesOf(answer: unknown): FacilityStaffNames {
+  const record = answer && typeof answer === 'object' ? answer as Record<string, unknown> : null
+  if (!record || typeof record.facilityId !== 'string' || !Array.isArray(record.staff) || typeof record.complete !== 'boolean') throw namesNotRead()
+  const staff = record.staff.flatMap((row: unknown): FacilityStaffName[] => {
+    const { membershipId, name, current } = (row && typeof row === 'object' ? row : {}) as Record<string, unknown>
+    return filled(membershipId) && (name === null || filled(name)) && typeof current === 'boolean' ? [{ membershipId, name, current }] : []
+  })
+  return { facilityId: record.facilityId, staff, complete: record.complete }
 }
 
 /** A Pharmacy work list with each item's steps read (pharmacyStepsOf); a list in another shape is left as it came. */
@@ -2409,6 +2439,15 @@ export const staffApi = {
   saveFacilityProfile: (facilityId: string, profile: FacilityProfileValues, version: number, idempotencyKey: string) =>
     client.post<FacilityProfileSaved>('/api/v1/identity/facility-profile', profile,
       { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), 'If-Match': `"${version}"`, ...keyHeaders(idempotencyKey) } }),
+  // The names of the working facility's members by membership (hid-system SX-9): any member active there, no permission
+  // beyond membership, read under healthcare operations whatever is sent. Only the ids asked for, 1 to 100 of them.
+  facilityStaffNames: (facilityId: string, membershipIds: readonly string[]) => {
+    if (membershipIds.length < 1 || membershipIds.length > FACILITY_STAFF_NAMES_MAX_IDS) {
+      return Promise.reject(new RangeError(`Ask for 1 to ${FACILITY_STAFF_NAMES_MAX_IDS} staff names at a time.`))
+    }
+    return client.get<unknown>('/api/v1/identity/facility-staff-names', { query: { membershipIds: membershipIds.join(',') },
+      headers: facilityHeaders(facilityId, 'healthcare-operations'), dedupe: false, retry: NO_RETRY }).then(facilityStaffNamesOf)
+  },
   setOnePersonLab: (facilityId: string, enabled: boolean, reason: string) =>
     client.post<OnePersonLabChange>('/api/v1/identity/facility-settings/one-person-lab', { enabled, reason },
       { headers: facilityHeaders(facilityId, 'healthcare-operations') }),

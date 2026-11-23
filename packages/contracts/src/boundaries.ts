@@ -198,6 +198,8 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'identity.facilitySettings', 'identity.facilityOnePersonLab',
       // The facility's details, read and saved by Facility setup's administrator (hid-system 0114; Novu only).
       'identity.facilityProfile',
+      // Who accepted a prescription, by name, on Pharmacy (hid-system SX-9; ORD-4 "Accepted by <name>").
+      'identity.facilityStaffNames',
       // The directory of laboratories and pharmacies at other facilities an order can be sent to (P4c; Novu only).
       'identity.orderDestinations',
       // Patients who shared their record with the clinician, and invitations to share by email, with Accept (hid-system

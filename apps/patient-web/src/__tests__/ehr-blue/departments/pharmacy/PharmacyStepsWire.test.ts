@@ -108,3 +108,36 @@ describe('Accept on the wire', () => {
       .rejects.toMatchObject({ code: 'PHARMACY_PRESCRIPTION_NOT_DISPENSABLE', withdrawnReason: 'changed' })
   })
 })
+
+describe('staff names on the wire (SX-9)', () => {
+  const MEMBER = 'c0000000-0000-4000-8000-0000000000c1'
+  const NAMES = { facilityId: FACILITY, staff: [{ membershipId: MEMBER, name: 'Bola Fictional', current: true },
+    { membershipId: 'c0000000-0000-4000-8000-0000000000c2', name: null, current: false }], complete: true }
+
+  it('asks for the ids given, at the facility, under healthcare operations, and keeps a null name', async () => {
+    const { sent, staffApi } = await staffClient(NAMES)
+    expect(await staffApi.facilityStaffNames(FACILITY, [MEMBER])).toEqual(NAMES)
+    expect(sent).toHaveLength(1)
+    expect([sent[0]!.method, sent[0]!.url.pathname]).toEqual(['GET', '/api/v1/identity/facility-staff-names'])
+    expect(sent[0]!.url.searchParams.get('membershipIds')).toBe(MEMBER)
+    expect([...sent[0]!.url.searchParams.keys()]).toEqual(['membershipIds'])
+    expect(sent[0]!.headers.get('X-Facility-Id')).toBe(FACILITY)
+    expect(sent[0]!.headers.get('X-Purpose-Of-Use')).toBe('healthcare-operations')
+  })
+
+  it('leaves out a row it can’t read, and refuses an answer in another shape', async () => {
+    const { staffApi } = await staffClient({ ...NAMES, staff: [...NAMES.staff, { membershipId: 'x', name: 3, current: true }, null] })
+    expect((await staffApi.facilityStaffNames(FACILITY, [MEMBER])).staff).toEqual(NAMES.staff)
+    for (const answer of [{ staff: [] }, { ...NAMES, staff: null }, { ...NAMES, complete: 'yes' }]) {
+      const fresh = await staffClient(answer)
+      await expect(fresh.staffApi.facilityStaffNames(FACILITY, [MEMBER])).rejects.toMatchObject({ status: 502, code: 'INVALID_RESPONSE' })
+    }
+  })
+
+  it('sends nothing for no ids or more than 100', async () => {
+    const { sent, staffApi } = await staffClient(NAMES)
+    await expect(staffApi.facilityStaffNames(FACILITY, [])).rejects.toThrow(RangeError)
+    await expect(staffApi.facilityStaffNames(FACILITY, Array.from({ length: 101 }, () => MEMBER))).rejects.toThrow(RangeError)
+    expect(sent).toHaveLength(0)
+  })
+})

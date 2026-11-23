@@ -417,7 +417,7 @@ describe('Dispense', () => {
     dispenseWith({ quantity: '21', reason: REASON })
     await confirmPatient('Dispense')
     const said = await screen.findByRole('alert')
-    expect(said.textContent).toBe('Not dispensableThis prescription is no longer active as Pharmacy accepted it, or it could not be checked. '
+    expect(said.textContent).toBe('Not dispensableThis prescription is no longer active as Pharmacy received it, or it could not be checked. '
       + 'A new prescription and handoff are needed.')
     expect(recordStatus()).toBe('Not dispensable')
     expect(screen.queryByRole('form')).toBeNull()

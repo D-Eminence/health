@@ -629,6 +629,13 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'required: 200 { facilityId, version, changedFields, replayed }. 412 VERSION_CONFLICT, 428 IF_MATCH_REQUIRED, 409 '
     + 'IDEMPOTENCY_KEY_REUSED or FACILITY_PROFILE_SEALED, 400 VALIDATION_FAILED or FACILITY_PROFILE_INVALID, 503 '
     + 'FACILITY_PROFILE_UNAVAILABLE.')),
+  // SX-9 (hid-system staging-novu-ci-20261005): the working facility's members' names by membership, for "Accepted by
+  // <name>" on Pharmacy (ORD-4). Any member active at the facility; no permission beyond membership.
+  proposed(r('identity.facilityStaffNames','identity','/api/v1/identity/facility-staff-names',G,false,undefined,
+    'hid-system SX-9 (staging-novu-ci-20261005). X-Facility-ID required (400 FACILITY_REQUIRED; 403 FACILITY_ACCESS_DENIED; '
+    + '403 PATIENT_SCOPE_DENIED), read as healthcare-operations whatever X-Purpose-Of-Use says. Query membershipIds: up to 100 '
+    + 'comma-separated UUIDs (400 VALIDATION_FAILED). 200 { facilityId, staff [{ membershipId, name (null for a deleted '
+    + 'login: "Former staff member"), current }], complete }.')),
   // One-person lab (owner decision 33.3, hid-system 0111): the facility administrator's switch.
   proposed(r('identity.facilitySettings','identity','/api/v1/identity/facility-settings',G,false,one('GET','organization.manage'),
     `${FACILITY_SETTINGS_ROUTE} 200 { onePersonLab { enabled, changedAt, changedByName, reason } } (null until first `

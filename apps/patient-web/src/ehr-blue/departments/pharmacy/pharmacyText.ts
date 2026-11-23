@@ -44,21 +44,34 @@ export function clockText(value: string, now = Date.now()): string {
 }
 
 /**
- * What the step adds beside the status, or null: nothing with no step (today's backend, ORD-4 "show no step"), nor for a
- * dispensed or reversed item (its status says it). An acceptance names no one: this page has no staff names to read
- * (SX-9 is not in this app), so it says "Accepted 10:52".
+ * Who accepted it, as SX-9 answered: a name; null for a member whose login was deleted (SX-9's "Former staff member");
+ * undefined when not known (not asked, not answered, or no row), and then no one is named and no id is ever shown.
  */
-export function stepText(item: Pick<PharmacyWorkItem, 'pharmacyStep' | 'pharmacistAcceptance'>, now = Date.now()): string | null {
+export type AcceptorName = string | null | undefined
+
+/** SX-9's words for a member with no name, as they read inside a sentence. */
+export const FORMER_STAFF_MEMBER = 'a former staff member'
+
+/**
+ * What the step adds beside the status, or null: nothing with no step (today's backend, ORD-4 "show no step"), nor for a
+ * dispensed or reversed item (its status says it). An acceptance says "Accepted by <name> 10:52" when the name is known
+ * (`who`, from SX-9), else "Accepted 10:52".
+ */
+export function stepText(item: Pick<PharmacyWorkItem, 'pharmacyStep' | 'pharmacistAcceptance'>, now = Date.now(), who?: AcceptorName): string | null {
   if (item.pharmacyStep === 'received') return STEP_WORD.received
   if (item.pharmacyStep !== 'accepted') return null
-  return item.pharmacistAcceptance ? acceptedText(item.pharmacistAcceptance, false, now) : STEP_WORD.accepted
+  return item.pharmacistAcceptance ? acceptedText(item.pharmacistAcceptance, false, now, who) : STEP_WORD.accepted
 }
 
-/** "Accepted 10:52", or "Already accepted 10:52" when someone had accepted it first (ORD-4 screen notes, with no name). */
-export function acceptedText(acceptance: PharmacistAcceptance | null | undefined, already: boolean, now = Date.now()): string {
+/**
+ * "Accepted by <name> 10:52", or "Already accepted by <name> 10:52" when someone had accepted it first (ORD-4 screen
+ * notes). With no name known, "Accepted 10:52"; a member with no name is "a former staff member" (SX-9).
+ */
+export function acceptedText(acceptance: PharmacistAcceptance | null | undefined, already: boolean, now = Date.now(), who?: AcceptorName): string {
   const said = already ? 'Already accepted' : 'Accepted'
+  const by = !acceptance || who === undefined ? '' : ` by ${who === null ? FORMER_STAFF_MEMBER : who}`
   const time = acceptance ? clockText(acceptance.acceptedAt, now) : ''
-  return time ? `${said} ${time}` : said
+  return `${said}${by}${time ? ` ${time}` : ''}`
 }
 
 /**
@@ -69,13 +82,29 @@ export function acceptable(item: PharmacyWorkItem, undispensable: boolean): bool
   return item.pharmacyStep === 'received' && item.withdrawn !== true && !undispensable && !item.dispensing
 }
 
+/** ORD-2's words for a withdrawn item, by its `withdrawnReason`. */
+export const WITHDRAWN_WORDS: Readonly<Record<string, string>> = {
+  changed: 'Changed or stopped by the prescribing team',
+  sent_elsewhere: 'Sent to another pharmacy by the prescribing team',
+}
+
 /**
- * Why Pharmacy refused to take on a prescription, by the refusal's `withdrawnReason` (ORD-2 words, ORD-4 409
- * PHARMACY_PRESCRIPTION_NOT_DISPENSABLE), never by its text; null for a refusal with no reason.
+ * Why Pharmacy will not take on a prescription, by a `withdrawnReason` (the item's own, ORD-2, or a 409
+ * PHARMACY_PRESCRIPTION_NOT_DISPENSABLE's, ORD-4), never by any text; null for no reason or one this page does not know.
  */
-export function withdrawnText(reason: string | null): string | null {
-  return reason === 'changed' ? 'Changed or stopped by the prescribing team. It can no longer be dispensed here.'
-    : reason === 'sent_elsewhere' ? 'Sent to another pharmacy by the prescribing team. It can no longer be dispensed here.' : null
+export function withdrawnText(reason: string | null | undefined): string | null {
+  const words = withdrawnWords(reason)
+  return words ? `${words}. It can no longer be dispensed here.` : null
+}
+
+/** ORD-2's short words for a reason, as the list says them; null for no reason or one this page does not know. */
+export function withdrawnWords(reason: string | null | undefined): string | null {
+  return reason && Object.hasOwn(WITHDRAWN_WORDS, reason) ? WITHDRAWN_WORDS[reason] ?? null : null
+}
+
+/** A withdrawn item (ORD-2) can be neither accepted nor dispensed, whatever else it says. */
+export function isWithdrawn(item: Pick<PharmacyWorkItem, 'withdrawn' | 'dispensing'>): boolean {
+  return item.withdrawn === true && !item.dispensing
 }
 
 /** The design has one badge; only work that can't be dispensed is marked apart. */
@@ -162,7 +191,7 @@ export function notDispensableText(item: PharmacyWorkItem): string {
   return item.orderRoute
     ? `${item.orderRoute.orderingFacilityName ?? 'The prescribing facility'} changed or cancelled this prescription, or its time `
       + 'for dispensing has ended. A new prescription is needed.'
-    : 'This prescription is no longer active as Pharmacy accepted it, or it could not be checked. A new prescription and '
+    : 'This prescription is no longer active as Pharmacy received it, or it could not be checked. A new prescription and '
       + 'handoff are needed.'
 }
 
