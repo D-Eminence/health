@@ -1082,10 +1082,10 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('pharmacy.dispense','pharmacy','/api/v1/pharmacy/work-items/:workItemId/dispensings',P,false,one('POST','pharmacy.dispensing.create')),
   r('pharmacy.dispensing','pharmacy','/api/v1/pharmacy/dispensings/:dispensingId',G,false,one('GET','pharmacy.dispensing.read')),
   r('pharmacy.reverse','pharmacy','/api/v1/pharmacy/dispensings/:dispensingId/reversals',P,false,one('POST','pharmacy.dispensing.reverse')),
-  // ORD-4 (hid-system #303, Release B, migration 0147): a pharmacist accepts a prescription before dispensing. Only a
+  // ORD-4 (hid-system #303, Release B, migration 0144): a pharmacist accepts a prescription before dispensing. Only a
   // work item answering `pharmacyStep: "received"` offers it, so on today's backend it is never sent.
   proposed(r('pharmacy.acceptWorkItem','pharmacy','/api/v1/pharmacy/work-items/:workItemId/accept',P,false,one('POST','pharmacy.work-item.accept'),
-    'hid-system ORD-4 (#303, Release B, migration 0147); not served by hid-system main until Release B is signed. X-Facility-Id, '
+    'hid-system ORD-4 (#303, Release B, migration 0144); not served by hid-system main until Release B is signed. X-Facility-Id, '
     + 'X-Purpose-Of-Use direct-care and Idempotency-Key; body exactly { expectedWorkItemVersion }. 201 recorded or 200 '
     + '{ alreadyAccepted: true }, each { workItemId, pharmacyStep, pharmacistAcceptance, alreadyAccepted }; 409 '
     + 'PHARMACY_PRESCRIPTION_NOT_DISPENSABLE with withdrawnReason; 503 PHARMACY_ACCEPTANCE_UNAVAILABLE.')),
