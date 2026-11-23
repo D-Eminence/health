@@ -5,14 +5,14 @@ import { DeptLinkButton, DeptRecordName } from '../parts/DeptRecord'
 import { FIELD, type Availability, type CaseLoading, type VisitCase } from './registrationModel'
 import { ErrorBox, type FormProblems } from './registrationParts'
 import {
-  AVAILABILITY_TITLE, candidatesText, CAPABILITY_LOADING, CASE_ID_LABEL, caseTitle, caseWhen, CHECK_AGAIN, CHECKING, COMPLETED,
-  CREATE_RECORD, DESCRIPTION, EYEBROW, FIND_TEXT, FIND_TITLE, LOAD_CASE, LOADING, NIN_ENABLED, NIN_NOT_ENABLED, NO_VISIT_MESSAGE,
-  NO_VISIT_TITLE, statusLabel, TITLE, VISIT_CAPTION,
+  candidatesText, CAPABILITY_FAILED_TITLE, CAPABILITY_LOADING, CASE_ID_HINT, CASE_ID_LABEL, caseTitle, caseWhen, CHECK_AGAIN, CHECKING,
+  COMPLETED, CREATE_RECORD, DESCRIPTION, EYEBROW, FIND_TITLE, LOAD_CASE, LOADING, NIN_NOT_ENABLED, NIN_OFF_TITLE, NO_VISIT_MESSAGE,
+  NO_VISIT_TITLE, statusLabel, TITLE, TRY_AGAIN, VISIT_CAPTION,
 } from './registrationText'
 
 /**
- * The design's list view (patients-1-list) on today's page: its heading with "Create record", today's "Verification
- * availability" as a notice, and "Find registration case" in place of the design's search card. Today has no case list
+ * The design's list view (patients-1-list) on today's page: its heading with "Create record", classic's notice when NIN
+ * checks are not working, and "Find registration case" in place of the design's search card. Today has no case list
  * (Registration.tsx 241: Identity does not provide one), so the card reopens a case by its reference and lists the
  * cases found or made during this visit, from memory, by the person's name and when.
  */
@@ -65,9 +65,9 @@ export function RegistrationList({ availability, caseIdInput, onCaseIdInput, cas
       <AvailabilityNotice availability={availability} />
       {message ? <DeptNotice tone="positive">{message}</DeptNotice> : null}
       <DeptSection title={FIND_TITLE} className="hid-ehr-dept-list-card">
-        <p className="hid-ehr-dept-muted">{FIND_TEXT}</p>
+        {/* Registration.tsx 219-226: classic's "Continue a registration", its field, hint, button and words. */}
         <form className="hid-ehr-dept-registration-find" noValidate onSubmit={event => { event.preventDefault(); onFind() }}>
-          <EhrField label={CASE_ID_LABEL} controlId={FIELD.caseId} error={problems.error(FIELD.caseId)}>
+          <EhrField label={CASE_ID_LABEL} controlId={FIELD.caseId} hint={CASE_ID_HINT} error={problems.error(FIELD.caseId)}>
             {/* The button beside the field, as the design's search spans its card; the field's error goes under both. */}
             <div className="hid-ehr-dept-registration-find-row">
               <EhrInput value={caseIdInput} onChange={event => onCaseIdInput(event.target.value)} autoComplete="off" spellCheck={false} required />
@@ -87,20 +87,22 @@ export function RegistrationList({ availability, caseIdInput, onCaseIdInput, cas
   )
 }
 
-/** Today's "Verification availability" card (Registration.tsx 220-227), as the design's notice, with "Check again". */
+/**
+ * Classic's card on whether NIN checks work (Registration.tsx 227-230), as the design's notice: only when they are not
+ * working, as a working service needs no card. A read that failed says so with "Try again"; NIN checks that are off say
+ * so with "Check again"; while the first read runs, one line says it is checking.
+ */
 function AvailabilityNotice({ availability }: { readonly availability: Availability }) {
   const { capabilities, error, loading, refresh } = availability
-  const tone = error ? 'critical' : capabilities && !capabilities.nin.enabled ? 'caution' : 'info'
+  if (!error && !capabilities) return <p className="hid-ehr-dept-muted" role="status">{CAPABILITY_LOADING}</p>
+  if (!error && capabilities?.nin.enabled) return null
   return (
-    <DeptNotice tone={tone} title={AVAILABILITY_TITLE} className="hid-ehr-dept-registration-availability">
+    <DeptNotice tone={error ? 'critical' : 'caution'} title={error ? CAPABILITY_FAILED_TITLE : NIN_OFF_TITLE}
+      className="hid-ehr-dept-registration-availability">
       <div className="hid-ehr-dept-registration-availability-row">
-        <div>
-          {error ? <p role="alert">{error}</p> : null}
-          {!capabilities && !error ? <p>{CAPABILITY_LOADING}</p> : null}
-          {capabilities ? <p>{capabilities.nin.enabled ? NIN_ENABLED : NIN_NOT_ENABLED}</p> : null}
-        </div>
+        <div>{error ? <p role="alert">{error}</p> : <p>{NIN_NOT_ENABLED}</p>}</div>
         {/* Unavailable while it reads, not disabled: a disabled button would lose the focus it has. */}
-        <EhrButton variant="secondary" size="sm" busy={loading} onClick={refresh}>{loading ? CHECKING : CHECK_AGAIN}</EhrButton>
+        <EhrButton variant="secondary" size="sm" busy={loading} onClick={refresh}>{loading ? CHECKING : error ? TRY_AGAIN : CHECK_AGAIN}</EhrButton>
       </div>
     </DeptNotice>
   )
