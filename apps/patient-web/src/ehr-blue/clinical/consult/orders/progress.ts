@@ -20,17 +20,20 @@ export const PROGRESS_UNAVAILABLE = 'Progress not available right now'
 
 /**
  * ORD-3 `withdrawn` (0133): sent by itself, then held, cancelled, entered in error, edited or resumed before it was
- * dispensed. The words of ORD-3's screen change, whatever stopped or changed it. `withdrawn` and `sent_elsewhere`, and
- * their words, are in the backend's contract at the live commit (hid-system 4c843270) but not yet in this repo's copy
- * (docs/backend-contract, copied at 092cd248, before 0133); the coordinator's next refresh of the copy brings them.
+ * dispensed. Said in the pharmacy's own reason words for it (health#308's `changed`, under its "Not dispensable"
+ * status; the coordinator's 23 Nov design call), so the prescriber and the pharmacy read the same words.
+ * `withdrawn` and `sent_elsewhere` are in the backend's contract at the live commit (hid-system 4c843270) but not yet
+ * in this repo's copy (docs/backend-contract, copied at 092cd248, before 0133); the coordinator's next refresh of the
+ * copy brings them.
  */
-export const PHARMACY_WITHDRAWN = 'The pharmacy can no longer dispense this prescription'
+export const PHARMACY_WITHDRAWN = 'Changed or stopped by the prescribing team'
 
 /**
  * ORD-3 `sent_elsewhere` (0133, Q121 A; in the live contract at 4c843270, see above) when the prescription carries no
- * route naming where it went.
+ * route naming where it went: the pharmacy's reason words for it (health#308's `sent_elsewhere`). With a route, the
+ * same words name the facility ("Sent to Demo Pharmacy by the prescribing team").
  */
-export const SENT_ELSEWHERE = 'Sent to another pharmacy instead'
+export const SENT_ELSEWHERE = 'Sent to another pharmacy by the prescribing team'
 
 /**
  * The pharmacy statuses ORD-3 names, with `accepted` from ORD-4 (planned contract, Release B): a backend that sends
@@ -89,7 +92,7 @@ export function ownProgressText(kind: OrderKind, record: ClinicalRecord, now: Da
       default: {
         // sent_elsewhere: where it went is the prescription's own route, when it carries one.
         const facility = readOrderRoute(record.orderRoute)?.receivingFacility.name?.trim()
-        return facility ? `Sent to ${facility} instead of this hospital’s pharmacy` : SENT_ELSEWHERE
+        return facility ? `Sent to ${facility} by the prescribing team` : SENT_ELSEWHERE
       }
     }
   }
