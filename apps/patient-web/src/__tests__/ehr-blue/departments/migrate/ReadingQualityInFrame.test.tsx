@@ -103,7 +103,7 @@ describe('a self-service facility administrator with workforce.manage and no OCR
     expect(screen.getByText('Figures cover finished weeks only.')).toBeDefined()
     expect(summaries(sent)).toHaveLength(1)
     expect(summaries(sent)[0]!.headers.get('X-Facility-ID')).toBe(DEMO_HOSPITAL)
-    expect(screen.queryByText('Reading scanned documents isn’t available at your facility yet.')).toBeNull()
+    expect(screen.queryByText('Scanning paper records is done by the front desk, nurses and clinicians here.')).toBeNull()
     expect(screen.queryByText(/is not open to you here/)).toBeNull()
     expect(document.body.textContent).not.toMatch(/workforce|ocr\.job|org_admin|kept_unchanged|2026-W43|demo-prompt/)
   })

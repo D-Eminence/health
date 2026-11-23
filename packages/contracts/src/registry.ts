@@ -1118,7 +1118,7 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   // say, so the GETs keep the full code and their notes name the other (apps/patient-web/src/scanAccess.ts).
   { ...r('ocr.jobs','ocr','/api/v1/ocr/jobs',GP,false,{GET:['ocr.job.read'],POST:['ocr.job.write','ocr.job.start']},
     'GET: ocr.job.read or ocr.job.read-own (hid-system 0136); with the "-own" code only, a job whose document this login did '
-    + 'not upload answers as none.'),
+    + 'not upload answers 404 OCR_JOB_NOT_FOUND (ehr-api\'s source read refuses it); a document with no job answers { job: null }.'),
     requiredQuery: { GET: ['documentId'] } },
   r('ocr.job','ocr','/api/v1/ocr/jobs/:jobId',G,false,one('GET','ocr.job.read'),
     'ocr.job.read or ocr.job.read-own (hid-system 0136); with the "-own" code only, another login\'s upload answers 404 OCR_JOB_NOT_FOUND.'),

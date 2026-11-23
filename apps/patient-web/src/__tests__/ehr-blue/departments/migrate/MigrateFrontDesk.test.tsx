@@ -1,9 +1,11 @@
-import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { CHECK_NEEDS_CHECKER, Migrate } from '../../../../ehr-blue/departments/migrate/Migrate'
+import { CHECK_NEEDS_CHECKER, Migrate, NO_DOCUMENT_OCR } from '../../../../ehr-blue/departments/migrate/Migrate'
 import { migratePage } from '../../../../ehr-blue/departments/migrate/page'
 import { pages as framePages } from '../../../../ehr-blue/frame/pages'
 import { pageAllowed } from '../../../../ehr-blue/frame/pageAccess'
+import { PAGE_GUIDES } from '../../../../ehr-blue/frame/pageGuides'
 import type { StaffSession } from '../../../../staff/api'
 import { OWN_DOCUMENTS_ONLY, STARTS_WITH_OTHERS, TEXT_WITH_CHECKERS, scanAccess } from '../../../../scanAccess'
 import { DEMO_HOSPITAL_ID, renderDept } from '../harness'
@@ -97,16 +99,16 @@ describe('who opens Scan paper records (the page registry)', () => {
 
 describe('scanAccess', () => {
   it('gives the front desk its own uploads, starting a reading, and never what was read', () => {
-    expect(scanAccess(FRONT_DESK)).toEqual({ followsReadings: true, ownReadingsOnly: true, readsText: false, startsReadings: true,
+    expect(scanAccess(FRONT_DESK)).toEqual({ followsReadings: true, readsText: false, startsReadings: true,
       readsDocuments: true, ownDocumentsOnly: true, uploadsDocuments: true })
   })
   it('gives a doctor every reading and its text, but no start', () => {
-    expect(scanAccess(DOCTOR)).toMatchObject({ followsReadings: true, ownReadingsOnly: false, readsText: true, startsReadings: false,
+    expect(scanAccess(DOCTOR)).toMatchObject({ followsReadings: true, readsText: true, startsReadings: false,
       readsDocuments: true, ownDocumentsOnly: false })
   })
   it('lets the full code win over the "-own" one, and takes a check of one code as well as a list', () => {
     const both = ['ocr.job.read', 'ocr.job.read-own', 'ehr.document.read', 'ehr.document.read-own']
-    expect(scanAccess(both)).toMatchObject({ ownReadingsOnly: false, ownDocumentsOnly: false })
+    expect(scanAccess(both)).toMatchObject({ readsText: true, ownDocumentsOnly: false })
     expect(scanAccess(code => both.includes(code))).toEqual(scanAccess(both))
   })
   it('starts no reading without ocr.job.start, nor without ocr.job.write', () => {
@@ -119,7 +121,7 @@ describe('the front desk on Scan paper records', () => {
   it('opens the page with its own uploads, the upload form and Extract with OCR, in plain words', async () => {
     renderDept(<Migrate />)
     expect(await screen.findByText('old-clinic-card.pdf')).toBeTruthy()
-    expect(screen.queryByText('Reading scanned documents isn’t available at your facility yet.')).toBeNull()
+    expect(screen.queryByText(NO_DOCUMENT_OCR)).toBeNull()
     expect(screen.getByRole('button', { name: 'Create record' })).toBeTruthy()
     expect(within(documentsCard()).getByText(OWN_DOCUMENTS_ONLY)).toBeTruthy()
     expect(within(documentsCard()).getByRole('button', { name: 'Upload document' })).toBeTruthy()
@@ -144,6 +146,25 @@ describe('the front desk on Scan paper records', () => {
     expect(api.ocrExtractions).not.toHaveBeenCalled()
     expect(api.ocrValidations).not.toHaveBeenCalled()
     expect(document.body.textContent).not.toMatch(SCREEN_WORDS_NOT_SAID)
+  })
+
+  it('in New document job, says the visit has none of its own uploads, not that the visit has no documents', async () => {
+    api.documents.mockResolvedValue({ items: [], nextCursor: null })
+    renderDept(<Migrate />)
+    await press(await screen.findByRole('button', { name: 'Create record' }))
+    const form = screen.getByRole('form', { name: 'New document job' })
+    expect(await within(form).findByText('You haven’t uploaded a document on this visit. Upload one in Patient documents first.')).toBeTruthy()
+    expect(within(form).getByText(OWN_DOCUMENTS_ONLY)).toBeTruthy()
+    expect(within(form).queryByText(/No documents on this visit yet/)).toBeNull()
+    expect(form.textContent).not.toMatch(SCREEN_WORDS_NOT_SAID)
+  })
+
+  it('in New document job, lists its own uploads under the same note', async () => {
+    renderDept(<Migrate />)
+    await press(await screen.findByRole('button', { name: 'Create record' }))
+    const form = screen.getByRole('form', { name: 'New document job' })
+    expect(await within(form).findByRole('radio', { name: 'old-clinic-card.pdf' })).toBeTruthy()
+    expect(within(form).getByText(OWN_DOCUMENTS_ONLY)).toBeTruthy()
   })
 
   it('says who checks a reading that is ready, with no Check and save form and nothing read', async () => {
@@ -173,6 +194,31 @@ describe('a doctor, who checks readings but does not start them', () => {
     expect(document.body.textContent).not.toMatch(SCREEN_WORDS_NOT_SAID)
   })
 
+  /** Consultation › Documents' "Find its reading": the document and its patient in router state, never in the address. */
+  const handOver = () => render(<MemoryRouter initialEntries={[{ pathname: '/ehr/migrate',
+    state: { ocrDocumentId: DOCUMENT, ocrPatientId: PATIENT, actorId: 'staff-demo-1', facilityId: DEMO_HOSPITAL_ID } }]}>
+    <div className="hid-ehr"><Migrate /></div></MemoryRouter>)
+
+  it('arriving from Find its reading, has the document’s reading looked up and opened, and never started', async () => {
+    api.findOcrJob.mockResolvedValue({ job: { ...job, status: 'awaiting_validation', version: 3, attemptCount: 1 } })
+    handOver()
+    expect(await screen.findByRole('heading', { name: 'Progress' })).toBeTruthy()
+    expect(api.findOcrJob).toHaveBeenCalledTimes(1)
+    expect(api.findOcrJob).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, DOCUMENT)
+    expect(api.createOcrJob).not.toHaveBeenCalled()
+    expect(document.body.textContent).not.toMatch(SCREEN_WORDS_NOT_SAID)
+  })
+
+  it('arriving from Find its reading for a document with none yet, is told so and who starts readings', async () => {
+    api.findOcrJob.mockResolvedValue({ job: null })
+    handOver()
+    const result = await screen.findByText('No OCR job for this document')
+    expect(result.closest('#ocr-find-result')?.textContent).toContain(STARTS_WITH_OTHERS)
+    expect((screen.getByLabelText(/^Document ID/) as HTMLInputElement).value).toBe(DOCUMENT)
+    expect(api.findOcrJob).toHaveBeenCalledTimes(1)
+    expect(api.createOcrJob).not.toHaveBeenCalled()
+  })
+
   it('gets the sentence, not Retry job, on a reading that failed', async () => {
     api.findOcrJob.mockResolvedValue({ job: { ...job, status: 'failed', attemptCount: 1 } })
     renderDept(<Migrate />)
@@ -182,5 +228,22 @@ describe('a doctor, who checks readings but does not start them', () => {
     await waitFor(() => expect(within(progress).getByText(STARTS_WITH_OTHERS)).toBeTruthy())
     expect(screen.queryByRole('button', { name: 'Retry job' })).toBeNull()
     expect(api.retryOcrJob).not.toHaveBeenCalled()
+  })
+})
+
+describe('the words for each role (hid-system 0136)', () => {
+  it('the Guide names who starts a reading and who checks it, instead of steps doctors and the front desk cannot take', () => {
+    const steps = PAGE_GUIDES.ocr!.steps
+    expect(steps.find(step => step.includes('Create record'))).toMatch(/^The front desk, nurses and clinicians start a reading/)
+    expect(steps.find(step => step.includes('check what was read'))).toMatch(/^Doctors, nurses and clinicians check what was read/)
+    expect(steps.some(step => step.includes('Find its reading'))).toBe(true)
+    expect([...steps, ...(PAGE_GUIDES.ocr!.tips ?? [])].join(' ')).not.toMatch(SCREEN_WORDS_NOT_SAID)
+  })
+
+  it('refuses a role that follows no reading by saying who scans paper records here, not that it isn’t available yet', () => {
+    session.permissions = ['identity.patient.read', 'ehr.encounter.read']
+    renderDept(<Migrate />)
+    expect(screen.getByRole('alert').textContent).toBe('Scanning paper records is done by the front desk, nurses and clinicians here.')
+    expect(document.body.textContent).not.toMatch(/available at your facility yet/)
   })
 })

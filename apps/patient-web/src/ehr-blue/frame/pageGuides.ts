@@ -159,9 +159,11 @@ export const PAGE_GUIDES: Readonly<Record<string, PageGuide>> = {
     purpose: 'Bring a patient’s paper records into Health ID by scanning them.',
     steps: [
       'Open the patient first (Find a patient): their documents can then be captured here.',
-      'Select Create record to read a document, then check what was read before it’s saved.',
+      'The front desk, nurses and clinicians start a reading: select Create record, or Extract with OCR on a document.',
+      'Doctors, nurses and clinicians check what was read before it’s saved. Doctors select Find its reading on a document to open its reading.',
       'To reopen a job, enter its document ID and select Find job.',
     ],
+    tips: ['The front desk sees the documents it uploaded and how their readings are going, not what was read.'],
   },
   outreach: {
     purpose: 'Community outreach: people registered in the field and the campaigns they came from.',

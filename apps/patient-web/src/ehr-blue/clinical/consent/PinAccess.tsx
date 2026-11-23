@@ -9,6 +9,7 @@ import { staffSessionGeneration, untilStaffSessionReady } from '../../../staff/s
 import { isDemoFacility } from '../../blueFacilities'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 import { isAdult, STAFF_ACCESS_COVERS_PAPER } from '../../../paperRecordsWording'
+import { scanAccess } from '../../../scanAccess'
 import {
   HID_FORMAT, METHOD_ROUTES, actionUnavailable, administratorOf, dropOfferedHealthId, healthIdProblem, offeredHealthId,
   useOpenPatient,
@@ -123,9 +124,9 @@ export function PinAccess({ backLabel = 'Back to access requests' }: { backLabel
               onChange={event => { setPin(event.target.value); if (problem?.field === 'pin') setProblem(null) }} />
           </Field>
           {/* The paper records line only when the patient's age is known here (their record is open for direct care) and
-              they are an adult, to a role that brings in paper records, on access that can add records. Never under
-              emergency access, which can't. */}
-          {activePatient?.purpose === 'direct-care' && activePatient.hid === normalizeHealthIdInput(hid) && permissions.includes('ocr.job.read')
+              they are an adult, to a role that brings in paper records (one that starts readings, hid-system 0136), on
+              access that can add records. Never under emergency access, which can't. */}
+          {activePatient?.purpose === 'direct-care' && activePatient.hid === normalizeHealthIdInput(hid) && scanAccess(permissions).startsReadings
             && activePatient.lookup.authorization.scope === 'write_records' && isAdult(activePatient.lookup.patient.dateOfBirth)
             ? <p className="m-0 text-[13px] text-ink-3">{STAFF_ACCESS_COVERS_PAPER}</p> : null}
           {unavailable ? <p id="pin-access-unavailable" className="m-0 text-[13px] text-ink-3">{unavailable}</p> : null}

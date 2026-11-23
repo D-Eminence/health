@@ -856,3 +856,43 @@ describe('The Health ID hand-off', () => {
     expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe('')
   })
 })
+
+describe('The paper records line on the PIN and request pages (hid-system 0136)', () => {
+  const LINE = 'This access also lets you bring in the patient’s paper records while it lasts.'
+  /** The front desk's scan codes since 0136: it starts readings of its own uploads. */
+  const FRONT_DESK = ['ehr.document.write', 'ehr.document.read-own', 'ocr.job.write', 'ocr.job.start', 'ocr.job.read-own']
+  /** A doctor's: every OCR read and check, but no longer the start of a reading. */
+  const DOCTOR = ['ehr.document.read', 'ehr.document.write', 'ocr.job.read', 'ocr.job.write', 'ocr.validation.write']
+  /** The patient open here for direct care, on access that can add to the record. */
+  const openWithWrite = () => ({ ...activePatient(), lookup: { ...allowedLookup, authorization: { ...allowedLookup.authorization, scope: 'write_records' } } })
+
+  it('on the PIN page, says it to the front desk, which starts readings, and not to a doctor', () => {
+    staff.activePatient = openWithWrite()
+    staff.permissions = [...ALL, ...FRONT_DESK]
+    const frontDesk = open('/pin')
+    fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: PATIENT_HID } })
+    expect(screen.getByText(LINE)).toBeTruthy()
+    frontDesk.unmount()
+
+    staff.permissions = [...ALL, ...DOCTOR]
+    open('/pin')
+    fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: PATIENT_HID } })
+    expect(screen.getByLabelText(labelled('Health ID'))).toBeTruthy()
+    expect(screen.queryByText(LINE)).toBeNull()
+  })
+
+  it('on an approved request that adds to the record, says it to the front desk and not to a doctor', async () => {
+    api.listAccessRequests.mockResolvedValue([{ ...ACTIVE, scope: 'write_records' }])
+    staff.activePatient = activePatient()
+    staff.permissions = [...ALL, ...FRONT_DESK]
+    const frontDesk = open(`/${ACTIVE.accessRequestId}`)
+    await screen.findByText('The patient approved')
+    expect(document.body.textContent).toContain(LINE)
+    frontDesk.unmount()
+
+    staff.permissions = [...ALL, ...DOCTOR]
+    open(`/${ACTIVE.accessRequestId}`)
+    await screen.findByText('The patient approved')
+    expect(document.body.textContent).not.toContain(LINE)
+  })
+})

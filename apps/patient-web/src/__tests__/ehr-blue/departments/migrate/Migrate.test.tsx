@@ -42,8 +42,8 @@ vi.mock('../../../../staff/App', async () => {
 })
 
 const ALL = ['ocr.job.read', 'ocr.job.write', 'ocr.job.start', 'ocr.validation.write', 'ocr.patient.confirm', 'ocr.publication.write']
-/** Document OCR's refusal, at its address and on the page: no role holds the OCR work yet, so nobody is told to ask anyone. */
-const OCR_REFUSAL = 'Reading scanned documents isn’t available at your facility yet.'
+/** Document OCR's refusal, at its address and on the page: who scans paper records here (hid-system 0136), no permission named. */
+const OCR_REFUSAL = 'Scanning paper records is done by the front desk, nurses and clinicians here.'
 /** A permission's name, Identity's code or the old "membership needs … permission" words: none belongs on a screen. */
 const PERMISSION_WORDS = /permission|membership|OCR job read|ocr\.job\.read/i
 const PATIENT = 'a0000000-0000-4000-8000-000000000001'
@@ -1234,13 +1234,17 @@ describe('Migrate: facility, account and hand-over', () => {
   const handOver = (actorId: string, facilityId: string) => render(<MemoryRouter initialEntries={[{ pathname: '/ehr/migrate',
     state: { ocrDocumentId: DOCUMENT, ocrPatientId: PATIENT, actorId, facilityId } }]}><div className="hid-ehr"><Migrate /><Where /></div></MemoryRouter>)
 
-  it('without OCR job write, takes a document handed over by the same account and facility into Find document job, once, and clears it from history', async () => {
+  it('without starting readings, takes a document handed over by the same account and facility into Find document job, looks its reading up once, and clears it from history', async () => {
     session.permissions = ['ocr.job.read']
+    api.findOcrJob.mockResolvedValue({ job: null })
     handOver('staff-demo-1', DEMO_HOSPITAL_ID)
     expect((screen.getByLabelText(/^Document ID/) as HTMLInputElement).value).toBe(DOCUMENT)
     await waitFor(() => expect(screen.getByTestId('history-state').textContent).toBe('null'))
     expect(screen.queryByText(READING_THE_PAGE)).toBeNull()
-    onlyCalled()
+    expect(await screen.findByText('No OCR job for this document')).toBeTruthy()
+    expect(api.findOcrJob).toHaveBeenCalledTimes(1)
+    expect(api.findOcrJob).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, DOCUMENT)
+    onlyCalled('findOcrJob')
   })
 
   it('ignores a hand-over made by another account or at another facility', async () => {
@@ -1373,11 +1377,24 @@ describe('Migrate: Extract with OCR goes straight to the reading', () => {
     expect(api.createOcrJob).toHaveBeenCalledTimes(1)
   })
 
-  it('is not sent at all without OCR job write', async () => {
-    session.permissions = ['ocr.job.read', 'ocr.validation.write']
+  it('without starting readings, is never sent: its reading is looked up once (effects run twice), and opened when it has one', async () => {
+    session.permissions = ['ocr.job.read', 'ocr.job.write', 'ocr.validation.write']
+    api.findOcrJob.mockResolvedValue({ job: awaiting })
     render(app(HANDED))
     expect(screen.queryByText(READING_THE_PAGE)).toBeNull()
-    expect((screen.getByLabelText(/^Document ID/) as HTMLInputElement).value).toBe(DOCUMENT)
+    expect(await screen.findByRole('heading', { name: 'Progress' })).toBeTruthy()
+    await waitFor(() => expect(focused()).toBe(document.getElementById('migrate-view-title')))
+    await waitFor(() => expect(screen.getByTestId('history-state').textContent).toBe('null'))
+    expect(api.findOcrJob).toHaveBeenCalledTimes(1)
+    expect(api.findOcrJob).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, DOCUMENT)
+    expect(api.createOcrJob).not.toHaveBeenCalled()
+    expect(api.retryOcrJob).not.toHaveBeenCalled()
+  })
+
+  it('without starting readings, holds an ID OCR would refuse in Find document job and sends nothing', async () => {
+    session.permissions = ['ocr.job.read', 'ocr.job.write', 'ocr.validation.write']
+    render(app({ ...HANDED, state: { ...HANDED.state, ocrDocumentId: 'not-a-document-id' } }))
+    expect((screen.getByLabelText(/^Document ID/) as HTMLInputElement).value).toBe('not-a-document-id')
     await waitFor(() => expect(screen.getByTestId('history-state').textContent).toBe('null'))
     await act(async () => { await Promise.resolve() })
     onlyCalled()

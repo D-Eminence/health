@@ -32,7 +32,8 @@ const OCR_PATH = '/provider/ocr'
 const OCR_LABEL = 'Extract with OCR'
 /**
  * The same hand-off for someone who follows readings but does not start them (a doctor since hid-system 0136): Migrate
- * holds the document in Find document job, to look its reading up, and reads nothing by itself.
+ * holds the document in Find document job and looks its reading up at once, opening it when there is one; it never
+ * starts one.
  */
 const OCR_FIND_LABEL = 'Find its reading'
 /** Said when EHR holds more documents than today's read answers (it takes no cursor). */
