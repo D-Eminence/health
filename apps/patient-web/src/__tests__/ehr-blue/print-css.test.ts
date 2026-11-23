@@ -50,6 +50,28 @@ describe('print without a web address', () => {
     expect(shell).toMatch(/data-hid-bottom-nav className="[^"]*print:hidden/)
   })
 
+  it('prints black ink on white whatever the screen’s theme: the header always, every line in dark theme', () => {
+    const css = read('print.css')
+    const print = css.slice(css.indexOf('@media print'))
+    expect(print).toMatch(/\.hid-ehr\.hid-ehr-print-header,\s*\.hid-ehr\.hid-ehr-print-header \.hid-ehr-print-header-facility\s*\{[^}]*--ehr-ink:\s*#101828;[^}]*color:\s*#000 !important;[^}]*background:\s*transparent !important;/)
+    expect(print).toMatch(/:root\[data-theme='dark'\] body \*\s*\{\s*color:\s*#000 !important;\s*background-color:\s*transparent !important;\s*\}/)
+    // The dark theme's near-white ink is what it overrides (index.css), on the same .hid-ehr root the header carries.
+    expect(read('index.css')).toMatch(/:root\[data-theme='dark'\] \.hid-ehr[^{]*\{[^}]*--ehr-ink:\s*#f5f5f6/)
+  })
+
+  it('shows the paper itself, not only hides the rest (a bare [data-…-print] lost to body:has(…) * and printed blank)', () => {
+    for (const [path, name] of [['ehr-blue/departments/laboratory/lab.css', 'lab'], ['ehr-blue/departments/commerce/commerce.css', 'receipt']] as const) {
+      const css = read(path)
+      expect(css, path).toContain(`body:has([data-${name}-print]) * { visibility: hidden !important; }`)
+      expect(css, path).toContain(`body:has([data-${name}-print]) [data-${name}-print], body:has([data-${name}-print]) [data-${name}-print] * { visibility: visible !important; }`)
+    }
+  })
+
+  it('prints only the receipt or Health ID slip whose Print was pressed', () => {
+    expect(read('ehr-blue/departments/commerce/commerce.css'))
+      .toContain('body:has([data-receipt-print][data-print-chosen]) [data-receipt-print]:not([data-print-chosen]) { display: none !important; }')
+  })
+
   it('shows the print-only header in print alone', () => {
     const ehr = readFileSync(resolve(here, '../../../../../packages/ui/src/ehr/ehr.css'), 'utf8')
     expect(ehr).toMatch(/\.hid-ehr\.hid-ehr-print-only\s*\{\s*display:\s*none;\s*\}/)

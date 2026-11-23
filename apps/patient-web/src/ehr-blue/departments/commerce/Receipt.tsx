@@ -5,6 +5,7 @@ import { BILL_STATUS_LABEL, METHOD_LABEL, SOURCE_LABEL, type Bill, type Hmo, typ
 import { naira } from './money'
 import { PrintHeader } from '../../frame/PrintHeader'
 import './commerce.css'
+import { printReceipt } from '../../../print/printPaper'
 
 const when = (iso: string) => {
   const date = new Date(iso)
@@ -28,7 +29,8 @@ export function paymentLine(payment: Payment, hmos: readonly Hmo[] = []): string
 
 /**
  * A printable receipt for a bill (docs/POINT_OF_CARE_SPEC.md §3). It draws from the receipt the server issued when given
- * one, else from the bill itself. Print uses window.print; commerce.css prints the receipt alone, black on white.
+ * one, else from the bill itself. Print prints it (printReceipt: as a PDF in Safari, so no browser adds its web address);
+ * commerce.css prints the receipt alone, black on white.
  * `onDone` adds the receipt's own actions: Print, then Done (the primary, rightmost; at the bottom on a phone).
  */
 export function Receipt({ bill, receipt, facilityName, hmos = [], footer, onDone, className }: {
@@ -98,7 +100,7 @@ export function Receipt({ bill, receipt, facilityName, hmos = [], footer, onDone
 
       {onDone ? (
         <FormActions sticky={false}>
-          <Button icon={Printer} onClick={() => window.print()}>Print</Button>
+          <Button icon={Printer} onClick={event => printReceipt(event.currentTarget)}>Print</Button>
           <Button variant="primary" onClick={onDone}>Done</Button>
         </FormActions>
       ) : null}

@@ -1,37 +1,49 @@
-import { useCallback, useLayoutEffect, useState, type ReactNode } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { ClinicalRecord, LabAbnormalFlag, LabResultRevision } from '../../../staff/api'
 import { routeLabel } from '../../../plainLabels'
 import { ageInYears, decimalText, formatDate, formatWhen } from './format'
 import type { PatientFacts } from './PatientHeader'
 import { PrintHeader } from '../../frame/PrintHeader'
+import { startPrint, type PaperPrint, type PrintJob } from '../../../print/printPaper'
 import './clinicalPrint.css'
 
 /*
  * Printing clinical paper from the consultation: a prescription, a discharge summary and a lab result. Each is built
  * only from what the page already read; nothing is fetched to print. The paper is put on the page only while it
  * prints, straight under <body> so it is in normal flow and its named page size applies (clinicalPrint.css hides it on
- * screen and prints it alone); window.print runs in the commit that shows it, and the paper goes once the print dialog
- * closes. Where the record holds nothing for a line (the prescriber's licence,
+ * screen and prints it alone); it prints in the commit that shows it (usePaperPrint), and goes once it has printed. Where the record holds nothing for a line (the prescriber's licence,
  * follow-up), the paper leaves a line to write on by hand rather than inventing it.
  */
 
 export type PaperKind = 'prescription' | 'discharge' | 'lab-result'
 
+/** Each paper's page size and what it is called in its title (the facility and this; never the patient). */
+const PAPERS: Readonly<Record<PaperKind, PaperPrint>> = {
+  prescription: { size: 'A5', kind: 'Prescription' },
+  discharge: { size: 'A4', kind: 'Discharge summary' },
+  'lab-result': { size: 'A4', kind: 'Lab result' },
+}
+
+/**
+ * Prints a paper: Chrome, Edge and Firefox print the page, Safari a PDF of the paper (printPaper.ts), so no browser
+ * prints its web address on it. The print starts in the click; the paper is on the page until it has printed.
+ */
 export function usePaperPrint() {
-  const [paper, setPaper] = useState<{ kind: PaperKind; node: ReactNode; round: number } | null>(null)
+  const [paper, setPaper] = useState<{ kind: PaperKind; node: ReactNode; round: number; job: PrintJob } | null>(null)
+  const area = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
     if (!paper) return
-    const done = () => setPaper(current => current?.round === paper.round ? null : current)
-    window.addEventListener('afterprint', done, { once: true })
-    try { window.print() } catch { done() }
-    return () => window.removeEventListener('afterprint', done)
+    return paper.job.run(area.current, () => setPaper(current => current?.round === paper.round ? null : current))
   }, [paper])
-  const print = useCallback((kind: PaperKind, node: ReactNode) => setPaper(current => ({ kind, node, round: (current?.round ?? 0) + 1 })), [])
-  const area = paper && typeof document !== 'undefined'
-    ? createPortal(<div data-clinical-print={paper.kind} aria-hidden="true">{paper.node}</div>, document.body)
+  const print = useCallback((kind: PaperKind, node: ReactNode) => {
+    const job = startPrint(PAPERS[kind])
+    setPaper(current => ({ kind, node, round: (current?.round ?? 0) + 1, job }))
+  }, [])
+  const portal = paper && typeof document !== 'undefined'
+    ? createPortal(<div ref={area} data-clinical-print={paper.kind} aria-hidden="true">{paper.node}</div>, document.body)
     : null
-  return { print, area }
+  return { print, area: portal }
 }
 
 function text(value: unknown): string {

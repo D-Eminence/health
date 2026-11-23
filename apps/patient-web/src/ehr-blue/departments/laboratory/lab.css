@@ -5,7 +5,9 @@
  */
 @media print {
   body:has([data-lab-print]) * { visibility: hidden !important; }
-  [data-lab-print], [data-lab-print] * { visibility: visible !important; }
+  /* As specific as the rule above, and after it, so the paper itself shows (a bare [data-lab-print] is less specific
+     than body:has(…) *, and printed a blank page). */
+  body:has([data-lab-print]) [data-lab-print], body:has([data-lab-print]) [data-lab-print] * { visibility: visible !important; }
   [data-lab-print] {
     position: absolute !important; inset: 0 auto auto 0 !important;
     width: 100% !important; margin: 0 !important; padding: 10mm !important;

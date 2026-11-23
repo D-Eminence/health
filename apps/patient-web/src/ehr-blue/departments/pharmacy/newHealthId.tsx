@@ -11,6 +11,7 @@ import { DESK_FIELDS, DESK_HINTS, DESK_LABELS, deskFieldShown, deskProblems, des
 import { NIGERIA_STATES } from '../../collected/places'
 import type { MadeHealthId } from './walkIn'
 import '../commerce/commerce.css'
+import { printReceipt } from '../../../print/printPaper'
 
 /*
  * A walk-in with no Health ID gets a real one (POINT_OF_CARE_SPEC §4), made through the facility registration the
@@ -281,9 +282,9 @@ export function MadeHealthIdPanel({ idBase, made }: { readonly idBase: string; r
       <p className="m-0 text-[15px] text-ink-2 [overflow-wrap:anywhere]">{made.email
         ? <>Sent to {made.email}. They can sign in and see their records.</>
         : <>Not sent. Give them the slip: they can ask the registration desk to set up sign-in.</>}</p>
-      <Button icon={Printer} onClick={() => window.print()}>Print slip</Button>
+      <Button icon={Printer} onClick={event => printReceipt(event.currentTarget, 'health-id')}>Print slip</Button>
     </div>
-    <section data-receipt-print="" aria-hidden="true" className="hidden print:block">
+    <section data-receipt-print="health-id" aria-hidden="true" className="hidden print:block">
       <div className="flex flex-col gap-2 p-4 text-black">
         <PrintHeader facility={facility?.name} stacked />
         <p className="m-0 text-[14px]">Health ID for</p>
