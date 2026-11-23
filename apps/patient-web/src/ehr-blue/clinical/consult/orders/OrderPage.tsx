@@ -512,6 +512,10 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
     </div>
   )
 
+  // The dispensing details (hid-system 0125) a prescription carries, each only where the EHR answered it. A pharmacy at
+  // another facility sees none of them, so its send says so.
+  const details = lab ? [] : detailLines(record)
+
   const form: ReactNode = (() => {
     if (!selected) return null
     const option = choices.find(item => `status-${item.value}` === selected)
@@ -520,7 +524,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
     if (selected === 'lab' && sendLab) return labForm
     if (selected === 'route' && sendElsewhere) {
       return <SendElsewhere key={`route-${version}`} kind={info.route} context={context} priority={lab ? text(record.priority) || undefined : undefined}
-        onSend={sendOrder} onCancel={() => { setSelected(null); setFocusIds([actionId('route')]) }}
+        detailsNotSent={details.length > 0} onSend={sendOrder} onCancel={() => { setSelected(null); setFocusIds([actionId('route')]) }}
         warnAboutAllergies={lab ? undefined : warnAboutAllergies} />
     }
     return null
@@ -539,8 +543,8 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
     { label: 'Dose', value: dose ? <Value value={dose} unit={text(record.doseUnit) || null} /> : '' },
     { label: 'Route', value: <RouteValue code={text(record.routeCode)} /> },
     { label: 'How often', value: text(record.frequency) },
-    // The dispensing details (hid-system 0125), each only where the EHR answered it.
-    ...detailLines(record),
+    // The dispensing details, each only where the EHR answered it.
+    ...details,
     { label: 'Instructions', value: text(record.instructions) },
     { label: 'Recorded', value: formatWhen(record.createdAt) },
   ]

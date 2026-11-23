@@ -1,13 +1,14 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { HidApiError } from '@hid/http'
 import { Route, Routes } from 'react-router-dom'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EncounterOrderPages, orderPath } from '../../../ehr-blue/clinical/consult/orders'
+import { PRESCRIPTION_ROUTING_HINT } from '../../../ehr-blue/clinical/consult/orders/words'
 import { ChartProvider } from '../../../ehr-blue/clinical/parts/chart'
 import { Workspace } from '../../../ehr-blue/clinical/parts/Workspace'
 import {
-  DETAILS_NOT_TAKEN, DURATION_NUMBER_TEXT, DURATION_PAIR, PRIORITY_HINT, QUANTITY_HINT, QUANTITY_NUMBER_TEXT, QUANTITY_PAIR, STRENGTH_HINT,
-  checkDetails, detailLines, detailsBody, takesDispensingDetails,
+  DETAILS_NOT_TAKEN, DURATION_NUMBER_TEXT, DURATION_PAIR, PRIORITY_HINT, QUANTITY_HINT, QUANTITY_NUMBER_TEXT, QUANTITY_PAIR, ROUTED_DETAILS_NOT_SENT,
+  STRENGTH_HINT, checkDetails, detailLines, detailsBody, takesDispensingDetails,
 } from '../../../ehr-blue/prescriptionDetails'
 import { forgetLateCorrectionServed } from '../../../lateCorrectionServed'
 import { forgetWrongPatientServed } from '../../../wrongPatientServed'
@@ -39,6 +40,7 @@ vi.mock('../../../staff/App', async () => {
 })
 
 const RX = 'b0000000-0000-4000-8000-000000000001'
+const LAB = 'c0000000-0000-4000-8000-000000000001'
 const READ_WRITE = ['ehr.encounter.read', 'ehr.prescription.read', 'ehr.prescription.write']
 const DETAIL_LABELS = ['Strength', 'Form', 'How long for', 'Days, weeks or months', 'Quantity to dispense', 'Quantity unit', 'Priority']
 
@@ -46,6 +48,14 @@ function prescription(overrides: Record<string, unknown> = {}) {
   return {
     id: RX, patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T09:00:00.000Z', medicationDisplay: 'Amoxicillin',
     doseQuantity: 500, doseUnit: 'mg', routeCode: 'oral', frequency: 'Three times a day', instructions: 'After meals', status: 'draft', rowVersion: 1,
+    ...overrides,
+  }
+}
+
+function labRequest(overrides: Record<string, unknown> = {}) {
+  return {
+    id: LAB, patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T09:05:00.000Z', testCodeSystem: 'LOINC', testCode: '718-7',
+    testDisplay: 'Haemoglobin', priority: 'routine', specimenTypeCode: 'blood', clinicalInformation: 'Tired for two weeks', status: 'draft', rowVersion: 1,
     ...overrides,
   }
 }
@@ -175,7 +185,8 @@ describe('Prescribe form, once the list says dispensingDetails: true', () => {
     expect(screen.getByText(STRENGTH_HINT)).toBeTruthy()
     expect(screen.getByText(QUANTITY_HINT)).toBeTruthy()
     expect(screen.getByText(PRIORITY_HINT)).toBeTruthy()
-    expect(PRIORITY_HINT).toBe('The pharmacy sees this on the prescription. It does not alert them, so phone if it cannot wait.')
+    // It is this facility's Pharmacy that sees the priority: a pharmacy at another facility does not (ROUTED_DETAILS_NOT_SENT).
+    expect(PRIORITY_HINT).toBe('This facility’s Pharmacy sees this on the prescription. It does not alert them, so phone if it cannot wait.')
     // The instructions stay last.
     const labels = Array.from(document.querySelectorAll('form label')).map(label => label.textContent?.replace(/\s*\*$/, ''))
     expect(labels.at(-1)).toBe('Instructions')
@@ -318,6 +329,78 @@ describe('A prescription’s page', () => {
     for (const label of ['Strength', 'Form', 'How long for', 'Quantity to dispense', 'Priority']) {
       expect(screen.queryByText(label, { selector: 'dt' })).toBeNull()
     }
+  })
+})
+
+describe('Sending a prescription to a pharmacy at another facility', () => {
+  const ALL_DETAILS = { strength: '500 mg', doseForm: 'capsule', durationValue: 7, durationUnit: 'day', quantityToDispense: 21, quantityUnit: 'capsules', priority: 'urgent' }
+
+  beforeEach(() => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    staff.permissions = [...READ_WRITE, 'ehr.lab-request.read', 'ehr.lab-request.write', 'ehr.order-route.send']
+    listExtra = { dispensingDetails: true, crossFacilityOrders: true }
+    routes.attestation.mockImplementation(async (_facility: string, kind: string) => ({
+      kind, version: `order-route-${kind}-attestation-v1`, text: 'I confirm that {patient} agreed that {orderingFacility} sends this to {receivingFacility}.',
+    }))
+    routes.destinations.mockResolvedValue({ items: [
+      { facilityId: 'f0000000-0000-4000-8000-0000000000a1', facilityName: 'Demo Pharmacy', organizationName: null, registeredAddress: null, newOnHealthId: false },
+    ] })
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  async function openSend(kind: 'pharmacy' | 'laboratory', id: string, action: string, search: string) {
+    renderPage(<Consult />, 'consult', `/${orderPath(ENCOUNTER_ID, kind, id)}`)
+    await screen.findByRole('heading', { level: 1 })
+    fireEvent.click(await screen.findByRole('button', { name: action }))
+    expect(await screen.findByLabelText(labelled(search))).toBeTruthy()
+  }
+
+  it('says first that the pharmacy there will not see the details this prescription carries, and ties Send to it', async () => {
+    items = [prescription({ orderRoute: null, ...ALL_DETAILS })]
+    await openSend('pharmacy', RX, 'Send to a pharmacy', 'Search for the pharmacy')
+    const note = screen.getByText(ROUTED_DETAILS_NOT_SENT)
+    expect(note.className).toContain('hid-ehr-clinical-orders-notice')
+    expect(ROUTED_DETAILS_NOT_SENT).toBe('A pharmacy at another facility will not see the strength, form, how long for, quantity to dispense or priority. '
+      + 'Write them in the instructions.')
+    expect(screen.getByRole('button', { name: 'Send' }).getAttribute('aria-describedby')).toBe(note.id)
+    // It stays while the pharmacy is chosen, up to Send.
+    change('Search for the pharmacy', 'Demo Pharmacy')
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }))
+    fireEvent.click(await screen.findByRole('radio', { name: /^Demo Pharmacy/ }))
+    expect(screen.getByRole('button', { name: 'Send to Demo Pharmacy' }).getAttribute('aria-describedby')).toBe(note.id)
+    expect(screen.getByText(ROUTED_DETAILS_NOT_SENT)).toBe(note)
+  })
+
+  it('says so for a prescription carrying one detail only', async () => {
+    items = [prescription({ orderRoute: null, priority: 'stat' })]
+    await openSend('pharmacy', RX, 'Send to a pharmacy', 'Search for the pharmacy')
+    expect(screen.getByText(ROUTED_DETAILS_NOT_SENT)).toBeTruthy()
+  })
+
+  it('says nothing of the details for a prescription without them', async () => {
+    items = [prescription({ orderRoute: null })]
+    await openSend('pharmacy', RX, 'Send to a pharmacy', 'Search for the pharmacy')
+    expect(screen.queryByText(ROUTED_DETAILS_NOT_SENT)).toBeNull()
+    expect(screen.getByRole('button', { name: 'Send' }).hasAttribute('aria-describedby')).toBe(false)
+  })
+
+  it('says nothing of them for a lab request, though it has a priority', async () => {
+    items = [labRequest({ orderRoute: null, priority: 'urgent' })]
+    await openSend('laboratory', LAB, 'Send to another laboratory', 'Search for the laboratory')
+    expect(screen.queryByText(ROUTED_DETAILS_NOT_SENT)).toBeNull()
+  })
+
+  it('chooses no pharmacy while prescribing: the prescription is sent elsewhere from its own page, where it says so', async () => {
+    await form()
+    await screen.findByLabelText(labelled('Strength'))
+    change('Strength', '500 mg')
+    change('Priority', 'urgent')
+    expect(screen.getByText(PRESCRIPTION_ROUTING_HINT)).toBeTruthy()
+    expect(screen.queryByLabelText(labelled('Search for the pharmacy'))).toBeNull()
+    expect(screen.queryByText(ROUTED_DETAILS_NOT_SENT)).toBeNull()
   })
 })
 

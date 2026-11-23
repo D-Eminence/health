@@ -39,13 +39,19 @@ export const PRESCRIPTION_PRIORITIES: readonly { value: string; label: string }[
 
 export const STRENGTH_HINT = 'As written on the pack, for example 500 mg.'
 export const QUANTITY_HINT = 'The pharmacist checks this before handing it over.'
-export const PRIORITY_HINT = 'The pharmacy sees this on the prescription. It does not alert them, so phone if it cannot wait.'
+export const PRIORITY_HINT = 'This facility’s Pharmacy sees this on the prescription. It does not alert them, so phone if it cannot wait.'
 export const DURATION_NUMBER_TEXT = 'Enter how long as a whole number from 1 to 3650.'
 export const DURATION_PAIR = 'Enter both how long and days, weeks or months, or leave both blank.'
 export const QUANTITY_NUMBER_TEXT = 'Enter the quantity as a number above 0, like 21 or 2.5 (up to 8 digits and 4 decimal places).'
 export const QUANTITY_PAIR = 'Enter both the quantity to dispense and its unit, or leave both blank.'
 export const DETAILS_NOT_TAKEN = 'This prescription was not saved. Health ID is not taking strength, form, how long for, '
   + 'quantity to dispense or priority at the moment, so those fields have been taken off the form. Check the prescription and save it again.'
+/**
+ * Said where a prescription that carries any of the details is sent to a pharmacy at another facility: what goes there
+ * carries none of them (the backend contract, item 4b), only the instructions.
+ */
+export const ROUTED_DETAILS_NOT_SENT = 'A pharmacy at another facility will not see the strength, form, how long for, quantity to dispense '
+  + 'or priority. Write them in the instructions.'
 
 /** The details' fields, by their request names (a refusal naming one is then marked at it). */
 export const DETAIL_FIELDS: readonly FieldDef[] = [

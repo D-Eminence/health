@@ -19,6 +19,7 @@ import {
 } from '../../parts/allergyWarning'
 import { AllergyWarningPanel } from '../../parts/AllergyWarningPanel'
 import { ErrorBox } from '../../parts/Notices'
+import { ROUTED_DETAILS_NOT_SENT } from '../../../prescriptionDetails'
 import { ACK_REFUSED_ERROR } from './prescribingAllergies'
 import { attestationProblem, dispensingLines, resultLines, viewProblem, withdrawnResultLines, type WithdrawnLine } from './routeLines'
 
@@ -203,17 +204,24 @@ export function DestinationFields({ context, kind, priority, value, onChange, re
  * EHR's 409 the allergy warning appears here with the tick and "Why is it safe to go ahead?". Sent again with both, it
  * is the same send under the same key. Cancel leaves the order as it was, and drops the warning. A lab request is never
  * checked.
+ *
+ * A prescription that carries any dispensing details (hid-system 0125: strength, form, how long for, quantity to
+ * dispense, priority; `detailsNotSent`) goes without them: the form says so first, and Send is described by it.
  */
-export function SendElsewhere({ kind, context, priority, onSend, onCancel, warnAboutAllergies }: {
+export function SendElsewhere({ kind, context, priority, detailsNotSent = false, onSend, onCancel, warnAboutAllergies }: {
   kind: OrderRouteKind
   context: RouteContext
   priority?: string
+  /** A prescription carrying dispensing details, which a pharmacy at another facility does not see. */
+  detailsNotSent?: boolean
   onSend: (destination: OrderDestination, attestationTextVersion: string, key: string, allergyAcknowledgement: AllergyAcknowledgement | null) => Promise<void>
   onCancel: () => void
   /** A prescription's send: after the EHR's allergy 409, shows its warning and answers what the form says. */
   warnAboutAllergies?: (ack: AllergyAcknowledgementState, refusal: AllergyRefusal) => Promise<string>
 }) {
   const titleId = useId()
+  const detailsId = useId()
+  const detailsNote = detailsNotSent && kind === 'prescription'
   const [choice, setChoice] = useState<DestinationChoice>(NO_DESTINATION)
   const [errors, setErrors] = useState<RouteErrors>({})
   const [error, setError] = useState('')
@@ -275,6 +283,7 @@ export function SendElsewhere({ kind, context, priority, onSend, onCancel, warnA
   return (
     <form className="hid-ehr-clinical-form hid-ehr-clinical-orders-action-form" noValidate aria-labelledby={titleId} onSubmit={event => void submit(event)}>
       <p className="hid-ehr-clinical-orders-lead"><strong id={titleId}>{sendLabel(kind)}</strong></p>
+      {detailsNote ? <p id={detailsId} className="hid-ehr-clinical-orders-notice hid-ehr-clinical-orders-tone-caution">{ROUTED_DETAILS_NOT_SENT}</p> : null}
       <DestinationFields context={context} kind={kind} priority={priority} value={choice} onChange={setChoice}
         reloadAttestation={reload} errors={errors} queryRef={queryRef} attestedRef={attestedRef} />
       {warnAboutAllergies && ack.warning ? <AllergyWarningPanel idPrefix="rx-send" headingLevel={3} warning={ack.warning} ticked={ack.ticked}
@@ -282,7 +291,7 @@ export function SendElsewhere({ kind, context, priority, onSend, onCancel, warnA
       {error ? <ErrorBox>{error}</ErrorBox> : null}
       <div className="hid-ehr-clinical-form-footer">
         <EhrButton variant="secondary" onClick={onCancel}>Cancel</EhrButton>
-        <EhrButton type="submit" busy={busy}>{busy ? 'Sending…' : choice.destination ? `Send to ${choice.destination.facilityName}` : 'Send'}</EhrButton>
+        <EhrButton type="submit" busy={busy} aria-describedby={detailsNote ? detailsId : undefined}>{busy ? 'Sending…' : choice.destination ? `Send to ${choice.destination.facilityName}` : 'Send'}</EhrButton>
       </div>
     </form>
   )
