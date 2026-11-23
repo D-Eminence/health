@@ -24,7 +24,7 @@ import { isUrgent, urgencyRank } from '../parts/WorkQueue'
 import { useLearnDocumentTypesServed } from '../parts/WorkItemDocuments'
 import {
   CAP_CANNOT_COMPLETE, RoutedWorkLines, RoutedWorkPaused, SaidAboveList, SaidAboveTheList, StandaloneWorkNote, useLearnCannotCompleteServed,
-  readsKept, useLearnLateCorrectionServed, useLearnWrongPatientServed, useNotCompletedEndings, useReceiving, useRowSaid, WorkListCap, type Said,
+  readsKept, useLearnLateCorrectionServed, useLearnWrongPatientServed, useNotCompletedEndings, useReceiving, useRowSaid, WorkListCap, WorkListSince, type Said,
 } from '../parts/routedWork'
 import { usePaymentSettings } from '../pharmacy/pointOfCare'
 import { billOf, billOwing, paysFirst } from '../pharmacy/pocFields'
@@ -208,6 +208,7 @@ export function Laboratory() {
       <RoutedWorkPaused items={list.items} crossFacilityWork={read.value?.crossFacilityWork} receives={holds} />
       <WorkListCap count={list.items?.length ?? 0}>{cannotServed === true && lateCorrection ? <DeptNotice>{CAP_CANNOT_COMPLETE}</DeptNotice> : null}</WorkListCap>
       <SaidAboveList id="lab-said" text={said.listSaid} />
+      <WorkListSince since={read.value?.since} />
 
       <div className="flex flex-col gap-3 @4xl:flex-row @4xl:items-center @4xl:justify-between">
         <FilterTabs<LabStage> label="Stage" value={stage} onChange={pick}
