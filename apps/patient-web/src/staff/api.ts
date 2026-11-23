@@ -2655,6 +2655,12 @@ export const staffApi = {
   // One encounter, read afresh: the documented one may be on a page not shown.
   encounter: (facilityId: string, patientId: string, encounterId: string) =>
     client.get<Encounter>(encounterPath(patientId, encounterId), { headers: facilityHeaders(facilityId), dedupe: false }),
+  // The chart summary (EHR-C4, hid-system 4c843270): one call for what the chart opens with, direct care at the selected
+  // facility, never cached (the EHR answers no-store). Passed through unparsed: the patient page reads it
+  // (ehr-blue/clinical/patients/chartSummary.ts). An EHR before EHR-C4 answers 404, and the page reads today's lists.
+  chartSummary: (facilityId: string, patientId: string, signal?: AbortSignal) =>
+    client.get<unknown>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/chart-summary`,
+      { headers: facilityHeaders(facilityId, 'direct-care'), signal, dedupe: false }),
   patientChat: async (facilityId:string,patientId:string,question:string,signal?:AbortSignal) =>
     parseStagingPatientChat(await client.post<unknown>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/chat`,
       {question:stagingChatQuestion(question)},{headers:facilityHeaders(facilityId),signal,timeoutMs:65_000})),

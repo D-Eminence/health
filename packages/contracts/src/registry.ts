@@ -958,6 +958,12 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'and the patient\'s own words { source, allergies, updatedAt } (updatedAt: when the patient last changed any part of their '
     + 'health profile). Read only, under the same emergency purpose and break-glass check. The member absent (an EHR before '
     + '7fbb04aa) means the allergies can\'t be shown here, never "none".'),
+  // Any one permission opens it, so none is listed here as required (this registry's permissions are all required).
+  r('ehr.chartSummary','ehr','/api/v1/ehr/patients/:patientId/chart-summary',G,false,undefined,
+    'EHR-C4 (hid-system 4c843270): open to a role holding any one of ehr.encounter.read, ehr.diagnosis.read, '
+    + 'ehr.prescription.read, ehr.lab-request.read, ehr.vital.read or ehr.note.read; each section is then answered only '
+    + 'with its own route\'s permission, and one not answered is listed in leftOut { section, reason, message }. The '
+    + 'patient page asks under direct care; an EHR before EHR-C4 answers 404 and the page reads today\'s lists instead.'),
   r('ehr.encounters','ehr','/api/v1/ehr/patients/:patientId/encounters',GP,false,{GET:['ehr.encounter.read'],POST:['ehr.encounter.write']}),
   r('ehr.encounter','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId',GPA,false,{GET:['ehr.encounter.read'],PATCH:['ehr.encounter.write']}),
   r('ehr.vitals','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals',GP,false,{GET:['ehr.vital.read'],POST:['ehr.vital.write']}),

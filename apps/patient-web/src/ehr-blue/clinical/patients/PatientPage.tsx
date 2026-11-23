@@ -27,6 +27,8 @@ import { readReportedHealth } from '../parts/reportedHealth'
 import type { ActivePatient } from '../../../staff/App'
 import { isAdult, STAFF_ACCESS_COVERS_PAPER } from '../../../paperRecordsWording'
 import { AllergiesCard } from './AllergiesCard'
+import { ChartSummary } from './ChartSummary'
+import { CHART_SUMMARY_PERMISSIONS } from './chartSummary'
 
 /** Said where a lab's or a pharmacy's site hides every next step: those pages are the hospital EHR's alone. */
 export const ON_HOSPITAL_EHR = 'Charts, visits and emergency access are on the Hospital EHR.'
@@ -334,8 +336,14 @@ function PatientRecord({ chart, onClosed }: { chart: Chart; onClosed: () => void
             </li>
           </ul>
         </Card>}
-        {/* Each visit opens in Consultation, so the list shows only where Consultation opens. */}
-        {!emergency && chart.can('ehr.encounter.read') && opens('consult') ? <EncounterHistory chart={chart} canStart={showStart} /> : null}
+        {/* The chart in one call (EHR-C4): each section with its link to the visit or order, a section the role may not
+            see said where it would be. Its rows open in Consultation, so it shows only where Consultation opens, and only
+            to a role the call is open to. Should the call fail as a whole (an EHR before EHR-C4, a 5xx), today's visits
+            list is read instead, as before. */}
+        {!emergency && opens('consult') && CHART_SUMMARY_PERMISSIONS.some(permission => chart.can(permission))
+          ? <ChartSummary chart={chart} canStart={showStart} opens={opens}
+            fallback={chart.can('ehr.encounter.read') ? <EncounterHistory chart={chart} canStart={showStart} /> : null} />
+          : null}
       </div>
     </div>
   )
