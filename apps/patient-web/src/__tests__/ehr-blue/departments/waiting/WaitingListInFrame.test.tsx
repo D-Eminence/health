@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import type * as BlueRoutes from '../../../../ehr-blue/routes'
 import { REAL_FACILITY, SESSION, facility, json, openStaffApp, problem, serve, sessionAt, type Sent } from '../../frame/blueHarness'
+import { POLL_MS, lagosToday } from '../../../../ehr-blue/departments/waiting/waitingRules'
 
 /*
  * The waiting list (hid-system 0135, EHR-C7) inside the blue EHR's real frame, joined as departments/pages.ts joins it:
@@ -21,7 +22,7 @@ beforeEach(() => {
     }
   })
 })
-afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules() })
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules() })
 
 const LIST = 'GET /api/v1/ehr/visit-queue'
 const CHECK_IN = 'POST /api/v1/ehr/visit-queue/check-in'
@@ -43,6 +44,12 @@ function card(overrides: Record<string, unknown> = {}) {
   }
 }
 const listOf = (...items: unknown[]) => () => json({ items, hasMore: false, limit: 200 })
+/** A list read that never answers: the page keeps what it showed. */
+const pending = () => new Promise<Response>(() => {})
+const found = (matchRefExpiresAt: string) => () => json({ mode: 'standard', outcome: 'found', reach: 'here', message: null, patients: [{
+  matchRef: MATCH_REF, matchRefExpiresAt, fullName: 'Testa Queueperson', sex: 'female', dateOfBirth: '1990-01-02',
+  healthIdLast4: 'ZZ22', ninStatus: 'not_verified' }] })
+const entry = (n: number) => `a0000000-0000-4000-8000-0000000001${String(n).padStart(2, '0')}`
 
 /** No request carried a Health ID, a matchRef or a patient's name in its address. */
 function noIdentityInAddresses() {
@@ -250,5 +257,113 @@ describe('Waiting list in the frame', () => {
     const closed = await screen.findByRole('list', { name: 'Patients who finished or left today' })
     expect(within(closed).getByText('Left before being seen')).toBeDefined()
     expect(screen.getByRole('heading', { name: 'Finished or left today (1)' })).toBeDefined()
+  })
+
+  it('puts the card the change answered with in place at once, so the next step sends its new row version', async () => {
+    const nurse = facility(REAL_FACILITY, 'Fictional Clinic', NURSE, ['nurse'])
+    const sent = serve({
+      [SESSION]: [sessionAt(nurse, [nurse])],
+      // The read after the change is slow (it is audited per patient shown): it has not answered yet.
+      [LIST]: [listOf(card()), pending],
+      [PATCH]: [() => json(card({ stage: 'triage', rowVersion: 4 })), () => json(card({ stage: 'ready', rowVersion: 5 }))],
+    })
+    await openStaffApp('/provider/waiting-list')
+    const row = await screen.findByRole('listitem', { name: 'Testa Queueperson' })
+    fireEvent.click(within(row).getByRole('button', { name: 'Start triage' }))
+    expect(await screen.findByText('Testa Queueperson: in triage.')).toBeDefined()
+    expect(within(row).getByText('In triage')).toBeDefined()
+    expect(within(row).queryByRole('button', { name: 'Start triage' })).toBeNull()
+    fireEvent.click(within(row).getByRole('button', { name: 'Ready to be seen' }))
+    expect(await screen.findByText('Testa Queueperson: ready to be seen.')).toBeDefined()
+    expect(sent.filter(call => call.route === PATCH).map(call => call.body))
+      .toEqual([{ expectedRowVersion: 3, stage: 'triage' }, { expectedRowVersion: 4, stage: 'ready' }])
+    expect(screen.queryByText(/Someone else changed/)).toBeNull()
+  })
+
+  it('with the closed rows shown, says a cut list is short in the closed rows, not in the patients waiting', async () => {
+    const desk = facility(REAL_FACILITY, 'Fictional Clinic', FRONT_DESK, ['receptionist'])
+    const waiting = [1, 2, 3].map(n => card({ entryId: entry(n), fullName: `Waiting Queueperson ${n}` }))
+    const gone = [4, 5].map(n => card({ entryId: entry(n), fullName: `Gone Queueperson ${n}`, stage: 'finished',
+      closedAt: '2026-11-23T10:00:00.000Z' }))
+    serve({
+      [SESSION]: [sessionAt(desk, [desk])],
+      [LIST]: [() => json({ items: waiting, hasMore: false, limit: 5 }), () => json({ items: [...waiting, ...gone], hasMore: true, limit: 5 })],
+    })
+    await openStaffApp('/provider/waiting-list')
+    expect(await screen.findByRole('heading', { name: 'Waiting now (3)' })).toBeDefined()
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Show patients who finished or left today' }))
+    expect(await screen.findByRole('heading', { name: 'Finished or left today (at least 2)' })).toBeDefined()
+    expect(screen.getByText('Not everyone who finished or left today is shown. The list stops at 5 patients, those still waiting first.')).toBeDefined()
+    expect(screen.queryByText(/Only the first 5 patients are shown/)).toBeNull()
+  })
+
+  it('reads the list again every 30 seconds while shown, not while the tab is hidden, and at once when it is shown again', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    let visibility: DocumentVisibilityState = 'visible'
+    vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visibility)
+    const desk = facility(REAL_FACILITY, 'Fictional Clinic', FRONT_DESK, ['receptionist'])
+    const sent = serve({ [SESSION]: [sessionAt(desk, [desk])], [LIST]: [listOf(card()), listOf(card()), listOf(card())] })
+    const reads = () => sent.filter(call => call.route === LIST).length
+    await openStaffApp('/provider/waiting-list')
+    await screen.findByRole('listitem', { name: 'Testa Queueperson' })
+    expect(reads()).toBe(1)
+    act(() => { vi.advanceTimersByTime(POLL_MS) })
+    await waitFor(() => expect(reads()).toBe(2))
+    act(() => {
+      visibility = 'hidden'; document.dispatchEvent(new Event('visibilitychange'))
+      vi.advanceTimersByTime(POLL_MS * 2)
+    })
+    await settle()
+    expect(reads()).toBe(2)
+    act(() => { visibility = 'visible'; document.dispatchEvent(new Event('visibilitychange')) })
+    await waitFor(() => expect(reads()).toBe(3))
+  })
+
+  it('does not send an expired search result to check-in, and says to search again', async () => {
+    const desk = facility(REAL_FACILITY, 'Fictional Clinic', FRONT_DESK, ['receptionist'])
+    const sent = serve({ [SESSION]: [sessionAt(desk, [desk])], [LIST]: [listOf()], [SEARCH]: [found('2020-01-01T00:00:00.000Z')] })
+    await openStaffApp('/provider/waiting-list')
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Health ID' }), { target: { value: 'HID-ZZZZ22' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Find patient' }))
+    const result = await screen.findByRole('listitem', { name: 'Testa Queueperson' })
+    fireEvent.click(within(result).getByRole('button', { name: 'Check in Testa Queueperson' }))
+    expect(await screen.findByText('This search result has expired. Search again.')).toBeDefined()
+    await settle()
+    expect(sent.filter(call => call.route === CHECK_IN)).toEqual([])
+  })
+
+  it('says a refused or missing patient search in the waiting list’s words, never “by name” or “use the Health ID”', async () => {
+    const desk = facility(REAL_FACILITY, 'Fictional Clinic', FRONT_DESK, ['receptionist'])
+    serve({
+      [SESSION]: [sessionAt(desk, [desk])],
+      [LIST]: [listOf()],
+      [SEARCH]: [() => problem(404, 'NOT_FOUND', 'Cannot POST /api/v1/identity/patient-search'),
+        () => problem(403, 'PATIENT_SEARCH_NOT_PERMITTED', 'Required permission is missing')],
+    })
+    await openStaffApp('/provider/waiting-list')
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Health ID' }), { target: { value: 'HID-ZZZZ22' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Find patient' }))
+    expect(await screen.findByText('Patient search is not available yet, so patients can’t be checked in here. Try again later.')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Find patient' }))
+    expect(await screen.findByText('Your role at this facility can’t search for patients to check them in. Ask your facility administrator.')).toBeDefined()
+    expect(document.body.textContent).not.toMatch(/by name|use the patient’s Health ID|permission/i)
+  })
+
+  it('says the day of a patient still on the list from an earlier day', async () => {
+    const desk = facility(REAL_FACILITY, 'Fictional Clinic', FRONT_DESK, ['receptionist'])
+    serve({
+      [SESSION]: [sessionAt(desk, [desk])],
+      [LIST]: [listOf(
+        card({ entryId: entry(1), fullName: 'Yesterday Queueperson', checkedInAt: '2026-11-20T15:40:00.000Z', checkInDay: '2026-11-20' }),
+        card({ entryId: entry(2), fullName: 'Today Queueperson', checkedInAt: new Date().toISOString(), checkInDay: lagosToday() }),
+      )],
+    })
+    await openStaffApp('/provider/waiting-list')
+    const old = await screen.findByRole('listitem', { name: 'Yesterday Queueperson' })
+    expect(within(old).getByText('Checked in on an earlier day')).toBeDefined()
+    expect(within(old).getByText(/^20 Nov( 2026)?, \d\d:\d\d$/)).toBeDefined()
+    const now = screen.getByRole('listitem', { name: 'Today Queueperson' })
+    expect(within(now).queryByText('Checked in on an earlier day')).toBeNull()
+    expect(within(now).getByText(/^\d\d:\d\d$/)).toBeDefined()
   })
 })

@@ -191,3 +191,52 @@ export function timeText(value: string): string {
   return Number.isNaN(time.getTime()) ? ''
     : time.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
 }
+
+const LAGOS_DAY = new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Lagos', year: 'numeric', month: '2-digit', day: '2-digit' })
+
+/** Today's date (YYYY-MM-DD) in Lagos, the day the backend gives each check-in (`checkInDay`), whatever the device's zone. */
+export function lagosToday(now = new Date()): string {
+  const parts = LAGOS_DAY.formatToParts(now)
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find(item => item.type === type)?.value ?? ''
+  return `${part('year')}-${part('month')}-${part('day')}`
+}
+
+/** Whether the patient was checked in on an earlier day than today and is still on the list (nobody moved them on). */
+export function fromEarlierDay(card: Pick<VisitQueueCard, 'checkInDay'>, today: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(card.checkInDay) && card.checkInDay < today
+}
+
+/** When the card was checked in: the time of day for today's, else "22 Nov, 16:40" (with the year if it is not this one). */
+export function checkInWhen(card: Pick<VisitQueueCard, 'checkInDay' | 'checkedInAt'>, today: string): string {
+  const time = timeText(card.checkedInAt)
+  if (!fromEarlierDay(card, today)) return time
+  const day = new Date(`${card.checkInDay}T00:00:00.000Z`)
+  const sameYear = card.checkInDay.slice(0, 4) === today.slice(0, 4)
+  const date = day.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }), timeZone: 'UTC' })
+  return time ? `${date}, ${time}` : date
+}
+
+export const EARLIER_DAY = 'Checked in on an earlier day'
+
+/**
+ * The backend stops the list at `limit` patients, those still waiting first, then those who finished or left today. So a
+ * list read with the closed rows that has more was cut in the closed rows, unless the waiting ones alone fill it.
+ */
+export function cutShort(list: { readonly hasMore: boolean; readonly limit: number; readonly withClosed: boolean } | null, openCount: number) {
+  const more = list?.hasMore === true
+  const open = more && (!list!.withClosed || openCount >= list!.limit)
+  return { open, closed: more && list!.withClosed }
+}
+
+export function closedTitle(count: number, cut: boolean): string {
+  if (!cut) return `Finished or left today (${count})`
+  return count > 0 ? `Finished or left today (at least ${count})` : 'Finished or left today'
+}
+
+export function closedCutText(limit: number): string {
+  return `Not everyone who finished or left today is shown. The list stops at ${limit} patients, those still waiting first.`
+}
+
+/** A refused patient search on the waiting list: its own words, as this page checks patients in from no other search. */
+export const CHECK_IN_SEARCH_REFUSED = 'Your role at this facility can’t search for patients to check them in. Ask your facility administrator.'
+export const CHECK_IN_SEARCH_MISSING = 'Patient search is not available yet, so patients can’t be checked in here. Try again later.'

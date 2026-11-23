@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   EMPTY_SEARCH, NEXT_STEP, STAGE_WORDS, VISIT_QUEUE_REFUSALS, assigneeText, canSeePatients, canUseWaitingList,
-  checkedInText, healthIdEnding, searchKeys, stageText, triageText,
+  checkInWhen, checkedInText, closedTitle, cutShort, fromEarlierDay, healthIdEnding, lagosToday, searchKeys, stageText, triageText,
 } from '../../../../ehr-blue/departments/waiting/waitingRules'
 
 /** The stages hid-system 0135 has (services/ehr-api/src/ehr/worklist/visit-queue.dto.ts VISIT_QUEUE_STAGES). */
@@ -58,5 +58,27 @@ describe('waiting list rules', () => {
   it('says what a check-in answered', () => {
     expect(checkedInText('checked_in', 'Testa Queueperson')).toBe('Testa Queueperson is checked in and waiting.')
     expect(checkedInText('already_on_list', 'Testa Queueperson')).toBe('Testa Queueperson is already on the waiting list.')
+  })
+
+  it('says the day of a check-in from an earlier day, by the Lagos day', () => {
+    // 23:30 UTC on 22 Nov is already 23 Nov in Lagos (UTC+1).
+    expect(lagosToday(new Date('2026-11-22T23:30:00.000Z'))).toBe('2026-11-23')
+    const today = '2026-11-23'
+    expect(fromEarlierDay({ checkInDay: '2026-11-22' }, today)).toBe(true)
+    expect(fromEarlierDay({ checkInDay: today }, today)).toBe(false)
+    expect(checkInWhen({ checkInDay: today, checkedInAt: '2026-11-23T09:05:00.000Z' }, today)).toMatch(/^\d\d:\d\d$/)
+    expect(checkInWhen({ checkInDay: '2026-11-22', checkedInAt: '2026-11-22T15:40:00.000Z' }, today)).toMatch(/^22 Nov, \d\d:\d\d$/)
+    expect(checkInWhen({ checkInDay: '2025-12-31', checkedInAt: '2025-12-31T15:40:00.000Z' }, today)).toMatch(/^31 Dec 2025, \d\d:\d\d$/)
+  })
+
+  it('says where a cut list was cut: in the patients waiting only when they fill it', () => {
+    expect(cutShort(null, 0)).toEqual({ open: false, closed: false })
+    expect(cutShort({ hasMore: true, limit: 200, withClosed: false }, 200)).toEqual({ open: true, closed: false })
+    expect(cutShort({ hasMore: true, limit: 200, withClosed: true }, 150)).toEqual({ open: false, closed: true })
+    expect(cutShort({ hasMore: true, limit: 200, withClosed: true }, 200)).toEqual({ open: true, closed: true })
+    expect(cutShort({ hasMore: false, limit: 200, withClosed: true }, 150)).toEqual({ open: false, closed: false })
+    expect(closedTitle(50, false)).toBe('Finished or left today (50)')
+    expect(closedTitle(50, true)).toBe('Finished or left today (at least 50)')
+    expect(closedTitle(0, true)).toBe('Finished or left today')
   })
 })

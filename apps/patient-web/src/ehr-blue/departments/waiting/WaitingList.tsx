@@ -14,10 +14,12 @@ import { errorText } from '../parts/errors'
 import { birthDateText, countText } from '../parts/format'
 import { useFacilityRead } from '../parts/useFacilityRead'
 import {
-  CHECK_IN_INVALID, CLOSING_STAGES, DESCRIPTION, EMPTY_SEARCH, EYEBROW, NEXT_STEP, OPEN_STAGES, POLL_MS, RELOAD_AFTER,
-  SEARCH_EMPTY, SEARCH_HINT, STAGE_WORDS, TITLE, TRIAGE_LEVELS, UNAVAILABLE_MESSAGE, UNAVAILABLE_TITLE, UPDATE_INVALID,
+  CHECK_IN_INVALID, CHECK_IN_SEARCH_MISSING, CHECK_IN_SEARCH_REFUSED, CLOSING_STAGES, DESCRIPTION, EARLIER_DAY, EMPTY_SEARCH,
+  EYEBROW, NEXT_STEP, OPEN_STAGES, POLL_MS, RELOAD_AFTER, SEARCH_EMPTY, SEARCH_HINT, STAGE_WORDS, TITLE, TRIAGE_LEVELS,
+  UNAVAILABLE_MESSAGE, UNAVAILABLE_TITLE, UPDATE_INVALID,
   VISIT_QUEUE_REFUSALS, assigneeText, bornText, canSearchPatients, canSeePatients, canUseWaitingList, checkedInText,
-  healthIdEnding, isOpen, searchKeys, sexText, stageText, stageTone, timeText, triageText, triageTone, type SearchValues,
+  checkInWhen, closedCutText, closedTitle, cutShort, fromEarlierDay, healthIdEnding, isOpen, lagosToday, searchKeys, sexText,
+  stageText, stageTone, timeText, triageText, triageTone, type SearchValues,
 } from './waitingRules'
 import './waiting.css'
 
@@ -51,6 +53,16 @@ function refusal(caught: unknown, fallback: string, invalid?: string): string {
   return errorText(caught, fallback)
 }
 
+/**
+ * A refused patient search here. Patients' Search by name words a 403 or 404 for its own card ("by name", "use the Health
+ * ID"); this form searches by Health ID and phone too, and checks patients in from no other search.
+ */
+function checkInSearchRefusal(caught: unknown): string {
+  if (isHidApiError(caught) && caught.status === 403) return CHECK_IN_SEARCH_REFUSED
+  if (isHidApiError(caught) && caught.status === 404) return CHECK_IN_SEARCH_MISSING
+  return searchRefusal(caught)
+}
+
 interface Notice { readonly tone: DeptNoticeTone; readonly text: string }
 
 function WaitingDesk({ facilityId, membershipId, permissions }: {
@@ -67,13 +79,22 @@ function WaitingDesk({ facilityId, membershipId, permissions }: {
     .then(answer => ({ ...answer, withClosed: includeClosed })), [includeClosed])
   const list = useFacilityRead(facilityId, true, loader, 'The waiting list could not be loaded.')
   const { refresh } = list
+  // The cards each change answered with (its new stage and row version), shown until a read brings a newer one: the
+  // card's next action then sends the row version the member's own change made, not the one before it.
+  const [saved, setSaved] = useState<Readonly<Record<string, VisitQueueCard>>>({})
 
-  // Read again every 30 seconds while the page is shown (the contract's polling); a hidden tab waits.
+  // Read again every 30 seconds while the page is shown (the contract's polling), and when it comes back on screen, as
+  // Outreach's list does; a hidden tab waits.
   useEffect(() => {
     const timer = window.setInterval(() => {
       if (typeof document === 'undefined' || document.visibilityState !== 'hidden') void refresh()
     }, POLL_MS)
-    return () => window.clearInterval(timer)
+    const shown = () => { if (document.visibilityState === 'visible') void refresh() }
+    document.addEventListener('visibilitychange', shown)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', shown)
+    }
   }, [refresh])
 
   function checkedIn(result: VisitQueueCheckIn) {
@@ -82,18 +103,24 @@ function WaitingDesk({ facilityId, membershipId, permissions }: {
     focus('waiting-notice')
   }
 
-  function changed(text: string, tone: DeptNoticeTone, reload: boolean) {
+  function changed(text: string, tone: DeptNoticeTone, reload: boolean, updated?: VisitQueueCard) {
+    if (updated) setSaved(previous => ({ ...previous, [updated.entryId]: updated }))
     setNotice({ tone, text })
     if (reload) void refresh()
     focus('waiting-notice')
   }
 
-  const items = list.value?.items ?? []
+  const items = (list.value?.items ?? []).map(card => {
+    const mine = saved[card.entryId]
+    return mine && mine.rowVersion > card.rowVersion ? mine : card
+  })
   const open = items.filter(card => isOpen(card.stage))
   const closed = items.filter(card => !isOpen(card.stage))
   const listError = list.error && isHidApiError(list.caught) && Object.hasOwn(VISIT_QUEUE_REFUSALS, list.caught.code)
     ? VISIT_QUEUE_REFUSALS[list.caught.code]! : list.error
   const closedRead = list.value?.withClosed === true
+  const cut = cutShort(list.value, open.length)
+  const today = lagosToday()
 
   return (
     <DeptPage eyebrow={EYEBROW} title={TITLE} description={DESCRIPTION} className="hid-ehr-dept-waiting"
@@ -126,11 +153,11 @@ function WaitingDesk({ facilityId, membershipId, permissions }: {
           <ul className="hid-ehr-dept-waiting-list" aria-label="Patients waiting">
             {open.map(card => (
               <WaitingCard key={card.entryId} card={card} facilityId={facilityId} membershipId={membershipId}
-                canSee={canSeePatients(permissions)} onChanged={changed} />
+                canSee={canSeePatients(permissions)} today={today} onChanged={changed} />
             ))}
           </ul>
         ) : null}
-        {list.value?.hasMore ? (
+        {list.value && cut.open ? (
           <DeptNotice tone="caution">
             Only the first {list.value.limit} patients are shown, the most urgent first. Move patients on as they are seen.
           </DeptNotice>
@@ -141,9 +168,10 @@ function WaitingDesk({ facilityId, membershipId, permissions }: {
         <p className="hid-ehr-state-message" role="status">Loading patients who finished or left today…</p>
       ) : null}
       {includeClosed && closedRead ? (
-        <DeptSection title={`Finished or left today (${closed.length})`} headingId="waiting-closed-title">
+        <DeptSection title={closedTitle(closed.length, cut.closed)} headingId="waiting-closed-title">
+          {list.value && cut.closed ? <DeptNotice tone="caution">{closedCutText(list.value.limit)}</DeptNotice> : null}
           {closed.length === 0
-            ? <EhrEmptyState title="No one yet" message="Patients who finish, leave or whose check-in is cancelled today show here." />
+            ? cut.closed ? null : <EhrEmptyState title="No one yet" message="Patients who finish, leave or whose check-in is cancelled today show here." />
             : (
               <ul className="hid-ehr-dept-waiting-list" aria-label="Patients who finished or left today">
                 {closed.map(card => <ClosedCard key={card.entryId} card={card} />)}
@@ -173,12 +201,14 @@ function Identity({ card }: {
   )
 }
 
-function WaitingCard({ card, facilityId, membershipId, canSee, onChanged }: {
+function WaitingCard({ card, facilityId, membershipId, canSee, today, onChanged }: {
   readonly card: VisitQueueCard
   readonly facilityId: string
   readonly membershipId: string | undefined
   readonly canSee: boolean
-  readonly onChanged: (text: string, tone: DeptNoticeTone, reload: boolean) => void
+  /** Today in Lagos (YYYY-MM-DD): a card checked in before it says its day. */
+  readonly today: string
+  readonly onChanged: (text: string, tone: DeptNoticeTone, reload: boolean, updated?: VisitQueueCard) => void
 }) {
   // The card as it was when Change was opened: the form compares with it and sends its row version, so a change
   // someone else made while the form was open (read in by the 30-second poll) answers VISIT_QUEUE_ENTRY_CHANGED instead
@@ -192,9 +222,9 @@ function WaitingCard({ card, facilityId, membershipId, canSee, onChanged }: {
     if (busy) return
     setBusy(true)
     try {
-      await visitQueueApi.update(facilityId, base, change)
+      const updated = await visitQueueApi.update(facilityId, base, change)
       setEditing(null)
-      onChanged(done, 'positive', true)
+      onChanged(done, 'positive', true, updated)
     } catch (caught) {
       if (isHidApiError(caught) && caught.code === 'REQUEST_CANCELLED') return
       const reload = isHidApiError(caught) && RELOAD_AFTER.has(caught.code)
@@ -212,9 +242,10 @@ function WaitingCard({ card, facilityId, membershipId, canSee, onChanged }: {
           <EhrBadge tone={stageTone(card.stage)}>{stageText(card.stage)}</EhrBadge>
           <EhrBadge tone={triageTone(card.triageLevel)}>{triageText(card.triageLevel)}</EhrBadge>
           {card.chartBlocked ? <EhrBadge tone="critical">Chart cannot be opened</EhrBadge> : null}
+          {fromEarlierDay(card, today) ? <EhrBadge tone="caution">{EARLIER_DAY}</EhrBadge> : null}
         </div>
         <dl className="hid-ehr-dept-waiting-facts">
-          <div><dt>Checked in</dt><dd>{timeText(card.checkedInAt)}</dd></div>
+          <div><dt>Checked in</dt><dd>{checkInWhen(card, today)}</dd></div>
           <div><dt>Seen by</dt><dd>{assigneeText(card, membershipId)}</dd></div>
         </dl>
       </div>
@@ -372,7 +403,7 @@ export function CheckInSearch({ facilityId, onCheckedIn }: {
     } catch (caught) {
       if (isHidApiError(caught) && caught.code === 'REQUEST_CANCELLED') return
       setCards([])
-      setError(searchRefusal(caught))
+      setError(checkInSearchRefusal(caught))
     } finally { setBusy(false) }
   }
 
