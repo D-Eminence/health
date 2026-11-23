@@ -38,7 +38,6 @@ describe('page statuses', () => {
   it.each([
     ['registration', 'Patient registration', 'identity.registration.write'],
     ['in-person-check', 'In-person check', 'identity.patient.assisted_registration'],
-    ['audit', 'Audit trail', 'audit.read'],
     ['billing', 'Facility subscription', 'billing.subscription.read'],
     ['outreach', 'Outreach', undefined],
     ['ocr', 'Scan paper records', 'ocr.job.read'],
@@ -60,6 +59,11 @@ describe('page statuses', () => {
     ['pharmacy/products', 'Products & prices', 'billing.catalogue.read'],
     ['pharmacy/till', 'Till / End of day', 'billing.shift.own'],
     ['pharmacy/settings', 'Payment setup', 'billing.settings.manage'],
+    // Finance's four pages (report 3.1 #20b): the same unserved addresses, so partial too.
+    ['payments', 'Payments', 'billing.bill.read'],
+    ['price-list', 'Price list', 'billing.catalogue.read'],
+    ['end-of-day', 'End of day', 'billing.shift.own'],
+    ['payment-setup', 'Payment setup', 'billing.settings.manage'],
   ])('labels %s (%s) partial, under the same permission', (path, label, permission) => {
     const entry = page(path)
     expect(entry.label).toBe(label)
@@ -70,6 +74,18 @@ describe('page statuses', () => {
     const holder = sessionWith([permission])
     expect(pageAllowed(entry, sessionWith([]))).toBe(false)
     expect(pageAllowed(entry, holder)).toBe(entry.visible?.(holder) ?? true)
+  })
+
+  // Parity report 3.3-74: Audit trail works on Health ID in the classic page's words throughout, so it is live, under
+  // the same permission and with the same refusal at its address.
+  it('labels Audit trail live, under the same permission', () => {
+    const entry = page('audit')
+    expect(entry.label).toBe('Audit trail')
+    expect(entry.status).toBe('live')
+    expect(entry.permission).toBe('audit.read')
+    expect(entry.refusal).toBeDefined()
+    expect(pageAllowed(entry, sessionWith([]))).toBe(false)
+    expect(pageAllowed(entry, sessionWith(['audit.read']))).toBe(true)
   })
 
   it('keeps Facility subscription one of today\'s pages, so without its permission it still refuses in its own words', () => {

@@ -359,7 +359,7 @@ export function Migrate() {
         if (extractionResult.items.some(saysReviewLearning)) learnReviewLearningServed(true)
         if (active) { setExtractions(extractionResult.items); setValidations(validationResult.items) }
       })
-      .catch(caught => { if (active) setError(errorText(caught, 'The OCR review evidence could not be loaded.')) })
+      .catch(caught => { if (active) setError(errorText(caught, 'OCR review evidence could not be loaded.')) })
     return () => { active = false }
   }, [facilityId, visibleJob?.id, canRead, lookupRevision])
   // While the record shows a job OCR is still reading, its job is read again every POLL_EVERY_MS: one read at a time,
@@ -437,7 +437,7 @@ export function Migrate() {
       if (result.job) remember(result.job)
       return result
     }
-    catch (caught) { setJob(null); setError(errorText(caught, 'The OCR job could not be found.')); return null }
+    catch (caught) { setJob(null); setError(errorText(caught, 'OCR job could not be found.')); return null }
     finally { setBusy(false) }
   }
 
@@ -512,7 +512,7 @@ export function Migrate() {
     setCreateError(''); setNotice('')
     await openOrCreate(documentId, patient, {
       created: 'Extraction job created.', existing: 'This document already has an OCR job, so no new job was created.',
-      uncheckable: 'The document could not be checked for an OCR job, so no job was created.', refused: 'The OCR job was not created.',
+      uncheckable: 'The document could not be checked for an OCR job, so no job was created.', refused: 'OCR job could not be created.',
     }, message => { setCreateError(message); focus('ocr-create-submit', true) })
   }
 
@@ -604,7 +604,7 @@ export function Migrate() {
       setJob(retried); remember(retried); setLookupRevision(value => value + 1); restartPolling(); setPollLong(null)
       setStepFocus({ targets: ['ocr-job-title'], notice: 'Retry requested.' })
     }
-    catch (caught) { setRetryError(errorText(caught, 'The OCR job was not retried.')); focus('ocr-retry-submit', true) }
+    catch (caught) { setRetryError(errorText(caught, 'OCR job could not be retried.')); focus('ocr-retry-submit', true) }
     finally { setBusy(false) }
   }
 

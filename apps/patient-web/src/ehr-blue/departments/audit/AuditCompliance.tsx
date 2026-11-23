@@ -1,16 +1,14 @@
 import { useEffect, useLayoutEffect, useState } from 'react'
-import { EhrButton, EhrEmptyState, EhrField, EhrSelect, EhrSkeleton } from '@hid/ui/ehr'
-import { isHidApiError } from '@hid/http'
+import { EhrBadge, EhrButton, EhrEmptyState, EhrField, EhrSelect, EhrSkeleton, type EhrBadgeTone } from '@hid/ui/ehr'
+import { isHidApiError, plainErrorText } from '@hid/http'
 import { staffApi, type FacilityAuditPage } from '../../../staff/api'
 import { AUDIT_WORK, refusedWorkText } from '../../../staff/refusedWork'
 import { focusIsLost } from '../../../staff/focus'
 import { auditRow, matchesAuditSearch, type AuditRow } from '../../../audit/auditRow'
 import { useDeptAccess } from '../parts/access'
-import { DeptPage } from '../parts/DeptPage'
+import { DeptPage, DeptUnavailable } from '../parts/DeptPage'
 import { DeptNotice } from '../parts/DeptNotice'
 import { DeptSearch } from '../parts/DeptSearch'
-import { errorText } from '../parts/errors'
-import { dateText } from '../parts/format'
 
 /*
  * Audit trail (target admin/audit.png): the working facility's audit events, newest first, as the target lists
@@ -29,6 +27,10 @@ import { dateText } from '../parts/format'
  * Each event reads as a plain sentence (owner rule of 1 Nov 2026, docs/AUDIT_ACTION_LABELS.md): what was done, by whom,
  * when, and Allowed, Refused or Failed, in the words audit/auditRow.ts gives the classic page too. The action code, the
  * correlation ID and the resource type are never shown; the search still finds an event by its code.
+ *
+ * Its words are the classic page's (staff/routes/Audit.tsx, parity report 3.3-74): the title and intro, Refresh events,
+ * Newer page and Older page, the search and outcome labels, the empty and load-failure states (plainErrorText), the
+ * time as the browser writes it, and each outcome's badge.
  */
 
 type PagePosition = { facilityId: string; cursors: Array<string | undefined> }
@@ -51,28 +53,32 @@ const OUTCOMES = [
   { value: 'failure', label: 'Failed' },
 ] as const
 
-const LOAD_FAILED = 'Audit events could not be loaded. Try again.'
-
-/**
- * A failed read in plain words, never the server's: errorText gives the words every page shares (no connection, Health
- * ID unavailable, a fault between services), and otherwise the page's own sentence.
- */
+/** A failed read in plain words, never the server's: the classic page's sentence and plainErrorText's shared words. */
 function loadProblemText(caught: unknown): string {
-  return errorText(caught, LOAD_FAILED)
+  return plainErrorText(caught, 'Audit events could not be loaded.', { audience: 'facility' })
 }
 
-/** When it happened, as the department pages write a time ("26 Oct 2026, 12:41"), or that it is not available. */
-function eventTime(value: string): string {
-  return Number.isNaN(new Date(value).getTime()) ? 'Time not available' : dateText(value)
+/** When it happened, as the classic page writes it (the browser's own date and time), or that it is not available. */
+export function eventTime(value: string): string {
+  const time = new Date(value)
+  return Number.isNaN(time.getTime()) ? 'Time unavailable' : time.toLocaleString()
 }
 
-/** One event: what was done in bold, then by whom, when, and the outcome in words. No code, in its text or an attribute. */
+/** Each outcome's badge, as the classic page colours it: Allowed, Refused, Failed, and anything else plain. */
+export function outcomeTone(outcome: AuditRow['outcome']): EhrBadgeTone {
+  if (outcome === 'success') return 'positive'
+  if (outcome === 'denied') return 'caution'
+  if (outcome === 'failure') return 'critical'
+  return 'neutral'
+}
+
+/** One event: what was done in bold, then by whom, when, and the outcome's badge. No code, in its text or an attribute. */
 function AuditEvent({ row, occurredAt }: { readonly row: AuditRow; readonly occurredAt: string }) {
   return (
     <li>
       <span className="hid-ehr-dept-audit-event">
         <strong className="hid-ehr-dept-audit-action">{row.what}</strong>
-        <small className="hid-ehr-dept-audit-meta">{row.who} · {eventTime(occurredAt)} · {row.outcomeText}</small>
+        <small className="hid-ehr-dept-audit-meta">{row.who} · {eventTime(occurredAt)} · <EhrBadge tone={outcomeTone(row.outcome)}>{row.outcomeText}</EhrBadge></small>
       </span>
     </li>
   )
@@ -131,15 +137,11 @@ export function AuditCompliance() {
     if (focusIsLost(target)) target?.focus()
   }, [focusAfter, facilityId, loading, settled, error])
 
+  // The same title and words as the page's refusal (page.tsx) and the classic page, by who reads them: no permission named.
   if (!facility || !allowed) {
-    return (
-      <DeptPage title="Audit trail">
-        {/* The same words as the page's refusal (page.tsx) and the classic page, by who reads them: no permission named. */}
-        <DeptNotice role="status">{facility
-          ? refusedWorkText(facility, facility.permissions, AUDIT_WORK)
-          : 'Choose the facility you are working at to review its audit events.'}</DeptNotice>
-      </DeptPage>
-    )
+    return <DeptUnavailable title="Audit access unavailable" message={facility
+      ? refusedWorkText(facility, facility.permissions, AUDIT_WORK)
+      : 'Choose the facility you are working at to review its audit events.'} />
   }
 
   const showNewer = cursors.length > 1 || (pressed === NEWER && waiting)
@@ -168,15 +170,15 @@ export function AuditCompliance() {
   })
 
   return (
-    <DeptPage title="Audit trail"
-      secondaryActions={<EhrButton variant="secondary" busy={busy} onClick={refresh}>Refresh</EhrButton>}>
-      <p className="hid-ehr-dept-audit-intro">Audit events for {facility.name}. Health ID checks your membership and records each review.
-        Patient identifiers, reasons and event details are not shown here.</p>
-      <DeptSearch label="Search Audit trail" value={search} onChange={setSearch}
-        placeholder="Search what happened, who did it or the outcome…"
-        hint="Search and outcome apply to the events loaded on this page. Use Older events to look further back."
+    <DeptPage eyebrow="Healthcare operations" title="Facility audit."
+      secondaryActions={<EhrButton variant="secondary" busy={busy} onClick={refresh}>Refresh events</EhrButton>}>
+      <p className="hid-ehr-dept-audit-intro">Review events for {facility.name}. The server checks your current membership and records each
+        review. Patient identifiers, free-text reasons, and event details are withheld from this view.</p>
+      <DeptSearch label="Search this page" value={search} onChange={setSearch}
+        placeholder="What happened, who or outcome"
+        hint="Search and outcome filters apply to the current page only. Use Older page to review earlier events."
         filters={(
-          <EhrField label="Outcome" className="hid-ehr-dept-audit-outcome">
+          <EhrField label="Outcome on this page" className="hid-ehr-dept-audit-outcome">
             <EhrSelect value={outcome} onChange={event => setOutcome(event.target.value)}>
               {OUTCOMES.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
             </EhrSelect>
@@ -193,12 +195,10 @@ export function AuditCompliance() {
           {/* A page already shown stays while it is read again; the read is still said, as today's page says every read. */}
           {loading && page && <p role="status" className="hid-ehr-sr-only">Loading audit events</p>}
           {!loading && page?.items.length === 0 && (page.nextBeforeSequenceId
-            ? <EhrEmptyState title="Nothing to show on this page" message="This page held only request records, which aren’t shown here. Use Older events to look further back." />
-            : cursors.length > 1
-              ? <EhrEmptyState title="No older events" message={`There are no earlier audit events at ${facility.name}.`} />
-              : <EhrEmptyState title="No audit events yet" message={`Events at ${facility.name} appear here once they are recorded.`} />)}
+            ? <EhrEmptyState title="Nothing to show on this page" message="This page held only request records, which aren’t shown here. Use Older page to look further back." />
+            : <EhrEmptyState title="No audit events" message="The server returned no events for this page and facility." />)}
           {!loading && page && page.items.length > 0 && visible.length === 0 && (
-            <EhrEmptyState title="No matching events" message="Change the search or outcome, or look at another page." />
+            <EhrEmptyState title="No matching events on this page" message="Change the search or outcome filter, or review another page." />
           )}
           {visible.length > 0 && (
             <ul className="hid-ehr-dept-rows" aria-label={`Audit events, page ${cursors.length}`} aria-busy={loading || undefined}>
@@ -207,8 +207,8 @@ export function AuditCompliance() {
           )}
           {(showNewer || showOlder) && (
             <div className="hid-ehr-dept-audit-pager">
-              {showNewer && <EhrButton id={NEWER} variant="secondary" size="sm" busy={busy} onClick={newer}>Newer events</EhrButton>}
-              {showOlder && <EhrButton id={OLDER} variant="secondary" size="sm" busy={busy} onClick={older}>Older events</EhrButton>}
+              {showNewer && <EhrButton id={NEWER} variant="secondary" size="sm" busy={busy} onClick={newer}>Newer page</EhrButton>}
+              {showOlder && <EhrButton id={OLDER} variant="secondary" size="sm" busy={busy} onClick={older}>Older page</EhrButton>}
               {page && <span className="hid-ehr-dept-audit-pager-note">Page {cursors.length} · {page.items.length} {page.items.length === 1 ? 'event' : 'events'}</span>}
             </div>
           )}
