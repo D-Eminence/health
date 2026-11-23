@@ -9,7 +9,9 @@ import { getEnvironment } from '../../../staff/env'
 import { STAFF_MFA_NOTICE } from '../../../staff/routes/SignIn'
 import { StaffMfaSteps, type StaffMfaLook } from '../../../staff/routes/StaffMfaSteps'
 import { ClinicianSignUpEntry, PageLink } from '../../../staff/clinician/ClinicianSignUpEntry'
-import { CLINICIAN_STATUS_PATH, patientSignInHref, staffRecoveryHref, staffSignInHref } from '../../../productHostname'
+import {
+  CLINICIAN_STATUS_PATH, patientSignInHref, resolveStaffProductHostname, staffRecoveryHref, staffSignInHref,
+} from '../../../productHostname'
 import { OpenStaffPage } from '../../../staffSignIn'
 import { servesClinicianApplications } from '../../../backendContract'
 import { authHrefs, BlueAuthLayout, HINT, LINK, SiteLink } from './BlueAuthLayout'
@@ -34,9 +36,18 @@ export const SIGN_IN_LEDE = 'Sign in with your work account.'
 export const SIGN_IN_DONE = 'Continue'
 
 /**
+ * The header's sign-up link: the classic page's "Set up your facility", except on outreach., where the owner decisions
+ * of 11 November 2026 (App.tsx, OutreachOrganiserSignUp.tsx) made "Start running outreach" the site's main way in.
+ * Classic's sentence predates that decision, so it is not the reference there. Both lead to this site's /provider/enroll.
+ */
+export function signUpLabel(hostname: string): string {
+  return resolveStaffProductHostname(hostname)?.key === 'outreach' ? 'Start running outreach' : 'Set up your facility'
+}
+
+/**
  * The Hospital EHR's staff sign-in, working as today's does (staff/routes/SignIn.tsx): work email and password with
  * Turnstile, then the authenticator or its set-up, recovery codes, today's refusals and landing, in its words and order:
- * "Set up your facility" in the header, the refusal below the human check, then "Forgot your password?". Each product
+ * "Set up your facility" in the header ("Start running outreach" on outreach.), the refusal below the human check, then "Forgot your password?". Each product
  * site's own ways in stay on that site. On a site where staff do not sign in
  * (the production patient portal, an admin site), it opens the EHR site's sign-in at once, with no step of its own.
  * staff/App.tsx opens it at /provider/sign-in in place of today's page once the clinic switch is on (README.md).
@@ -100,7 +111,7 @@ export function BlueSignIn() {
   const recovery = staffRecoveryHref(window.location.hostname)
   return (
     <BlueAuthLayout title="Welcome back." titleId="blue-sign-in-title" titleAs={challenge ? 'p' : 'h1'} titleRef={heading}
-      lede={SIGN_IN_LEDE} links={false} headerLink={{ href: hrefs.register, label: 'Set up your facility' }}>
+      lede={SIGN_IN_LEDE} links={false} headerLink={{ href: hrefs.register, label: signUpLabel(window.location.hostname) }}>
       {challenge ? (
         <StaffMfaSteps challenge={challenge} look={BLUE_MFA_LOOK}
           calls={{ verify: verifyMfa, sendEnrollmentCode, startEnrollment, activate: activateEnrollment }}

@@ -119,15 +119,24 @@ describe('BlueSignIn', () => {
   })
 
   it.each([
-    'ehr.healthidentitydirectory.com', 'lab.healthidentitydirectory.com', 'pharmacy.healthidentitydirectory.com',
-    'migrate.healthidentitydirectory.com', 'outreach.staging.healthidentitydirectory.com', 'lab.staging.healthidentitydirectory.com',
-  ])('on %s, every way in stays on the site itself: Set up your facility and Forgot your password?', hostname => {
+    ['ehr.healthidentitydirectory.com', 'Set up your facility'],
+    ['lab.healthidentitydirectory.com', 'Set up your facility'],
+    ['pharmacy.healthidentitydirectory.com', 'Set up your facility'],
+    ['migrate.healthidentitydirectory.com', 'Set up your facility'],
+    // Open sign-up on outreach. (owner decisions of 11 November 2026): outreach.'s way in is the organiser sign-up,
+    // so it keeps "Start running outreach" rather than the classic page's facility wording.
+    ['outreach.healthidentitydirectory.com', 'Start running outreach'],
+    ['outreach.staging.healthidentitydirectory.com', 'Start running outreach'],
+    ['lab.staging.healthidentitydirectory.com', 'Set up your facility'],
+  ])('on %s, every way in stays on the site itself: %s and Forgot your password?', (hostname, signUp) => {
     vi.stubGlobal('location', { ...window.location, hostname, replace: vi.fn() })
     try {
       open('/provider/sign-in', <BlueSignIn />)
-      // The header's one link, as on the classic page: this site's own facility sign-up.
-      expect(screen.getByRole('link', { name: 'Set up your facility' }).getAttribute('href')).toBe('/provider/enroll')
-      expect(screen.getByRole('link', { name: 'Set up your facility' }).closest('header')).not.toBeNull()
+      // The header's one link, as on the classic page: this site's own sign-up.
+      expect(screen.getByRole('link', { name: signUp }).getAttribute('href')).toBe('/provider/enroll')
+      expect(screen.getByRole('link', { name: signUp }).closest('header')).not.toBeNull()
+      const other = signUp === 'Set up your facility' ? 'Start running outreach' : 'Set up your facility'
+      expect(screen.queryByRole('link', { name: other })).toBeNull()
       expect(screen.getByRole('link', { name: 'Forgot your password?' }).getAttribute('href')).toBe('/provider/recover')
       // Nothing here leads to another site, except a patient's way to the patient portal's own sign-in (app. is for
       // patients, each product site for its staff).

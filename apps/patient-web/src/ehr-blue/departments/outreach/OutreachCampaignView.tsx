@@ -16,7 +16,7 @@ import { healthIdUnavailable, noConnection } from './offlineQueue'
 import { OutreachNumbers, useOutreachTotals } from './outreachNumbers'
 import {
   CAMPAIGN_ROLES, CAMPAIGN_STALE, CAMPAIGN_STATUS_FAILED, campaignErrorText, campaignFacts, campaignOpenNow, campaignStarted, campaignStatusLabel,
-  COMPLETE_FIELD, controlProps, ErrorBox, MEMBER_ADD_FAILED, memberRoleLabel, MEMBERS_NOT_LOADED, NO_ACTIONS, NO_MEMBERS, OutreachField, REASON_LENGTH,
+  COMPLETE_FIELD, controlProps, ErrorBox, MEMBER_ADD_FAILED, memberRoleLabel, MEMBERS_NOT_LOADED, NO_ACTIONS, NO_CASES, NO_MEMBERS, OutreachField, REASON_LENGTH,
   RETRY_NOTE,
   servicesText, STAFF_NOT_LOADED, type FieldErrors, type MembersRead,
 } from './outreachParts'
@@ -407,7 +407,7 @@ function CampaignRegistrations({ facilityId, campaign, canLink, group, onOpen }:
       <PageState loading={cases.loading} error={cases.value ? null : cases.error || null} hasData={cases.value !== null} what="registrations" rows={2}
         onRetry={() => void cases.refresh()}
         empty={cases.value?.length === 0 && !cases.more.available
-          ? { icon: UserSearch, title: 'No registrations yet', description: 'People registered into this campaign show here.' } : null}>
+          ? { icon: UserSearch, title: NO_CASES, description: 'People registered into this campaign show here.' } : null}>
         <div className="flex flex-col gap-3">
           <OutreachNumbers cases={cases.value} more={cases.more.available} totals={totals} label={`Numbers for ${campaign.name}`} />
           <ul aria-label={`Registrations in ${campaign.name}`} className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3 p-0">
