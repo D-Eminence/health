@@ -4,6 +4,7 @@ import type { ClinicalRecord, LabAbnormalFlag, LabResultRevision } from '../../.
 import { routeLabel } from '../../../plainLabels'
 import { ageInYears, decimalText, formatDate, formatWhen } from './format'
 import type { PatientFacts } from './PatientHeader'
+import { PrintHeader } from '../../frame/PrintHeader'
 import './clinicalPrint.css'
 
 /*
@@ -184,16 +185,15 @@ export function prescriberName(records: readonly ClinicalRecord[], actor: Printi
   return authorName(records, actor, facilityId)
 }
 
+/** The shared print header (the Health ID logo and the facility), then what the paper is and when it was printed. */
 function PaperHead({ facility, kind, printedAt }: { readonly facility: string; readonly kind: string; readonly printedAt: string }) {
-  return (
+  return <>
+    <PrintHeader facility={facility} className="hid-clinical-paper-brand" />
     <div className="hid-clinical-paper-head">
-      <div>
-        <p className="hid-clinical-paper-facility">{facility}</p>
-        <p className="hid-clinical-paper-kind">{kind}</p>
-      </div>
+      <p className="hid-clinical-paper-kind">{kind}</p>
       <p className="hid-clinical-paper-caption">Date: {printedAt}</p>
     </div>
-  )
+  </>
 }
 
 function PatientBlock({ patient, extra = [] }: { readonly patient: PaperPatient; readonly extra?: ReadonlyArray<readonly [string, string]> }) {

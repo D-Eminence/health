@@ -26,6 +26,7 @@ import { DeniedPage, LivePage, PageUnavailable } from './LivePages'
 import { useListedChanges } from './listedChanges'
 import { NotFoundPage } from './NotFoundPage'
 import { PageGuideButton } from './PageGuide'
+import { PrintHeader } from './PrintHeader'
 import { guideFor, SAMPLE_GUIDE } from './pageGuides'
 import { BluePageProvider, BluePagesProvider, OpenPagesProvider, TodayPageProvider } from './pageContext'
 import { basePath, pageHrefOf } from './pageHref'
@@ -478,6 +479,8 @@ function BlueFrameBody({ drawer, closed }: { drawer: RouteDrawerState | null; cl
             create={startItems.length > 0 ? { label: 'Start', items: startItems } : undefined}
           >
             <div ref={pageRef} className="hid-ehr-blue-page @container">
+              {/* A page printed as it is (a sample's Print) carries the shared print header; off the screen. */}
+              <PrintHeader facility={facility?.name} printOnly />
               {signOutError ? <Alert intent="error" title="Couldn’t sign out">{signOutError}</Alert> : null}
               {switchError ? <Alert intent="error" title="That facility couldn’t be opened">{switchError}</Alert> : null}
               <RedirectNotice />
