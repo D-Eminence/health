@@ -3,6 +3,7 @@ import { HidApiError } from '@hid/http'
 import { MemoryRouter, Route, Routes, useLocation, useNavigationType } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConsultWorkspace, consultStatus } from '../../../ehr-blue/clinical/consult/ConsultWorkspace'
+import { NOTES_ARE_DRAFTS } from '../../../ehr-blue/clinical/consult/encounters'
 import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
 import { consultationLabel } from '../../../plainLabels'
 import { ALLERGIES_NOT_SHOWN, ALLERGIES_UNREAD, NOTHING_REPORTED } from '../../../ehr-blue/clinical/patients/AllergiesCard'
@@ -848,7 +849,8 @@ describe('New consultation in one call (EHR-C5)', () => {
     }
     expect((screen.getByLabelText(labelled('Presenting complaint')) as HTMLTextAreaElement).maxLength).toBe(4000)
     expect((screen.getByLabelText(labelled('Clinical note')) as HTMLTextAreaElement).maxLength).toBe(100000)
-    expect(screen.getByText('Notes are saved as drafts. Review a note, then sign it.')).toBeTruthy()
+    // The words are pinned by the test of today's form above; the one-call form shows the same line.
+    expect(screen.getByText(NOTES_ARE_DRAFTS)).toBeTruthy()
   })
 
   it('keeps the key and the body when pressed again after no answer or a server failure', async () => {
