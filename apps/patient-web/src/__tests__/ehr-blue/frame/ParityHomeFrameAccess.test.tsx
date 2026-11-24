@@ -49,7 +49,7 @@ describe('15c: Facility subscription is in every product site\'s menu, by its pe
   })
 })
 
-describe('3.3-53: Home greets as classic\'s Overview did, and is in every site\'s menu', () => {
+describe('3.3-53: Home greets as classic\'s Overview did; a product site keeps its own page first', () => {
   it('says classic\'s greeting and description', async () => {
     await openAt(null, ['identity.patient.read'])
     expect(await screen.findByRole('heading', { level: 1, name: 'Good to see you, Demo.' })).toBeDefined()
@@ -57,14 +57,17 @@ describe('3.3-53: Home greets as classic\'s Overview did, and is in every site\'
     expect(screen.getByText('Working at Riverside Diagnostics (fictional). All clinical activity uses your current membership and is checked by Health ID.')).toBeDefined()
   })
 
-  it('lists Home first on a product site whose own page opens', async () => {
+  // Owner's decision (24 November 2026, "Migrate works as before"): on a product site whose own page this session can
+  // use, that page leads the menu and no Home is listed, as before website release C. This beats 3.3-53's Home on every
+  // site there; the full EHR site keeps Home (above).
+  it('lists the product\'s own page first, and no Home, on a product site whose own page opens', async () => {
     await openAt('outreach.healthidentitydirectory.com', ['outreach.registration.read'], '/provider', {
       'GET /api/v1/outreach/registration-cases/campaigns': many(() => json({ items: [] })),
     })
     await waitFor(() => expect(where()).toBe('/provider/outreach'))
     const links = menu().getAllByRole('link')
-    expect(links[0]!.textContent).toBe('Home')
-    expect(links[0]!.getAttribute('href')).toBe('/provider')
+    expect(links[0]!.getAttribute('href')).toBe('/provider/outreach')
+    expect(menu().queryByRole('link', { name: 'Home' })).toBeNull()
   })
 })
 

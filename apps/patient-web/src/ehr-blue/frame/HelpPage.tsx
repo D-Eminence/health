@@ -28,9 +28,9 @@ interface WhatsNew {
 }
 
 /**
- * Whether a page opens on this site (opensInProduct). Home ('') opens and is listed on every site, as the classic
- * Overview was (productLists), but the guides' lines about Home are about the hospital's Home (Find a patient, Today's
- * work for its departments), so on a single product's site they stay out, as before.
+ * Whether a page opens on this site (opensInProduct). Home ('') opens on every site, but the guides' lines about Home
+ * are about the hospital's Home (Find a patient, Today's work for its departments), so on a single product's site they
+ * stay out, as before.
  */
 function opensHere(product: Product, path: string): boolean {
   return path === '' ? product === 'ehr' : opensInProduct(product, path)
