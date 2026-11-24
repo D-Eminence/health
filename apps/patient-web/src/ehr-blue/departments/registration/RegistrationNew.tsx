@@ -7,7 +7,7 @@ import { ErrorBox, UnavailableAction, type FormProblems } from './registrationPa
 import { NIN_STILL_CHECKING } from '../../../ninCheck'
 import { DeskFields } from '../../collected/DeskFields'
 import {
-  BACK_TO_LIST, CAPABILITY_FAILED_TITLE, CAPABILITY_LOADING, CHECKING, CHOOSE_NIN, CHOOSE_WITHOUT_NIN, CHOOSE_WITHOUT_NIN_TEXT, DISTINCT_PERSON,
+  BACK_TO_LIST, CAPABILITY_FAILED_TITLE, CAPABILITY_LOADING, CHECK_AGAIN, CHECKING, CHOOSE_NIN, CHOOSE_WITHOUT_NIN, CHOOSE_WITHOUT_NIN_TEXT, DISTINCT_PERSON,
   DOB_LABEL, FIRST_LABEL, GENDER_LABEL, GENDER_OPTIONS, LAST_LABEL, NEW_TITLE, NIN_LABEL, NIN_NOT_ENABLED, NIN_OFF_FORM_NOTICE, NIN_OFF_TITLE,
   NO_OVERRIDE, START_TEXT, START_TITLE, TRY_AGAIN, VERIFY, VERIFYING, WITHOUT_NIN_TITLE,
 } from './registrationText'
@@ -23,7 +23,8 @@ function required(label: string): ReactNode {
  * The design's create form ("New patients", 02-new and 03-new-patient-validation) as classic's "Check their NIN"
  * (Registration.tsx 232-257): classic's fields, checks and words, and the design's phone, address and existing Health
  * ID as required fields (hid-system 0114, DeskFields). The design's allergies and "provisional local identity" are not
- * asked (owner decisions D11, D12). With NIN checks off, the form says so in classic's words and nothing can be sent.
+ * asked (owner decisions D11, D12). With NIN checks off and no registration without a NIN, there is no form, as in
+ * classic (Registration.tsx 230, 232): only classic's "NIN checks are off" and its Check again.
  */
 export function RegistrationNew({ availability, busy, problems, error, onInput, onSubmit, onBack, inDrawer = false, stillChecking = false, held = false,
   without }: {
@@ -105,13 +106,22 @@ export function RegistrationNew({ availability, busy, problems, error, onInput, 
               </div>
             )}
           </>
+        ) : !enabled ? (
+          // Registration.tsx 230, 232: classic shows no form while NIN checks are off and nothing else is offered, only
+          // its warning with Check again, which stays where it is while it reads (it keeps its focus). The form takes
+          // its place once NIN checks work again.
+          <div className="hid-ehr-dept-registration-retry">
+            <DeptNotice tone="caution" title={NIN_OFF_TITLE}>{NIN_NOT_ENABLED}</DeptNotice>
+            <EhrButton variant="secondary" size="sm" busy={availability.loading} onClick={availability.refresh}>
+              {availability.loading ? CHECKING : CHECK_AGAIN}
+            </EhrButton>
+          </div>
         ) : (
           <>
             <form className="hid-ehr-dept-form" noValidate onInput={onInput} onSubmit={onSubmit}>
-              {enabled ? null : <DeptNotice tone="caution" title={NIN_OFF_TITLE}>{NIN_NOT_ENABLED}</DeptNotice>}
-              {/* Disabled only while verification is off. While the NIN is verified the fields are read-only, not
-                  disabled, which would take focus from the button (Registration.tsx 231). */}
-              <fieldset className="hid-ehr-dept-registration-fieldset" disabled={!enabled}>
+              {/* While the NIN is verified the fields are read-only, not disabled, which would take focus from the
+                  button (Registration.tsx 235). */}
+              <fieldset className="hid-ehr-dept-registration-fieldset">
                 <div className="hid-ehr-dept-form-grid">
                   <EhrField label={required(NIN_LABEL)} controlId={FIELD.nin} error={problems.error(FIELD.nin)}>
                     <EhrInput name="nin" type="password" inputMode="numeric" autoComplete="off" pattern="[0-9]{11}" minLength={11} maxLength={11}

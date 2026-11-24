@@ -7,13 +7,13 @@ import { ErrorBox, type FormProblems } from './registrationParts'
 import { offersWithoutNin } from './withoutNin'
 import {
   candidatesText, CAPABILITY_FAILED_TITLE, CAPABILITY_LOADING, CASE_ID_HINT, CASE_ID_LABEL, caseTitle, caseWhen, CHECK_AGAIN, CHECKING,
-  COMPLETED, CREATE_RECORD, DESCRIPTION, EYEBROW, FIND_TITLE, LOAD_CASE, LOADING, NIN_NOT_ENABLED, NIN_OFF_TITLE, NIN_OFF_WITHOUT_NIN,
+  COMPLETED, CONTINUE_TITLE, CREATE_RECORD, DESCRIPTION, EYEBROW, LOAD_CASE, LOADING, NIN_NOT_ENABLED, NIN_OFF_TITLE, NIN_OFF_WITHOUT_NIN,
   NO_VISIT_MESSAGE, NO_VISIT_TITLE, statusLabel, TITLE, TRY_AGAIN, VISIT_CAPTION,
 } from './registrationText'
 
 /**
  * The design's list view (patients-1-list) on today's page: its heading with "Create record", classic's notice when NIN
- * checks are not working, and "Find registration case" in place of the design's search card. Today has no case list
+ * checks are not working, and classic's "Continue a registration" in place of the design's search card. Today has no case list
  * (Registration.tsx 241: Identity does not provide one), so the card reopens a case by its reference and lists the
  * cases found or made during this visit, from memory, by the person's name and when.
  */
@@ -65,7 +65,7 @@ export function RegistrationList({ availability, caseIdInput, onCaseIdInput, cas
       primaryAction={<EhrButton onClick={onNew}>{CREATE_RECORD}</EhrButton>}>
       <AvailabilityNotice availability={availability} />
       {message ? <DeptNotice tone="positive">{message}</DeptNotice> : null}
-      <DeptSection title={FIND_TITLE} className="hid-ehr-dept-list-card">
+      <DeptSection title={CONTINUE_TITLE} className="hid-ehr-dept-list-card">
         {/* Registration.tsx 219-226: classic's "Continue a registration", its field, hint, button and words. */}
         <form className="hid-ehr-dept-registration-find" noValidate onSubmit={event => { event.preventDefault(); onFind() }}>
           <EhrField label={CASE_ID_LABEL} controlId={FIELD.caseId} hint={CASE_ID_HINT} error={problems.error(FIELD.caseId)}>
