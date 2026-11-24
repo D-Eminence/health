@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { EhrButton } from '@hid/ui/ehr'
 import { isHidApiError } from '@hid/http'
-import { ChevronRight, CircleCheck, Megaphone, Plus, Search, UserPlus, Users } from 'lucide-react'
+import { ChevronRight, CircleCheck, Megaphone, Plus, RotateCcw, Search, UserPlus, Users } from 'lucide-react'
 import { PageState } from '../../../kasuwa/parts'
 import { Alert, Badge, Button, Card, FilterTabs, Input } from '../../../kasuwa/ui'
 import { staffApi, type OutreachCampaign, type OutreachCase, type OutreachOrganiserStatus } from '../../../staff/api'
@@ -27,7 +27,7 @@ import { keptCampaign, outreachSnapshotOf, saveOutreachSnapshot } from './offlin
 import { noteOutreachRegistrations, outreachServed } from './outreachServed'
 import { offlineShellHere } from '../../../productHostname'
 import {
-  campaignOpenNow, CAMPAIGNS_NOT_LOADED, NO_CAMPAIGNS, NO_CASES, campaignStatusLabel, caseSearchText, caseWaiting, createdText, ErrorBox,
+  campaignOpenNow, CAMPAIGNS_NOT_LOADED, EMPTY_REFRESH, NO_CAMPAIGNS, NO_CASES, campaignStatusLabel, caseSearchText, caseWaiting, createdText, ErrorBox,
   NO_FACILITY, servicesText, type CampaignsUnread, type MembersRead,
 } from './outreachParts'
 
@@ -499,8 +499,9 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, canExport, cas
   const listed = cases.value !== null
   const newButton = canWrite ? <Button variant="primary" icon={UserPlus} onClick={onNew}>New registration</Button> : null
   const canLink = canWrite && !group
-  const emptyAll = { icon: Users, title: NO_CASES, description: canWrite
-    ? 'People you register in the field show here, with what each needs next.' : 'People registered in the field show here.', action: newButton ?? undefined }
+  // The classic Outreach section's empty list (staff/routes/Operations.tsx ListState; parity 3.3-72): its title, its line and Refresh.
+  const emptyAll = { icon: Users, title: NO_CASES, description: EMPTY_REFRESH,
+    action: <Button icon={RotateCcw} onClick={() => { if (!cases.loading) void cases.refresh() }}>Refresh</Button> }
   const empty = all.length === 0 ? emptyAll : rows.length > 0 ? null : search
     ? { icon: Search, title: 'No matching registrations', description: 'Check the spelling, or search by another name.' }
     : tab === 'noChecks' ? { icon: CircleCheck, title: 'Everyone here has health checks', description: 'Registrations without health checks show here.' }
@@ -569,8 +570,8 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, canExport, cas
                 ? { icon: Megaphone, title: 'Create your first campaign', description: 'A campaign is one outreach event or drive: '
                   + 'its name, dates and what you offer. You become its first admin, and people are registered into it.',
                 action: <Button variant="primary" icon={Plus} onClick={onNewCampaign}>Create your first campaign</Button> }
-                : { icon: Megaphone, title: NO_CAMPAIGNS, description: onNewCampaign
-                  ? 'Create a campaign to plan outreach work. You become its first admin.' : 'Campaigns this facility runs show here.' } : null}>
+                : { icon: Megaphone, title: NO_CAMPAIGNS, description: EMPTY_REFRESH,
+                  action: <Button icon={RotateCcw} onClick={() => { if (!campaigns.loading) void campaigns.refresh() }}>Refresh</Button> } : null}>
               <Card as="div">
                 <ul aria-label="Campaigns" className="m-0 list-none divide-y divide-line p-0">
                   {(campaigns.value ?? []).map(campaign => (

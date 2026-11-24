@@ -58,14 +58,15 @@ export const NO_FACILITY = 'No facility is selected. Choose the facility you are
 /** Under a refused link: the case was read again, so the next attempt is checked against its latest version. */
 export const LINK_RETRY_NOTE = 'The case has been read again, so a retry uses its latest version. Check the details, then retry using the same button. No success is reported until saved.'
 
-export const CASES_NOT_LOADED = 'Registration cases could not be loaded. Refresh to try again.'
-export const CAMPAIGNS_NOT_LOADED = 'Campaigns could not be loaded. Refresh to try again.'
+/** The classic Outreach section's words when a list can't be read (staff/routes/Operations.tsx useFacilityRead; parity 3.3-72). */
+export const CASES_NOT_LOADED = 'Work could not be loaded.'
+export const CAMPAIGNS_NOT_LOADED = 'Work could not be loaded.'
 /**
  * Why the form can list no campaign when it is not that the person is in none: the campaigns, or a running campaign's
  * members, are still being read, or couldn't be read (with no signal, or otherwise). Never said as "not in a campaign".
  */
 export type CampaignsUnread = 'loading' | 'offline' | 'failed'
-export const MEMBERS_NOT_LOADED = 'Campaign members could not be loaded. Try again.'
+export const MEMBERS_NOT_LOADED = 'Work could not be loaded.'
 /** The classic Outreach section's words (staff/routes/Operations.tsx, parity report 3.3-72) for a create or link refused. */
 export const CREATE_FAILED = 'Registration case could not be created.'
 export const LINK_FAILED = 'Patient could not be linked. Verify access and refresh the case.'
@@ -75,6 +76,8 @@ export const LINKED = 'Existing patient linked.'
 export const NO_CASES = 'No registration cases'
 export const NO_CAMPAIGNS = 'No campaigns'
 export const NO_MEMBERS = 'No members'
+/** The classic Outreach section's line under an empty list, which offers Refresh (staff/routes/Operations.tsx ListState). */
+export const EMPTY_REFRESH = 'Refresh to check for new work at this facility.'
 
 export const PENDING = 'identity_resolution_pending'
 
