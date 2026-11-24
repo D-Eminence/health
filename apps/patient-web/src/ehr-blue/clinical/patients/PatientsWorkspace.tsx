@@ -116,14 +116,27 @@ type Handed = { hid?: unknown; notice?: unknown } | null
  * A Health ID handed over in location state (Registration, or the top-bar search) starts a fresh form, even when Find
  * a patient is already open, so the handed one is what the field shows. So does what the patient's page hands over as
  * it closes the grant ("Access was closed.", parity 23b).
+ *
+ * The notice is said once, as today's (Patients.tsx:243 keeps it in the page's state only): it is kept here, in memory,
+ * and taken out of the history entry at once, so Back to this entry, or a reload, does not say it again.
  */
 function HandedPatientList() {
   const location = useLocation()
+  const navigate = useNavigate()
   const handed = location.state as Handed
-  return <PatientList key={typeof handed?.hid === 'string' || typeof handed?.notice === 'string' ? location.key : 'list'} />
+  const handedNotice = handed?.notice === ACCESS_CLOSED ? handed.notice : null
+  // The entry that carried the notice, and the notice: the form keeps that entry's key once the state is cleared, so it
+  // is not started again.
+  const [carried, setCarried] = useState<{ key: string; notice: string } | null>(null)
+  if (handedNotice && carried?.key !== location.key) setCarried({ key: location.key, notice: handedNotice })
+  useEffect(() => {
+    if (handedNotice) navigate({ pathname: location.pathname, search: location.search, hash: location.hash }, { replace: true, state: null })
+  }, [handedNotice, location.key, location.pathname, location.search, location.hash, navigate])
+  const key = typeof handed?.hid === 'string' ? location.key : handedNotice ? location.key : carried ? carried.key : 'list'
+  return <PatientList key={key} notice={handedNotice ?? (carried && carried.key === key ? carried.notice : '')} />
 }
 
-function PatientList() {
+function PatientList({ notice: handedNotice }: { notice: string }) {
   const { facility, permissions, can, activePatient, setActivePatient } = useClinical()
   const href = useWorkspaceHref()
   const navigate = useNavigate()
@@ -154,7 +167,7 @@ function PatientList() {
   const [error, setError] = useState('')
   // What the patient's page said as it closed the grant (parity 23b): today's sentence, said here, as today's Close my
   // grant stays on Patients and says it (Patients.tsx:243-244).
-  const [notice, setNotice] = useState(() => { const handed = (location.state as Handed)?.notice; return handed === ACCESS_CLOSED ? handed : '' })
+  const [notice, setNotice] = useState(handedNotice)
   // Whether the Health ID in the field arrived whole at once (pasted, or scanned in one burst): only then is it looked up
   // by itself.
   // A Health ID typed, or handed over from Registration, waits for Find or Enter.

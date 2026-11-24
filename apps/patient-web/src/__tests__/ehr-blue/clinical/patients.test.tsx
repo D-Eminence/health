@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type * as Contracts from '@hid/contracts'
 import { HidApiError } from '@hid/http'
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { dropOfferedHealthId, offeredHealthId } from '../../../ehr-blue/clinical/consent/access'
 import { AUTO_LOOKUP_MS, PatientsWorkspace, fieldClock, patientsStatus } from '../../../ehr-blue/clinical/patients/PatientsWorkspace'
@@ -969,6 +969,43 @@ describe('The open patient’s page', () => {
     expect(screen.queryByRole('region', { name: 'Current authorized record' })).toBeNull()
     expect(document.body.textContent).not.toContain(PATIENT_HID)
     expect(where()).toBeNull()
+  })
+
+  it('says "Access was closed." once: Back to Find a patient, or a reload, does not say it again (parity 23b)', async () => {
+    staff.activePatient = activePatient()
+    // The browser's history: what the current entry holds (what a reload reads) and its Back button.
+    function History() {
+      const location = useLocation()
+      const navigate = useNavigate()
+      return (
+        <>
+          <p data-testid="entry">{`${location.pathname} ${JSON.stringify(location.state ?? null)}`}</p>
+          <button type="button" onClick={() => navigate(-1)}>Browser back</button>
+        </>
+      )
+    }
+    render(
+      <MemoryRouter initialEntries={[`${BASE}/patients/open`]}>
+        <Routes><Route path={`${BASE}/patients/*`} element={<PatientsWorkspace />} /></Routes>
+        <History />
+      </MemoryRouter>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Close my grant' }))
+    expect(await screen.findByText('Access was closed.')).toBeTruthy()
+    // Said once, from memory: the history entry holds nothing, so a reload of Find a patient says nothing.
+    await waitFor(() => expect(screen.getByTestId('entry').textContent).toBe(`${BASE}/patients null`))
+    expect(screen.getByText('Access was closed.')).toBeTruthy()
+    expect(document.activeElement).toBe(screen.getByRole('heading', { level: 1, name: 'Find a patient' }))
+    // Another patient is found (a new entry), then Back: Find a patient again, with no closed-access sentence and no
+    // focus taken, while the patient just found is still open.
+    fireEvent.change(searchField(), { target: { value: PATIENT_HID } })
+    fireEvent.click(findButton())
+    await openedPatientPage()
+    fireEvent.click(screen.getByRole('button', { name: 'Browser back' }))
+    const heading = await screen.findByRole('heading', { level: 1, name: 'Find a patient' })
+    expect(screen.queryByText('Access was closed.')).toBeNull()
+    expect(document.activeElement).not.toBe(heading)
+    expect(screen.getByRole('region', { name: 'Current authorized record' })).toBeTruthy()
   })
 
   it('keeps the patient open and says why in today’s words when closing the grant is refused (parity 23b, 3.3-2)', async () => {
