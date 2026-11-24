@@ -150,12 +150,13 @@ export function useOpenPatient() {
 }
 
 /**
- * Where an opened patient lands. Direct care (Find, PIN success, a shared record's Open, the open record's Open) lands
- * on the patient's page for every role, never straight on the chart: owner decision Q139 B (23 Nov 2026), "Find lands
- * on the patient page with the chart summary". That page shows the chart summary (EHR-C4) and keeps Start consultation
- * and Open chart one click away. This differs from today's openPatient, which sends an allowed lookup to
- * /provider/clinical (Patients.tsx:149); parity rows 9d, 13c and 13d follow the decision. Emergency access opens the
- * read-only emergency summary where this site opens Emergency, and the patient's page anywhere else.
+ * Where an opened patient lands. Direct care (Find, PIN success, a shared record's Open) lands on the patient's page for
+ * every role, never straight on the chart: owner decision Q139 B (23 Nov 2026), "Find lands on the patient page with the
+ * chart summary". That page shows the chart summary (EHR-C4) and keeps Start consultation and Open chart one click away.
+ * This differs from today's openPatient, which sends an allowed lookup to /provider/clinical (Patients.tsx:149); parity
+ * rows 9d, 13c and 13d follow the decision. The open record's card on Find a patient is not among them: it keeps
+ * today's link to the chart (parity 3.3-1). Emergency access opens the read-only emergency summary where this site
+ * opens Emergency, and the patient's page anywhere else.
  */
 export function useOpenedPatientHref() {
   const { permissions, can } = useClinical()
