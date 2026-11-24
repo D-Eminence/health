@@ -237,7 +237,7 @@ export function BlueHome() {
         {/* Only where this site opens the clinical record, as classic shows it (`&& clinicalHere`, Dashboard.tsx:275): a
             product's own site, which opens no Consultation, neither reads nor shows it. */}
         {facility && usesNovuBackend() && permissions.includes('ehr.order-route.send') && opens('clinical')
-          ? <WrongPatientOrdersCard key={facility.id} facilityId={facility.id} facilityName={facility.name} consultation={opens('clinical')} /> : null}
+          ? <WrongPatientOrdersCard key={facility.id} facilityId={facility.id} facilityName={facility.name} /> : null}
         {facility && activePatient && patientCard ? <Card aria-labelledby="hid-ehr-blue-current-patient">
           <CardHeader as="h2" titleId="hid-ehr-blue-current-patient" title="Current patient" icon={Stethoscope} />
           <p className="m-0 px-5 pt-4 text-sm text-ink">{activePatient.lookup.patient.fullName ?? activePatient.hid}</p>
