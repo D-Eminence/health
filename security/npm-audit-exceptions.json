@@ -1,29 +1,4 @@
 {
   "version": 1,
-  "exceptions": [
-    {
-      "advisory": "GHSA-fc5q-39xc-vjpf",
-      "package": "picomatch",
-      "vulnerable_range": "<=4.0.7",
-      "allowed_paths": [
-        "apps/patient-web/node_modules/vite",
-        "node_modules/@typescript-eslint/eslint-plugin",
-        "node_modules/@typescript-eslint/parser",
-        "node_modules/@typescript-eslint/type-utils",
-        "node_modules/@typescript-eslint/typescript-estree",
-        "node_modules/@typescript-eslint/utils",
-        "node_modules/fdir",
-        "node_modules/picomatch",
-        "node_modules/tinyglobby",
-        "node_modules/typescript-eslint",
-        "node_modules/vite",
-        "node_modules/vite-plugin-singlefile",
-        "node_modules/vitest"
-      ],
-      "justification": "picomatch ReDoS through single-branch repeated extglobs; no fixed version exists (4.0.7 is the latest release and is in the vulnerable range). picomatch 4.0.7 is installed only as build, test and lint tooling: npm ls picomatch --all shows it under vite 8.2.4 (apps/patient-web), vite 7.3.7 and fdir via vite-plugin-singlefile, and vitest 4.1.12 and tinyglobby 0.2.17 (tinyglobby also under typescript-eslint). It matches globs written in this repository's own configuration, never input from a user. Evidence, 17 November 2026, from origin/main 3d0ddfbf: npm run build:production and python scripts/prepare-production-workers.py completed; the 8 release zips (911 files) and the 9 compiled Workers with their source maps (27 files) contain none of picomatch's source strings (picomatch, POSIX_REGEX_SOURCE, REGEX_NON_SPECIAL_CHARS, 'Expected pattern to be a non-empty string'), which the same search finds in node_modules/picomatch/lib.",
-      "added": "2026-11-17",
-      "approved_by": "D-Eminence (owner), in chat 17 Nov 2026: \"Q95 A\"",
-      "expires": "2026-12-01"
-    }
-  ]
+  "exceptions": []
 }
