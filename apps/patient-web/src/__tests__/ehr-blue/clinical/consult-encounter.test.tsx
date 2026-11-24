@@ -10,6 +10,7 @@ import { TONE_OUTLINE } from '../../../kasuwa/ui'
 import { COLLEAGUE, DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, FACILITY_NAME, PATIENT_HID, PATIENT_ID, SIGNED_IN, activePatient, allowedLookup, labelled, patientBanner, renderPage, type SignedIn } from './harness'
 import { consultationLabel } from '../../../plainLabels'
 import { SAID_CHANGED, SAID_FIELDS_REFUSED, SAID_REFUSED, SAID_UNAVAILABLE } from '../../said'
+import { OWN_DOCUMENTS_ONLY, STARTS_WITH_OTHERS } from '../../../scanAccess'
 
 /**
  * Consultation, one encounter: the design's record page (Saved record, Available actions with the typed SIGN
@@ -31,6 +32,8 @@ vi.mock('../../../staff/App', async () => {
 })
 vi.mock('../../../staff/session', () => ({ staffSessionGeneration: () => 1, untilStaffSessionReady: async () => {} }))
 vi.mock('../../../staff/env', () => ({ getEnvironment: () => ({ name: 'test' }) }))
+const paperPdf = vi.hoisted(() => vi.fn<(root: Element, options: { size: string; title: string }) => Promise<Blob>>())
+vi.mock('../../../print/paperPdf', () => ({ paperPdf: (root: Element, options: { size: string; title: string }) => paperPdf(root, options) }))
 vi.mock('../../../ehr-blue/clinical/consult/orders', () => ({
   EncounterOrders: ({ encounter }: { encounter: { id: string } }) => <p>Connected orders for {encounter.id}</p>,
   EncounterOrderPages: () => <p>Order pages part</p>,
@@ -328,10 +331,14 @@ describe('Consultation record', () => {
     })
     const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {})
     await openEncounter()
+    await act(async () => {})
     const button = within(card('Actions')).getByRole('button', { name: 'Print discharge summary' })
-    await waitFor(() => expect(button.getAttribute('aria-disabled')).toBe('true'))
-    expect(within(card('Actions')).getByText(/can be printed once the visit’s diagnoses, note, tests and medicines have loaded/)).toBeTruthy()
+    // The wait line shows only once it is pressed.
+    expect(within(card('Actions')).queryByText(/can be printed once the visit’s diagnoses, note, tests and medicines have loaded/)).toBeNull()
     fireEvent.click(button)
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+    expect(within(card('Actions')).getByText(/can be printed once the visit’s diagnoses, note, tests and medicines have loaded/)).toBeTruthy()
+    await act(async () => {})
     expect(printSpy).not.toHaveBeenCalled()
   })
 
@@ -342,9 +349,65 @@ describe('Consultation record', () => {
     const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {})
     await openEncounter()
     const button = within(card('Actions')).getByRole('button', { name: 'Print discharge summary' })
-    expect(button.getAttribute('aria-disabled')).toBe('true')
+    expect(button.getAttribute('aria-disabled')).toBeNull()
     fireEvent.click(button)
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+    expect(within(card('Actions')).getByText(/can be printed once the visit’s diagnoses, note, tests and medicines have loaded/)).toBeTruthy()
     expect(printSpy).not.toHaveBeenCalled()
+  })
+
+  describe('on Safari, whose PDF tab opens only in the click', () => {
+    const SAFARI = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.1 Safari/605.1.15'
+    function safariTab() {
+      vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(SAFARI)
+      const tab = { document: document.implementation.createHTMLDocument(''), location: { replace: vi.fn() }, close: vi.fn(), closed: false, opener: {} as unknown }
+      tab.close.mockImplementation(() => { tab.closed = true })
+      const open = vi.spyOn(window, 'open').mockReturnValue(tab as unknown as Window)
+      const print = vi.spyOn(window, 'print').mockImplementation(() => {})
+      return { tab, open, print }
+    }
+    /** The lab requests, read only once Print is pressed: answered when the test says. */
+    function labsOnHold() {
+      let answer: (items: unknown[]) => void = () => {}
+      let fail: (error: unknown) => void = () => {}
+      api.records.mockImplementation(async (_f: string, _p: string, _e: string, kind: string) => kind === 'lab-requests'
+        ? new Promise((resolve, reject) => { answer = items => resolve({ items, nextCursor: null }); fail = reject })
+        : { items: records[kind] ?? [], nextCursor: null })
+      return { answer: (items: unknown[]) => answer(items), fail: (error: unknown) => fail(error) }
+    }
+    afterEach(() => { paperPdf.mockReset(); vi.unstubAllGlobals() })
+
+    it('opens the PDF tab in the press that waits for the summary, and prints the summary there once it is ready', async () => {
+      staff.permissions = [...ALL, 'ehr.lab-request.read']
+      const labs = labsOnHold()
+      const { tab, open, print } = safariTab()
+      paperPdf.mockResolvedValue(new Blob(['%PDF-1.3'], { type: 'application/pdf' }))
+      vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:https://ehr.example.test/5d4c3b2a'), revokeObjectURL: vi.fn() }))
+      await openEncounter()
+      fireEvent.click(within(card('Actions')).getByRole('button', { name: 'Print discharge summary' }))
+      // In the click, though the lab requests are only now being read.
+      expect(open).toHaveBeenCalledOnce()
+      expect(within(card('Actions')).getByText(/can be printed once the visit’s diagnoses, note, tests and medicines have loaded/)).toBeTruthy()
+      await act(async () => { labs.answer([{ id: 'lab-1', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T08:45:00.000Z', status: 'active', testDisplay: 'Malaria smear' }]) })
+      await waitFor(() => expect(tab.location.replace).toHaveBeenCalledWith('blob:https://ehr.example.test/5d4c3b2a'))
+      expect(paperPdf.mock.calls[0]![0].textContent).toContain('Malaria smear')
+      expect(open).toHaveBeenCalledOnce()
+      // The page never prints itself, which would put Safari's header and footer, with the web address, on the paper.
+      expect(print).not.toHaveBeenCalled()
+    })
+
+    it('closes the tab a waiting press opened when a part could not be loaded, and prints nothing', async () => {
+      staff.permissions = [...ALL, 'ehr.lab-request.read']
+      const labs = labsOnHold()
+      const { tab, open, print } = safariTab()
+      await openEncounter()
+      fireEvent.click(within(card('Actions')).getByRole('button', { name: 'Print discharge summary' }))
+      expect(open).toHaveBeenCalledOnce()
+      await act(async () => { labs.fail(new HidApiError(503, 'Unavailable')) })
+      await waitFor(() => expect(tab.close).toHaveBeenCalled())
+      expect(paperPdf).not.toHaveBeenCalled()
+      expect(print).not.toHaveBeenCalled()
+    })
   })
 
   it('says on the paper when the visit has more prescriptions than the first page', async () => {
@@ -402,6 +465,29 @@ describe('Consultation record', () => {
     }
   })
 
+  it('says each order’s own pharmacy or laboratory progress (ORD-3) under its History row, and nothing for a draft or a backend without it', async () => {
+    staff.permissions = [...ALL, 'ehr.prescription.read', 'ehr.lab-request.read']
+    records.prescriptions = [
+      { id: 'rx-1', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, medicationDisplay: 'Amoxicillin (fictional)', status: 'active',
+        ownProgress: { status: 'dispensed', receivedAt: '2026-10-30T09:40:00.000Z', dispensedAt: '2026-10-30T10:05:00.000Z', reversedAt: null } },
+      // Today's backend: no ownProgress at all.
+      { id: 'rx-2', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, medicationDisplay: 'Paracetamol (fictional)', status: 'active' },
+    ]
+    records['lab-requests'] = [
+      { id: 'lab-1', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, testDisplay: 'Malaria smear (fictional)', status: 'active',
+        ownProgress: { status: 'unknown', receivedAt: null, collectedAt: null, lastResultAt: null } },
+      { id: 'lab-2', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, testDisplay: 'Haemoglobin (fictional)', status: 'draft',
+        ownProgress: { status: 'not_received', receivedAt: null, collectedAt: null, lastResultAt: null } },
+    ]
+    await openEncounter()
+    const row = (name: string) => within(history().getByRole('link', { name }).closest('li') as HTMLElement)
+    expect(row('Pharmacy · Amoxicillin (fictional)').getByText('Dispensed 30 Oct 2026, 11:05')).toBeTruthy()
+    expect(row('Laboratory · Malaria smear (fictional)').getByText('Progress not available right now')).toBeTruthy()
+    for (const name of ['Pharmacy · Paracetamol (fictional)', 'Laboratory · Haemoglobin (fictional)']) {
+      expect(row(name).queryByText(/Received|Dispensed|Sample taken|Results ready|Progress not available/)).toBeNull()
+    }
+  })
+
   it('gap: vitals past the encounter’s first page are reached with the Vitals card’s record pages, as today’s Vitals tab, History following', async () => {
     const later = { ...VITAL, id: 'vital-2', createdAt: '2026-10-29T08:05:00.000Z', pulseBpm: 88 }
     api.records.mockImplementation(async (_f: string, _p: string, _e: string, kind: string, page?: { cursor?: string }) => {
@@ -444,13 +530,17 @@ describe('Consultation record', () => {
     // The draft is there and still offered for signing; a second note can be written beside it.
     expect(actions().getByRole('button', { name: 'Sign note' })).toBeTruthy()
     fireEvent.click(actions().getByRole('button', { name: 'Add notes' }))
-    expect(actions().getByText('Notes are saved as drafts. Review a note, then sign it.')).toBeTruthy()
+    expect(actions().getByText('Notes are saved as drafts. Signing needs its own reviewed action.')).toBeTruthy()
     const type = actions().getByLabelText(labelled('Note type')) as HTMLInputElement
     const title = actions().getByLabelText(labelled('Title')) as HTMLInputElement
     const content = actions().getByLabelText(labelled('Clinical note')) as HTMLTextAreaElement
     expect([type.maxLength, type.placeholder, title.maxLength, content.maxLength]).toEqual([80, 'Consultation', 240, 100_000])
     fireEvent.click(actions().getByRole('button', { name: 'Save draft' }))
-    expect(actions().getAllByText('Complete this field.')).toHaveLength(3)
+    // Classic leaves the required check to the browser (Clinical.tsx RecordForm :558): each empty field says the
+    // browser's own message, never the redesign's "Complete this field.".
+    expect(type.validationMessage).not.toBe('')
+    expect(actions().getAllByText(type.validationMessage)).toHaveLength(3)
+    expect(actions().queryByText('Complete this field.')).toBeNull()
     expect(api.createRecord).not.toHaveBeenCalled()
     fireEvent.change(type, { target: { value: ' Progress ' } })
     fireEvent.change(title, { target: { value: 'Evening review' } })
@@ -949,12 +1039,12 @@ describe('Consultation record: diagnoses', () => {
     expect(details.querySelector(':scope > div')?.textContent).toBe('Code: ICD-10 B54')
     // Today's "Add diagnoses" form, in its order and words (Clinical.tsx:561, 566).
     expect(diagnoses.getByRole('heading', { name: 'Add diagnoses' })).toBeTruthy()
-    const form = diagnoses.getByRole('button', { name: 'Add diagnosis' }).closest('form') as HTMLFormElement
+    const form = diagnoses.getByRole('button', { name: 'Save record' }).closest('form') as HTMLFormElement
     expect(Array.from(form.querySelectorAll('label'), label => label.textContent?.replace(/\s*\*$/, ''))).toEqual(['Diagnosis', 'Code system', 'Code', 'Clinical status', 'Verification', 'Notes'])
     fireEvent.change(diagnoses.getByLabelText(labelled('Code system')), { target: { value: 'ICD-10' } })
     fireEvent.change(diagnoses.getByLabelText(labelled('Code')), { target: { value: 'R50.9' } })
     fireEvent.change(diagnoses.getByLabelText(labelled('Diagnosis')), { target: { value: 'Fever' } })
-    fireEvent.click(diagnoses.getByRole('button', { name: 'Add diagnosis' }))
+    fireEvent.click(diagnoses.getByRole('button', { name: 'Save record' }))
     expect((await diagnoses.findByRole('alert')).textContent).toBe(SAID_FIELDS_REFUSED)
     expect(document.body.textContent).not.toContain('request fields are invalid')
     expect(document.body.textContent).not.toContain('shorter than or equal to 500 characters')
@@ -962,7 +1052,7 @@ describe('Consultation record: diagnoses', () => {
     expect(diagnoses.getByLabelText(labelled('Diagnosis')).getAttribute('aria-invalid')).toBe('true')
     expect(card('Diagnoses').textContent).not.toContain('Display')
 
-    fireEvent.click(diagnoses.getByRole('button', { name: 'Add diagnosis' }))
+    fireEvent.click(diagnoses.getByRole('button', { name: 'Save record' }))
     expect(await screen.findByText('Clinical record saved.')).toBeTruthy()
     expect(api.createRecord).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'diagnoses',
       { codeSystem: 'ICD-10', code: 'R50.9', display: 'Fever', clinicalStatus: 'active', verificationStatus: 'unconfirmed', notes: undefined }, expect.any(String))
@@ -1051,7 +1141,7 @@ describe('Consultation record: diagnoses', () => {
     fireEvent.change(diagnoses.getByLabelText(labelled('Code system')), { target: { value: 'ICD-10' } })
     fireEvent.change(diagnoses.getByLabelText(labelled('Code')), { target: { value: 'R50.9' } })
     fireEvent.change(diagnoses.getByLabelText(labelled('Diagnosis')), { target: { value: 'Fever (fictional)' } })
-    fireEvent.click(diagnoses.getByRole('button', { name: 'Add diagnosis' }))
+    fireEvent.click(diagnoses.getByRole('button', { name: 'Save record' }))
     await waitFor(() => expect(release).not.toBeNull())
     const update = change.getByRole('button', { name: 'Update diagnosis' }) as HTMLButtonElement
     // Today's disabled={recordsLoading} (Clinical.tsx:1828).
@@ -1115,7 +1205,7 @@ describe('Consultation record: documents', () => {
     Object.defineProperty(large, 'size', { value: 52_428_801 })
     fireEvent.change(input, { target: { files: [large] } })
     fireEvent.click(documents.getByRole('button', { name: 'Upload document' }))
-    expect(documents.getByText('Use a PDF, JPEG, PNG or TIFF file of up to 50 MB.')).toBeTruthy()
+    expect(documents.getByText('Use PDF, JPEG, PNG, or TIFF, up to 50 MiB.')).toBeTruthy()
     expect(document.activeElement).toBe(input)
     expect(api.uploadDocument).not.toHaveBeenCalled()
   })
@@ -1171,11 +1261,11 @@ describe('Consultation record: documents', () => {
     expect(document.activeElement).toBe(input)
     fireEvent.change(input, { target: { files: [new File(['x'], 'notes.txt', { type: 'text/plain' })] } })
     fireEvent.click(upload)
-    expect(documents.getByText('Use a PDF, JPEG, PNG or TIFF file of up to 50 MB.')).toBeTruthy()
+    expect(documents.getByText('Use PDF, JPEG, PNG, or TIFF, up to 50 MiB.')).toBeTruthy()
     const file = new File(['%PDF-1.4'], 'scan.pdf', { type: 'application/pdf' })
     fireEvent.change(input, { target: { files: [file] } })
     fireEvent.click(upload)
-    expect(await documents.findByText('Uploaded. It can be opened once the virus check is done.')).toBeTruthy()
+    expect(await documents.findByText('Document uploaded. It can be opened once its virus scan is clean.')).toBeTruthy()
     expect(api.uploadDocument).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, file)
     expect(api.documents).toHaveBeenCalledTimes(2)
   })
@@ -1183,11 +1273,11 @@ describe('Consultation record: documents', () => {
   it('shows the empty and failed states', async () => {
     api.documents.mockResolvedValue({ items: [], nextCursor: null })
     await openEncounter()
-    expect(within(card('Documents')).getByText('No documents for this consultation.')).toBeTruthy()
+    expect(within(card('Documents')).getByText('No documents for this encounter.')).toBeTruthy()
   })
 
   it('item 3: links a clean document to today’s OCR page with the ids in router state only, as today', async () => {
-    staff.permissions = [...ALL, 'ocr.job.read']
+    staff.permissions = [...ALL, 'ocr.job.read', 'ocr.job.write', 'ocr.job.start']
     renderWithOcr()
     expect(await screen.findByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
     const link = await within(card('Documents')).findByRole('link', { name: 'Extract with OCR' })
@@ -1211,13 +1301,43 @@ describe('Consultation record: documents', () => {
   })
 
   it('item 3: links only the clean document when the role may read OCR jobs', async () => {
-    staff.permissions = [...ALL, 'ocr.job.read']
+    staff.permissions = [...ALL, 'ocr.job.read', 'ocr.job.write', 'ocr.job.start']
     api.documents.mockResolvedValue({ items: [DOCUMENT, { ...DOCUMENT, id: 'doc-2', fileName: 'lab-scan.pdf', scanStatus: 'pending' }], nextCursor: null })
     await openEncounter()
     const documents = within(card('Documents'))
     expect(documents.getAllByRole('link', { name: 'Extract with OCR' })).toHaveLength(1)
     expect(within(documents.getByText('lab-scan.pdf').closest('li') as HTMLElement).queryByRole('link', { name: 'Extract with OCR' })).toBeNull()
     expect(within(documents.getByText('referral-letter.pdf').closest('li') as HTMLElement).getByRole('link', { name: 'Extract with OCR' })).toBeTruthy()
+  })
+
+  // hid-system 0136 (Q112 A): starting a reading needs ocr.job.start, which doctors no longer hold.
+  it('item 3: gives a doctor who may not start a reading Find its reading and a plain sentence, never Extract with OCR', async () => {
+    staff.permissions = [...ALL, 'ocr.job.read', 'ocr.job.write', 'ocr.validation.write']
+    renderWithOcr()
+    expect(await screen.findByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
+    const documents = within(card('Documents'))
+    const link = await documents.findByRole('link', { name: 'Find its reading' })
+    expect(documents.queryByRole('link', { name: 'Extract with OCR' })).toBeNull()
+    expect(documents.getByText(STARTS_WITH_OTHERS)).toBeTruthy()
+    // The same hand-off as today's link: the ids in router state, none in the address.
+    expect(link.getAttribute('href')).toBe('/provider/ocr')
+    fireEvent.click(link)
+    expect(await screen.findByTestId('ocr-page')).toBeTruthy()
+    expect(JSON.parse(screen.getByTestId('ocr-state').textContent ?? 'null')).toEqual({
+      ocrDocumentId: 'doc-1', ocrPatientId: PATIENT_ID, actorId: 'staff-1', facilityId: FACILITY_ID,
+    })
+  })
+
+  it('item 3: shows the front desk its own uploads, the upload and Extract with OCR, and no sentence about who starts readings', async () => {
+    staff.permissions = ['ehr.encounter.read', 'ehr.document.write', 'ehr.document.read-own', 'ocr.job.write', 'ocr.job.start', 'ocr.job.read-own', 'ehr.vital.read']
+    renderWithOcr()
+    expect(await screen.findByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
+    const documents = within(card('Documents'))
+    expect(await documents.findByRole('link', { name: 'Extract with OCR' })).toBeTruthy()
+    expect(documents.getByText(OWN_DOCUMENTS_ONLY)).toBeTruthy()
+    expect(documents.getByRole('button', { name: 'Upload document' })).toBeTruthy()
+    expect(documents.queryByText(STARTS_WITH_OTHERS)).toBeNull()
+    expect(card('Documents').textContent).not.toMatch(/permission|read-own|unverified/i)
   })
 
   it('shows a refused document list as an alert', async () => {
@@ -1624,7 +1744,7 @@ describe('Consultation record: "Try again" after a change made in a card whose l
     fireEvent.change(input, { target: { files: [new File(['%PDF-1.4'], 'scan.pdf', { type: 'application/pdf' })] } })
     api.documents.mockRejectedValue(UNAVAILABLE())
     fireEvent.click(documents().getByRole('button', { name: 'Upload document' }))
-    expect(await documents().findByText('Uploaded. It can be opened once the virus check is done.')).toBeTruthy()
+    expect(await documents().findByText('Document uploaded. It can be opened once its virus scan is clean.')).toBeTruthy()
     await waitFor(() => expect(sentence()?.textContent).toBe(`${RELOAD_FAILED} ${SAID_UNAVAILABLE}Try again`))
     // The sentence and its Try again are the card's own, as before, and the only ones on the page.
     expect(card('Documents').contains(sentence())).toBe(true)

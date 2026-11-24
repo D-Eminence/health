@@ -23,6 +23,10 @@ import {
   DOCUMENT_TYPES_NOT_SERVED, DOCUMENT_TYPES_NOT_SERVED_MESSAGE, documentTypesServed, isDocumentType, type DocumentType,
 } from '../documentTypes'
 import { SOURCE_DELETED, isSourceDeletedRefusal, type DocumentDownload, type DocumentLink } from '../documentSource'
+import {
+  emergencySearchBody, parsePatientSearchAnswer, patientSearchBody,
+  type EmergencySearchKeys, type OwnFacilityAccess, type PatientSearchAnswer, type PatientSearchKeys,
+} from './patientSearch'
 
 export interface Facility {
   id: string
@@ -133,8 +137,19 @@ export interface StaffMfaActivation extends StaffSession {
   recoveryCodes: string[]
 }
 
+/**
+ * Why the desk registers a patient without a NIN (hid-system 0130, owner Q106; identity-api
+ * dto/register-without-nin.dto.ts NO_NIN_REASONS). Identity lists the ones it takes in `withoutNin.reasons`.
+ */
+export type NoNinReason = 'nin_service_unavailable' | 'no_nin' | 'not_carried' | 'child' | 'foreign_national'
+
 export interface RegistrationCapabilities {
-  nin: { enabled: boolean; state: string }
+  nin: { enabled: boolean; state: string; available?: boolean }
+  /**
+   * hid-system 0130 (ID-2, owner Q106): whether the desk may register a patient without a NIN, and why it may. A
+   * backend before 0130 sends no `withoutNin`, and deferred staging sends `{ enabled: false }` alone.
+   */
+  withoutNin?: { enabled: boolean; phoneRequiredUnlessChild?: boolean; reasons?: string[] }
   newPatientRegistrationRequiresNin: boolean
 }
 
@@ -145,6 +160,42 @@ export interface RegistrationCase {
   version: number
   candidateCount: number
   candidates?: Array<{ patientId: string; fullName: string; dateOfBirth: string | null }>
+  patient?: { patientId: string; hid: string }
+  /** hid-system ID-0: shown as "NIN Verified" or "NIN Not Verified". */
+  ninStatus?: 'verified' | 'not_verified'
+  /** hid-system 0130: 'none' when the desk registered the patient without a NIN. */
+  identityEvidence?: 'nin' | 'none'
+}
+
+/**
+ * POST identity/registration-cases/without-nin (hid-system 0130, docs/INTERFACE_CONTRACT.md ID-2). The phone and address
+ * go together, and are left out only for a child; the existing Health ID only when the patient says they have one.
+ */
+export interface RegisterWithoutNinInput {
+  firstName: string
+  lastName: string
+  dateOfBirth: string
+  gender?: 'female' | 'male' | 'intersex' | 'other' | 'unknown'
+  noNinReason: NoNinReason
+  phone?: string
+  addressLine?: string
+  city?: string
+  stateCode?: string
+  lga?: string
+  hasExistingHealthId: boolean
+  existingHealthId?: string | null
+}
+
+/** Its answer (201): the outcome only, never who might be the same person. */
+export interface RegisteredWithoutNin {
+  caseId: string
+  status: 'approved_new_identity' | 'review_required'
+  version: number
+  outcome: 'registered' | 'sent_for_review'
+  message?: string
+  identityEvidence: 'none'
+  ninStatus: 'verified' | 'not_verified'
+  replayed: boolean
   patient?: { patientId: string; hid: string }
 }
 
@@ -430,6 +481,28 @@ export interface Encounter {
   rowVersion: number | string
 }
 
+/**
+ * EHR-C5, the one-call consultation (EHR_LIVE_CONTRACT.md "EHR-C5: one-call consultation", hid-system 4c843270
+ * CreateConsultationDto): each part is exactly the body of its own route. `vitals` is left out (New consultation takes
+ * none), and so is `reuseOpenVisit`: the call always saves on the open visit today (EHR-C1).
+ */
+export interface ConsultationInput {
+  visit: { encounterType: string; status: string; startedAt: string; chiefComplaint: string }
+  note?: { noteType: string; title: string; status: string; content: string }
+  diagnoses?: Array<{ codeSystem: string; code: string; display: string; clinicalStatus: string; verificationStatus: string }>
+}
+
+/**
+ * Its `201`: the visit with `reusedOpenVisit` (true when the open visit today was used, which keeps its own complaint),
+ * and each part as its own route answers it; `note` and `vitals` are null and `diagnoses` [] when not sent.
+ */
+export interface ConsultationSaved {
+  encounter: Encounter & { reusedOpenVisit: boolean }
+  note: ClinicalRecord | null
+  vitals: ClinicalRecord | null
+  diagnoses: ClinicalRecord[]
+}
+
 export type RecordKind = 'clinical-notes' | 'vitals' | 'diagnoses' | 'prescriptions' | 'lab-requests'
 
 export interface ClinicalRecord {
@@ -462,7 +535,19 @@ export type LabHandoff =
  * request also carries Lab's work item and `labHandoff`, both null unless the
  * request is active; an earlier EHR sends neither.
  */
-export type SavedRecord = ClinicalRecord & { labWorkItem?: unknown; labHandoff?: LabHandoff | null }
+export type SavedRecord = ClinicalRecord & { labWorkItem?: unknown; labHandoff?: LabHandoff | null; pharmacyHandoff?: unknown }
+
+/**
+ * What became of sending a prescription to this hospital's own pharmacy (hid-system 0133, INTERFACE_CONTRACT.md "EHR
+ * API: pharmacyHandoff"): on the answer to Activate, an edit or a resume, and to "Send to pharmacy" (own-pharmacy-send).
+ * `pending`, or `not_sent` with reason `unavailable`, may be sent again; every other answer may not until the
+ * prescription is read again. Read defensively (ehr-blue orders/ownPharmacySend.ts readPharmacyHandoff).
+ */
+export interface PharmacyHandoff {
+  readonly status: 'sent' | 'pending' | 'not_sent'
+  readonly reason?: 'no_pharmacy' | 'routed' | 'not_prescriber' | 'changed' | 'superseded' | 'not_allowed' | 'unavailable'
+  readonly message: string
+}
 
 export type VitalMeasurement = 'systolicMmhg' | 'diastolicMmhg' | 'pulseBpm' | 'temperatureC'
   | 'respiratoryRate' | 'oxygenSaturationPercent' | 'weightKg' | 'heightCm'
@@ -916,6 +1001,106 @@ export interface PharmacyWorkItem {
    * work (proposed, hid-system 0106), on own work too.
    */
   patient?: OrderRoutePatient
+  /**
+   * Where the item is at Pharmacy, and whether a pharmacist accepted it (hid-system ORD-4, Release B). Kept together, and
+   * only for a step and an `acceptedWith` this page knows (pharmacyStepsOf); absent from today's backend, and then every
+   * screen shows what it does today. `status: "accepted"` and `acceptedAt` keep their meaning: the pharmacy has it.
+   */
+  pharmacyStep?: PharmacyStep
+  pharmacistAcceptance?: PharmacistAcceptance | null
+  /**
+   * Present (always true) only on this facility's own item withdrawn by the prescribing team before it was dispensed
+   * (hid-system 0133 and ORD-2, pharmacy-api at 06f98040): it changed or was sent elsewhere after Pharmacy got it, so
+   * it can be neither accepted nor dispensed (Dispense answers 409 PHARMACY_PRESCRIPTION_NOT_DISPENSABLE). Read only
+   * through pharmacyText.ts withdrawnReasonOf.
+   */
+  withdrawn?: boolean
+  /**
+   * Why, kept only with `withdrawn: true`: `changed` (the prescribing team put it on hold, cancelled, corrected, edited
+   * or resumed it after it was sent) or `sent_elsewhere` (sent to another facility's pharmacy before it was dispensed).
+   * A code a page branches on, never shown as sent; pharmacy-api leaves it out (or null) for any other value.
+   */
+  withdrawnReason?: string | null
+}
+
+/** hid-system ORD-4: a pharmacy work item's step. */
+export type PharmacyStep = 'received' | 'accepted' | 'dispensed' | 'dispensing_reversed'
+/** hid-system ORD-4: how the item came to be accepted (Accept, its first dispensing, an order route, a hand-off). */
+export type PharmacistAcceptedWith = 'accept' | 'dispensing' | 'order_route' | 'hand_off'
+export interface PharmacistAcceptance {
+  acceptedAt: string
+  acceptedByMembershipId: string
+  acceptedWith: PharmacistAcceptedWith
+}
+/** hid-system ORD-4: POST /pharmacy/work-items/:id/accept answers 201 (recorded) or 200 (`alreadyAccepted: true`). */
+export interface PharmacyAcceptance {
+  workItemId: string
+  pharmacyStep?: PharmacyStep
+  pharmacistAcceptance?: PharmacistAcceptance | null
+  alreadyAccepted: boolean
+}
+
+const PHARMACY_STEPS: ReadonlySet<string> = new Set<PharmacyStep>(['received', 'accepted', 'dispensed', 'dispensing_reversed'])
+const ACCEPTED_WITH: ReadonlySet<string> = new Set<PharmacistAcceptedWith>(['accept', 'dispensing', 'order_route', 'hand_off'])
+
+const stepsNotRead = () => new HidApiError(502, 'Prescriptions could not be read. Please try again.', { code: 'INVALID_RESPONSE', retryable: false })
+const filled = (value: unknown): value is string => typeof value === 'string' && value.length > 0
+
+/**
+ * An answer's `pharmacyStep` and `pharmacistAcceptance` by INTERFACE_CONTRACT ORD-4 "Screen change": both kept only for
+ * a step and an `acceptedWith` this page knows; both left out (the item reads as today) when the step is absent or
+ * either value is one it does not know (a newer pharmacy-api), so one such item never fails the whole list. Only a wrong
+ * type is refused, as an unreadable answer: a step that is not a string (null included); next to a known step, an
+ * acceptance missing or neither null nor an object; an `acceptedWith` that is not a string; with a known `acceptedWith`,
+ * an `acceptedAt` or `acceptedByMembershipId` that is not a non-empty string.
+ */
+export function pharmacyStepsOf<T extends object>(answer: T): T {
+  const { pharmacyStep: step, pharmacistAcceptance: acceptance, ...rest } = answer as T & { pharmacyStep?: unknown; pharmacistAcceptance?: unknown }
+  const bare = rest as T
+  if (step === undefined) return bare
+  if (typeof step !== 'string') throw stepsNotRead()
+  if (!PHARMACY_STEPS.has(step)) return bare
+  if (acceptance === null) return { ...bare, pharmacyStep: step as PharmacyStep, pharmacistAcceptance: null }
+  if (typeof acceptance !== 'object' || Array.isArray(acceptance)) throw stepsNotRead()
+  const { acceptedWith, acceptedAt, acceptedByMembershipId } = acceptance as Record<string, unknown>
+  if (typeof acceptedWith !== 'string') throw stepsNotRead()
+  if (!ACCEPTED_WITH.has(acceptedWith)) return bare
+  if (!filled(acceptedAt) || !filled(acceptedByMembershipId)) throw stepsNotRead()
+  return { ...bare, pharmacyStep: step as PharmacyStep,
+    pharmacistAcceptance: { acceptedAt, acceptedByMembershipId, acceptedWith: acceptedWith as PharmacistAcceptedWith } }
+}
+
+/**
+ * One member of the working facility, past or present, by membership (hid-system SX-9, GET
+ * /identity/facility-staff-names). `name` is null for a member whose login was deleted: the screen then says "Former
+ * staff member". Names only: no email, role, licence or account id is answered.
+ */
+export interface FacilityStaffName { membershipId: string; name: string | null; current: boolean }
+/** SX-9's answer: the facility's own members, current ones first; `complete` is false when more than 500 were left out. */
+export interface FacilityStaffNames { facilityId: string; staff: FacilityStaffName[]; complete: boolean }
+/** SX-9 refuses more than 100 ids in one read (400 VALIDATION_FAILED). */
+export const FACILITY_STAFF_NAMES_MAX_IDS = 100
+
+const namesNotRead = () => new HidApiError(502, 'Staff names could not be read. Please try again.', { code: 'INVALID_RESPONSE', retryable: false })
+
+/**
+ * SX-9's answer as INTERFACE_CONTRACT writes it, `{ facilityId, staff, complete }`. An answer that is not that shape is
+ * refused as unreadable; a row that is not `{ membershipId, name (a string or null), current }` is left out, so it is
+ * never shown as someone else's name.
+ */
+export function facilityStaffNamesOf(answer: unknown): FacilityStaffNames {
+  const record = answer && typeof answer === 'object' ? answer as Record<string, unknown> : null
+  if (!record || typeof record.facilityId !== 'string' || !Array.isArray(record.staff) || typeof record.complete !== 'boolean') throw namesNotRead()
+  const staff = record.staff.flatMap((row: unknown): FacilityStaffName[] => {
+    const { membershipId, name, current } = (row && typeof row === 'object' ? row : {}) as Record<string, unknown>
+    return filled(membershipId) && (name === null || filled(name)) && typeof current === 'boolean' ? [{ membershipId, name, current }] : []
+  })
+  return { facilityId: record.facilityId, staff, complete: record.complete }
+}
+
+/** A Pharmacy work list with each item's steps read (pharmacyStepsOf); a list in another shape is left as it came. */
+function pharmacyListOf(list: WorkList<PharmacyWorkItem>): WorkList<PharmacyWorkItem> {
+  return Array.isArray(list?.items) ? { ...list, items: list.items.map(item => item && typeof item === 'object' ? pharmacyStepsOf(item) : item) } : list
 }
 
 /**
@@ -2372,6 +2557,15 @@ export const staffApi = {
   saveFacilityProfile: (facilityId: string, profile: FacilityProfileValues, version: number, idempotencyKey: string) =>
     client.post<FacilityProfileSaved>('/api/v1/identity/facility-profile', profile,
       { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), 'If-Match': `"${version}"`, ...keyHeaders(idempotencyKey) } }),
+  // The names of the working facility's members by membership (hid-system SX-9): any member active there, no permission
+  // beyond membership, read under healthcare operations whatever is sent. Only the ids asked for, 1 to 100 of them.
+  facilityStaffNames: (facilityId: string, membershipIds: readonly string[]) => {
+    if (membershipIds.length < 1 || membershipIds.length > FACILITY_STAFF_NAMES_MAX_IDS) {
+      return Promise.reject(new RangeError(`Ask for 1 to ${FACILITY_STAFF_NAMES_MAX_IDS} staff names at a time.`))
+    }
+    return client.get<unknown>('/api/v1/identity/facility-staff-names', { query: { membershipIds: membershipIds.join(',') },
+      headers: facilityHeaders(facilityId, 'healthcare-operations'), dedupe: false, retry: NO_RETRY }).then(facilityStaffNamesOf)
+  },
   setOnePersonLab: (facilityId: string, enabled: boolean, reason: string) =>
     client.post<OnePersonLabChange>('/api/v1/identity/facility-settings/one-person-lab', { enabled, reason },
       { headers: facilityHeaders(facilityId, 'healthcare-operations') }),
@@ -2392,6 +2586,11 @@ export const staffApi = {
     client.post<RegistrationCase>('/api/v1/identity/nin/resolve',
       { ...input, purpose: 'healthcare-operations' },
       { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders(idempotencyKey) }, timeoutMs: NIN_CHECK_TIMEOUT_MS }),
+  // hid-system 0130: a patient registered at the desk without a NIN (healthcare operations, one key per request).
+  registerWithoutNin: (facilityId: string, input: RegisterWithoutNinInput, idempotencyKey: string) =>
+    client.post<RegisteredWithoutNin>('/api/v1/identity/registration-cases/without-nin',
+      { ...input, purpose: 'healthcare-operations' },
+      { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders(idempotencyKey) } }),
   registrationCase: (facilityId: string, caseId: string) =>
     client.get<RegistrationCase>(`/api/v1/identity/registration-cases/${encodeURIComponent(caseId)}`,
       { headers: facilityHeaders(facilityId, 'healthcare-operations') }),
@@ -2437,6 +2636,25 @@ export const staffApi = {
   breakGlass: (facilityId: string, hid: string, reason: string) =>
     client.post<GrantResult>('/api/v1/identity/break-glass', { hid: hid.trim().toUpperCase(), reason, durationMinutes: 30 },
       { headers: facilityHeaders(facilityId, 'emergency') }),
+  // Break-glass for a card of this member's own emergency search (ID-5, 0132): the card's matchRef stands for the patient,
+  // never with a Health ID. The rest of the request, and the answer, are today's.
+  breakGlassByMatchRef: (facilityId: string, matchRef: string, reason: string) =>
+    client.post<GrantResult>('/api/v1/identity/break-glass', { matchRef, reason, durationMinutes: 30 },
+      { headers: facilityHeaders(facilityId, 'emergency') }),
+  // Staff patient search (0132): the keys in the body, never in an address; cards carry a matchRef, never a Health ID.
+  searchPatients: async (facilityId: string, keys: PatientSearchKeys): Promise<PatientSearchAnswer> =>
+    parsePatientSearchAnswer(await client.post<unknown>('/api/v1/identity/patient-search', patientSearchBody(keys),
+      { headers: facilityHeaders(facilityId, 'direct-care') })),
+  // Emergency search (0132, ID-3b): exact name and date of birth, with the reason typed first; at most 5 cards.
+  emergencySearchPatients: async (facilityId: string, keys: EmergencySearchKeys): Promise<PatientSearchAnswer> =>
+    parsePatientSearchAnswer(await client.post<unknown>('/api/v1/identity/patient-search/emergency', emergencySearchBody(keys),
+      { headers: facilityHeaders(facilityId, 'emergency') })),
+  // Open this facility's own patient for 24 hours without a PIN (0131): doctors, nurses and clinicians. Exactly one of the
+  // Health ID (in the body) or the patient id.
+  openOwnFacilityPatient: (facilityId: string, patient: { hid: string } | { patientId: string }) =>
+    client.post<OwnFacilityAccess>('/api/v1/identity/own-facility-access',
+      'hid' in patient ? { hid: patient.hid.trim().toUpperCase() } : { patientId: patient.patientId },
+      { headers: facilityHeaders(facilityId, 'direct-care') }),
   closeGrant: (facilityId: string, grantId: string, reason: string) =>
     client.post<GrantResult>(`/api/v1/identity/consent-grants/${encodeURIComponent(grantId)}/close`, { reason },
       { headers: facilityHeaders(facilityId) }),
@@ -2459,6 +2677,12 @@ export const staffApi = {
   // One encounter, read afresh: the documented one may be on a page not shown.
   encounter: (facilityId: string, patientId: string, encounterId: string) =>
     client.get<Encounter>(encounterPath(patientId, encounterId), { headers: facilityHeaders(facilityId), dedupe: false }),
+  // The chart summary (EHR-C4, hid-system 4c843270): one call for what the chart opens with, direct care at the selected
+  // facility, never cached (the EHR answers no-store). Passed through unparsed: the patient page reads it
+  // (ehr-blue/clinical/patients/chartSummary.ts). An EHR before EHR-C4 answers 404, and the page reads today's lists.
+  chartSummary: (facilityId: string, patientId: string, signal?: AbortSignal) =>
+    client.get<unknown>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/chart-summary`,
+      { headers: facilityHeaders(facilityId, 'direct-care'), signal, dedupe: false }),
   patientChat: async (facilityId:string,patientId:string,question:string,signal?:AbortSignal) =>
     parseStagingPatientChat(await client.post<unknown>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/chat`,
       {question:stagingChatQuestion(question)},{headers:facilityHeaders(facilityId),signal,timeoutMs:65_000})),
@@ -2530,6 +2754,12 @@ export const staffApi = {
   createEncounter: (facilityId: string, patientId: string, input: { encounterType: string; status: string; startedAt: string; chiefComplaint: string }, idempotencyKey?: string) =>
     client.post<Encounter>(patientPath(patientId), input,
       { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),
+  // EHR-C5: the visit, its note and its diagnoses in one call, all or nothing (403 CONSENT_REQUIRED, 409
+  // IDEMPOTENCY_KEY_REUSED and the parts' own refusals; nothing is saved on any of them). A backend before it answers 404.
+  // The caller keeps one key per consultation, so pressing again after no answer replays the same save.
+  createConsultation: (facilityId: string, patientId: string, input: ConsultationInput, idempotencyKey: string) =>
+    client.post<ConsultationSaved>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/consultations`, input,
+      { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),
   updateEncounter: (facilityId: string, patientId: string, encounterId: string,
     input: { expectedRowVersion: number; changeReason: string; status: string; endedAt?: string }) =>
     client.request<Encounter>({ method: 'PATCH', path: encounterPath(patientId, encounterId), body: input,
@@ -2572,6 +2802,15 @@ export const staffApi = {
       { expectedRowVersion, reason, ...(allergyAcknowledgement
         ? { allergyAcknowledgement: { reason: allergyAcknowledgement.reason, warningToken: allergyAcknowledgement.warningToken } } : {}) },
       { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),
+  // "Send to pharmacy" for the prescriber (hid-system 0133): sends their active prescription to this hospital's own
+  // pharmacy at the version read, or tries a pending send again. No Idempotency-Key: sending twice sends once. The
+  // allergy acknowledgement goes only after the EHR's allergy warning (0117). Answers `{ pharmacyHandoff }`.
+  ownPharmacySend: (facilityId: string, patientId: string, encounterId: string, prescriptionId: string,
+    expectedRowVersion: number, allergyAcknowledgement?: AllergyAcknowledgement | null) =>
+    client.post<{ pharmacyHandoff?: unknown }>(`${encounterPath(patientId, encounterId)}/prescriptions/${encodeURIComponent(prescriptionId)}/own-pharmacy-send`,
+      { expectedRowVersion, ...(allergyAcknowledgement
+        ? { allergyAcknowledgement: { reason: allergyAcknowledgement.reason, warningToken: allergyAcknowledgement.warningToken } } : {}) },
+      { headers: facilityHeaders(facilityId) }),
   // Sends (or sends again) a saved active lab request to Lab at the version read
   // (hid-system #56). The body is exactly SendLabRequestToLabDto; the caller keeps
   // one key per attempt, so pressing again after no answer is the same send.
@@ -2688,7 +2927,13 @@ export const staffApi = {
     client.get<LabOrderReleasedResults>(`/api/v1/lab/ehr-orders/${encodeURIComponent(labRequestId)}/released-results`,
       { headers: facilityHeaders(facilityId, purpose), dedupe: false }),
   pharmacyWorkItems: (facilityId: string) =>
-    client.get<WorkList<PharmacyWorkItem>>('/api/v1/pharmacy/work-items', { headers: facilityHeaders(facilityId) }).then(keptSince),
+    client.get<WorkList<PharmacyWorkItem>>('/api/v1/pharmacy/work-items', { headers: facilityHeaders(facilityId) }).then(keptSince).then(pharmacyListOf),
+  // A pharmacist takes the item on (hid-system ORD-4): the body is exactly the item's version, with no reason. The key is
+  // the caller's, so a retry of the same press sends the same one and records nothing twice.
+  acceptPharmacyWorkItem: (facilityId: string, item: Pick<PharmacyWorkItem, 'id' | 'version'>, idempotencyKey: string) =>
+    client.post<PharmacyAcceptance>(`/api/v1/pharmacy/work-items/${encodeURIComponent(item.id)}/accept`,
+      { expectedWorkItemVersion: item.version },
+      { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }).then(pharmacyStepsOf),
   dispense: (facilityId: string, item: PharmacyWorkItem, quantityDispensed: number, quantityUnit: string, reason: string) =>
     client.post<unknown>(`/api/v1/pharmacy/work-items/${encodeURIComponent(item.id)}/dispensings`,
       { expectedWorkItemVersion: item.version, quantityDispensed, quantityUnit, reason },
@@ -3015,4 +3260,60 @@ export const orderRoutesApi = {
   sentWrongPatient: (facilityId: string) =>
     client.get<SentWrongPatientOrderRoutes>('/api/v1/ehr/order-routes/wrong-patient',
       { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false }),
+}
+
+/**
+ * The waiting list (hid-system 0135, EHR-C7, INTERFACE_CONTRACT.md): this facility's patients checked in today and
+ * where each is. Front desk, nurses, clinicians and doctors (ehr.encounter.read and ehr.encounter.write); direct care
+ * only. No Health ID in any address, query, body or answer: a patient is checked in by a search card's `matchRef`, or by
+ * the id of a patient already this facility's own, in the body.
+ */
+export const VISIT_QUEUE_STAGES = ['waiting', 'triage', 'ready', 'with_clinician', 'finished', 'left', 'cancelled'] as const
+export type VisitQueueStage = (typeof VISIT_QUEUE_STAGES)[number]
+
+export interface VisitQueueCard {
+  entryId: string
+  patientId: string
+  fullName: string
+  sex: string | null
+  dateOfBirth: string | null
+  healthIdLast4: string
+  stage: VisitQueueStage
+  triageLevel: number | null
+  assignedMembershipId: string | null
+  checkInBasis: 'search' | 'own-facility'
+  checkedInAt: string
+  checkInDay: string
+  stageChangedAt: string
+  closedAt: string | null
+  rowVersion: number
+  chartBlocked: boolean
+  /** hid-system 0145 (ID-7): an unknown patient's record ("Unknown patient U-0007" as fullName). Absent before 0145. */
+  recordKind?: 'standard' | 'unknown'
+  /** hid-system 0145 (ID-7): the date of birth is an estimate (an unknown patient's age). Absent before 0145. */
+  dateOfBirthEstimated?: boolean
+}
+
+export interface VisitQueueList { items: VisitQueueCard[]; hasMore: boolean; limit: number }
+export interface VisitQueueCheckIn { outcome: 'checked_in' | 'already_on_list'; entry: VisitQueueCard }
+export type VisitQueueCheckInBy = { matchRef: string } | { patientId: string }
+/** At least one change; null clears the triage level or the person who will see the patient. */
+export interface VisitQueueChange {
+  stage?: VisitQueueStage
+  triageLevel?: number | null
+  assignedMembershipId?: string | null
+}
+
+export const visitQueueApi = {
+  list: (facilityId: string, includeClosedToday = false) =>
+    client.get<VisitQueueList>('/api/v1/ehr/visit-queue',
+      { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false,
+        ...(includeClosedToday ? { query: { includeClosedToday: true } } : {}) }),
+  checkIn: (facilityId: string, patient: VisitQueueCheckInBy) =>
+    client.post<VisitQueueCheckIn>('/api/v1/ehr/visit-queue/check-in',
+      'matchRef' in patient ? { matchRef: patient.matchRef } : { patientId: patient.patientId },
+      { headers: facilityHeaders(facilityId, 'direct-care') }),
+  update: (facilityId: string, entry: Pick<VisitQueueCard, 'entryId' | 'rowVersion'>, change: VisitQueueChange) =>
+    client.request<VisitQueueCard>({ method: 'PATCH', path: `/api/v1/ehr/visit-queue/${encodeURIComponent(entry.entryId)}`,
+      body: { expectedRowVersion: entry.rowVersion, ...change }, headers: facilityHeaders(facilityId, 'direct-care') }),
 }

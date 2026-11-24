@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { DEMO_LABORATORY, LAB_WORK, REAL_FACILITY, SESSION, facility, homeHeading, json, openStaffApp, serve, sessionAt, where } from './blueHarness'
 
 /**
@@ -59,8 +59,8 @@ describe('a product site whose own page this session may not open', () => {
     expect(where()).toBe('/provider')
     expect(screen.queryByRole('heading', { name: refusal })).toBeNull()
     expect(heading!.textContent).toMatch(homeHeading())
-    // Home says what today's Overview says to a role without clinical work, in plain words.
-    expect(screen.getByText('You have no clinical work at this facility yet. Ask an administrator to check your role.')).toBeDefined()
+    // Home says what today's Overview says to a role without clinical work, in plain words (its Workspaces card).
+    expect(screen.getByText('Your active facility has no clinical modules for your role. Ask an administrator to review your assignment.')).toBeDefined()
     expect(sent.some(call => call.route.includes(api))).toBe(false)
   })
 
@@ -133,11 +133,26 @@ describe('a product site whose own page this session may open', () => {
     expect(screen.queryByRole('heading', { level: 1, name: homeHeading() })).toBeNull()
   })
 
+  // As before website release C (owner's decision of 24 November 2026, over parity report 3.3-53): a product site whose
+  // own page this session can use lists no Home; its first item is its own page.
   it('keeps its first tab on the product\'s own page, under the product\'s name, and lists no Home', async () => {
     await openOn('lab.healthidentitydirectory.com', ['lab.work-item.read'], { [LAB_WORK]: many(() => json({ items: [] })) })
     await waitFor(() => expect(where()).toBe('/provider/laboratory/work'))
     expect(menuLink('Home')).toBeNull()
     expect(firstTab().getAttribute('href')).toBe('/provider/laboratory')
     expect(firstTab().textContent).toBe('Lab')
+  })
+
+  it.each([
+    ['lab.healthidentitydirectory.com', ['lab.work-item.read'], 'Lab', '/provider/laboratory/work', { [LAB_WORK]: many(() => json({ items: [] })) }],
+    ['migrate.healthidentitydirectory.com', ['ocr.job.read'], 'Migrate', '/provider/ocr', {}],
+  ] as const)('on %s, the brand leads back to the product\'s own page, not to Home', async (host, permissions, name, page, routes) => {
+    await openOn(host, permissions, routes)
+    await waitFor(() => expect(where()).toBe(page))
+    fireEvent.click(screen.getAllByRole('link', { name: `Health ID ${name} home` })[0]!)
+    await waitFor(() => expect(where()).toBe(page))
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)) })
+    expect(where()).toBe(page)
+    expect(screen.queryByRole('heading', { level: 1, name: homeHeading() })).toBeNull()
   })
 })

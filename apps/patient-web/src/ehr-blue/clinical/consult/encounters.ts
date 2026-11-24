@@ -122,9 +122,16 @@ export const DIAGNOSIS_VERIFICATION_STATUSES: readonly StatusOption[] = [
 
 /** The consultation's messages, in plain words. */
 export const RESTARTED = 'This list changed since it was opened, so it shows the newest entries again.'
+/**
+ * The empty list, the start's success and its failure keep the redesign's words by the coordinator's decision of
+ * 2 Nov 2026 (pre-merge review, recorded in commits a1c93d13, 098b6a77 and db9967ae): classic's "No encounters are available for
+ * this patient and facility.", "Encounter created." and "Encounter could not be created." must not ship. A visit with
+ * no complaint says classic's words (staff/routes/Clinical.tsx:1838), which that decision did not cover.
+ */
 export const NO_ENCOUNTERS = 'No consultations for this patient here yet.'
-export const NO_COMPLAINT = 'No complaint recorded'
+export const NO_COMPLAINT = 'No chief complaint provided'
 export const ENCOUNTER_CREATED = 'Consultation started.'
+export const ENCOUNTER_NOT_CREATED = 'The consultation could not be started.'
 export const RECORD_SAVED = 'Clinical record saved.'
 export const NOTE_STATUS_UPDATED = 'Clinical note status updated.'
 export const ENCOUNTER_STATUS_UPDATED = 'Consultation updated.'
@@ -134,9 +141,10 @@ export const REASON_SHORT = 'Give a reason of at least 3 characters.'
 /** A failed re-read of this consultation, in the redesign's word (today's says "Encounters could not be loaded.", staff/routes/Clinical.tsx:1306). */
 export const ENCOUNTERS_FAILED = 'This consultation could not be loaded.'
 export const ENCOUNTER_CHANGED = 'Someone changed this consultation while you had it open. It now shows its current status; choose the change again if it’s still needed.'
-export const NOTES_ARE_DRAFTS = 'Notes are saved as drafts. Review a note, then sign it.'
-/** As the chart says it under the patient banner (parts/chart.tsx READ_ONLY). */
-export const NO_WRITE = 'You can view this record but not change it.'
+/** Classic's draft hint under the note fields (staff/routes/Clinical.tsx RecordForm :558), word for word. */
+export const NOTES_ARE_DRAFTS = 'Notes are saved as drafts. Signing needs its own reviewed action.'
+/** Classic's refusal of a create without write access (staff/routes/Clinical.tsx:1492, :1676), word for word. */
+export const NO_WRITE = 'Your access doesn’t allow changes to this patient’s records.'
 
 // EHR lists encounters and each record kind newest first, 50 to a page, with an opaque cursor for the next and no
 // total. A list keeps the cursors that led to the page shown, the first page's being none.

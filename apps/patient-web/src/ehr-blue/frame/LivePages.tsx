@@ -1,7 +1,9 @@
 import { Link } from 'react-router-dom'
 import { EhrDataTable, EhrEmptyState, EhrPageHeading, EhrSampleBanner, EhrBadge } from '@hid/ui/ehr'
 import { useStaff } from '../../staff/App'
+import type { Facility } from '../../staff/api'
 import { visibleNavigation } from '../../staff/navigation'
+import { refusedWorkText, type RefusedWork } from '../../staff/refusedWork'
 import { useTodayPage } from './pageContext'
 
 /**
@@ -39,12 +41,28 @@ export function StaffAccessPage() {
 
 /**
  * A page visible() turns down here (one of the demo's): no role can open it at this facility, and the words say so.
- * A page this session's role may not open sends it Home instead (BlueFrame).
+ * A page this session's role may not open refuses in its place instead (PageUnavailable, or the page's own refusal).
  */
 export function DeniedPage({ label, facility }: { readonly label: string; readonly facility: string }) {
   return <>
     <EhrPageHeading title={label} />
     <EhrEmptyState title={`${label} is part of the Health ID demo only`} message={`It is not available at ${facility}.`}
       action={<Link className="hid-ehr-button hid-ehr-button-secondary" to="/provider">Go to Home</Link>} />
+  </>
+}
+
+/**
+ * A page this session's role may not open, and that has no refusal of its own, in its place: "<page> unavailable", as
+ * the classic pages headed theirs ("Laboratory unavailable", "Audit access unavailable"), and the plain sentence the
+ * classic refusals share (staff/refusedWork.ts): what the role doesn't include and whom to ask. It names no permission
+ * (house rule) and sends nobody Home with a general notice (parity report 3.3-50).
+ */
+export function PageUnavailable({ label, facility }: { readonly label: string; readonly facility: Facility | undefined }) {
+  const work: RefusedWork = { name: label, work: 'this page', doneBy: null, gets: new Set() }
+  return <>
+    <EhrPageHeading title={`${label} unavailable`} />
+    <div className="hid-ehr-empty-state hid-ehr-dept-unavailable">
+      <p className="hid-ehr-state-message">{refusedWorkText(facility, facility?.permissions ?? [], work)}</p>
+    </div>
   </>
 }

@@ -114,6 +114,8 @@ const PRESCRIPTION_ALLERGY_ACKNOWLEDGEMENTS = 'From hid-system#218 at 7fbb04aa (
   + 'a member that is there but can\'t be read means whether a warning was overridden can\'t be shown, never "none".'
 /** A patient's records imported from paper, listed by Lab and Pharmacy: proposed, 404 until served. */
 const PAPER_RECORD_LISTS = 'Not served by hid-system yet (404 until it is). Direct care at the working facility.'
+const RELEASE_A = 'Served by hid-system staging-novu-ci-20261005 from Release A (migrations 0128-0137); not served by hid-system '
+  + 'main, which answers 404. '
 const ACCOUNT_DELETION_NOTE = 'Novu: hid-system 0096; 404 before'
 /**
  * "Notifications on this device" (B6, contract b6-contract.md §3): payload-free Web Push, the subscription stored by
@@ -579,6 +581,27 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('identity.facilityAudit','identity','/api/v1/audit/events',G,false,one('GET','audit.read'),
     'Gateway routes this path to Identity. Requires healthcare-operations purpose and active facility.'),
   r('identity.patientLookup','identity','/api/v1/identity/patient-lookup',P,false,one('POST','identity.patient.read')),
+  // Release A on hid-system staging-novu-ci-20261005 (identity-api 4c843270, migrations 0131 and 0132): staff patient search,
+  // emergency search, and opening this facility's own patient without a PIN. Keys and Health IDs go in the POST bodies,
+  // never in an address; a search card carries a matchRef, never a Health ID or a patient id.
+  proposed(r('identity.patientSearch','identity','/api/v1/identity/patient-search',P,false,one('POST','identity.registration.write'),
+    'Release A (0132, ID-3a) on hid-system staging-novu-ci-20261005; not served by hid-system main. X-Facility-ID, '
+    + 'direct-care. Body { firstName?, lastName?, dateOfBirth?, healthId?, phone? } (the strong and weak key rule); 200 '
+    + '{ mode, outcome: found | no_match | no_such_patient | too_many, reach: everywhere | here, message, patients: [{ matchRef, '
+    + 'matchRefExpiresAt, fullName, sex, dateOfBirth, healthIdLast4, ninStatus }] }. 400 PATIENT_SEARCH_TOO_BROAD, '
+    + 'PATIENT_SEARCH_PHONE_INVALID, PATIENT_SEARCH_DATE_INVALID; 429 PATIENT_SEARCH_LIMITED; 503 PATIENT_SEARCH_UNAVAILABLE.')),
+  proposed(r('identity.patientEmergencySearch','identity','/api/v1/identity/patient-search/emergency',P,false,
+    one('POST','identity.break-glass.write'),
+    'Release A (0132, ID-3b) on hid-system staging-novu-ci-20261005; not served by hid-system main. X-Facility-ID, '
+    + 'emergency. Body exactly { firstName, lastName, dateOfBirth, reason (8-500) }; the same answer with mode emergency and '
+    + 'at most 5 cards. The cards give no access: break-glass sends a card\'s matchRef with its own reason (ID-5). 400 '
+    + 'EMERGENCY_SEARCH_REASON_REQUIRED, 423 BREAK_GLASS_DISABLED, 429 PATIENT_SEARCH_LIMITED.')),
+  proposed(r('identity.ownFacilityAccess','identity','/api/v1/identity/own-facility-access',P,false,
+    one('POST','identity.patient.open-own-facility'),
+    'Release A (0131, ID-4) on hid-system staging-novu-ci-20261005; not served by hid-system main. X-Facility-ID, '
+    + 'direct-care. Body exactly one of { hid } or { patientId }; 200 { consentGrantId, patientId, status, expiresAt, '
+    + 'existingGrant, authorization: { basis: own-facility, scope: write_records, purpose: direct-care } } for 24 hours. '
+    + 'Doctors, nurses and clinicians only. 404 PATIENT_NOT_FOUND; 403 OWN_FACILITY_ACCESS_REFUSED.')),
   r('identity.authorization','identity','/api/v1/identity/authorization/check',P,false,one('POST','identity.authorization.check')),
   r('identity.consentStatus','identity','/api/v1/identity/consent-status',P,false,one('POST','identity.consent.read')),
   // The clinician's side of patient sharing (hid-1.0 parity B4, hid-system 0095 on Novu): the provider portal's Patients page.
@@ -599,6 +622,15 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     `${COLLECTED_FIELDS} Body { nin, firstName, lastName, dateOfBirth, gender?, purpose } and, all or none from 0114 (required `
     + 'after the follow-up release; the website always sends them), the desk fields { phone, addressLine, city, stateCode, lga, hasExistingHealthId, existingHealthId (exactly when '
     + 'hasExistingHealthId) }; the answer adds contactRecorded. Allergies are refused as an unknown field.'),
+  // hid-system 0130 (ID-2, owner Q106): registration at the desk without a NIN, docs/INTERFACE_CONTRACT.md ID-2.
+  r('identity.registrationWithoutNin','identity','/api/v1/identity/registration-cases/without-nin',P,false,
+    one('POST','identity.registration.write'),
+    'X-Facility-ID, healthcare-operations, Idempotency-Key. Body { firstName, lastName, dateOfBirth, gender?, noNinReason, purpose, '
+    + 'phone, addressLine, city, stateCode, lga (together; all or none for noNinReason child), hasExistingHealthId, existingHealthId '
+    + '(exactly when hasExistingHealthId) }; 201 { caseId, status, version, outcome: registered | sent_for_review, identityEvidence: '
+    + 'none, ninStatus, replayed, patient? }. 400 PHONE_REQUIRED, NOT_A_CHILD, REGISTRATION_WITHOUT_NIN_INVALID; 403 '
+    + 'REGISTRATION_WITHOUT_NIN_DENIED, REGISTRATION_WITHOUT_NIN_NOT_AVAILABLE; 409 IDEMPOTENCY_KEY_REUSED; 503 '
+    + 'REGISTRATION_WITHOUT_NIN_UNAVAILABLE.'),
   r('identity.registrationCase','identity','/api/v1/identity/registration-cases/:caseId',G,false,one('GET','identity.registration.write')),
   r('identity.registrationApprove','identity','/api/v1/identity/registration-cases/:caseId/approve-new',P,false,one('POST','identity.registration.approve')),
   r('identity.registrationEnroll','identity','/api/v1/identity/registration-cases/:caseId/enroll',P,false,one('POST','identity.registration.approve')),
@@ -629,6 +661,13 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'required: 200 { facilityId, version, changedFields, replayed }. 412 VERSION_CONFLICT, 428 IF_MATCH_REQUIRED, 409 '
     + 'IDEMPOTENCY_KEY_REUSED or FACILITY_PROFILE_SEALED, 400 VALIDATION_FAILED or FACILITY_PROFILE_INVALID, 503 '
     + 'FACILITY_PROFILE_UNAVAILABLE.')),
+  // SX-9 (hid-system staging-novu-ci-20261005): the working facility's members' names by membership, for "Accepted by
+  // <name>" on Pharmacy (ORD-4). Any member active at the facility; no permission beyond membership.
+  proposed(r('identity.facilityStaffNames','identity','/api/v1/identity/facility-staff-names',G,false,undefined,
+    'hid-system SX-9 (staging-novu-ci-20261005). X-Facility-ID required (400 FACILITY_REQUIRED; 403 FACILITY_ACCESS_DENIED; '
+    + '403 PATIENT_SCOPE_DENIED), read as healthcare-operations whatever X-Purpose-Of-Use says. Query membershipIds: up to 100 '
+    + 'comma-separated UUIDs (400 VALIDATION_FAILED). 200 { facilityId, staff [{ membershipId, name (null for a deleted '
+    + 'login: "Former staff member"), current }], complete }.')),
   // One-person lab (owner decision 33.3, hid-system 0111): the facility administrator's switch.
   proposed(r('identity.facilitySettings','identity','/api/v1/identity/facility-settings',G,false,one('GET','organization.manage'),
     `${FACILITY_SETTINGS_ROUTE} 200 { onePersonLab { enabled, changedAt, changedByName, reason } } (null until first `
@@ -921,8 +960,32 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'and the patient\'s own words { source, allergies, updatedAt } (updatedAt: when the patient last changed any part of their '
     + 'health profile). Read only, under the same emergency purpose and break-glass check. The member absent (an EHR before '
     + '7fbb04aa) means the allergies can\'t be shown here, never "none".'),
+  // Any one permission opens it, so none is listed here as required (this registry's permissions are all required).
+  r('ehr.chartSummary','ehr','/api/v1/ehr/patients/:patientId/chart-summary',G,false,undefined,
+    'EHR-C4 (hid-system 4c843270): open to a role holding any one of ehr.encounter.read, ehr.diagnosis.read, '
+    + 'ehr.prescription.read, ehr.lab-request.read, ehr.vital.read or ehr.note.read; each section is then answered only '
+    + 'with its own route\'s permission, and one not answered is listed in leftOut { section, reason, message }. The '
+    + 'patient page asks under direct care; an EHR before EHR-C4 answers 404 and the page reads today\'s lists instead.'),
   r('ehr.encounters','ehr','/api/v1/ehr/patients/:patientId/encounters',GP,false,{GET:['ehr.encounter.read'],POST:['ehr.encounter.write']}),
   r('ehr.encounter','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId',GPA,false,{GET:['ehr.encounter.read'],PATCH:['ehr.encounter.write']}),
+  // The part write permissions (ehr.note.write, ehr.diagnosis.write) are needed only for the parts sent.
+  proposed(r('ehr.consultations','ehr','/api/v1/ehr/patients/:patientId/consultations',P,false,one('POST','ehr.encounter.write'),
+    'EHR-C5 (hid-system 4c843270): direct-care, with an Idempotency-Key of 16 to 128 URL-safe characters. Body { visit, '
+    + 'note?, vitals?, diagnoses? (at most 20) }, each part the body of its own route; all saved in one transaction or none. '
+    + 'Always on the open visit today (EHR-C1). 201 { encounter (with reusedOpenVisit), note, vitals, diagnoses }. A backend '
+    + 'before it answers 404, and New consultation then saves with the separate routes.')),
+  // The waiting list (hid-system 0135, EHR-C7, Release A on staging-novu-ci-20261005).
+  proposed(r('ehr.visitQueue','ehr','/api/v1/ehr/visit-queue',G,false,one('GET','ehr.encounter.read','ehr.encounter.write'),
+    `${RELEASE_A} X-Facility-ID, direct-care. Query includeClosedToday=true also lists rows closed today (its only query). `
+    + '200 { items: card[], hasMore, limit: 200 }, most urgent first. No Health ID: a card has healthIdLast4 only.')),
+  proposed(r('ehr.visitQueueCheckIn','ehr','/api/v1/ehr/visit-queue/check-in',P,false,one('POST','ehr.encounter.read','ehr.encounter.write'),
+    `${RELEASE_A} X-Facility-ID, direct-care. Body exactly one of matchRef (this member's own patient search, 10 minutes) or `
+    + 'patientId (a patient already this facility\'s own). 200 { outcome: checked_in | already_on_list, entry: card }; 403 '
+    + 'CHECK_IN_NEEDS_SEARCH for every refused patient.')),
+  proposed(r('ehr.visitQueueEntry','ehr','/api/v1/ehr/visit-queue/:entryId',['PATCH'],false,
+    one('PATCH','ehr.encounter.read','ehr.encounter.write'),
+    `${RELEASE_A} X-Facility-ID, direct-care. Body { expectedRowVersion, stage?, triageLevel? (null clears), `
+    + 'assignedMembershipId? (null clears) }. 200 the card; 409 VISIT_QUEUE_ENTRY_CHANGED or VISIT_QUEUE_ENTRY_CLOSED.')),
   r('ehr.vitals','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals',GP,false,{GET:['ehr.vital.read'],POST:['ehr.vital.write']}),
   r('ehr.vital','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals/:vitalId',G,false,one('GET','ehr.vital.read')),
   r('ehr.vitalCorrections','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals/:vitalId/corrections',GP,false,{GET:['ehr.vital.read'],POST:['ehr.vital.write']}),
@@ -945,6 +1008,16 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'read by code) until the body carries the optional allergyAcknowledgement { reason, warningToken }. It is sent only '
     + 'after a warning, and again under the same Idempotency-Key (nothing is written on the 409); the reason is stored '
     + 'with the prescription as stage handoff.'),
+  // "Send to pharmacy" for the prescriber (hid-system 0133, ehr-api at 06f98040): no Idempotency-Key.
+  proposed(r('ehr.prescriptionOwnPharmacySend','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/prescriptions/:prescriptionId/own-pharmacy-send',P,false,
+    one('POST','ehr.prescription.write'),
+    'Novu: hid-system 0133 (ehr-api 06f98040); not served by hid-system main. X-Facility-ID and X-Purpose-Of-Use: direct-care. '
+    + 'No Idempotency-Key: sending twice sends once (one own pharmacy item per prescription). Body { expectedRowVersion, '
+    + 'allergyAcknowledgement? { reason, warningToken } } (the acknowledgement only after the 409 ALLERGY_ACKNOWLEDGEMENT_REQUIRED '
+    + 'warning, as on ehr.prescriptionPharmacy, stored as stage handoff); 200 { pharmacyHandoff { status, reason?, message } }. '
+    + 'Refusals: 412 PRESCRIPTION_VERSION_CONFLICT, 409 PRESCRIPTION_NOT_ELIGIBLE, PRESCRIPTION_ROUTED or VISIT_ENTERED_IN_ERROR, '
+    + '403 CONSENT_REQUIRED, 404 CLINICAL_RESOURCE_NOT_FOUND or PRESCRIPTION_NOT_FOUND, and 503 OWN_PHARMACY_SEND_UNAVAILABLE '
+    + 'on a database without 0133.')),
   r('ehr.labRequests','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/lab-requests',GP,false,{GET:['ehr.lab-request.read'],POST:['ehr.lab-request.write']},
     ORDER_LISTS_P4C),
   r('ehr.labRequest','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/lab-requests/:requestId',GPA,false,{GET:['ehr.lab-request.read'],PATCH:['ehr.lab-request.write']},
@@ -1001,13 +1074,14 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     `${ORDER_ROUTES_P4C_NOVU} Patient sessions only; Stop. Body { expectedVersion }; 200 { route: PatientOrderRoute }. 404 `
     + 'ORDER_ROUTE_NOT_FOUND, 409 ORDER_ROUTE_NOT_PENDING (accepted or ended), 412 VERSION_CONFLICT.')),
   r('files.list','files','/api/v1/ehr/documents',G,false,one('GET','ehr.document.read'),
-    'Item status initiated until completed; since hid-system 0110 source_deleted once Migrate\'s source page was deleted '
+    'ehr.document.read or ehr.document.read-own (hid-system 0136: the front desk; the list then holds only the documents this '
+    + 'login uploaded here). Item status initiated until completed; since hid-system 0110 source_deleted once Migrate\'s source page was deleted '
     + 'after 7 days (no download is offered); since hid-system#226 source_deleting while that deletion is under way, '
     + 'treated the same. An earlier backend sends neither.'),
   r('files.uploadIntent','files','/api/v1/ehr/documents/upload-intents',P,false,one('POST','ehr.document.write')),
   r('files.complete','files','/api/v1/ehr/documents/:documentId/complete',P,false,one('POST','ehr.document.write')),
   r('files.download','files','/api/v1/ehr/documents/:documentId/download',G,false,one('GET','ehr.document.read'),
-    '200 { url, expiresInSeconds }. Since hid-system 0110, 410 DOCUMENT_SOURCE_DELETED ("Source page deleted after 7 days") '
+    'ehr.document.read or ehr.document.read-own (hid-system 0136; another login\'s upload then answers 404 "Document not found"). 200 { url, expiresInSeconds }. Since hid-system 0110, 410 DOCUMENT_SOURCE_DELETED ("Source page deleted after 7 days") '
     + 'for a document whose source page was deleted; staffApi.documentDownload answers it as its own outcome, not an error.'),
   // Point of care (docs/POINT_OF_CARE_SPEC.md §4): photos of outside prescriptions and lab request forms (photoFileId), and
   // price-list pictures (imageFileId). Proposed; 404 until served.
@@ -1075,6 +1149,13 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('pharmacy.dispense','pharmacy','/api/v1/pharmacy/work-items/:workItemId/dispensings',P,false,one('POST','pharmacy.dispensing.create')),
   r('pharmacy.dispensing','pharmacy','/api/v1/pharmacy/dispensings/:dispensingId',G,false,one('GET','pharmacy.dispensing.read')),
   r('pharmacy.reverse','pharmacy','/api/v1/pharmacy/dispensings/:dispensingId/reversals',P,false,one('POST','pharmacy.dispensing.reverse')),
+  // ORD-4 (hid-system #303, Release B, migration 0144): a pharmacist accepts a prescription before dispensing. Only a
+  // work item answering `pharmacyStep: "received"` offers it, so on today's backend it is never sent.
+  proposed(r('pharmacy.acceptWorkItem','pharmacy','/api/v1/pharmacy/work-items/:workItemId/accept',P,false,one('POST','pharmacy.work-item.accept'),
+    'hid-system ORD-4 (#303, Release B, migration 0144); not served by hid-system main until Release B is signed. X-Facility-Id, '
+    + 'X-Purpose-Of-Use direct-care and Idempotency-Key; body exactly { expectedWorkItemVersion }. 201 recorded or 200 '
+    + '{ alreadyAccepted: true }, each { workItemId, pharmacyStep, pharmacistAcceptance, alreadyAccepted }; 409 '
+    + 'PHARMACY_PRESCRIPTION_NOT_DISPENSABLE with withdrawnReason; 503 PHARMACY_ACCEPTANCE_UNAVAILABLE.')),
   // Point of care (docs/POINT_OF_CARE_SPEC.md): walk-ins and stock at the pharmacy. Proposed; 404 until served.
   proposed(r('pharmacy.saleHandOver','pharmacy','/api/v1/pharmacy/sales/:billId/hand-over',P,false,one('POST','pharmacy.dispensing.create'),
     `${POINT_OF_CARE} A counter sale handed over: takes stock (first to expire); 409 PAYMENT_REQUIRED or OUT_OF_STOCK.`)),
@@ -1112,10 +1193,16 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   proposed(r('pharmacy.orderRouteWrongPatientCorrection','pharmacy','/api/v1/pharmacy/order-routes/:routeId/wrong-patient-correction',P,false,
     one('POST','pharmacy.order-route.receive'),LATE_CORRECTION_ROUTE)),
 
-  { ...r('ocr.jobs','ocr','/api/v1/ocr/jobs',GP,false,{GET:['ocr.job.read'],POST:['ocr.job.write']}),
+  // hid-system 0136 (Q112 A): starting or retrying a reading needs ocr.job.write and ocr.job.start; following one takes
+  // ocr.job.read or the front desk's ocr.job.read-own (its own uploads' readings only), which an all-required list can't
+  // say, so the GETs keep the full code and their notes name the other (apps/patient-web/src/scanAccess.ts).
+  { ...r('ocr.jobs','ocr','/api/v1/ocr/jobs',GP,false,{GET:['ocr.job.read'],POST:['ocr.job.write','ocr.job.start']},
+    'GET: ocr.job.read or ocr.job.read-own (hid-system 0136); with the "-own" code only, a job whose document this login did '
+    + 'not upload answers 404 OCR_JOB_NOT_FOUND (ehr-api\'s source read refuses it); a document with no job answers { job: null }.'),
     requiredQuery: { GET: ['documentId'] } },
-  r('ocr.job','ocr','/api/v1/ocr/jobs/:jobId',G,false,one('GET','ocr.job.read')),
-  r('ocr.retry','ocr','/api/v1/ocr/jobs/:jobId/retry',P,false,one('POST','ocr.job.write')),
+  r('ocr.job','ocr','/api/v1/ocr/jobs/:jobId',G,false,one('GET','ocr.job.read'),
+    'ocr.job.read or ocr.job.read-own (hid-system 0136); with the "-own" code only, another login\'s upload answers 404 OCR_JOB_NOT_FOUND.'),
+  r('ocr.retry','ocr','/api/v1/ocr/jobs/:jobId/retry',P,false,one('POST','ocr.job.write','ocr.job.start')),
   r('ocr.extractions','ocr','/api/v1/ocr/jobs/:jobId/extractions',G,false,one('GET','ocr.job.read')),
   r('ocr.validation','ocr','/api/v1/ocr/jobs/:jobId/validation',P,false,one('POST','ocr.validation.write')),
   r('ocr.validations','ocr','/api/v1/ocr/jobs/:jobId/validations',GP,false,{GET:['ocr.job.read'],POST:['ocr.validation.write']}),

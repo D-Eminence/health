@@ -78,7 +78,8 @@ function SignInOnSite({ role, children }: { readonly role: string; readonly chil
 }
 
 export function BlueStaffInvitation() {
-  useDocumentTitle(`Accept your invitation · ${siteName()}`)
+  // The classic page's words (staff/routes/StaffInvitation.tsx, parity report 3.3-46), with the site's own name.
+  useDocumentTitle(`Join your facility · ${siteName()}`)
   const location = useLocation()
   const elsewhere = staffPagesOrigin(window.location.hostname)
   return elsewhere ? <OpenStaffPage href={sameStaffPageOn(elsewhere, location)} /> : <InvitationSteps />
@@ -163,8 +164,8 @@ function InvitationSteps() {
   }
 
   return (
-    <BlueAuthLayout title={accepted ? 'You’ve joined.' : 'Accept your invitation'} titleId="blue-invitation-title"
-      lede="Open the invitation your facility sent, then set up your staff account.">
+    <BlueAuthLayout title={accepted ? 'You’ve joined.' : 'Join your facility.'} titleId="blue-invitation-title"
+      lede="Open the invitation your facility sent you, then set up your Health ID staff account.">
       {error ? <Alert intent="error" size="sm">{error}</Alert> : null}
 
       {unavailable ? (

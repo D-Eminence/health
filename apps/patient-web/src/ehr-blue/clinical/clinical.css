@@ -1273,6 +1273,11 @@
   flex: 1 0 100%;
 }
 
+/* Under an order's row: where it is in this facility's own pharmacy or laboratory (ORD-3), across the row. */
+.hid-ehr .hid-ehr-clinical-orders-row-progress {
+  flex: 1 0 100%;
+}
+
 .hid-ehr .hid-ehr-clinical-orders-row-route > .hid-ehr-clinical-orders-route-status {
   margin: 4px 0 0;
 }

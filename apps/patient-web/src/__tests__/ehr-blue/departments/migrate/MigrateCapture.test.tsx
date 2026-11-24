@@ -4,6 +4,7 @@ import { HidApiError } from '@hid/http'
 import { Migrate } from '../../../../ehr-blue/departments/migrate/Migrate'
 import { DEMO_HOSPITAL_ID, renderDept } from '../harness'
 import { SAID_UNAVAILABLE } from '../../../said'
+import { STARTS_WITH_OTHERS } from '../../../../scanAccess'
 
 /**
  * Patient documents on the blue Migrate page: a document captured into the patient's documents on an encounter, as
@@ -45,7 +46,7 @@ const clean = { id: DOCUMENT, patientId: PATIENT, encounterId: ENCOUNTER, fileNa
 const pending = { ...clean, id: 'd0000000-0000-4000-8000-000000000002', fileName: 'lab-report.png', mediaType: 'image/png', scanStatus: 'pending' }
 const initiated = { ...clean, id: 'd0000000-0000-4000-8000-000000000003', fileName: 'referral.pdf', status: 'initiated', scanStatus: 'pending' }
 const allowed = { authorization: { decision: 'allow' }, patient: { patientId: PATIENT, fullName: 'Patient One' } }
-const OCR = ['ocr.job.read', 'ocr.job.write']
+const OCR = ['ocr.job.read', 'ocr.job.write', 'ocr.job.start']
 const DOCUMENTS = ['ehr.document.read', 'ehr.document.write']
 
 beforeEach(() => {
@@ -498,25 +499,34 @@ describe('Patient documents: opening and extracting', () => {
     expect(reads()).toEqual(before)
   })
 
-  it('without OCR job write, Extract with OCR fills in Find document job and takes focus there', async () => {
-    session.permissions = ['ocr.job.read', ...DOCUMENTS]
+  // A doctor since hid-system 0136: follows and checks readings, never starts one (no ocr.job.start).
+  it('without starting readings, a clean document offers Find its reading, which opens the reading someone else started', async () => {
+    session.permissions = ['ocr.job.read', 'ocr.job.write', ...DOCUMENTS]
+    api.findOcrJob.mockResolvedValue({ job: { ...queuedJob, status: 'awaiting_validation' } })
     await openDocuments()
-    await press(within(screen.getByText('discharge-summary.pdf').closest('tr') as HTMLElement).getByRole('button', { name: 'Extract with OCR' }))
-    const field = screen.getByLabelText(/^Document ID/) as HTMLInputElement
-    await waitFor(() => expect(focused()).toBe(field))
-    expect(field.value).toBe(DOCUMENT)
-    expect(api.findOcrJob).not.toHaveBeenCalled()
+    const row = screen.getByText('discharge-summary.pdf').closest('tr') as HTMLElement
+    expect(within(row).queryByRole('button', { name: 'Extract with OCR' })).toBeNull()
+    expect(within(card()).getByText(STARTS_WITH_OTHERS)).toBeTruthy()
+    await press(within(row).getByRole('button', { name: 'Find its reading' }))
+    expect(await screen.findByRole('heading', { name: 'Progress' })).toBeTruthy()
+    expect(api.findOcrJob).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, DOCUMENT)
+    expect(api.createOcrJob).not.toHaveBeenCalled()
   })
 
-  it('without OCR job write, Extract with OCR reads nothing by itself, however long the page stays open', async () => {
-    session.permissions = ['ocr.job.read', ...DOCUMENTS]
+  it('without starting readings, a document never read says who starts one, and nothing is started, however long the page stays open', async () => {
+    session.permissions = ['ocr.job.read', 'ocr.job.write', ...DOCUMENTS]
+    api.findOcrJob.mockResolvedValue({ job: null })
     await openDocuments()
     vi.useFakeTimers({ shouldAdvanceTime: true })
     try {
-      await extract()
+      await press(within(screen.getByText('discharge-summary.pdf').closest('tr') as HTMLElement).getByRole('button', { name: 'Find its reading' }))
+      await waitFor(() => expect(document.getElementById('ocr-find-result')?.textContent)
+        .toBe(`No OCR job for this documentThis document has no extraction job yet. ${STARTS_WITH_OTHERS}`))
       await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
-      expect(api.findOcrJob).not.toHaveBeenCalled()
+      // One read, on the press; none by itself after it, and never a reading started.
+      expect(api.findOcrJob).toHaveBeenCalledTimes(1)
       expect(api.createOcrJob).not.toHaveBeenCalled()
+      expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
     }
     finally { vi.useRealTimers() }
   })

@@ -313,7 +313,7 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
   return <div className="min-h-dvh bg-surface">
     {skipLink && mainAs === 'main' && <a href="#main" onClick={event => { event.preventDefault(); document.getElementById('main')?.focus() }}
       className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[var(--z-toast)] focus:rounded-md focus:bg-surface focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-ink focus:ring-2 focus:ring-brand">{skipLink}</a>}
-    <aside className={cx('fixed inset-y-0 left-0 z-30 hidden border-r border-line bg-surface transition-[width] duration-200 lg:block', sidebarWidth)}>{sidebar}</aside>
+    <aside className={cx('fixed inset-y-0 left-0 z-30 hidden border-r border-line bg-surface transition-[width] duration-200 lg:block print:hidden!', sidebarWidth)}>{sidebar}</aside>
     {creating && create && <div className="fixed inset-0 z-[var(--z-drawer)] lg:hidden">
       <div className="absolute inset-0 animate-fade-in bg-[#101828]/45" onClick={() => setCreating(false)} />
       <div ref={sheet} role="dialog" aria-modal="true" aria-label={create.label} className="absolute inset-x-0 bottom-0 animate-rise rounded-t-3xl bg-surface px-3 pt-2.5 pb-[calc(env(safe-area-inset-bottom)+12px)] shadow-[var(--shadow-dialog)]">
@@ -328,9 +328,9 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
         <button type="button" onClick={() => setCreating(false)} className="mt-1 flex h-12 w-full cursor-pointer items-center justify-center rounded-2xl border-0 bg-transparent text-[15px] font-medium text-ink-2 ring-1 ring-line ring-inset">Cancel</button>
       </div>
     </div>}
-    <div className={cx('transition-[padding] duration-200', rail ? 'lg:pl-[76px]' : 'lg:pl-[264px]')}>
+    <div className={cx('transition-[padding] duration-200 print:pl-0!', rail ? 'lg:pl-[76px]' : 'lg:pl-[264px]')}>
       {/* The header: shown on phones (brand, actions); on a computer only when it carries something. */}
-      <header className={cx('sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-line bg-surface px-4 sm:px-6 lg:px-8', !headerStart && !headerActions && 'lg:hidden')}>
+      <header className={cx('sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-line bg-surface px-4 sm:px-6 lg:px-8 print:hidden', !headerStart && !headerActions && 'lg:hidden')}>
         <div className="flex min-w-0 items-center gap-2.5">{headerStart}</div>
         <div className="flex-1" />
         <div className="flex items-center gap-2">{headerActions}</div>

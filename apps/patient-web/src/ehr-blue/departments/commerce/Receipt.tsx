@@ -3,7 +3,9 @@ import { Badge, Button, cx } from '../../../kasuwa/ui'
 import { FormActions } from '../../../kasuwa/parts'
 import { BILL_STATUS_LABEL, METHOD_LABEL, SOURCE_LABEL, type Bill, type Hmo, type Payment, type ReceiptData } from './api'
 import { naira } from './money'
+import { PrintHeader } from '../../frame/PrintHeader'
 import './commerce.css'
+import { printReceipt } from '../../../print/printPaper'
 
 const when = (iso: string) => {
   const date = new Date(iso)
@@ -27,7 +29,8 @@ export function paymentLine(payment: Payment, hmos: readonly Hmo[] = []): string
 
 /**
  * A printable receipt for a bill (docs/POINT_OF_CARE_SPEC.md §3). It draws from the receipt the server issued when given
- * one, else from the bill itself. Print uses window.print; commerce.css prints the receipt alone, black on white.
+ * one, else from the bill itself. Print prints it (printReceipt: as a PDF in Safari, so no browser adds its web address);
+ * commerce.css prints the receipt alone, black on white.
  * `onDone` adds the receipt's own actions: Print, then Done (the primary, rightmost; at the bottom on a phone).
  */
 export function Receipt({ bill, receipt, facilityName, hmos = [], footer, onDone, className }: {
@@ -50,7 +53,9 @@ export function Receipt({ bill, receipt, facilityName, hmos = [], footer, onDone
       <section data-receipt-print="" aria-label={number ? `Receipt ${number}` : `Bill ${shown.number}`}
         className="flex flex-col gap-4 rounded-xl bg-surface p-5 ring-1 ring-line">
         <header className="flex flex-col items-center gap-1 text-center">
-          {facility ? <p className="m-0 text-title-3 text-ink">{facility}</p> : null}
+          {/* On paper the shared print header (the Health ID logo and the facility) stands in for the facility's name. */}
+          <PrintHeader facility={facility} printOnly stacked />
+          {facility ? <p className="m-0 text-title-3 text-ink print:hidden">{facility}</p> : null}
           {receipt?.facility.address ? <p className="m-0 text-caption text-ink-3">{receipt.facility.address}</p> : null}
           {receipt?.facility.phone ? <p className="m-0 text-caption text-ink-3">{receipt.facility.phone}</p> : null}
           <p className="m-0 mt-2 text-[13px] font-semibold tracking-[.06em] text-ink-2 uppercase">{number ? 'Receipt' : 'Bill'}</p>
@@ -95,7 +100,7 @@ export function Receipt({ bill, receipt, facilityName, hmos = [], footer, onDone
 
       {onDone ? (
         <FormActions sticky={false}>
-          <Button icon={Printer} onClick={() => window.print()}>Print</Button>
+          <Button icon={Printer} onClick={event => printReceipt(event.currentTarget)}>Print</Button>
           <Button variant="primary" onClick={onDone}>Done</Button>
         </FormActions>
       ) : null}

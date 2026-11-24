@@ -14,14 +14,14 @@ import type { FieldErrors } from '../parts/RecordForm'
 
 /**
  * The chart's wording, today's word for word (staff/routes/Clinical.tsx): NO_ENCOUNTERS and NO_COMPLAINT :1796,
- * RECORD_SAVED :1502, RECORD_NOT_SAVED :547, NO_WRITE :1455, NO_RECORD_ACCESS :1802, ENCOUNTERS_FAILED :1306.
+ * RECORD_SAVED :1502, RECORD_NOT_SAVED :547, NO_WRITE :1492 and :1676 (createRecord, createAndSend), NO_RECORD_ACCESS :1802, ENCOUNTERS_FAILED :1306.
  */
 export const RESTARTED = 'This list changed since it was opened, so it shows the newest entries again.'
 export const NO_ENCOUNTERS = 'No encounters are available for this patient and facility.'
 export const NO_COMPLAINT = 'No chief complaint provided'
 export const RECORD_SAVED = 'Clinical record saved.'
 export const RECORD_NOT_SAVED = 'Record could not be saved.'
-export const NO_WRITE = 'This access does not permit changes to the patient record.'
+export const NO_WRITE = 'Your access doesn’t allow changes to this patient’s records.'
 export const NO_RECORD_ACCESS = 'Your role at this facility can’t open visit records. Ask your facility administrator.'
 export const ENCOUNTERS_FAILED = 'Encounters could not be loaded.'
 export const RECORDS_FAILED = 'Records could not be loaded.'

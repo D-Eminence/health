@@ -59,13 +59,14 @@ describe(LAB, () => {
   })
 
   // Signed in, through this site's own redirects and then the blue EHR: the page stays on this site, where the frame's
-  // guard (#113) opens the Laboratory's Home in its place.
+  // guard (#113) opens the Laboratory's own page in its place, as before website release C (owner's decision of
+  // 24 November 2026: the product sites work as before, over parity report 3.3-53).
   it.each(['/provider/registration', '/provider/clinical', '/provider/in-person-check'])(
-    'opens the Laboratory’s Home in place of the Hospital EHR’s %s, signed in, on this site: nothing opens the EHR site', async path => {
+    'opens the Laboratory’s own page in place of the Hospital EHR’s %s, signed in, on this site: nothing opens the EHR site', async path => {
       await openPortalSignedInOn(LAB, path, { id: DEMO_LABORATORY, name: 'Demo Laboratory' }, EVERY_PERMISSION)
-      await waitFor(() => expect(address()).toBe('/provider/laboratory'))
+      await waitFor(() => expect(address()).toMatch(/^\/provider\/laboratory(\/|$)/))
       expect(screen.queryByText(/Opening it there/)).toBeNull()
-      expect(screen.queryByRole('heading', { name: homeHeading() })).toBeNull()
+      expect(screen.queryByRole('heading', { name: homeHeading('Demo Admin') })).toBeNull()
       expect(opened).not.toHaveBeenCalled()
     })
 

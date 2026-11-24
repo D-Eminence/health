@@ -1209,6 +1209,77 @@
   line-height: 16px;
 }
 
+/* ---- Print header ------------------------------------------------------------ */
+
+/* The header on every printed paper: the Health ID logo and the facility's name over a brand-blue rule. Sized in print
+   units, since it is drawn for paper; the rule prints even when the browser leaves backgrounds off. */
+.hid-ehr.hid-ehr-print-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  align-self: stretch;
+  justify-content: space-between;
+  gap: 2mm 6mm;
+  margin: 0 0 4mm;
+  padding: 0 0 3mm;
+  border-bottom: 1.5pt solid var(--ehr-brand);
+  color: var(--ehr-ink);
+  break-inside: avoid;
+  break-after: avoid;
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
+}
+
+.hid-ehr .hid-ehr-print-header-logo {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.hid-ehr .hid-ehr-print-header-mark {
+  display: block;
+  width: auto;
+  height: 9mm;
+}
+
+.hid-ehr .hid-ehr-print-header-facility {
+  margin: 0;
+  min-width: 0;
+  color: var(--ehr-ink);
+  font-family: var(--ehr-font-display);
+  font-size: 13pt;
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr.hid-ehr-print-header-stacked {
+  flex-direction: column;
+  justify-content: center;
+  gap: 1.5mm;
+  text-align: center;
+}
+
+.hid-ehr.hid-ehr-print-header-stacked .hid-ehr-print-header-mark {
+  height: 7mm;
+}
+
+.hid-ehr.hid-ehr-print-header-stacked .hid-ehr-print-header-facility {
+  font-size: 11pt;
+  text-align: center;
+}
+
+/* Print only: off the screen, where the page has its own header. */
+.hid-ehr.hid-ehr-print-only {
+  display: none;
+}
+
+@media print {
+  .hid-ehr.hid-ehr-print-only {
+    display: flex;
+  }
+}
+
 /* ---- Popover ---------------------------------------------------------------- */
 
 .hid-ehr .hid-ehr-popover {

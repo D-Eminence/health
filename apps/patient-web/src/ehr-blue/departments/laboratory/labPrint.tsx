@@ -1,28 +1,38 @@
-import { useCallback, useLayoutEffect, useState, type ReactNode } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import type { LabAbnormalFlag } from '../../../staff/api'
+import { PrintHeader } from '../../frame/PrintHeader'
+import { startPrint, type PaperPrint, type PrintJob } from '../../../print/printPaper'
 import { FLAG_WORDS } from './labText'
 import './lab.css'
 
 /*
  * Printing a sample label or a result slip (lab.css). The paper is put on the page only while it prints, so nothing
- * else's print rules (a receipt's) meet it; window.print runs in the commit that shows it, and the paper goes once the
- * print dialog closes.
+ * else's print rules (a receipt's) meet it; it prints in the commit that shows it (as a PDF in Safari, printPaper.ts),
+ * and the paper goes once it has printed. The result slip carries the shared print header (the Health ID logo and the facility); a sample
+ * label, a sticker about 60 mm wide for a sample tube, keeps to who, what and the request number.
  */
 
 type PaperKind = 'label' | 'slip'
 
+/** A label prints as a strip as long as its labels; a result slip on A4. Titles name the facility, never the patient. */
+const PAPERS: Readonly<Record<PaperKind, PaperPrint>> = {
+  label: { size: 'slip', kind: 'Sample label' },
+  slip: { size: 'A4', kind: 'Lab result' },
+}
+
 export function usePrint() {
-  const [paper, setPaper] = useState<{ kind: PaperKind; node: ReactNode; round: number } | null>(null)
+  const [paper, setPaper] = useState<{ kind: PaperKind; node: ReactNode; round: number; job: PrintJob } | null>(null)
+  const area = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
     if (!paper) return
-    const done = () => setPaper(current => current?.round === paper.round ? null : current)
-    window.addEventListener('afterprint', done, { once: true })
-    try { window.print() } catch { done() }
-    return () => window.removeEventListener('afterprint', done)
+    return paper.job.run(area.current, () => setPaper(current => current?.round === paper.round ? null : current))
   }, [paper])
-  const print = useCallback((kind: PaperKind, node: ReactNode) => setPaper(current => ({ kind, node, round: (current?.round ?? 0) + 1 })), [])
-  const area = paper ? <div data-lab-print={paper.kind} aria-hidden="true" className="hidden print:block">{paper.node}</div> : null
-  return { print, area }
+  const print = useCallback((kind: PaperKind, node: ReactNode) => {
+    const job = startPrint(PAPERS[kind])
+    setPaper(current => ({ kind, node, round: (current?.round ?? 0) + 1, job }))
+  }, [])
+  const shown = paper ? <div ref={area} data-lab-print={paper.kind} aria-hidden="true" className="hidden print:block">{paper.node}</div> : null
+  return { print, area: shown }
 }
 
 /** What a sample label says: who, their age and sex, the test, the request number and the date. */
@@ -62,7 +72,7 @@ export function ResultSlip({ facility, name, ageSex, hid, requestNumber, release
 }) {
   return <div className="flex flex-col gap-3 p-4 text-black">
     <div>
-      <p className="m-0 text-[16px] font-semibold">{facility}</p>
+      <PrintHeader facility={facility} />
       <p className="m-0 text-[13px]">Laboratory result</p>
     </div>
     <div className="text-[13px]">

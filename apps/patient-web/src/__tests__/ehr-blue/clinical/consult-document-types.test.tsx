@@ -54,7 +54,7 @@ const LAB = { ...LETTER, id: 'doc-2', fileName: 'full-blood-count.jpg', mediaTyp
 const SHEET = { ...LETTER, id: 'doc-3', fileName: 'prescription.png', mediaType: 'image/png', documentType: 'prescription_sheet', scanStatus: 'pending' }
 // A type a later contract might add: not named.
 const LATER = { ...LETTER, id: 'doc-4', fileName: 'imaging.pdf', documentType: 'imaging_report' }
-const UPLOADED = 'Uploaded. It can be opened once the virus check is done.'
+const UPLOADED = 'Document uploaded. It can be opened once its virus scan is clean.'
 const LAB_REFUSED = 'Lab results can be uploaded only in the EHR, Lab or Migrate.'
 const NO_UPLOAD_HERE = 'Documents can be uploaded only in the EHR, Lab, Pharmacy or Migrate.'
 
@@ -275,6 +275,8 @@ describe('Consultation documents with types: once served', () => {
     expect(screen.queryByRole('heading', { name: 'Upload a document' })).toBeNull()
     unmount()
     staff.permissions = [...ALL]
+    // The write check is asked once per open patient (chart.tsx): a read-only grant is a patient opened again.
+    staff.activePatient = activePatient()
     api.consentStatus.mockResolvedValue({ patientId: PATIENT_ID, facilityId: FACILITY_ID, purpose: 'direct-care', readAllowed: true, writeAllowed: false })
     await openDocuments()
     expect(typeField()).toBeNull()
@@ -292,7 +294,7 @@ describe('Consultation documents with types: once served', () => {
   })
 
   it('hands a clean lab result to today’s OCR page with exactly today’s router state, whatever its type', async () => {
-    staff.permissions = [...ALL, 'ocr.job.read']
+    staff.permissions = [...ALL, 'ocr.job.read', 'ocr.job.write', 'ocr.job.start']
     function OcrPage() {
       const location = useLocation()
       return <p data-testid="ocr-state">{JSON.stringify(location.state)}</p>

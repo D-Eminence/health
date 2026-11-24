@@ -35,8 +35,10 @@ export function Workspace({ path, title, sample = false, children }: { path: str
   const patientName = activePatient ? patientFacts(activePatient).name : null
   const productName = PRODUCTS[productHere(state.status === 'ready' ? state.session : null)].name
   // Inside the frame, today's ProviderTitle (staff/App.tsx) renames the tab on a move below a page today's portal serves
-  // (clinical/new reads "Page not found · Health ID Provider"), and the frame names it only when its page changes. Named
-  // again, after the frame's label, on every move inside this workspace: a label only, never a patient.
+  // (clinical/new reads "Page not found · Health ID Provider"). The frame names it again on every move too (BlueFrame.tsx,
+  // parity report 3.3-51); this names it the same way, by the workspace's own title, where it is mounted without the
+  // frame: a label only, never a patient. "Health ID <product>" in place of classic's "Health ID Provider" follows the owner's per-product sites
+  // (answer to Q88; contract section 53).
   useEffect(() => {
     if (title && lock === null) document.title = `${title} · Health ID ${productName}`
   }, [title, pathname, lock, productName])

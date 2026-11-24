@@ -2,7 +2,7 @@ import { BookOpen, MessageCircle, Sparkles } from 'lucide-react'
 import { useState } from 'react'
 import { Button, Card, CardHeader, PageHeader } from '../../kasuwa/ui'
 import { useStaff } from '../../staff/App'
-import { productLists, opensInProduct, productHere, type Product } from './product'
+import { opensInProduct, productHere, type Product } from './product'
 import { SupportChatDrawer, supportChatOffered } from './support/BlueSupportChat'
 
 /**
@@ -28,11 +28,12 @@ interface WhatsNew {
 }
 
 /**
- * Whether a page opens on this site (opensInProduct). Home ('') opens everywhere but is the hospital's Home only on the
- * EHR: a single product's Home goes on to its own first page (productLists), so what Home shows is the EHR's alone.
+ * Whether a page opens on this site (opensInProduct). Home ('') opens on every site, but the guides' lines about Home
+ * are about the hospital's Home (Find a patient, Today's work for its departments), so on a single product's site they
+ * stay out, as before.
  */
 function opensHere(product: Product, path: string): boolean {
-  return path === '' ? productLists(product, path) : opensInProduct(product, path)
+  return path === '' ? product === 'ehr' : opensInProduct(product, path)
 }
 
 const allOpenHere = (product: Product, pages: readonly string[]) => pages.every(path => opensHere(product, path))

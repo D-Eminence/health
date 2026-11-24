@@ -78,13 +78,15 @@ describe('the outreach slip', () => {
     render(<OutreachSlip groupName="Demo Outreach Group" campaign={CAMPAIGN} item={{ ...ITEM, hasScreening: false } as never} healthId={null} />)
     const text = document.body.textContent ?? ''
     expect(text).toContain(GET_HEALTH_ID_LATER)
+    // No web address on the paper, not even a bare domain (owner, 23 Nov 2026).
+    expect(text).not.toMatch(/https?:|www\.|healthidentitydirectory|\.com\b/i)
     expect(text).not.toMatch(/HID-/)
     expect(text).not.toContain(CHECKS_RECORDED)
     expect(text).not.toContain('Claim code')
   })
 
   it('says a parent or guardian can get a Health ID later for anyone under 18 (17), and the person themselves at 18', () => {
-    expect(GET_HEALTH_ID_LATER_MINOR).toBe('A parent or guardian can get them a Health ID later at app.healthidentitydirectory.com.')
+    expect(GET_HEALTH_ID_LATER_MINOR).toBe('A parent or guardian can get them a Health ID later at any Health ID facility or on the Health ID app.')
     const minor = render(<OutreachSlip groupName="Demo Outreach Group" campaign={CAMPAIGN} item={{ ...ITEM, ageYears: 17 } as never} healthId={null} />)
     expect(minor.container.textContent).toContain(GET_HEALTH_ID_LATER_MINOR)
     expect(minor.container.textContent).not.toContain(GET_HEALTH_ID_LATER)
