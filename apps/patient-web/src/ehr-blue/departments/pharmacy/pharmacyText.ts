@@ -1,7 +1,7 @@
 import type { EhrBadgeTone } from '@hid/ui/ehr'
 import type { Tone } from '../../../kasuwa/ui'
 import { routeLabel } from '../../../plainLabels'
-import type { Facility, PharmacyWorkItem, WorkItemOrderRoute } from '../../../staff/api'
+import type { Facility, PharmacistAcceptance, PharmacyStep, PharmacyWorkItem, WorkItemOrderRoute } from '../../../staff/api'
 import { priorityLabel, routedWorkEndedText } from '../../../staff/orderRoutes'
 import { PHARMACY_WORK, refusedWorkText } from '../../../staff/refusedWork'
 import { matchesSearch } from '../parts/format'
@@ -13,11 +13,113 @@ import { billOf, billOwing } from './pocFields'
 export type PharmacyStatus = 'accepted' | 'dispensed' | 'reversed' | 'not dispensable'
 
 /**
+ * Why this hospital's own item was withdrawn by the prescribing team before it was dispensed (hid-system 0133 and
+ * ORD-2, pharmacy-api at 06f98040): `changed` (the prescribing team put it on hold, cancelled, corrected, edited or
+ * resumed it after it was sent), `sent_elsewhere` (sent to another facility's pharmacy instead), or `other` for any
+ * other reason, or none, this page does not know.
+ */
+export type WithdrawnReason = 'changed' | 'sent_elsewhere' | 'other'
+
+/** A `withdrawnReason` code (the item's own, ORD-2, or a 409 PHARMACY_PRESCRIPTION_NOT_DISPENSABLE's, ORD-4) as a reason. */
+export function withdrawnReasonFrom(code: string | null | undefined): WithdrawnReason {
+  return code === 'changed' || code === 'sent_elsewhere' ? code : 'other'
+}
+
+/**
+ * The one reading of an item's `withdrawn` and `withdrawnReason`: its reason when it is withdrawn, else null. The
+ * reason counts only with `withdrawn: true`, and an item already dispensed is never withdrawn.
+ */
+export function withdrawnReasonOf(item: Pick<PharmacyWorkItem, 'withdrawn' | 'withdrawnReason' | 'dispensing'>): WithdrawnReason | null {
+  return item.withdrawn === true && !item.dispensing ? withdrawnReasonFrom(item.withdrawnReason) : null
+}
+
+/**
  * Today's order of precedence (staff/routes/Operations.tsx PharmacyAction): a reversed dispensing, then a dispensing,
- * then work Pharmacy refused to dispense (known only once a dispensing was refused), else accepted.
+ * then work that can't be dispensed (withdrawn by the prescribing team, ORD-2, or refused by Pharmacy once a dispensing
+ * was), else accepted. A withdrawn item is "not dispensable", as any other is: there is one such status.
  */
 export function statusOf(item: PharmacyWorkItem, undispensable: boolean): PharmacyStatus {
-  return item.dispensing?.reversed ? 'reversed' : item.dispensing ? 'dispensed' : undispensable ? 'not dispensable' : 'accepted'
+  return item.dispensing?.reversed ? 'reversed' : item.dispensing ? 'dispensed'
+    : undispensable || withdrawnReasonOf(item) ? 'not dispensable' : 'accepted'
+}
+
+/** hid-system ORD-4: who may accept a prescription (the pharmacist role only). */
+export const ACCEPT_PERMISSION = 'pharmacy.work-item.accept'
+
+/**
+ * A step as a pharmacist says it (ORD-4). Only "Received" and "Accepted" add to the status badge: a dispensed or reversed
+ * item already says so there, in the same words the page used before the step existed.
+ */
+const STEP_WORD: Readonly<Record<PharmacyStep, string>> = {
+  received: 'Received', accepted: 'Accepted', dispensed: 'Dispensed', dispensing_reversed: 'Dispensing reversed',
+}
+
+/** Lagos is where the pharmacy works, so a time is said on its clock whatever the device's own zone (staff/orderRoutes.ts). */
+const LAGOS_DAY = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Africa/Lagos' })
+const LAGOS_CLOCK = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'Africa/Lagos' })
+
+/** "10:52" today, else "12 Nov 2026, 10:52" (ORD-4 screen notes write the time alone); empty when it is not a time. */
+export function clockText(value: string, now = Date.now()): string {
+  const at = new Date(value)
+  if (Number.isNaN(at.getTime())) return ''
+  const clock = LAGOS_CLOCK.format(at)
+  return LAGOS_DAY.format(at) === LAGOS_DAY.format(new Date(now)) ? clock : `${LAGOS_DAY.format(at)}, ${clock}`
+}
+
+/**
+ * Who accepted it, as SX-9 answered: a name; null for a member whose login was deleted (SX-9's "Former staff member");
+ * undefined when not known (not asked, not answered, or no row), and then no one is named and no id is ever shown.
+ */
+export type AcceptorName = string | null | undefined
+
+/** SX-9's words for a member with no name, as they read inside a sentence. */
+export const FORMER_STAFF_MEMBER = 'a former staff member'
+
+/**
+ * What the step adds beside the status, or null: nothing with no step (today's backend, ORD-4 "show no step"), nor for a
+ * dispensed or reversed item (its status says it). An acceptance says "Accepted by <name> 10:52" when the name is known
+ * (`who`, from SX-9), else "Accepted 10:52".
+ */
+export function stepText(item: Pick<PharmacyWorkItem, 'pharmacyStep' | 'pharmacistAcceptance'>, now = Date.now(), who?: AcceptorName): string | null {
+  if (item.pharmacyStep === 'received') return STEP_WORD.received
+  if (item.pharmacyStep !== 'accepted') return null
+  return item.pharmacistAcceptance ? acceptedText(item.pharmacistAcceptance, false, now, who) : STEP_WORD.accepted
+}
+
+/**
+ * "Accepted by <name> 10:52", or "Already accepted by <name> 10:52" when someone had accepted it first (ORD-4 screen
+ * notes). With no name known, "Accepted 10:52"; a member with no name is "a former staff member" (SX-9).
+ */
+export function acceptedText(acceptance: PharmacistAcceptance | null | undefined, already: boolean, now = Date.now(), who?: AcceptorName): string {
+  const said = already ? 'Already accepted' : 'Accepted'
+  const by = !acceptance || who === undefined ? '' : ` by ${who === null ? FORMER_STAFF_MEMBER : who}`
+  const time = acceptance ? clockText(acceptance.acceptedAt, now) : ''
+  return `${said}${by}${time ? ` ${time}` : ''}`
+}
+
+/**
+ * Whether Accept is offered (ORD-4 screen notes): on a received item that is not withdrawn (ORD-2), not refused by
+ * Pharmacy since it was opened, and not dispensed. Who may press it is checked by the record (ACCEPT_PERMISSION).
+ */
+export function acceptable(item: PharmacyWorkItem, undispensable: boolean): boolean {
+  return item.pharmacyStep === 'received' && !isWithdrawn(item) && !undispensable && !item.dispensing
+}
+
+/** ORD-2's and 0133's words for who withdrew it and why, on the card and in the record's "Not dispensable" notice. */
+export const WITHDRAWN_WORDS: Readonly<Record<WithdrawnReason, string>> = {
+  changed: 'Changed or stopped by the prescribing team',
+  sent_elsewhere: 'Sent to another pharmacy by the prescribing team',
+  other: 'Withdrawn by the prescribing team',
+}
+
+/** Why Pharmacy will not take on a withdrawn prescription, by its reason (never by any text the server sent). */
+export function withdrawnText(reason: WithdrawnReason): string {
+  return `${WITHDRAWN_WORDS[reason]}. It can no longer be dispensed here.`
+}
+
+/** A withdrawn item (ORD-2) can be neither accepted nor dispensed, whatever else it says. */
+export function isWithdrawn(item: Pick<PharmacyWorkItem, 'withdrawn' | 'withdrawnReason' | 'dispensing'>): boolean {
+  return withdrawnReasonOf(item) !== null
 }
 
 /** The design has one badge; only work that can't be dispensed is marked apart. */
@@ -104,7 +206,7 @@ export function notDispensableText(item: PharmacyWorkItem): string {
   return item.orderRoute
     ? `${item.orderRoute.orderingFacilityName ?? 'The prescribing facility'} changed or cancelled this prescription, or its time `
       + 'for dispensing has ended. A new prescription is needed.'
-    : 'This prescription is no longer active as Pharmacy accepted it, or it could not be checked. A new prescription and '
+    : 'This prescription is no longer active as Pharmacy received it, or it could not be checked. A new prescription and '
       + 'handoff are needed.'
 }
 
@@ -128,7 +230,8 @@ export function inTab(tab: PharmacyTab, item: PharmacyWorkItem): boolean {
  * one (proposed hid-system 0107); with none, the order is first come, first served, as before.
  */
 export function queueOrder(items: readonly PharmacyWorkItem[], undispensable: (id: string) => boolean): PharmacyWorkItem[] {
-  const rank = (item: PharmacyWorkItem) => item.dispensing ? 2 : doseMissing(item) || undispensable(item.id) ? 1 : 0
+  // Withdrawn work (ORD-2) is not dispensable from the start: it waits with the other work that can't be dispensed.
+  const rank = (item: PharmacyWorkItem) => item.dispensing ? 2 : doseMissing(item) || undispensable(item.id) || isWithdrawn(item) ? 1 : 0
   const time = (item: PharmacyWorkItem) => Date.parse(item.acceptedAt) || 0
   return items.map((item, index) => ({ item, index }))
     .sort((a, b) => rank(a.item) - rank(b.item) || urgencyRank(a.item.priority) - urgencyRank(b.item.priority)
@@ -167,4 +270,28 @@ export function statusWord(status: PharmacyStatus): string {
 export function pharmacyRefusalText(work: string, facility: Pick<Facility, 'selfService' | 'roles'> | undefined,
   permissions: readonly string[]): string {
   return refusedWorkText(facility, permissions, { ...PHARMACY_WORK, work })
+}
+
+/*
+ * The classic Pharmacy page's list words (staff/routes/Operations.tsx Pharmacy, ListState and PageHead), word for word
+ * (parity row 3.3-69). The tabs, search and paging are the blue page's own; their words are kept for the owner (3.3-66).
+ */
+export const PRESCRIPTIONS_LOAD_FAILED = 'Work could not be loaded.'
+export const PRESCRIPTIONS_REFRESH = 'Refresh work'
+/** Classic's empty list: nothing accepted yet, with a Refresh. */
+export const PRESCRIPTIONS_EMPTY = { title: 'No accepted prescriptions', description: 'Refresh to check for new work at this facility.', retry: 'Refresh' } as const
+
+/** Classic's words under the page heading: `holds`, a pharmacy that is sent prescriptions from other facilities. */
+export function prescriptionsIntro(holds: boolean): string {
+  return holds
+    ? 'Prescriptions accepted here, from this facility and from other facilities, and full dispensing records. The server checks patient authorization before dispensing or reversal.'
+    : 'Accepted prescriptions and full dispensing records for the active facility. The server checks patient authorization before dispensing or reversal.'
+}
+
+/**
+ * Classic Overview's incoming-orders line (staff/routes/Dashboard.tsx IncomingOrdersCard), shown at the top of
+ * Prescriptions, the pharmacy. site's first page, which has no Overview (parity row 6a).
+ */
+export function incomingCountText(count: number, facilityName: string): string {
+  return `${count} prescription${count === 1 ? '' : 's'} from other facilities waiting at ${facilityName}`
 }

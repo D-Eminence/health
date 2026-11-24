@@ -1,5 +1,4 @@
 import { useState, type FormEvent } from 'react'
-import { toast } from '@hid/ui'
 import { EhrButton, EhrDialog, EhrDrawer, EhrField, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
 import { facilityStaffApi, type FacilityStaffMember } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
@@ -145,11 +144,10 @@ function MemberAccess({ member, shared, onDirty, onClose }: {
       const ended = await facilityStaffApi.end(facilityId, member, reason.trim(), password)
       const consents = ended.grantsRevoked === 1 ? ' 1 patient consent to them ended.'
         : ended.grantsRevoked > 1 ? ` ${ended.grantsRevoked} patient consents to them ended.` : ''
-      // Ended consents are a fact to keep on the page: said in the banner, with no toast. Otherwise a generic toast.
-      if (!consents) toast.success('Staff member deactivated')
+      // The classic Staff page's full sentence, in the page's banner, with any consents that ended.
       setDeciding(false)
       onClose()
-      done([IDS.members], consents ? { tone: 'info', text: `${member.name} no longer has access to ${facilityName}.${consents}` } : null)
+      done([IDS.members], { tone: 'info', text: `${member.name} no longer has access to ${facilityName}.${consents}` })
     } catch (caught) { setPassword(''); setDeciding(false); setError(refused(caught)) }
     finally { setBusy(false) }
   }

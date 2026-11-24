@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { useNavigate } from 'react-router-dom'
 import {
   orderRoutesApi, staffApi, type ClinicalRecord, type OrderDestination, type OrderRouteSummary, type OrderRouteWithdrawReason,
+  type PharmacyHandoff,
 } from '../../../../staff/api'
 import { parsePrescriptionAllergyAcknowledgements, type AllergyAcknowledgement } from '../../../../staff/allergies'
 import { refusalText } from '../../../../staff/fieldProblem'
@@ -33,6 +34,11 @@ import {
 } from './orders'
 import { AllergyOverrides, OVERRIDES_NOT_SHOWN, membershipAt } from './AllergyOverrides'
 import { ACK_REFUSED_ERROR, storedMedicine, warnAfterRefusal } from './prescribingAllergies'
+import {
+  handoffRetryable, handoffText, OWN_SEND_FAILED, OWN_SEND_NOT_FOUND, OWN_SEND_UNAVAILABLE, OWN_SEND_VISIT_IN_ERROR, ownSendConsentEnded,
+  ownSendOffered, pharmacistHandoffOffered, readPharmacyHandoff,
+} from './ownPharmacySend'
+import { ownProgressText } from './progress'
 import { ReleasedResults } from './Results'
 import { RouteCard, SendElsewhere } from './Routing'
 import {
@@ -147,6 +153,10 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
   // offered again, at that version or a later one, since Lab and Pharmacy each hold one work item per order, ever, and
   // refuse any other version. A send that failed leaves none.
   const [sent, setSent] = useState<Sent | null>(() => created?.sent ?? null)
+  // The last answer about this hospital's own pharmacy (0133 pharmacyHandoff), from Activate, an edit, a resume or Send
+  // to pharmacy on this page: kept until the page is opened again, so an answer that trying again cannot change is not
+  // offered again meanwhile.
+  const [handoff, setHandoff] = useState<PharmacyHandoff | null>(null)
   const [pageError, showPageError] = useState<PageError>(NO_ERROR)
   const setPageError = (text: string) => showPageError(text ? { text, again: false } : NO_ERROR)
   // The order is being read again after a change: no change may start from the version shown (today's recordsLoading).
@@ -292,7 +302,14 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
   const warning = routed ? routedChangeWarning(route, patient, wrongPatientServed, lateCorrectionServed)
     : !lab && (status === 'active' || status === 'on_hold') ? PHARMACY_NOT_TOLD : undefined
   const taken = sent !== null && sent.to === (lab ? 'lab' : 'pharmacy') ? sent : null
-  const sendPharmacy = !lab && status === 'active' && chart.canWrite && chart.can('pharmacy.work-item.accept') && !routed && !taken
+  // Send to pharmacy for the prescriber (0133): this hospital's own pharmacy, at the version shown.
+  const sendOwnPharmacy = !lab && ownSendOffered({ record, actor, facilityId: chart.facilityId, canWrite: chart.canWrite && chart.can('ehr.prescription.write'),
+    routed, handoff })
+  // Today's pharmacist hand-off, never beside Send to pharmacy, which does the same for the prescriber, and only while this
+  // hospital's pharmacy has not received the prescription (it refuses the hand-off once it holds it, as after the
+  // automatic send on activation).
+  const sendPharmacy = !lab && status === 'active' && chart.canWrite && chart.can('pharmacy.work-item.accept') && !routed && !taken && !sendOwnPharmacy
+    && pharmacistHandoffOffered(record, handoff)
   const sendLab = lab && status === 'active' && canWrite && rights.canSendToLab && !routed && !taken
   const results = lab && status !== 'draft' && chart.can('lab.result.released.read') && !routed
   const sendElsewhere = rights.canRoute(kind) && mayBeSent(record)
@@ -304,6 +321,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
 
   const actions: Action[] = [
     ...choices.map(option => ({ id: `status-${option.value}`, label: statusLabel(option) })),
+    ...(sendOwnPharmacy ? [{ id: 'own-pharmacy', label: 'Send to pharmacy' }] : []),
     ...(sendPharmacy ? [{ id: 'pharmacy', label: 'Send to Pharmacy' }] : []),
     ...(sendLab ? [{ id: 'lab', label: 'Send to Lab' }] : []),
     ...(sendElsewhere ? [{ id: 'route', label: sendLabel(info.route) }] : []),
@@ -350,7 +368,12 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
       withAllergyAcknowledgement({ expectedRowVersion, changeReason: why, status: next }, lab ? null : allergyAcknowledgement))
     const outcome = toLab ? labHandoffOutcome(saved?.labHandoff ?? null, record.status === 'on_hold' ? 'resumed' : 'activated', rights.canSendToLab) : null
     if (toLab && saved?.labHandoff?.state === 'accepted') setSent(sentFrom('lab', saved.labWorkItem, rowVersion(saved.rowVersion)))
-    if (!outcome || outcome.accepted) setSuccess(outcome?.text ?? (lab ? 'Lab request status updated.' : 'Prescription status updated.'))
+    // Activate or Resume of a prescription says what became of its send to this hospital's pharmacy (0133), when it says.
+    const pharmacy = lab ? null : readPharmacyHandoff(saved?.pharmacyHandoff)
+    if (pharmacy) setHandoff(pharmacy)
+    if (!outcome || outcome.accepted) {
+      setSuccess(outcome?.text ?? (lab ? 'Lab request status updated.' : `Prescription status updated.${pharmacy ? ` ${handoffText(pharmacy)}` : ''}`))
+    }
     setSelected(null)
     const reloaded = await reload()
     if (outcome && !outcome.accepted) return labWarning(outcome.text, reloaded, outcome)
@@ -390,6 +413,56 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
     setSelected(null)
     // The send is no longer offered (taken), so focus goes to the actions.
     setFocusIds([ACTIONS_ID])
+  }
+
+  /**
+   * Send to pharmacy (0133): the prescriber's active prescription to this hospital's own pharmacy at the version shown.
+   * Checked against the patient's allergies by the EHR, as the hand-off is: it carries `allergyAcknowledgement` only
+   * when sent again after the EHR's warning. Answers the form's error while trying again can help (pending, the pharmacy
+   * not reached); any other answer closes the form and is said on the page.
+   */
+  async function sendToOwnPharmacy(allergyAcknowledgement: AllergyAcknowledgement | null): Promise<string | undefined> {
+    const expectedRowVersion = rowVersion(record.rowVersion)
+    if (!expectedRowVersion) throw new PlainError('Reload the prescription before sending it to the pharmacy.')
+    setSuccess('')
+    setPageError('')
+    await chart.verify()
+    let answer: { pharmacyHandoff?: unknown }
+    try {
+      answer = await staffApi.ownPharmacySend(chart.facilityId, chart.patientId, encounterId, record.id, expectedRowVersion, allergyAcknowledgement)
+    } catch (caught) {
+      if (!isHidApiError(caught)) throw caught
+      if (readAllergyRefusal(caught, false) || (allergyAcknowledgement && acknowledgementRefused(caught))) throw caught
+      if (caught.code === 'OWN_PHARMACY_SEND_UNAVAILABLE') throw new PlainError(OWN_SEND_UNAVAILABLE)
+      // The patient's approval for changes ended after the check above: said in the form, in the chart's words.
+      if (caught.code === 'CONSENT_REQUIRED') throw new PlainError(ownSendConsentEnded(patient))
+      // The visit was marked entered in error: nothing more can be sent from it, so the form closes and the page says so.
+      if (caught.code === 'VISIT_ENTERED_IN_ERROR') {
+        setSelected(null)
+        setPageError(OWN_SEND_VISIT_IN_ERROR)
+        setFocusIds([TITLE_ID])
+        return undefined
+      }
+      // Not found (404), or changed meanwhile: the prescription is read again, which says what it holds now.
+      const changed = caught.status === 404 ? OWN_SEND_NOT_FOUND : prescriptionChanged(caught)
+      if (!changed) throw caught
+      setSelected(null)
+      const reloaded = await reload()
+      setPageError(`${changed}${reloadSentence(reloaded, 'prescription', true)}`)
+      setFocusIds([TITLE_ID])
+      return undefined
+    }
+    const pharmacy = readPharmacyHandoff(answer?.pharmacyHandoff)
+    if (!pharmacy) throw new PlainError(OWN_SEND_FAILED)
+    setHandoff(pharmacy)
+    if (handoffRetryable(pharmacy)) return handoffText(pharmacy)
+    setSelected(null)
+    if (pharmacy.status === 'sent') setSuccess(handoffText(pharmacy))
+    else setPageError(handoffText(pharmacy))
+    // Read again, so the pharmacy's progress shows what it holds now (it is no longer offered).
+    await reload()
+    setFocusIds([ACTIONS_ID])
+    return undefined
   }
 
   async function sendLabRequest(key: string) {
@@ -487,6 +560,10 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
       }} />
   )
 
+  const ownPharmacyForm = (
+    <OwnPharmacySend key={`own-pharmacy-${version}`} disabled={reloading} warnAboutAllergies={warnAboutAllergies} onSend={sendToOwnPharmacy} />
+  )
+
   const labForm = (
     <div className="hid-ehr-clinical-orders-action-form">
       <RecordForm
@@ -520,6 +597,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
     if (!selected) return null
     const option = choices.find(item => `status-${item.value}` === selected)
     if (option) return statusForm(option)
+    if (selected === 'own-pharmacy' && sendOwnPharmacy) return ownPharmacyForm
     if (selected === 'pharmacy' && sendPharmacy) return pharmacyForm
     if (selected === 'lab' && sendLab) return labForm
     if (selected === 'route' && sendElsewhere) {
@@ -531,11 +609,16 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
   })()
 
   const dose = decimalText(record.doseQuantity)
+  // Where it is in this facility's own pharmacy or laboratory (ORD-3), only when there is something to say: no line
+  // for a draft never sent, or for a backend that sends no progress (today's page).
+  const progress = ownProgressText(kind, record)
+  const progressLine: KeyValue[] = progress ? [{ label: lab ? 'Laboratory progress' : 'Pharmacy progress', value: progress }] : []
   const items: KeyValue[] = lab ? [
     { label: 'Test', value: <TestValue name={text(record.testDisplay)} code={codeText(text(record.testCodeSystem), text(record.testCode))} /> },
     { label: 'Priority', value: priorityText(record.priority) },
     { label: 'Specimen type', value: text(record.specimenTypeCode) },
     { label: 'Clinical information', value: text(record.clinicalInformation) },
+    ...progressLine,
     { label: 'Recorded', value: formatWhen(record.createdAt) },
   ] : [
     { label: 'Medicine', value: text(record.medicationDisplay) },
@@ -546,6 +629,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
     // The dispensing details, each only where the EHR answered it.
     ...details,
     { label: 'Instructions', value: text(record.instructions) },
+    ...progressLine,
     { label: 'Recorded', value: formatWhen(record.createdAt) },
   ]
 
@@ -733,6 +817,48 @@ function PharmacyHandoff({ disabled, onSend, warnAboutAllergies }: {
         onSubmit={submit}
       >
         {ack.warning ? <AllergyWarningPanel idPrefix="rx-pharmacy" headingLevel={3} warning={ack.warning} ticked={ack.ticked} reason={ack.reason}
+          errors={ack.errors} focus={ack.focus} onTickedChange={ack.setTicked} onReasonChange={ack.setReason} /> : null}
+      </RecordForm>
+    </div>
+  )
+}
+
+/**
+ * Send to pharmacy (0133): no reason to give, the prescription as shown goes to this hospital's own pharmacy. The EHR
+ * checks it against the patient's allergies: on its 409 the allergy warning appears here, with the tick and "Why is it
+ * safe to go ahead?", and it is sent again with both. A pending send, or one that could not reach the pharmacy, stays
+ * open with what the EHR said, so it can be sent again.
+ */
+function OwnPharmacySend({ disabled, onSend, warnAboutAllergies }: {
+  disabled: boolean
+  onSend: (allergyAcknowledgement: AllergyAcknowledgement | null) => Promise<string | undefined>
+  warnAboutAllergies: (ack: AllergyAcknowledgementState, refusal: AllergyRefusal) => Promise<string>
+}) {
+  const ack = useAllergyAcknowledgement()
+
+  const submit = async (): Promise<SubmitOutcome> => {
+    const shown = ack.warning !== null
+    const acknowledgement = shown ? ack.acknowledgement() : null
+    if (shown && !acknowledgement) return { formError: ALLERGY_GO_AHEAD_ERROR }
+    try {
+      const again = await onSend(acknowledgement)
+      if (again) return { formError: again }
+    } catch (caught) {
+      const refusal = readAllergyRefusal(caught, acknowledgement !== null)
+      if (refusal) return { formError: await warnAboutAllergies(ack, refusal) }
+      if (acknowledgement && acknowledgementRefused(caught)) {
+        ack.refuseReason()
+        return { formError: ACK_REFUSED_ERROR }
+      }
+      return { formError: refusalText(caught, OWN_SEND_FAILED) }
+    }
+  }
+
+  return (
+    <div className="hid-ehr-clinical-orders-action-form">
+      <RecordForm fields={[]} submitLabel="Send to pharmacy" busyLabel="Sending…" disabled={disabled} onSubmit={submit}>
+        <p className="hid-ehr-clinical-orders-muted">Sends this prescription, as shown, to this hospital’s pharmacy.</p>
+        {ack.warning ? <AllergyWarningPanel idPrefix="rx-own-pharmacy" headingLevel={3} warning={ack.warning} ticked={ack.ticked} reason={ack.reason}
           errors={ack.errors} focus={ack.focus} onTickedChange={ack.setTicked} onReasonChange={ack.setReason} /> : null}
       </RecordForm>
     </div>

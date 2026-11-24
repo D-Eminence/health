@@ -23,14 +23,17 @@ export interface BlueAuthLayoutProps {
   /** The steps above the title, as app.'s password reset shows them (AuthLayout). */
   readonly steps?: readonly AuthStep[]
   readonly stepsLabel?: string
+  /** The one link in the top bar (AuthLayout): the sign-in's "Set up your facility", as on the classic page. */
+  readonly headerLink?: { readonly href: string; readonly label: string }
   readonly children: ReactNode
 }
 
-export function BlueAuthLayout({ title, titleId, lede, titleAs = 'h1', titleRef, links = true, steps, stepsLabel, children }: BlueAuthLayoutProps) {
+export function BlueAuthLayout({ title, titleId, lede, titleAs = 'h1', titleRef, links = true, steps, stepsLabel, headerLink, children }: BlueAuthLayoutProps) {
   return (
     <div className="hid-ehr-blue-auth contents">
       <AuthLayout brandTo={authHrefs().signIn} brandLabel="Health ID provider sign in" title={title} titleId={titleId}
-        titleAs={titleAs} titleRef={titleRef} titleFocusable={titleAs === 'h1'} lede={lede} steps={steps} stepsLabel={stepsLabel}>
+        titleAs={titleAs} titleRef={titleRef} titleFocusable={titleAs === 'h1'} lede={lede} steps={steps} stepsLabel={stepsLabel}
+        headerLink={headerLink && (/^https?:\/\//.test(headerLink.href) ? headerLink : { to: headerLink.href, label: headerLink.label })}>
         {children}
         {links ? <BlueAuthLinks /> : null}
       </AuthLayout>

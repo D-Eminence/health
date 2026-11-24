@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "Each service pinned to its live source_commit. ehr-api, lab-api and pharmacy-api: production release backend-45117253978-1-996eaefeb3724993 (deployed 2026-11-23 about 05:31 UTC), built from 06f98040 = hid-system #314 (no migration: #298 work-list window with 'since', #304 ICD-11 sensitive codes in patient chat, #305 named environmentConfig). Every other service: release backend-45090410506-1-f6809418109f3dbb (Release A, 4c843270), unchanged. Re-pin under standing approval Q94 4/5.",
+  "review_reference": "Each service pinned to its live source_commit: production release backend-45470922218-1-2d646f0d4a7bd8f4 (backend release C, deployed 2026-11-24 about 19:47 UTC), built from d519e5d1 for every service; migrations 0147-0149 applied (signed by the owner 2026-11-24). Re-pin under standing approval Q94 4/5.",
   "backend_commits": {
-    "gateway": "4c843270f3c74b8a06f862beb1d89655296a4b3b",
-    "identity-api": "4c843270f3c74b8a06f862beb1d89655296a4b3b",
-    "ehr-api": "06f980404f4d65ed1d4273697b24bb6b6fcbbf46",
-    "lab-api": "06f980404f4d65ed1d4273697b24bb6b6fcbbf46",
-    "pharmacy-api": "06f980404f4d65ed1d4273697b24bb6b6fcbbf46",
-    "ocr-api": "4c843270f3c74b8a06f862beb1d89655296a4b3b",
-    "outreach-api": "4c843270f3c74b8a06f862beb1d89655296a4b3b",
-    "support-api": "4c843270f3c74b8a06f862beb1d89655296a4b3b",
-    "notification-api": "4c843270f3c74b8a06f862beb1d89655296a4b3b"
+    "gateway": "d519e5d1cb40fdae4598251387989879aff415bb",
+    "identity-api": "d519e5d1cb40fdae4598251387989879aff415bb",
+    "ehr-api": "d519e5d1cb40fdae4598251387989879aff415bb",
+    "lab-api": "d519e5d1cb40fdae4598251387989879aff415bb",
+    "pharmacy-api": "d519e5d1cb40fdae4598251387989879aff415bb",
+    "ocr-api": "d519e5d1cb40fdae4598251387989879aff415bb",
+    "outreach-api": "d519e5d1cb40fdae4598251387989879aff415bb",
+    "support-api": "d519e5d1cb40fdae4598251387989879aff415bb",
+    "notification-api": "d519e5d1cb40fdae4598251387989879aff415bb"
   }
 }

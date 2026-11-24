@@ -51,6 +51,7 @@ describe(SITE, () => {
     expect(opened).not.toHaveBeenCalled()
   })
 
+  // As before website release C (owner's decision of 24 November 2026): the product's own page, not Home.
   it('opens Outreach’s Home in place of Patient registration, signed in, on this site', async () => {
     await openPortalSignedInOn(SITE, '/provider/registration', { id: OUTREACH_DEMO, name: 'Demo Outreach' }, EVERY_PERMISSION)
     await waitFor(() => expect(address()).toBe('/provider/outreach'))

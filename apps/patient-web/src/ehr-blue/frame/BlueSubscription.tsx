@@ -77,7 +77,8 @@ export function BlueSubscription() {
 
   if (subscription.kind === 'unavailable') return <div className="flex flex-col gap-6">
     <PageHeader title={TITLE} />
-    <EmptyState title="Billing isn't available yet" description="Plans, free trials and payment aren’t switched on yet." />
+    {/* The classic page's words (staff/routes/Billing.tsx, parity report 3.3-64). */}
+    <EmptyState title="Billing" description="Billing isn’t set up for your facility. Contact support." />
   </div>
 
   async function startTrial() {
@@ -156,7 +157,7 @@ export function BlueSubscription() {
               <p className="m-0 text-[13px] text-ink-3">This plan is priced by Health ID sales. Contact Health ID sales to pay for it.</p>}
             {!canManage && plan.status !== 'active' && <p className="m-0 text-[13px] text-ink-3">Only your facility administrator can start a trial or pay.</p>}
             {actionError && <Alert intent="error" size="sm">{actionError}</Alert>}
-            {payable && <p className="m-0 text-[13px] text-ink-3">Payment opens Paystack’s secure checkout.</p>}
+            {payable && <p className="m-0 text-[13px] text-ink-3">Payment opens Paystack’s secure checkout. Card details never pass through Health ID.</p>}
           </div>
         </Card>
 
@@ -176,9 +177,9 @@ export function BlueSubscription() {
       <CardHeader as="h2" title="Subscription history" />
       {invoices.kind === 'loading' && <p role="status" className="m-0 px-5 py-4 text-[13px] text-ink-3">Loading invoices…</p>}
       {invoices.kind === 'error' && <div className="px-5 py-4"><Alert intent="error" size="sm">{invoices.message}</Alert></div>}
-      {invoices.kind === 'unavailable' && <p className="m-0 px-5 py-4 text-[13px] text-ink-3">Invoices aren’t available yet.</p>}
+      {invoices.kind === 'unavailable' && <p className="m-0 px-5 py-4 text-[13px] text-ink-3">No invoices.</p>}
       {invoices.kind === 'ready' && (invoices.value.length === 0
-        ? <p className="m-0 px-5 py-4 text-[13px] text-ink-3">No invoices yet. Your first one shows here after you pay.</p>
+        ? <p className="m-0 px-5 py-4 text-[13px] text-ink-3">No invoices yet. Your first invoice appears here after you pay.</p>
         : <InvoiceTable invoices={invoices.value} />)}
     </Card>
   </div>

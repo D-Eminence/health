@@ -196,12 +196,13 @@ describe('the blue frame', () => {
     await openDemo('/provider/not-a-page')
     expect(await screen.findByRole('heading', { level: 1, name: 'Page not found' })).toBeDefined()
     expect(where()).toBe('/provider/not-a-page')
-    expect(screen.getByText('We can’t find that page.')).toBeDefined()
+    // Classic's words (parity report 21).
+    expect(screen.getByText('This provider page is unavailable.')).toBeDefined()
     await waitFor(() => expect(document.title).toBe('Page not found · Health ID EHR'))
     const page = document.querySelector<HTMLElement>('.hid-ehr-blue-page')!
     expect(page.textContent).not.toMatch(/not-a-page|\/provider/)
     expect(screen.queryByText(/no longer allow that page/)).toBeNull()
-    const home = within(page).getByRole('link', { name: 'Go to Home' })
+    const home = within(page).getByRole('link', { name: 'Go to provider overview' })
     expect(within(page).getAllByRole('link')).toEqual([home])
     expect(home.getAttribute('href')).toBe('/provider')
     fireEvent.click(home)
@@ -216,20 +217,22 @@ describe('the blue frame', () => {
     expect(document.querySelector('.hid-ehr-blue-page')!.textContent).not.toMatch(/what|not-a-page/i)
   })
 
-  // A lab on its own has no Home: its first page is the Lab item, so the way back names that and goes straight there.
-  it('says Page not found in a single product\'s workspace, with one way back to its own first page', async () => {
+  // The way back is classic's catch-all's (parity report 21): the overview, /provider, which on a lab's own site opens
+  // the lab's own page, as before website release C (owner's decision of 24 November 2026).
+  it('says Page not found in a single product\'s workspace, with classic\'s one way back, which opens its own first page', async () => {
     const lab = facility(DEMO_LABORATORY, 'Demo Laboratory', ['lab.work-item.read'])
     serve({ [SESSION]: [sessionAt(lab, [lab])], [LAB_WORK]: [() => json({ items: [] })] })
     await openStaffApp('/provider/not-a-page')
     expect(await screen.findByRole('heading', { level: 1, name: 'Page not found' })).toBeDefined()
     await waitFor(() => expect(document.title).toBe('Page not found · Health ID Lab'))
     const page = document.querySelector<HTMLElement>('.hid-ehr-blue-page')!
-    expect(page.textContent).not.toMatch(/Home|not-a-page|\/provider/)
-    const back = within(page).getByRole('link', { name: 'Go to Lab' })
+    expect(page.textContent).not.toMatch(/not-a-page|\/provider/)
+    const back = within(page).getByRole('link', { name: 'Go to provider overview' })
     expect(within(page).getAllByRole('link')).toEqual([back])
-    expect(back.getAttribute('href')).toBe('/provider/laboratory')
+    expect(back.getAttribute('href')).toBe('/provider')
     fireEvent.click(back)
-    await waitFor(() => expect(where()).toBe('/provider/laboratory'))
+    await waitFor(() => expect(where()).toMatch(/^\/provider\/laboratory(\/|$)/))
+    expect(screen.queryByRole('heading', { level: 1, name: homeHeading() })).toBeNull()
   })
 
   it('says Page not found at a facility that is not a demo one, with the same way Home', async () => {
@@ -237,10 +240,10 @@ describe('the blue frame', () => {
     const sent = serve({ [SESSION]: [sessionAt(riverside, [riverside])], [REQUESTS]: [() => json([])] })
     await openStaffApp('/provider/not-a-page')
     expect(await screen.findByRole('heading', { level: 1, name: 'Page not found' })).toBeDefined()
-    expect(screen.getByText('We can’t find that page.')).toBeDefined()
+    expect(screen.getByText('This provider page is unavailable.')).toBeDefined()
     const page = document.querySelector<HTMLElement>('.hid-ehr-blue-page')!
     expect(page.textContent).not.toMatch(/not-a-page|\/provider/)
-    expect(within(page).getByRole('link', { name: 'Go to Home' }).getAttribute('href')).toBe('/provider')
+    expect(within(page).getByRole('link', { name: 'Go to provider overview' }).getAttribute('href')).toBe('/provider')
     // Besides the session, only the bell's one read of the access requests on opening.
     expect(sent.every(call => call.route === SESSION || call.route === REQUESTS)).toBe(true)
   })
@@ -263,7 +266,7 @@ describe('the blue frame', () => {
     expect(sent.some(call => call.route === 'POST /api/v1/auth/logout')).toBe(true)
   })
 
-  it('switches facility from the account menu in one step, with today\'s switch, and says a refusal in today\'s words', async () => {
+  it('switches facility from the facility menu once confirmed in place, with today\'s switch, and says a refusal in today\'s words', async () => {
     const lab = facility(DEMO_LABORATORY, 'Demo Laboratory', ['lab.work-item.read'])
     const sent = await openDemo('/provider/whats-left', ['identity.consent.write'], {
       [FACILITY]: [() => problem(403, 'FACILITY_ACCESS_DENIED', 'The actor is not active at the facility.'), sessionAt(lab, [lab])],
@@ -275,8 +278,10 @@ describe('the blue frame', () => {
     expect(where()).toBe('/provider/whats-left')
     expect(screen.queryByRole('heading', { level: 1, name: 'Switch facility' })).toBeNull()
     switchFacilityTo('Demo Hospital', 'Demo Laboratory')
-    // Demo Laboratory holds only the laboratory's permission: it is the Lab product, whose home is its queue.
-    await waitFor(() => expect(where()).toBe('/provider/laboratory'))
+    // Demo Laboratory holds only the laboratory's permission: it is the Lab product, whose home is its queue, as before
+    // website release C (owner's decision of 24 November 2026).
+    await waitFor(() => expect(where()).toMatch(/^\/provider\/laboratory(\/|$)/))
+    expect(screen.queryByRole('heading', { level: 1, name: homeHeading() })).toBeNull()
     expect(sent.filter(call => call.route === FACILITY).map(call => call.body)).toEqual([{ facilityId: DEMO_LABORATORY }, { facilityId: DEMO_LABORATORY }])
   })
 
@@ -285,10 +290,11 @@ describe('the blue frame', () => {
     const lab = facility(DEMO_LABORATORY, 'Demo Laboratory', ['lab.work-item.read'])
     serve({ [SESSION]: [sessionAt(demo, [demo, lab], 'default')] })
     await openStaffApp('/provider')
-    const heading = await screen.findByRole('heading', { level: 1, name: 'Where are you working today?' })
+    const heading = await screen.findByRole('heading', { level: 1, name: 'Where are you working?' })
     expect(document.activeElement).toBe(heading)
     expect(screen.getByText(/You work at more than one facility\./)).toBeDefined()
-    expect(screen.getByRole('button', { name: 'Work at Demo Hospital' })).toBeDefined()
+    expect(screen.getByRole('radio', { name: /Demo Hospital/ })).toBeDefined()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDefined()
     expect(screen.queryByRole('navigation', { name: 'Main navigation' })).toBeNull()
   })
 

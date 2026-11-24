@@ -21,8 +21,17 @@ export const PRESCRIPTION_TRANSITIONS: Readonly<Record<string, readonly StatusOp
     { value: 'entered_in_error', label: 'Mark entered in error' }],
 }
 
-/** Clinical.tsx `PHARMACY_NOT_TOLD`. */
-export const PHARMACY_NOT_TOLD = 'Pharmacy is not told of this change, so if this prescription was sent to Pharmacy you must contact the pharmacy. A dispensing already recorded is not undone. Pharmacy may refuse to dispense the version it was sent once the prescription has been put on hold, completed, cancelled or marked entered in error, even after it is resumed: if treatment is to continue and the pharmacy cannot dispense it, create a new prescription and send it.'
+/**
+ * Clinical.tsx `PHARMACY_NOT_TOLD`, reworded for hid-system 0133 (Clinical.tsx keeps the earlier words). This hospital's
+ * own pharmacy cannot dispense the version it holds once the prescription is held, completed, cancelled, entered in
+ * error or resumed (0101), and when it got the prescription by the automatic send or the prescriber's send, a hold,
+ * cancellation, entry in error or resumption withdraws that send, which the pharmacy sees (0133 D8; completing it marks
+ * nothing). A pharmacist's hand-off ("Send to Pharmacy", basis hand_off) has no send to withdraw, so the pharmacy is not
+ * told of it (0133 D6 to D8, 0144 A1/A3). The sentence says what happened, never a button's label: the pharmacist's
+ * "Send to Pharmacy" may be on the same page. A pharmacy at another facility is not told, and a dispensing already
+ * recorded is not undone.
+ */
+export const PHARMACY_NOT_TOLD = 'This hospital’s pharmacy can no longer dispense the version it was sent once this prescription is put on hold, completed, cancelled or marked entered in error, even after it is resumed. If it went to that pharmacy by itself when it was activated, or when its prescriber sent it, the pharmacy is told of a hold, cancellation, entry in error or resumption. If a pharmacist handed it to the pharmacy instead, the pharmacy is not told: contact the pharmacy. A pharmacy at another facility is not told of this change: if this prescription was sent to one, contact that pharmacy. A dispensing already recorded is not undone. If treatment is to continue, create a new prescription and send it.'
 
 /** Clinical.tsx `ROUTED_LAB_CHOICES`: the changes offered for a lab request sent to another facility. */
 export const ROUTED_LAB_CHOICES: Readonly<Record<string, readonly StatusOption[]>> = {
@@ -64,8 +73,8 @@ export const DOSE_PAIR = 'Enter both dose quantity and dose unit, or leave both 
 export const DOSE_NUMBER_TEXT = 'Enter the dose as a number, like 0.5 or 250 (up to 4 decimal places).'
 export const LAB_ACTIVE_NOTE = 'Active creation saves the request, then asks Lab to accept it. If Lab does not, the request stays saved and active, even when an error is shown: check the list before creating it again, then open the request and use Send to Lab.'
 export const LAB_SEND_HINT = 'Sends this active request to Lab if Lab does not have it yet. Lab keeps one work item per request, so sending again changes nothing Lab already holds.'
-/** Today's refusal and result of a create (Clinical.tsx:1455, :1502). */
-export const NO_CHANGES = 'This access does not permit changes to the patient record.'
+/** Classic's refusal of a create without write access (staff/routes/Clinical.tsx:1492, :1676) and its result (:1502). */
+export const NO_CHANGES = 'Your access doesn’t allow changes to this patient’s records.'
 export const SAVED = 'Clinical record saved.'
 
 /** The draft warning under "Request handling" (Clinical.tsx RecordForm). */

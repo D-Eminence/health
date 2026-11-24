@@ -33,7 +33,7 @@ const NIN = '12345678901'
 const CASE = 'c0000000-0000-4000-8000-000000000001'
 const ENABLED = { nin: { enabled: true, state: 'enabled' }, newPatientRegistrationRequiresNin: true }
 const pending = { caseId: CASE, status: 'pending_new_identity_approval', version: 1, candidateCount: 0 }
-const VERIFY = 'Verify and create case'
+const VERIFY = 'Check NIN'
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -56,10 +56,10 @@ const ANSWERS: Array<[string, () => HidApiError, string]> = [
 async function openNew() {
   renderDept(<PatientRegistration />)
   fireEvent.click(await screen.findByRole('button', { name: 'Create record' }))
-  await screen.findByLabelText(/^National Identity Number/)
+  await screen.findByLabelText(/^NIN \(11 digits\)/)
 }
 function fill({ first = 'Patient' } = {}) {
-  fireEvent.input(screen.getByLabelText(/^National Identity Number/), { target: { value: NIN } })
+  fireEvent.input(screen.getByLabelText(/^NIN \(11 digits\)/), { target: { value: NIN } })
   fireEvent.input(screen.getByLabelText(/^First name/), { target: { value: first } })
   fireEvent.input(screen.getByLabelText(/^Last name/), { target: { value: 'One' } })
   fireEvent.input(screen.getByLabelText(/^Date of birth/), { target: { value: '1990-01-02' } })
@@ -94,7 +94,7 @@ describe('the desk NIN check', () => {
     for (const label of [/^Date of birth/, /^First name/, /^Last name/]) {
       await waitFor(() => expect(screen.getByLabelText(label).getAttribute('aria-invalid')).toBe('true'))
     }
-    expect(screen.getByLabelText(/^National Identity Number/).getAttribute('aria-invalid')).not.toBe('true')
+    expect(screen.getByLabelText(/^NIN \(11 digits\)/).getAttribute('aria-invalid')).not.toBe('true')
   })
 
   it.each([ANSWERS[0]!, ANSWERS[2]!, ANSWERS[3]!])('after %s, Verify again with the form unchanged sends the same key', async (_name, answer, text) => {
@@ -181,7 +181,7 @@ describe('a NIN QoreID has no record of, at the desk (owner Q117; hid-system #27
     fireEvent.click(verifyButton())
     expect((await screen.findByText(NOT_VERIFIED)).getAttribute('role')).toBe('alert')
     expect(document.body.textContent).not.toMatch(/NIN_NOT_VERIFIED|\b422\b/)
-    await waitFor(() => expect(screen.getByLabelText(/^National Identity Number/).getAttribute('aria-invalid')).toBe('true'))
+    await waitFor(() => expect(screen.getByLabelText(/^NIN \(11 digits\)/).getAttribute('aria-invalid')).toBe('true'))
     expect(screen.getByText(NIN_NUMBER_FIELD)).toBeTruthy()
     for (const label of [/^Date of birth/, /^First name/, /^Last name/]) {
       expect(screen.getByLabelText(label).getAttribute('aria-invalid')).not.toBe('true')
@@ -210,6 +210,6 @@ describe('a NIN QoreID has no record of, at the desk (owner Q117; hid-system #27
     fireEvent.click(verifyButton())
     await screen.findByText(VERIFY_FAILED)
     expect(document.body.textContent).not.toContain(NOT_VERIFIED)
-    expect(screen.getByLabelText(/^National Identity Number/).getAttribute('aria-invalid')).not.toBe('true')
+    expect(screen.getByLabelText(/^NIN \(11 digits\)/).getAttribute('aria-invalid')).not.toBe('true')
   })
 })

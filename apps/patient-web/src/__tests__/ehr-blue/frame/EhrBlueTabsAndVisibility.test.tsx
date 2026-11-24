@@ -100,7 +100,8 @@ describe('a page that fails to render', () => {
     const nav = await openDemo('/provider/broken')
     const alert = screen.getByRole('alert')
     expect(within(alert).getByRole('heading', { level: 1, name: 'Something went wrong' })).toBeDefined()
-    expect(within(alert).getByText('This page could not be shown. Reload it to try again, or go back to Home.')).toBeDefined()
+    // Today's app's words when a page fails (AppErrorBoundary; parity report 3.3-52).
+    expect(within(alert).getByText('This page could not be shown. Reload it to try again.')).toBeDefined()
     expect(document.body.textContent).not.toContain('fictional failure')
     expect(document.activeElement).toBe(within(alert).getByRole('heading', { level: 1 }))
     expect(accountButton()).toBeDefined()
@@ -115,7 +116,7 @@ describe('a page that fails to render', () => {
     await openDemo('/provider/broken')
     const alert = screen.getByRole('alert')
     expect(within(alert).getByRole('button', { name: 'Reload' })).toBeDefined()
-    expect(within(alert).getByRole('button', { name: 'Go to Home' })).toBeDefined()
+    expect(within(alert).getByRole('button', { name: 'Go to your overview' })).toBeDefined()
     expect(within(alert).queryByRole('button', { name: 'Use the classic EHR' })).toBeNull()
     expect(where()).toBe('/provider/broken')
   })

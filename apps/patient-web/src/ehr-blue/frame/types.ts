@@ -27,6 +27,11 @@ export interface EhrBluePage {
   readonly icon?: ReactNode
   /** The facility permission the page needs (Identity's code, such as 'lab.work-item.read'). */
   readonly permission?: string
+  /**
+   * Other facility permissions, any one of which opens the page as `permission` does (Scan paper records: 'ocr.job.read'
+   * or the front desk's 'ocr.job.read-own', hid-system 0136). Only with `permission`.
+   */
+  readonly orPermissions?: readonly string[]
   readonly status: EhrBluePageStatus
   readonly element: ReactElement
   /**

@@ -65,6 +65,8 @@ describe(SITE, () => {
     expect(opened).not.toHaveBeenCalled()
   })
 
+  // As before website release C (owner's decision of 24 November 2026, "Migrate works as before"): Migrate's own page,
+  // Scan paper records, not Home.
   it('opens Migrate’s Home in place of Patient registration, signed in once the clinic switch is on, on this site', async () => {
     clinic.switchedOn = true
     await openPortalSignedInOn(SITE, '/provider/registration', { id: REAL_FACILITY, name: 'Fictional Records Office' }, EVERY_PERMISSION)

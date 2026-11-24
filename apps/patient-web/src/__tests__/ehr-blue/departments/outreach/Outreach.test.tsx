@@ -266,7 +266,8 @@ describe('the list', () => {
   it('says when there are no cases yet, and offers the first registration', async () => {
     api.outreachCases.mockResolvedValue([])
     renderPage()
-    expect(await screen.findByText('No registrations yet')).toBeTruthy()
+    // The classic Outreach section's words (parity report 3.3-72).
+    expect(await screen.findByText('No registration cases')).toBeTruthy()
     expect(screen.getByText('People you register in the field show here, with what each needs next.')).toBeTruthy()
     expect(screen.getAllByRole('button', { name: 'New registration' })).toHaveLength(2)
   })
@@ -282,7 +283,14 @@ describe('the list', () => {
     await waitFor(() => expect(alertTexts().some(text => text.includes(message))).toBe(true))
     expect(alertTexts().find(text => text.includes(message))).toContain('Couldn’t load registrations')
     if (error instanceof HidApiError) expect(document.body.textContent).not.toContain(error.message)
-    expect(screen.queryByText('No registrations yet')).toBeNull()
+    expect(screen.queryByText('No registration cases')).toBeNull()
+  })
+
+  it('says when there are no campaigns, in the classic Outreach section\'s words', async () => {
+    api.outreachCampaigns.mockResolvedValue([])
+    renderPage()
+    expect(await screen.findByText('No campaigns')).toBeTruthy()
+    expect(screen.queryByText('No campaigns yet')).toBeNull()
   })
 
   it('says when campaigns cannot be read', async () => {
@@ -446,7 +454,7 @@ describe('campaigns, read only', () => {
     })
     renderPage()
     await press(card(await campaignsList(), 'Demo screening week'))
-    expect(await screen.findByText('No members yet')).toBeTruthy()
+    expect(await screen.findByText('No members')).toBeTruthy()
     await press(screen.getByRole('button', { name: 'Back to list' }))
     await press(card(await campaignsList(), 'Demo follow-up'))
     expect((await screen.findByRole('alert')).textContent).toContain(SAID_REFUSED)
@@ -649,7 +657,7 @@ describe('creating a registration case', () => {
     api.createOutreachCase.mockRejectedValueOnce('offline')
     renderPage()
     await press(fill(await openNew(), { fullName: 'Patient One', age: '34' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('The registration case could not be saved. Please retry.')
+    expect((await screen.findByRole('alert')).textContent).toBe('Registration case could not be created.')
   })
 
   it.each([
@@ -800,7 +808,7 @@ describe('a registration case', () => {
       'Same name, age and phone as the Health ID record'))
     const status = document.getElementById(`outreach-case-status-${CASE_ID}`)!
     expect(status.getAttribute('role')).toBe('status')
-    await waitFor(() => expect(status.textContent).toBe('Patient linked. This registration case is now linked to the verified Health ID patient.'))
+    await waitFor(() => expect(status.textContent).toBe('Existing patient linked.'))
     expect(api.outreachCases).toHaveBeenCalledTimes(2)
     // Linked: the link is no longer offered, and focus, lost with the form, is on what was done.
     const done = await screen.findByRole('heading', { name: 'Patient linked' })
@@ -837,7 +845,7 @@ describe('a registration case', () => {
   it.each([
     ['a version conflict', new HidApiError(409, 'This registration case has changed. Refresh it and try again.', { code: 'VERSION_CONFLICT' }), SAID_CHANGED],
     ['a patient this membership may not open', new HidApiError(403, 'You do not have access to this patient.', { code: 'FORBIDDEN' }), SAID_REFUSED],
-    ['an unknown failure', 'offline', 'The patient could not be linked. Check your access to this patient, then refresh the case.'],
+    ['an unknown failure', 'offline', 'Patient could not be linked. Verify access and refresh the case.'],
   ])('says %s, keeps the form, and reads the case again for the next attempt', async (_name, error, message) => {
     api.linkExistingOutreachCase.mockRejectedValue(error)
     renderPage()

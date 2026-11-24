@@ -14,7 +14,7 @@ import { errorText } from '../parts/errors'
 import { birthDateText, dateText } from '../parts/format'
 import {
   ageText, caseFacts, caseName, caseTone, COMPLETE_FIELD, controlProps, ErrorBox, HAS_HEALTH_ID, HEALTH_ID_FORMAT, HEALTH_ID_HINT,
-  HEALTH_ID_NO_ACCESS, HEALTH_ID_NOT_FOUND, HEALTH_ID_ROLE, healthIdFrom, healthIdMadeText, LINK_FAILED, LINK_NEEDS_SHARE, LINK_NEEDS_SHARE_NO_PIN, LOOKUP_FAILED,
+  HEALTH_ID_NO_ACCESS, HEALTH_ID_NOT_FOUND, HEALTH_ID_ROLE, healthIdFrom, healthIdMadeText, LINK_FAILED, LINKED, LINK_NEEDS_SHARE, LINK_NEEDS_SHARE_NO_PIN, LOOKUP_FAILED,
   NO_HEALTH_ID_YET, OutreachField, PENDING, LINK_RETRY_NOTE, REASON_LENGTH, sexText, statusLabel, type FieldErrors,
 } from './outreachParts'
 import { LINKS_LATER } from './outreachGroup'
@@ -300,7 +300,7 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, canWrite
         <ErrorBox message={listError} />
         {/* Mounted throughout, so what was recorded is announced. */}
         <div id={`outreach-case-status-${item.id}`} role="status" className="hid-ehr-sr-only">
-          {linked ? 'Patient linked. This registration case is now linked to the verified Health ID patient.' : ''}
+          {linked ? LINKED : ''}
         </div>
         {/* A refusal whose form is gone (the case, read again, no longer offers the link) is said here instead. */}
         {error && !(offered && open) ? <><ErrorBox message={error} />{readAgain ? <p className="hid-ehr-dept-outreach-note">{LINK_RETRY_NOTE}</p> : null}</> : null}

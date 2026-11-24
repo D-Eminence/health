@@ -9,9 +9,10 @@ import { staffSessionGeneration, untilStaffSessionReady } from '../../../staff/s
 import { isDemoFacility } from '../../blueFacilities'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 import { isAdult, STAFF_ACCESS_COVERS_PAPER } from '../../../paperRecordsWording'
+import { scanAccess } from '../../../scanAccess'
 import {
-  HID_FORMAT, METHOD_ROUTES, actionUnavailable, administratorOf, dropOfferedHealthId, healthIdProblem, offeredHealthId,
-  useOpenPatient,
+  COMMAND_FAILED, HID_FORMAT, METHOD_ROUTES, actionUnavailable, administratorOf, dropOfferedHealthId, healthIdProblem,
+  offeredHealthId, useOpenPatient, useOpenedPatientHref,
 } from './access'
 import { PlainError, plainErrorText } from '@hid/http'
 
@@ -51,6 +52,7 @@ export function PinAccess({ backLabel = 'Back to access requests' }: { backLabel
   const navigate = useNavigate()
   const id = useId()
   const openPatient = useOpenPatient()
+  const landing = useOpenedPatientHref()
   // A Health ID handed over from Patients, read once; otherwise the field starts at HID-, as today's does.
   const [hid, setHid] = useState(() => offeredHealthId(facility?.id, setActivePatient) || HEALTH_ID_PREFIX)
   useEffect(() => { dropOfferedHealthId() }, [])
@@ -93,9 +95,10 @@ export function PinAccess({ backLabel = 'Back to access requests' }: { backLabel
       if (!facility) throw new PlainError('Select a facility first.')
       await staffApi.verifyPin(facility.id, normalized, compactPin)
       await untilStaffSessionReady(sentIn)
-      if (await openPatient(normalized, 'direct-care')) navigate(href.to('patients', 'open'))
+      // The patient's page, with the chart summary, for every role (owner decision Q139 B; see useOpenedPatientHref).
+      if (await openPatient(normalized, 'direct-care')) navigate(landing('direct-care'))
     } catch (caught) {
-      setError(plainErrorText(caught, 'Something went wrong. Please try again.', { codes: PIN_REFUSALS, audience: 'facility' }))
+      setError(plainErrorText(caught, COMMAND_FAILED, { codes: PIN_REFUSALS, audience: 'facility' }))
     } finally {
       setBusy(false)
     }
@@ -116,25 +119,26 @@ export function PinAccess({ backLabel = 'Back to access requests' }: { backLabel
               aria-invalid={problem?.field === 'hid' ? true : undefined} aria-describedby={problem?.field === 'hid' ? `${hidId}-error` : `${hidId}-hint`}
               onChange={event => { setHid(normalizeHealthIdInput(event.target.value)); if (problem?.field === 'hid') setProblem(null) }} />
           </Field>
-          <Field label="Access PIN" htmlFor={pinId} hint="4 to 8 digits." hintId={`${pinId}-hint`} error={shown('pin')} errorId={`${pinId}-error`}>
+          <Field label="Patient access PIN" htmlFor={pinId} hint="4 to 8 digits." hintId={`${pinId}-hint`} error={shown('pin')} errorId={`${pinId}-error`}>
             <Input id={pinId} type="password" inputMode="numeric" autoComplete="off" pattern="\s*(\d\s*){4,8}" maxLength={16} required
               value={pin} className="max-w-48 tracking-[.3em]"
               aria-invalid={problem?.field === 'pin' ? true : undefined} aria-describedby={problem?.field === 'pin' ? `${pinId}-error` : `${pinId}-hint`}
               onChange={event => { setPin(event.target.value); if (problem?.field === 'pin') setProblem(null) }} />
           </Field>
           {/* The paper records line only when the patient's age is known here (their record is open for direct care) and
-              they are an adult, to a role that brings in paper records, on access that can add records. Never under
-              emergency access, which can't. */}
-          {activePatient?.purpose === 'direct-care' && activePatient.hid === normalizeHealthIdInput(hid) && permissions.includes('ocr.job.read')
+              they are an adult, to a role that brings in paper records (one that starts readings, hid-system 0136), on
+              access that can add records. Never under emergency access, which can't. */}
+          {activePatient?.purpose === 'direct-care' && activePatient.hid === normalizeHealthIdInput(hid) && scanAccess(permissions).startsReadings
             && activePatient.lookup.authorization.scope === 'write_records' && isAdult(activePatient.lookup.patient.dateOfBirth)
             ? <p className="m-0 text-[13px] text-ink-3">{STAFF_ACCESS_COVERS_PAPER}</p> : null}
           {unavailable ? <p id="pin-access-unavailable" className="m-0 text-[13px] text-ink-3">{unavailable}</p> : null}
-          {error ? <Alert intent="error" title="Couldn’t open the record">{error}</Alert> : null}
+          {/* Today's error has no title of its own (Patients.tsx:271): the sentence says what happened. */}
+          {error ? <Alert intent="error">{error}</Alert> : null}
           <FormActions sticky={false}>
-            {/* Busy, it stays focusable (aria-disabled, not disabled), as today's Verify PIN and open: focus is not lost while
+            {/* Today's button and busy words (Patients.tsx:262). Busy, it stays focusable (aria-disabled, not disabled): focus is not lost while
                 the PIN is checked, and a second press sends nothing (submit returns while one is on its way). */}
             <Button type="submit" variant="primary" icon={KeyRound} disabled={!facility || unavailable !== null} aria-disabled={busy || undefined}
-              aria-describedby={unavailable ? 'pin-access-unavailable' : undefined}>{busy ? 'Checking…' : 'Check PIN and open'}</Button>
+              aria-describedby={unavailable ? 'pin-access-unavailable' : undefined}>{busy ? 'Working…' : 'Verify PIN and open'}</Button>
           </FormActions>
         </form>
       </Card>

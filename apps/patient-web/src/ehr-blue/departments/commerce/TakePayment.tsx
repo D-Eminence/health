@@ -10,6 +10,7 @@ import { naira, parseNaira } from './money'
 import { NotSwitchedOn } from './NotSwitchedOn'
 import { Receipt } from './Receipt'
 import { useCommerceRead } from './useCommerceRead'
+import { printReceipt } from '../../../print/printPaper'
 
 const METHOD_ICON: Readonly<Record<PaymentMethod, Icon>> = {
   cash: Banknote, pos: CreditCard, transfer: Landmark, hmo: ShieldCheck, waiver: BadgeCheck,
@@ -129,7 +130,7 @@ function TakePaymentDrawer({ bill: given, onPaid, onClose }: {
 
   let footer
   if (stage.kind === 'receipt') footer = <>
-    <Button icon={Printer} onClick={() => window.print()}>Print</Button>
+    <Button icon={Printer} onClick={event => printReceipt(event.currentTarget)}>Print</Button>
     <Button variant="primary" onClick={onClose}>Done</Button>
   </>
   else if (off || loading || readError || !bill || !method || due <= 0) footer = <Button onClick={onClose}>Close</Button>

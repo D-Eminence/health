@@ -80,6 +80,13 @@ export function FormRefusal({ error }: { readonly error: string }) {
   </>
 }
 
+/*
+ * The classic Document OCR page's words for a failed step (staff/routes/Operations.tsx, parity report 3.3-71), as each
+ * step's fallback: errorText says the shared plain words first, and these only when none fits.
+ */
+export const PUBLISH_FAILED = 'Validated evidence could not be published.'
+export const HISTORY_FAILED = 'Publication history could not be loaded.'
+
 /** What a press of Publish says when the record could not be reached (a 5xx, or no answer). */
 export const PUBLISH_UNREACHED = 'The record couldn’t be reached. Nothing was added. Try again in a few minutes.'
 /** The same, when the history shows a publication OCR keeps: its own line says what it means for the record. */
@@ -554,7 +561,7 @@ export function ConfirmForm({ facilityId, job, permissions, onChanged }: {
         return
       }
       setError(isHidApiError(caught) && caught.code === 'OCR_PATIENT_MISMATCH' ? 'The patient you chose doesn’t match the patient on the document. Check the patient and try again.'
-        : errorText(caught, 'The patient confirmation was not recorded.'))
+        : errorText(caught, 'Patient confirmation could not be recorded.'))
       focus('ocr-confirm-submit', true)
     }
     finally { setBusy(false) }
@@ -669,11 +676,11 @@ function publicationRefusal(caught: unknown, items: readonly OcrPublication[] | 
   if (isHidApiError(caught) && caught.status === 403 && caught.code === 'OCR_PUBLISH_NEEDS_DIRECT_CARE') return 'Ask a clinician with access to this patient to publish it.'
   // A server that could not answer, or no answer at all: said neutrally, never as one service being down.
   // A connection between services that will be back in seconds keeps its own words, which say to wait a few seconds.
-  if (isHidApiError(caught) && SERVICE_AUTH_UNAVAILABLE.has(caught.code)) return errorText(caught, 'The validated evidence was not published.')
+  if (isHidApiError(caught) && SERVICE_AUTH_UNAVAILABLE.has(caught.code)) return errorText(caught, PUBLISH_FAILED)
   if (!isHidApiError(caught) || caught.status === 0 || caught.status >= 500) {
     return items === null ? PUBLISH_UNREACHED_UNKNOWN : items.length > 0 ? PUBLISH_UNREACHED_RECORDED : PUBLISH_UNREACHED
   }
-  return errorText(caught, 'The validated evidence was not published.')
+  return errorText(caught, PUBLISH_FAILED)
 }
 
 const publishedAs: Partial<Record<OcrTargetDomain, string>> = {
@@ -769,7 +776,7 @@ function ImportedEvidence({ facilityId, domain, importId, label }: {
     const read = domain === 'lab' ? staffApi.labImport(facilityId, importId).then(lab => ({ lab }))
       : staffApi.pharmacyImport(facilityId, importId).then(medication => ({ medication }))
     void read.then(found => { if (active) setEvidence(found) })
-      .catch(caught => { if (active) setEvidence({ error: errorText(caught, 'The imported evidence could not be read.') }) })
+      .catch(caught => { if (active) setEvidence({ error: errorText(caught, 'Imported evidence could not be read.') }) })
     return () => { active = false }
   }, [facilityId, domain, importId, reads])
   function toggle() {
@@ -924,7 +931,7 @@ export function ReviewPublication({ actorId, facilityId, patientId, validation, 
   useEffect(() => {
     let active = true
     void staffApi.ocrPublications(facilityId, validation.id).then(result => { if (active) setPublications(result.items) })
-      .catch(caught => { if (active) setHistoryError(errorText(caught, 'The publication history could not be loaded.')) })
+      .catch(caught => { if (active) setHistoryError(errorText(caught, HISTORY_FAILED)) })
     return () => { active = false }
   }, [facilityId, validation.id])
 
@@ -954,7 +961,7 @@ export function ReviewPublication({ actorId, facilityId, patientId, validation, 
   // as the refusal it follows already says what happened (one failed publish, one message).
   async function reload(quiet = false): Promise<OcrPublication[] | null> {
     try { const { items } = await staffApi.ocrPublications(facilityId, validation.id); setPublications(items); setHistoryError(''); return items }
-    catch (caught) { if (!quiet) setHistoryError(errorText(caught, 'The publication history could not be loaded.')); return null }
+    catch (caught) { if (!quiet) setHistoryError(errorText(caught, HISTORY_FAILED)); return null }
   }
 
   /** A publication the history read again shows, whatever answer was lost on the way: said, and the job read again. */

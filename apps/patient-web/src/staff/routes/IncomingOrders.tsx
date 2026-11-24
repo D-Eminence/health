@@ -98,7 +98,9 @@ export function patientCard(patient: { fullName: string; sex: string | null; dat
 export function IncomingOrders({ service, facilityId, facilityName, membershipId, onAccepted, onEnded, probe = false, watch = false,
   onFound, onAnswer, closedRouteId = null, cannotCompleteBeside = 'panel' }: {
   service: ReceivingService; facilityId: string; facilityName: string; membershipId?: string; onAccepted: () => void
-  onEnded?: (routeId: string) => void; probe?: boolean; watch?: boolean; onFound?: () => void; onAnswer?: (answer: unknown) => void
+  onEnded?: (routeId: string) => void; probe?: boolean; watch?: boolean; onFound?: () => void
+  /** Each answer, with the Health ID it was asked for (none: every order). */
+  onAnswer?: (answer: unknown, healthId?: string) => void
   closedRouteId?: string | null; cannotCompleteBeside?: CannotCompleteBeside
 }) {
   const [answer, setAnswer] = useState<IncomingOrderRoutes | null>(null)
@@ -130,7 +132,7 @@ export function IncomingOrders({ service, facilityId, facilityName, membershipId
       if (request !== sequence.current) return
       // What it says of this facility (item 4) is the facility's, whoever's orders were asked for.
       if (membershipId) rememberReceiving({ id: facilityId, membershipId }, service, read)
-      answered.current?.(read)
+      answered.current?.(read, forHealthId || undefined)
       setAnswer({ items: Array.isArray(read?.items) ? read.items : [], crossFacilityOrders: read?.crossFacilityOrders === true,
         crossFacilityWork: read?.crossFacilityWork !== false, ...receivingAnswer(read) })
       setError(''); setMissing(false)

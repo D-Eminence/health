@@ -27,6 +27,7 @@ import { learnReviewLearningServed, useReadingQualityServed } from '../../../rea
 import { ReadingQualityView } from './ReadingQuality'
 import { qualityReader } from './readingQualityApi'
 import { saysReviewLearning } from '../../../readingLearningContract'
+import { STARTS_WITH_OTHERS, TEXT_WITH_CHECKERS, scanAccess } from '../../../scanAccess'
 import {
   NOT_WHOLE_WORDS, PaperReadingSummary, PaperReadingView, PaperReadingWarnings, claimsPaperReading, confidenceWords, parsePaperReading,
   type PaperReading,
@@ -49,12 +50,11 @@ import {
 interface StepFocus { readonly targets: readonly string[]; readonly notice?: string; readonly confirmNext?: boolean }
 
 /**
- * The refusal for a role without OCR job read, on this page and at its address (page.tsx). Screens name no permission
- * (the owner's rule), so today's words, which named the one lacking, give way to a plain sentence. No role holds the OCR
- * work (hid-system 0091), so nobody is told to ask anyone for it: it isn't available yet. It names the reading of scanned
- * documents, not document capture: a clinician refused here may still add documents to a visit.
+ * The refusal for a role that follows no reading (neither OCR job read nor the front desk's read of its own uploads'
+ * readings), on this page and at its address (page.tsx). Screens name no permission (the owner's rule), so it says
+ * plainly who does this work since hid-system 0136 (Q112 A): the roles that start readings.
  */
-export const NO_DOCUMENT_OCR = 'Reading scanned documents isn’t available at your facility yet.'
+export const NO_DOCUMENT_OCR = 'Scanning paper records is done by the front desk, nurses and clinicians here.'
 
 /**
  * Whether OCR refused to make a job because the patient's own OK does not cover bringing in their paper records: its
@@ -114,7 +114,7 @@ export const STILL_READING = 'Still reading. Check again in a few minutes.'
 /** The job states Read again is offered in: nothing of the reading is saved yet (no check, no publication). */
 const READ_AGAIN_STATUSES: ReadonlySet<string> = new Set(['awaiting_validation', 'failed', 'rejected'])
 /** Said where Check and save would be, to someone whose role may not check a reading (no ocr.validation.write). */
-export const CHECK_NEEDS_CHECKER = 'Ready to check. A doctor, clinician, nurse or lab scientist at this facility must check and save it.'
+export const CHECK_NEEDS_CHECKER = 'Ready to check. A doctor, clinician or nurse at this facility must check and save it.'
 
 /** Why the page stopped reading a job again by itself: it took too long, or a read did not answer. */
 interface PollStop { readonly jobId: string; readonly reason: 'slow' | 'failed' }
@@ -228,10 +228,14 @@ export function Migrate() {
   const readsQuality = reader !== null
   const qualityServed = useReadingQualityServed()
   const qualityOffered = readsQuality && qualityServed !== false
-  // OCR's parts need OCR job read (so does the page); Patient documents needs document read, as the clinical record's
-  // Documents tab does, and checks it itself.
-  const canRead = permissions.includes('ocr.job.read')
-  const canWrite = canRead && permissions.includes('ocr.job.write')
+  // The page and a document's reading need OCR job read, or the front desk's read of its own uploads' readings
+  // (hid-system 0136, Q112 A); what was read, its checks and its publications need OCR job read itself; starting or
+  // retrying a reading needs OCR job write and start (scanAccess.ts). Patient documents needs document read (or its own
+  // uploads' read), as the clinical record's Documents tab does, and checks it itself.
+  const access = scanAccess(permissions)
+  const canRead = access.followsReadings
+  const readsText = access.readsText
+  const canWrite = access.startsReadings
   // A clinical document's "Extract with OCR" link hands over its IDs in router state, never in the URL. The history
   // entry holding them outlives the session and the facility that made it (Back, Forward and a reload bring it back),
   // so they count only for that account and facility, and only once.
@@ -340,18 +344,20 @@ export function Migrate() {
     resetFor.current = facilityId
     openRequest.current += 1; setReading(false)
   }, [facilityId])
-  // The clinical record's hand-off, with OCR job write: sent for reading at once, exactly once. Declared after the reset
-  // above, which also runs on mount, so the reset cannot wipe it. The router state it came in is spent above (replaced
-  // with none), so Back, Forward and a reload bring nothing back to send; this ref stops a second run in the same mount.
-  // Without OCR job write, Find document job holds the document, to look it up, as before.
+  // The clinical record's hand-off, exactly once. To someone who starts readings it is sent for reading at once; to
+  // someone who only follows them (a doctor since hid-system 0136, "Find its reading") its reading is looked up, and
+  // opened when it has one, or Find document job holds the document and says who starts readings. Declared after the
+  // reset above, which also runs on mount, so the reset cannot wipe it. The router state it came in is spent above
+  // (replaced with none), so Back, Forward and a reload bring nothing back; this ref stops a second run in the same mount.
   const handedOver = useRef(false)
   useEffect(() => {
     if (handedOver.current) return
     handedOver.current = true
-    if (canWrite && handedDocument) extract(handedDocument, handedPatient)
+    // Starting a reading needs following them too (scanAccess.ts), so this covers both.
+    if (canRead && handedDocument) extract(handedDocument, handedPatient)
   }, [])
   useEffect(() => {
-    if (!facilityId || !visibleJob?.id || !canRead) return
+    if (!facilityId || !visibleJob?.id || !readsText) return
     let active = true
     void Promise.all([staffApi.ocrExtractions(facilityId, visibleJob.id), staffApi.ocrValidations(facilityId, visibleJob.id)])
       .then(([extractionResult, validationResult]) => {
@@ -359,9 +365,9 @@ export function Migrate() {
         if (extractionResult.items.some(saysReviewLearning)) learnReviewLearningServed(true)
         if (active) { setExtractions(extractionResult.items); setValidations(validationResult.items) }
       })
-      .catch(caught => { if (active) setError(errorText(caught, 'The OCR review evidence could not be loaded.')) })
+      .catch(caught => { if (active) setError(errorText(caught, 'OCR review evidence could not be loaded.')) })
     return () => { active = false }
-  }, [facilityId, visibleJob?.id, canRead, lookupRevision])
+  }, [facilityId, visibleJob?.id, readsText, lookupRevision])
   // While the record shows a job OCR is still reading, its job is read again every POLL_EVERY_MS: one read at a time,
   // only once the last has answered and no other lookup is running, never from the list, nor while the workspace is
   // locked, every POLL_SLOW_EVERY_MS once it has gone on for POLL_FAST_FOR_MS. It stops when the job has finished, the
@@ -405,12 +411,12 @@ export function Migrate() {
   // keeps focus there; the status region still says what was recorded.
   useLayoutEffect(() => {
     if (!stepFocus || lock) return
-    if (visibleJob && canRead && (extractions === null || validations === null) && !error) return
+    if (visibleJob && readsText && (extractions === null || validations === null) && !error) return
     const target = stepFocus.targets.map(id => document.getElementById(id)).find(element => element !== null)
     setStepFocus(null)
     if (stepFocus.notice) setNotice(stepFocus.confirmNext && target?.id === 'ocr-confirm-title' ? `${stepFocus.notice} Confirm the source patient next.` : stepFocus.notice)
     if (target && focusIsLost(target)) target.focus()
-  }, [stepFocus, lock, visibleJob, canRead, extractions, validations, error])
+  }, [stepFocus, lock, visibleJob, readsText, extractions, validations, error])
 
   /** Shows a job just read or made, and reads its review evidence. */
   function show(found: OcrJob, documentId: string) {
@@ -437,7 +443,7 @@ export function Migrate() {
       if (result.job) remember(result.job)
       return result
     }
-    catch (caught) { setJob(null); setError(errorText(caught, 'The OCR job could not be found.')); return null }
+    catch (caught) { setJob(null); setError(errorText(caught, 'OCR job could not be found.')); return null }
     finally { setBusy(false) }
   }
 
@@ -512,7 +518,7 @@ export function Migrate() {
     setCreateError(''); setNotice('')
     await openOrCreate(documentId, patient, {
       created: 'Extraction job created.', existing: 'This document already has an OCR job, so no new job was created.',
-      uncheckable: 'The document could not be checked for an OCR job, so no job was created.', refused: 'The OCR job was not created.',
+      uncheckable: 'The document could not be checked for an OCR job, so no job was created.', refused: 'OCR job could not be created.',
     }, message => { setCreateError(message); focus('ocr-create-submit', true) })
   }
 
@@ -604,21 +610,33 @@ export function Migrate() {
       setJob(retried); remember(retried); setLookupRevision(value => value + 1); restartPolling(); setPollLong(null)
       setStepFocus({ targets: ['ocr-job-title'], notice: 'Retry requested.' })
     }
-    catch (caught) { setRetryError(errorText(caught, 'The OCR job was not retried.')); focus('ocr-retry-submit', true) }
+    catch (caught) { setRetryError(errorText(caught, 'OCR job could not be retried.')); focus('ocr-retry-submit', true) }
     finally { setBusy(false) }
   }
 
   /**
-   * A clean document from Patient documents. With OCR job write it is sent for reading at once, as Create record would
-   * (its job is looked up first, and opened if it has one), and its record opens without a form to fill in. Without,
-   * Find document job holds it, to look it up.
+   * A clean document from Patient documents, or handed over by the clinical record. To someone who starts readings it is
+   * sent for reading at once, as Create record would (its job is looked up first, and opened if it has one), and its
+   * record opens without a form to fill in. To someone who only follows readings, Find document job holds it and its
+   * reading is looked up, and opened when it has one.
    */
   function extract(documentId: string, documentPatientId: string, fileName?: string) {
     if (busy) return
     nameDocument(documentId, fileName)
     setFindDocument(documentId); setSearched(false); setJob(null); setNotice(''); setProblem(null); setStepFocus(null)
     setError(''); setCreateError('')
-    if (!canWrite) { setReading(false); focus('ocr-document'); return }
+    // Someone who follows readings but may not start one (a doctor): the document's reading is looked up and opened, or
+    // the page says it has none yet and who starts one.
+    if (!canWrite) {
+      setReading(false)
+      // An ID OCR would refuse is not sent: Find document job holds it, and says what is wrong with it on Find job.
+      if (!UUID_V4.test(documentId)) { focus('ocr-document'); return }
+      void lookup(documentId).then(result => {
+        if (result?.job) { setView('detail'); setAction(null); focus('migrate-view-title') }
+        else focus('ocr-find-submit', true)
+      })
+      return
+    }
     // IDs EHR gave that OCR would refuse go to the form, which says what is wrong with them.
     if (!UUID_V4.test(documentId) || !UUID_V4.test(documentPatientId)) { setReading(false); startNew(documentId); return }
     // Straight to the reading: the page says only READING_THE_PAGE until the record opens or the list says why not.
@@ -633,7 +651,7 @@ export function Migrate() {
       .then(opened => { setReading(false); if (opened) focus('migrate-view-title') })
   }
 
-  // The page opens as today's Migrate and Document OCR pages do: at a facility, with OCR job read.
+  // The page opens as today's Migrate and Document OCR pages do: at a facility, with OCR job read (or its own uploads').
   if (!facilityId || !canRead) return <DeptPage title="Scan paper records">
     <DeptNotice tone="critical" role="alert">{NO_DOCUMENT_OCR}</DeptNotice>
   </DeptPage>
@@ -652,6 +670,7 @@ export function Migrate() {
     </div>
     {!reading && <DeptPage key="page" title={<ViewTitle>{title}</ViewTitle>} onBack={detail || creating ? backToList : quality ? backFromQuality : undefined}
       primaryAction={!detail && !creating && !quality && canWrite ? <EhrButton onClick={() => startNew()}>Create record</EhrButton> : undefined}
+      description={!detail && !creating && !quality && !canWrite ? <span id="ocr-starts-with-others">{STARTS_WITH_OTHERS}</span> : undefined}
       secondaryActions={!detail && !creating && !quality && qualityOffered
         ? <EhrButton id="ocr-quality-open" variant="secondary" onClick={openQuality}>Reading quality</EhrButton> : undefined}>
       {status}
@@ -690,7 +709,7 @@ export function Migrate() {
         filters={search ? <div className="hid-ehr-dept-migrate-clear"><EhrButton variant="secondary" onClick={() => setSearch('')}>Clear search</EhrButton></div> : undefined}>
         <EhrDataTable caption="OCR jobs opened on this page" captionHidden rows={shown} rowKey={row => row.job.id}
           emptyTitle="No matching records"
-          emptyMessage={rows.length ? 'Change your search.' : 'Find a job by its document ID, or create one when you have the appropriate permission.'}
+          emptyMessage={rows.length ? 'Change your search.' : canWrite ? 'Find a job by its document ID, or create one.' : 'Find a job by its document ID.'}
           columns={[
             { id: 'record', header: 'Record', cell: row => <DeptRecordName id={`ocr-row-${row.job.id}`} name={jobName(row.job, fileNames, rows)}
               onOpen={() => openRecord(row.job)} /> },
@@ -718,7 +737,7 @@ export function Migrate() {
           <div id="ocr-find-result" role="status">{nothingFound && <>
             <p className="hid-ehr-state-title">No OCR job for this document</p>
             <p className="hid-ehr-state-message">{canWrite ? 'This document has no extraction job yet. Create one for a verified patient document.'
-              : 'This document has no extraction job yet.'}</p>
+              : `This document has no extraction job yet. ${STARTS_WITH_OTHERS}`}</p>
           </>}</div>
           {nothingFound && canWrite && <div className="hid-ehr-state-action"><EhrButton variant="secondary" id="ocr-create-start" onClick={() => startNew(currentDocument)}>Create record</EhrButton></div>}
         </div>
@@ -775,7 +794,8 @@ export function Migrate() {
    * extractions wait under Details, closed.
    */
   function jobRecord(shown: OcrJob) {
-    const canRetry = canRetryJob && permissions.includes('ocr.job.write')
+    // Retrying a reading is starting it again: OCR job write and start (hid-system 0136).
+    const canRetry = canRetryJob && canWrite
     const canReview = shown.status === 'awaiting_validation' && permissions.includes('ocr.validation.write') && extractions !== null
     // A reading ready to check, shown to someone who may not check it: say who can, instead of showing nothing.
     const waitsForChecker = shown.status === 'awaiting_validation' && !permissions.includes('ocr.validation.write')
@@ -797,7 +817,7 @@ export function Migrate() {
     return <>
       {/* The status is said once, in Progress, so the record doesn't open with the same badge twice. */}
       <DeptContextLine items={[patientWords(shown)]} />
-      {permissions.includes('ehr.document.read') && <div className="hid-ehr-dept-migrate-back">
+      {access.readsDocuments && <div className="hid-ehr-dept-migrate-back">
         <DeptLinkButton id="ocr-back-documents" onClick={backToDocuments}><span aria-hidden="true">← </span>Back to documents</DeptLinkButton>
       </div>}
       {error && <DeptNotice tone="critical" role="alert">{error}</DeptNotice>}
@@ -811,6 +831,7 @@ export function Migrate() {
             onClick={() => { if (!busy) void lookup(currentDocument).then(result => focus(result?.job ? ['ocr-job-title', 'ocr-find-submit'] : 'ocr-find-submit', true)) }}>
             Check now</EhrButton>
         </div>}
+        {shown.status === 'failed' && canRetryJob && !canWrite && <p className="hid-ehr-dept-muted hid-ehr-dept-migrate-after">{STARTS_WITH_OTHERS}</p>}
         {shown.status === 'failed' && !canRetryJob && <p className="hid-ehr-dept-muted hid-ehr-dept-migrate-after">The extraction attempt limit has been reached. This job cannot be retried.</p>}
         {canRetry && <div className="hid-ehr-dept-form-actions">
           <EhrButton id="ocr-action-retry" variant="secondary" aria-expanded={retrying} onClick={() => toggle('retry')}>Retry job</EhrButton>
@@ -823,6 +844,8 @@ export function Migrate() {
           <div className="hid-ehr-dept-form-actions"><EhrButton id="ocr-retry-submit" type="submit" busy={busy} disabled={!shown.version}>{busy ? 'Saving…' : 'Retry job'}</EhrButton></div>
         </form>}
       </DeptSection>
+      {/* The front desk follows a reading's progress only: what was read waits for whoever checks it. */}
+      {!readsText && <p id="ocr-text-with-checkers" role="note" className="hid-ehr-dept-muted">{TEXT_WITH_CHECKERS}</p>}
       {read && readOut(read, shown)}
       {canReview && <DeptSection title="Check and save" headingId="ocr-check-title">
         {rejecting
@@ -865,7 +888,7 @@ export function Migrate() {
           <ReviewForm key={`reject-${shown.id}-${shown.version}`} facilityId={facilityId!} job={shown} extractions={extractions ?? []}
             permissions={permissions} disposition="rejected" onChanged={() => afterStep(['ocr-job-title'], 'Rejection recorded.')} />
         </div>}
-        <DeptHistory title="Extractions" empty={extractions === null ? 'Loading extractions…' : 'No extraction is available yet.'}
+        {readsText && <DeptHistory title="Extractions" empty={extractions === null ? 'Loading extractions…' : 'No extraction is available yet.'}
           entries={(extractions ?? []).map(extraction => ({
             key: extraction.id,
             summary: [`Extraction ${extraction.version}`, extraction.provider, extraction.confidence != null ? `confidence ${Math.round(extraction.confidence * 100)}%` : ''].filter(Boolean).join(' · '),
@@ -877,7 +900,7 @@ export function Migrate() {
               // It scrolls, so it takes focus: a keyboard can then scroll it.
               ? <pre tabIndex={0} role="region" aria-label={`Extracted text, version ${extraction.version}`} className="hid-ehr-dept-pre hid-ehr-dept-migrate-text">{extraction.rawText}</pre>
               : undefined,
-          }))} />
+          }))} />}
       </details>
     </>
   }

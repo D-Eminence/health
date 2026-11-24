@@ -1,11 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { isHidApiError, PLAIN, plainErrorText } from '@hid/http'
-import { ArrowLeft, ArrowRight, Hospital, LogOut } from 'lucide-react'
-import { Alert, Badge, Button, IconChip } from '../../kasuwa/ui'
+import { ArrowLeft, LogOut } from 'lucide-react'
+import { Alert, Button } from '../../kasuwa/ui'
 import { useStaff } from '../../staff/App'
 import { PRODUCTS, productHere } from './product'
-import { roleNames } from '../../staff/staffAccess'
+import { roleLabels } from '../../staff/staffAccess'
 import type { FacilityChoiceReason } from '../../staff/facilitySelection'
 import { PRODUCT_SITE_NAMES, START_OUTREACH_GROUP_PATH, startOutreachGroupHref } from '../../productHostname'
 import { loginOpensSite, startOutreachGroupRunsHere } from '../../productSites'
@@ -13,14 +13,19 @@ import { loginOpensSite, startOutreachGroupRunsHere } from '../../productSites'
 /** Why the question is asked: as Identity reports the selection, 'lost' mid-session, or 'switch' from the account menu. */
 export type WorkspaceQuestion = FacilityChoiceReason | 'lost' | 'switch'
 
-// Today's words for each reason (staff/App.tsx FacilityChoice), so the blue question says what today's says.
+// Today's words for each reason (staff/App.tsx FacilityChoice), so the blue question says what today's says. A switch
+// from the facility menu is not one of classic's questions (classic asked it in place, under "Working at"), so it says
+// only classic's own sentence about what the choice decides (parity report 3.3-49).
 const WHY: Record<WorkspaceQuestion, string> = {
   reselect: 'The facility you chose for this sign-in is no longer available to you.',
   unchosen: 'You work at more than one facility.',
   unconfirmed: 'The facility for this sign-in is not confirmed.',
   lost: 'The facility you were working at is no longer available to you. The page you had open was closed, along with any patient record, and anything not yet saved there was not sent.',
-  switch: 'Switching moves you to that facility’s workspace.',
+  switch: 'Patient access, records and requests use the facility you choose.',
 }
+
+/** Classic's sentence after the reason, word for word (staff/App.tsx FacilityChoice; parity report 3.3-47, 3.3-48). */
+const BEFORE_YOU_CONTINUE = 'Choose where you are working before you continue. Patient access, records and requests use the facility you choose, and you can switch later from “Working at”.'
 
 /** A choice Identity refused, in words the person can act on (today's facilityRefusal). */
 export function facilityRefusal(caught: unknown, facility: string): string {
@@ -30,9 +35,12 @@ export function facilityRefusal(caught: unknown, facility: string): string {
 }
 
 /**
- * Choose your workspace (design: screens/admin/institutions.png). Live: each choice is today's facility switch
- * (POST /auth/facility through useStaff), with today's refusals. Nothing is preselected and nothing switches until a
- * facility's button is pressed. Asked before any page opens (`reason`), or opened from the account menu to switch.
+ * Choose your workspace. Live: each choice is today's facility switch (POST /auth/facility through useStaff), with
+ * today's refusals. Asked before any page opens (`reason`), it is classic's question (staff/App.tsx FacilityChoice):
+ * "Where are you working?", a radio choice with nothing preselected, and Continue, which says "Choose a facility to
+ * continue." when none is chosen (parity report 3.3-47, 3.3-48). Opened from the facility menu to switch, the facility
+ * worked at is checked, and choosing another asks in place, as classic's "Working at" did: "You are working at X.
+ * Switch to Y?", with Switch facility and Cancel (3.3-49). Nothing switches until it is confirmed.
  */
 export function ChooseWorkspace({ reason, onChosen }: { readonly reason: WorkspaceQuestion; readonly onChosen?: () => void }) {
   const { state, selectFacility, signOut, activePatient, lock } = useStaff()
@@ -40,6 +48,9 @@ export function ChooseWorkspace({ reason, onChosen }: { readonly reason: Workspa
   const heading = useRef<HTMLHeadingElement>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState('')
+  const [picked, setPicked] = useState('')
+  // Continue with nothing picked: counted, so each refusal is said afresh (classic's `missing`).
+  const [missing, setMissing] = useState(0)
   const [signOutError, setSignOutError] = useState('')
   const productName = PRODUCTS[productHere(state.status === 'ready' ? state.session : null)].name
   useLayoutEffect(() => { heading.current?.focus() }, [])
@@ -51,7 +62,21 @@ export function ChooseWorkspace({ reason, onChosen }: { readonly reason: Workspa
   }, [reason, lock, productName])
   if (state.status !== 'ready') return null
   const { actor } = state.session
-  const current = reason === 'switch' ? actor.facility?.id : undefined
+  const switching = reason === 'switch'
+  const current = switching ? actor.facility : undefined
+  const checked = picked || current?.id || ''
+  const proposed = switching && picked && picked !== current?.id ? actor.facilities.find(facility => facility.id === picked) : undefined
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (busy) return
+    if (!picked) {
+      setMissing(count => count + 1)
+      event.currentTarget.querySelector<HTMLInputElement>('input[name="hid-ehr-blue-facility-choice"]')?.focus()
+      return
+    }
+    void choose(picked, actor.facilities.find(facility => facility.id === picked)?.name ?? 'this facility')
+  }
 
   async function choose(id: string, name: string) {
     if (busy) return
@@ -77,34 +102,37 @@ export function ChooseWorkspace({ reason, onChosen }: { readonly reason: Workspa
       <div>
         <p className="m-0 text-overline text-ink-3">Health ID · {productName === 'EHR' ? 'Hospital EHR' : productName}</p>
         <h1 id="hid-ehr-blue-chooser-title" ref={heading} tabIndex={-1} className="m-0 mt-1 text-title-1 text-ink outline-none" aria-describedby="hid-ehr-blue-chooser-why">
-          {reason === 'switch' ? 'Switch facility' : 'Where are you working today?'}
+          {switching ? 'Switch facility' : 'Where are you working?'}
         </h1>
         <p id="hid-ehr-blue-chooser-why" className="m-0 mt-1.5 text-sm text-ink-2">
-          {WHY[reason]} Patients, records and requests are those of the facility you choose.
-          {activePatient && reason === 'switch' ? ' The open patient record will close.' : ''}
+          {WHY[reason]}{switching ? '' : ` ${BEFORE_YOU_CONTINUE}`}
         </p>
       </div>
-      <ul className="m-0 flex list-none flex-col gap-1.5 rounded-2xl bg-tray p-1.5">
-        {actor.facilities.map(facility => {
-          const roles = roleNames(facility.roles)
-          const here = facility.id === current
-          return (
-            <li key={facility.id} className="flex items-center gap-3 rounded-xl bg-surface p-4 ring-1 ring-line">
-              <IconChip icon={Hospital} tone={here ? 'success' : 'brand'} />
-              <div className="min-w-0 flex-1">
-                <h2 className="m-0 truncate text-title-3 text-ink">{facility.name}</h2>
-                <p className="m-0 mt-0.5 text-[13px] text-ink-3">{roles}</p>
-              </div>
-              {here ? <Badge tone="success" size="sm">You’re here</Badge> : (
-                <Button variant="primary" size="sm" iconRight={ArrowRight} loading={busy === facility.id} disabled={busy !== null && busy !== facility.id}
-                  aria-label={`Work at ${facility.name}`} onClick={() => void choose(facility.id, facility.name)}>
-                  {busy === facility.id ? 'Opening…' : 'Work here'}
-                </Button>
-              )}
-            </li>
-          )
-        })}
-      </ul>
+      <form noValidate onSubmit={submit} className="flex flex-col gap-4">
+        <fieldset disabled={busy !== null} className="m-0 flex flex-col gap-1.5 rounded-2xl border-0 bg-tray p-1.5"
+          aria-describedby={['hid-ehr-blue-chooser-why', missing > 0 && 'hid-ehr-blue-chooser-missing'].filter(Boolean).join(' ')}>
+          <legend className="sr-only">Facility</legend>
+          {actor.facilities.map(facility => (
+            <label key={facility.id} className="flex cursor-pointer items-center gap-3 rounded-xl bg-surface p-4 ring-1 ring-line">
+              <input type="radio" name="hid-ehr-blue-facility-choice" value={facility.id} checked={checked === facility.id} className="size-4 accent-brand-fill"
+                onChange={() => { setPicked(facility.id); setMissing(0); setError('') }} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-title-3 text-ink">{facility.name}</span>
+                <span className="mt-0.5 block text-[13px] text-ink-3">{roleLabels(facility.roles) || 'Staff'}</span>
+              </span>
+            </label>
+          ))}
+        </fieldset>
+        {missing > 0 ? <p key={missing} id="hid-ehr-blue-chooser-missing" role="alert" className="m-0 text-sm text-danger-ink">Choose a facility to continue.</p> : null}
+        {proposed ? <div role="group" aria-labelledby="hid-ehr-blue-chooser-question" className="flex flex-col gap-2 rounded-xl bg-subtle p-3">
+          <p id="hid-ehr-blue-chooser-question" className="m-0 text-sm text-ink">{current ? `You are working at ${current.name}. Switch to ${proposed.name}?` : `Work at ${proposed.name}?`}{activePatient ? ' The open patient record will close.' : ''}</p>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="primary" loading={busy !== null} onClick={() => void choose(proposed.id, proposed.name)}>{busy ? 'Switching…' : 'Switch facility'}</Button>
+            <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => { setPicked(''); setError('') }}>Cancel</Button>
+          </div>
+        </div> : null}
+        {switching ? null : <div><Button type="submit" variant="primary" aria-disabled={busy !== null || undefined}>{busy ? 'Saving…' : 'Continue'}</Button></div>}
+      </form>
       {error ? <Alert intent="error" title="That facility couldn’t be opened">{error}</Alert> : null}
       {/* Owner decision 5 of 11 November 2026: the same login can also run its own outreach group. The group opens on
           Health ID Outreach only: another product site keeps only the facilities that fit it (Q88). Linked to Health ID Outreach only for a login that can open it (actor.products, Q97); a doctor's, clinician's,

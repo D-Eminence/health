@@ -4,7 +4,7 @@ import { FormPage } from '../../../kasuwa/parts'
 import { Alert, PageHeader } from '../../../kasuwa/ui'
 import { accessRequestsError } from '../../../staff/routes/AccessRequests'
 import { Workspace, useClinical, useWorkspaceHref } from '../parts/Workspace'
-import { administratorOf, whoToAsk } from './access'
+import { METHOD_ROUTES, administratorOf, whoToAsk } from './access'
 import { TITLE } from './ConsentWorkspace'
 import { REQUEST_TITLE } from './RequestAccess'
 
@@ -12,7 +12,7 @@ import { REQUEST_TITLE } from './RequestAccess'
  * Access requests opened without identity.consent.write, from a link or a typed address (the sidebar does not offer
  * it). Today's portal has no gate there: its list read is refused, and it says why (AccessRequests.tsx:33-43,118). This
  * stands in for the page, so nothing is read: the list says today's refusal, and a new request says in plain words that
- * the role can't ask patients for access, never the permission's name. The patient PIN needs no identity.consent.write:
+ * the role can't send access requests, never the permission's name. The patient PIN needs no identity.consent.write:
  * its address here opens it at Patients.
  */
 export function ConsentRefusal() {
@@ -41,8 +41,8 @@ function ListRefused() {
   )
 }
 
-/** A new request refused for the role: why, without the permission's name, and who to ask. */
-const REQUEST_REFUSED = 'Your role at this facility can’t ask patients for access.'
+/** A new request refused for the role: why, without the permission's name, and who to ask, as the form says it (today's words). */
+const REQUEST_REFUSED = `Your role at this facility can’t ${METHOD_ROUTES.request.action}.`
 
 function RequestRefused() {
   const { facility, permissions } = useClinical()

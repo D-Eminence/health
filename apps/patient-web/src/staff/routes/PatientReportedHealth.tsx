@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { isHidApiError } from '@hid/http'
 import { Badge, Card } from '@hid/ui'
 import { staffApi } from '../api'
@@ -22,7 +22,13 @@ function savedOn(value: string | null) {
  * does not serve it (404), refuses it (403), or the patient has stated nothing; mounted with a patient, facility and
  * actor key, so nothing of another patient's survives.
  */
-export function PatientReportedHealth({ facilityId, patientId }: { facilityId: string; patientId: string }) {
+export function PatientReportedHealth({ facilityId, patientId, read }: {
+  facilityId: string; patientId: string
+  /** Where the answer comes from, when a caller shares one read (`fresh` on a retry); by default, a read of its own. */
+  read?: (fresh: boolean) => Promise<ReportedHealthProfile | null>
+}) {
+  // Read once, as it mounts: the component is keyed on the actor, facility, patient and permissions.
+  const reader = useRef(read)
   const [state, setState] = useState<{ status: 'loading' } | { status: 'hidden' } | { status: 'failed' } | { status: 'shown'; profile: ReportedHealthProfile }>({ status: 'loading' })
   const [revision, setRevision] = useState(0)
   useEffect(() => {
@@ -30,7 +36,8 @@ export function PatientReportedHealth({ facilityId, patientId }: { facilityId: s
     setState({ status: 'loading' })
     void (async () => {
       try {
-        const profile = await staffApi.reportedHealthProfile(facilityId, patientId, controller.signal)
+        const shared = reader.current
+        const profile = await (shared ? shared(revision > 0) : staffApi.reportedHealthProfile(facilityId, patientId, controller.signal))
         if (!controller.signal.aborted) setState(profile ? { status: 'shown', profile } : { status: 'hidden' })
       } catch (caught) {
         if (controller.signal.aborted) return

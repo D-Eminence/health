@@ -158,6 +158,12 @@ const SITES: readonly (readonly [string, string, string, string])[] = [
 const EHR_PAGES = ['identity.registration.write', 'ehr.encounter.read']
 
 describe('a product site opens only its own pages and those every product keeps', () => {
+  // A page the product does not open goes to /provider, which opens the product's own page, as before website release C
+  // (owner's decision of 24 November 2026, "Migrate works as before", over parity report 3.3-53's Home on every site).
+  it.each(SITES)('%s: /provider opened by the browser lands on the product’s own page', async (site, own, home, heading) => {
+    expect(await settle(site, [own], '/provider')).toEqual({ where: home, heading })
+  })
+
   it.each(SITES)('%s: Patient registration, typed, opens the product’s Home and asks nothing', async (site, own, home, heading) => {
     expect(await settle(site, [own, ...EHR_PAGES], '/provider/registration')).toEqual({ where: home, heading })
     expect(registrationAsked()).toBe(false)
