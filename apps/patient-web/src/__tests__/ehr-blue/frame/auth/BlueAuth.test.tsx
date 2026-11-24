@@ -486,6 +486,20 @@ describe('BlueStaffInvitation', () => {
     expect(within(done.closest('section')!).getByRole('link', { name: 'Go to staff sign-in' })).toBeDefined()
   })
 
+  // Parity report 3.3-46: classic's words when invitations are unavailable, and classic's header link to the sign-in.
+  it('says classic\'s words when invitations are unavailable, and offers classic\'s Sign in in the header', async () => {
+    invitations.open.mockRejectedValue(new HidApiError(404, 'Not found', { code: 'API_ROUTE_NOT_FOUND' }))
+    open('/provider/invitation', <BlueStaffInvitation />)
+    const header = document.querySelector('header.auth-bar') as HTMLElement
+    expect(within(header).getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/provider/sign-in')
+    fireEvent.change(screen.getByRole('textbox', { name: 'Email address' }), { target: { value: 'demo.nurse@example.test' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Invitation code' }), { target: { value: '123456' } })
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+    expect(await screen.findByRole('heading', { level: 2, name: 'Invitations aren’t available' })).toBeDefined()
+    expect(screen.getByText('Joining a facility by invitation isn’t available. Contact the facility that invited you.')).toBeDefined()
+    expect(screen.queryByText(/yet|try again later/i)).toBeNull()
+  })
+
   it('sends existing staff to sign in on their own site to accept', async () => {
     invitations.open.mockResolvedValue({ invitationId: 'invitation-2', facilityName: 'Demo Laboratory', roleCode: 'lab_scientist', inviterName: null,
       inviteeName: 'Demo Scientist', email: 'demo.scientist@example.test', expiresAt: null, accountCase: 'existing_staff', linkRequired: false })
