@@ -217,9 +217,11 @@ describe('Consultation record: the Notes card (item 1)', () => {
     expect(noteRow('Admission note').queryByRole('button', { name: 'Sign note' })).toBeNull()
     await review('Admission note', 'Admitted with fever (fictional).')
     const row = noteRow('Admission note')
+    // Classic's revision form shows as soon as the content is open, under its heading (row 3.3-37).
     expect(row.getAllByRole('button').map(button => button.textContent)).toEqual([
-      'Hide note content', 'Refresh revisions', 'Sign note', 'Mark entered in error', 'Add a note revision',
+      'Hide note content', 'Refresh revisions', 'Sign note', 'Mark entered in error', 'Record revision',
     ])
+    expect(row.getByRole('heading', { name: 'Add a note revision' })).toBeTruthy()
     fireEvent.click(row.getByRole('button', { name: 'Sign note' }))
     fireEvent.change(row.getByLabelText(labelled('Reason for change')), { target: { value: 'ok' } })
     fireEvent.click(submitIn(row, 'Sign note'))
@@ -249,7 +251,7 @@ describe('Consultation record: the Notes card (item 1)', () => {
     expect(savedValues()['Note status']).toBe('draft')
   })
 
-  it('item 1: marks an older signed note entered in error under a typed reason, with a plain confirm', async () => {
+  it('item 1: marks an older signed note entered in error under a typed reason, in one press as classic (row 3.3-36)', async () => {
     pages['clinical-notes'] = { '': { items: [NOTE, { ...OLDER, status: 'signed' }], nextCursor: null } }
     await openEncounter()
     await review('Admission note', 'Admitted with fever (fictional).')
@@ -258,11 +260,10 @@ describe('Consultation record: the Notes card (item 1)', () => {
     expect(row.queryByRole('button', { name: 'Sign note' })).toBeNull()
     fireEvent.click(row.getByRole('button', { name: 'Mark entered in error' }))
     fireEvent.change(row.getByLabelText(labelled('Reason for change')), { target: { value: 'Wrong patient' } })
-    fireEvent.click(submitIn(row, 'Mark entered in error'))
-    expect(within(dialog()).getByRole('heading', { name: 'Mark entered in error?' })).toBeTruthy()
-    expect(within(dialog()).queryByLabelText(/Type .* to confirm/)).toBeNull()
     pages['clinical-notes'] = { '': { items: [NOTE, { ...OLDER, status: 'entered_in_error', rowVersion: 6 }], nextCursor: null } }
-    fireEvent.click(within(dialog()).getByRole('button', { name: 'Mark entered in error' }))
+    fireEvent.click(submitIn(row, 'Mark entered in error'))
+    // No dialog: the design confirms no entered in error, and classic sends it from its form (Clinical.tsx:122-126).
+    expect(screen.queryByRole('alertdialog')).toBeNull()
     expect(await screen.findByText('Clinical note status updated.')).toBeTruthy()
     expect(api.updateRecord).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', 'note-0',
       { expectedRowVersion: 5, changeReason: 'Wrong patient', status: 'entered_in_error' })
@@ -273,7 +274,7 @@ describe('Consultation record: the Notes card (item 1)', () => {
     expect(noteRow('Admission note').queryByRole('button', { name: 'Add a note revision' })).toBeNull()
   })
 
-  it('item 1: shows a failed status change in its form, and changes nothing when the confirm is cancelled', async () => {
+  it('item 1: shows a failed status change in its form', async () => {
     api.updateRecord.mockRejectedValueOnce(new HidApiError(412, 'The record changed since it was read.', { code: 'PRECONDITION_FAILED' }))
     await openEncounter()
     await review('Admission note', 'Admitted with fever (fictional).')
@@ -281,13 +282,9 @@ describe('Consultation record: the Notes card (item 1)', () => {
     fireEvent.click(row.getByRole('button', { name: 'Mark entered in error' }))
     fireEvent.change(row.getByLabelText(labelled('Reason for change')), { target: { value: 'Wrong patient' } })
     fireEvent.click(submitIn(row, 'Mark entered in error'))
-    fireEvent.click(within(dialog()).getByRole('button', { name: 'Cancel' }))
-    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
-    expect(api.updateRecord).not.toHaveBeenCalled()
-    await waitFor(() => expect(submitIn(row, 'Mark entered in error').getAttribute('aria-disabled')).toBeNull())
-    fireEvent.click(submitIn(row, 'Mark entered in error'))
-    fireEvent.click(within(dialog()).getByRole('button', { name: 'Mark entered in error' }))
     expect((await row.findByRole('alert')).textContent).toBe(SAID_CHANGED)
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(api.updateRecord).toHaveBeenCalledTimes(1)
     expect(document.body.textContent).not.toContain('The record changed since it was read.')
   })
 
@@ -295,7 +292,7 @@ describe('Consultation record: the Notes card (item 1)', () => {
     await openEncounter()
     await review('Admission note', 'Admitted with fever (fictional).')
     const row = noteRow('Admission note')
-    fireEvent.click(row.getByRole('button', { name: 'Add a note revision' }))
+    // The form is there as soon as the content is open: no further press (row 3.3-37, Clinical.tsx:872-880).
     const content = row.getByLabelText(labelled('Content')) as HTMLTextAreaElement
     const reason = row.getByLabelText(labelled('Reason for revision')) as HTMLInputElement
     expect([content.maxLength, reason.maxLength]).toEqual([100_000, 500])
@@ -366,7 +363,7 @@ describe('Consultation record: record pages past 50 (item 6)', () => {
     revisions['note-p2-2'] = [{ id: 'rev-p2', revisionNo: 1, content: 'Afebrile (fictional).', changeReason: 'Ward round', createdAt: '2026-10-28T09:00:00.000Z' }]
     await review('Older progress note 2', 'Afebrile (fictional).')
     expect(noteRow('Older progress note 2').getByRole('button', { name: 'Mark entered in error' })).toBeTruthy()
-    expect(noteRow('Older progress note 2').getByRole('button', { name: 'Add a note revision' })).toBeTruthy()
+    expect(noteRow('Older progress note 2').getByRole('heading', { name: 'Add a note revision' })).toBeTruthy()
     expect(savedValues()).toMatchObject({ 'Note status': 'draft', Note: 'History\nCough for three days.' })
     fireEvent.click(pager().getByRole('button', { name: 'Previous page' }))
     expect(await notes().findByText('Progress note 49')).toBeTruthy()
@@ -393,8 +390,8 @@ describe('Consultation record: record pages past 50 (item 6)', () => {
     fireEvent.click(actions.getByRole('button', { name: /^More actions/ }))
     fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Mark as entered in error' }))
     fireEvent.change(actions.getByLabelText(labelled('Reason for change')), { target: { value: 'Opened on the wrong patient' } })
+    // Sent in one press, as classic's status form (row 18c).
     fireEvent.click(submitIn(actions, 'Mark as entered in error'))
-    fireEvent.click(within(dialog()).getByRole('button', { name: 'Mark as entered in error' }))
     expect(await screen.findByText('Consultation updated.')).toBeTruthy()
     // The page shown is read again fresh, and the first page with it.
     expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', { cursor: 'notes-cursor-2', fresh: true })
@@ -609,10 +606,11 @@ describe('Consultation record: record pages past 50 (item 6)', () => {
     expect(docs().queryByText('Not every document of this encounter is listed here.')).toBeNull()
   })
 
-  it('item 6: says when EHR holds more documents than today’s read answers', async () => {
+  it('row 3.3-40: adds no sentence of its own when EHR holds more documents than today’s read answers, as classic', async () => {
     api.documents.mockResolvedValue({ items: [DOCUMENT], nextCursor: 'documents-cursor-2' })
     await openEncounter()
-    expect(await within(card('Documents')).findByText('Not every document of this encounter is listed here.')).toBeTruthy()
+    expect(await within(card('Documents')).findByText(DOCUMENT.fileName)).toBeTruthy()
+    expect(within(card('Documents')).queryByText('Not every document of this encounter is listed here.')).toBeNull()
     expect(within(card('Documents')).queryByRole('navigation', { name: 'Record pages' })).toBeNull()
   })
 
