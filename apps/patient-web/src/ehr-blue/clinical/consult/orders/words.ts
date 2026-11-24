@@ -24,11 +24,14 @@ export const PRESCRIPTION_TRANSITIONS: Readonly<Record<string, readonly StatusOp
 /**
  * Clinical.tsx `PHARMACY_NOT_TOLD`, reworded for hid-system 0133 (Clinical.tsx keeps the earlier words). This hospital's
  * own pharmacy cannot dispense the version it holds once the prescription is held, completed, cancelled, entered in
- * error or resumed (0101), and when it got the prescription by the automatic send or Send to pharmacy, a hold,
+ * error or resumed (0101), and when it got the prescription by the automatic send or the prescriber's send, a hold,
  * cancellation, entry in error or resumption withdraws that send, which the pharmacy sees (0133 D8; completing it marks
- * nothing). A pharmacy at another facility is not told, and a dispensing already recorded is not undone.
+ * nothing). A pharmacist's hand-off ("Send to Pharmacy", basis hand_off) has no send to withdraw, so the pharmacy is not
+ * told of it (0133 D6 to D8, 0144 A1/A3). The sentence says what happened, never a button's label: the pharmacist's
+ * "Send to Pharmacy" may be on the same page. A pharmacy at another facility is not told, and a dispensing already
+ * recorded is not undone.
  */
-export const PHARMACY_NOT_TOLD = 'This hospital’s pharmacy can no longer dispense the version it was sent once this prescription is put on hold, completed, cancelled or marked entered in error, even after it is resumed. If it went to that pharmacy automatically or with Send to pharmacy, the pharmacy is told of a hold, cancellation, entry in error or resumption. A pharmacy at another facility is not told of this change: if this prescription was sent to one, contact that pharmacy. A dispensing already recorded is not undone. If treatment is to continue, create a new prescription and send it.'
+export const PHARMACY_NOT_TOLD = 'This hospital’s pharmacy can no longer dispense the version it was sent once this prescription is put on hold, completed, cancelled or marked entered in error, even after it is resumed. If it went to that pharmacy by itself when it was activated, or when its prescriber sent it, the pharmacy is told of a hold, cancellation, entry in error or resumption. If a pharmacist handed it to the pharmacy instead, the pharmacy is not told: contact the pharmacy. A pharmacy at another facility is not told of this change: if this prescription was sent to one, contact that pharmacy. A dispensing already recorded is not undone. If treatment is to continue, create a new prescription and send it.'
 
 /** Clinical.tsx `ROUTED_LAB_CHOICES`: the changes offered for a lab request sent to another facility. */
 export const ROUTED_LAB_CHOICES: Readonly<Record<string, readonly StatusOption[]>> = {

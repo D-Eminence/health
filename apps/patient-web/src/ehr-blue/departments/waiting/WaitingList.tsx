@@ -4,9 +4,9 @@ import { EhrBadge, EhrButton, EhrEmptyState, EhrField, EhrInput, EhrSelect } fro
 import {
   staffApi, visitQueueApi, type VisitQueueCard, type VisitQueueChange, type VisitQueueCheckIn, type VisitQueueStage,
 } from '../../../staff/api'
-import { matchRefExpired, ninStatusLabel, type PatientSearchCard } from '../../../staff/patientSearch'
+import { ninStatusLabel, type PatientSearchCard } from '../../../staff/patientSearch'
 import { useFocusById } from '../../../staff/focus'
-import { SEARCH_EXPIRED, noCardText, searchRefusal } from '../../clinical/patients/searchWords'
+import { noCardText, searchRefusal } from '../../clinical/patients/searchWords'
 import { useDeptAccess } from '../parts/access'
 import { DeptNotice, type DeptNoticeTone } from '../parts/DeptNotice'
 import { DeptPage, DeptSection, DeptUnavailable } from '../parts/DeptPage'
@@ -409,7 +409,8 @@ export function CheckInSearch({ facilityId, onCheckedIn }: {
 
   async function checkIn(card: PatientSearchCard) {
     if (checking) return
-    if (matchRefExpired(card)) { searchAgain(SEARCH_EXPIRED); return }
+    // A card's expiry is left to ehr-api (CHECK_IN_NEEDS_SEARCH after 10 minutes): its time is the server's, and a
+    // device clock running fast must never block check-in.
     setChecking(card.matchRef); setError('')
     try {
       const result = await visitQueueApi.checkIn(facilityId, { matchRef: card.matchRef })
@@ -500,7 +501,7 @@ export function CheckInButton({ facilityId, card }: { readonly facilityId: strin
 
   async function checkIn() {
     if (busy) return
-    if (matchRefExpired(card)) { setSaid({ tone: 'critical', text: SEARCH_EXPIRED }); return }
+    // Expiry is the server's to judge (CHECK_IN_NEEDS_SEARCH), never this device's clock.
     setBusy(true); setSaid(null)
     try {
       const result = await visitQueueApi.checkIn(facilityId, { matchRef: card.matchRef })

@@ -27,7 +27,9 @@ const PAPERS: Readonly<Record<PaperKind, PaperPrint>> = {
 
 /**
  * Prints a paper: Chrome, Edge and Firefox print the page, Safari a PDF of the paper (printPaper.ts), so no browser
- * prints its web address on it. The print starts in the click; the paper is on the page until it has printed.
+ * prints its web address on it. The print starts in the click; the paper is on the page until it has printed. A click
+ * whose paper is ready only later (a read still loading) `start`s the print in the click and passes that job to `print`
+ * once the paper is ready, so Safari's PDF tab is still opened in the click; a job not printed after all is cancelled.
  */
 export function usePaperPrint() {
   const [paper, setPaper] = useState<{ kind: PaperKind; node: ReactNode; round: number; job: PrintJob } | null>(null)
@@ -36,14 +38,15 @@ export function usePaperPrint() {
     if (!paper) return
     return paper.job.run(area.current, () => setPaper(current => current?.round === paper.round ? null : current))
   }, [paper])
-  const print = useCallback((kind: PaperKind, node: ReactNode) => {
-    const job = startPrint(PAPERS[kind])
+  const start = useCallback((kind: PaperKind): PrintJob => startPrint(PAPERS[kind]), [])
+  const print = useCallback((kind: PaperKind, node: ReactNode, started?: PrintJob) => {
+    const job = started ?? startPrint(PAPERS[kind])
     setPaper(current => ({ kind, node, round: (current?.round ?? 0) + 1, job }))
   }, [])
   const portal = paper && typeof document !== 'undefined'
     ? createPortal(<div ref={area} data-clinical-print={paper.kind} aria-hidden="true">{paper.node}</div>, document.body)
     : null
-  return { print, area: portal }
+  return { print, start, area: portal }
 }
 
 function text(value: unknown): string {

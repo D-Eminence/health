@@ -2277,11 +2277,25 @@ describe('the warning on a prescription’s status change, since hid-system 0133
     expect(PHARMACY_NOT_TOLD).toMatch(/create a new prescription and send it\.$/)
     expect(PHARMACY_NOT_TOLD).not.toMatch(/^Pharmacy is not told/)
   })
+
+  it('says a pharmacist’s hand-off is not told, and never names a button the pharmacist’s "Send to Pharmacy" sits beside', async () => {
+    // 0133 D8 withdraws only the automatic send and the prescriber's send; a pharmacist's hand-off has none to withdraw.
+    expect(PHARMACY_NOT_TOLD).toContain('If it went to that pharmacy by itself when it was activated, or when its prescriber sent it, the pharmacy is told')
+    expect(PHARMACY_NOT_TOLD).toContain('If a pharmacist handed it to the pharmacy instead, the pharmacy is not told: contact the pharmacy.')
+    expect(PHARMACY_NOT_TOLD).not.toMatch(/send to pharmacy/i)
+    // A member who may both prescribe and accept pharmacy items sees the hand-off and the warning together.
+    staff.permissions = [...READ_WRITE, 'pharmacy.work-item.accept']
+    setLists([prescription({ status: 'active', rowVersion: 3 })], [])
+    await openOrder('pharmacy', RX)
+    fireEvent.click(screen.getByRole('button', { name: 'Put on hold' }))
+    expect(screen.getByRole('button', { name: 'Send to Pharmacy' })).toBeTruthy()
+    expect(screen.getByText(/^This hospital’s pharmacy can no longer dispense/).textContent).not.toMatch(/send to pharmacy/i)
+  })
 })
 
 describe('parity: an order’s status form and its dialog say the warning', () => {
   // Since hid-system 0133 this hospital's own pharmacy is told (its send is withdrawn); an outside pharmacy is not.
-  const PHARMACY_NOT_TOLD = /^This hospital’s pharmacy can no longer dispense the version it was sent once this prescription is put on hold, completed, cancelled or marked entered in error, even after it is resumed\. If it went to that pharmacy automatically or with Send to pharmacy, the pharmacy is told/
+  const PHARMACY_NOT_TOLD = /^This hospital’s pharmacy can no longer dispense the version it was sent once this prescription is put on hold, completed, cancelled or marked entered in error, even after it is resumed\. If it went to that pharmacy by itself when it was activated, or when its prescriber sent it, the pharmacy is told/
 
   it.each(['Put on hold', 'Cancel order', 'Mark entered in error'])('ties "Update status" to Pharmacy’s warning when "%s" is chosen (Clinical.tsx:617-620)', async name => {
     setLists([prescription({ status: 'active', rowVersion: 3 })], [])

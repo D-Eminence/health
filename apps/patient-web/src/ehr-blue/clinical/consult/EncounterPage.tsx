@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import { useLocation, useParams } from 'react-router-dom'
 import { staffApi, type ClinicalRecord, type DocumentRecord, type Encounter, type NoteRevision } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
+import type { PrintJob } from '../../../print/printPaper'
 import { isDemoFacility } from '../../blueFacilities'
 import { ChartGate, useChart, type Chart } from '../parts/chart'
 import {
@@ -263,7 +264,11 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
   const seen = !!note && !revisions.loading && !revisions.error && (revisions.items?.length ?? 0) > 0
   const lists: PageLists = { notes, diagnoses, vitals, prescriptions, labs, documents, revisions }
   const latestLists = useLatest(lists)
-  const { print, area: printArea } = usePaperPrint()
+  const { print, start: startPaper, area: printArea } = usePaperPrint()
+  // The print a press started while the summary was still loading (Safari's PDF tab opens only in the click): run once
+  // the summary is ready, cancelled if it cannot be or the page goes first.
+  const dischargeJob = useRef<PrintJob | null>(null)
+  useEffect(() => () => { dischargeJob.current?.cancel(); dischargeJob.current = null }, [])
   const { state: staffState } = useClinical()
   const actor = staffState.status === 'ready' ? staffState.session.actor : null
 
@@ -565,11 +570,22 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
   const summaryParts = [summary.diagnoses, summary.note, summary.tests, summary.drugs]
   const summaryReady = summaryParts.every(part => part.state === 'shown' || part.state === 'no-right' || part.state === 'later-page')
   const summaryFailed = summaryParts.some(part => part.state === 'failed')
-  const printSummary = useLatest(() => print('discharge', <DischargeSummaryPaper summary={{ ...summary, printedAt: printedAt() }} />))
+  const printSummary = useLatest(() => {
+    const job = dischargeJob.current ?? undefined
+    dischargeJob.current = null
+    print('discharge', <DischargeSummaryPaper summary={{ ...summary, printedAt: printedAt() }} />, job)
+  })
   const printDischarge = () => {
     setPrintPressed(true)
     // A press before every part was read (the lab requests are read only now) prints once they are; DISCHARGE_WAIT says so.
-    if (!summaryReady) { setPrintQueued(!summaryFailed); return }
+    // Its print starts here, in the click, all the same: Safari opens the PDF's tab only in a click, and printing the
+    // page later instead would put Safari's own header and footer, with the web address, on the paper.
+    if (!summaryReady) {
+      if (summaryFailed) { dischargeJob.current?.cancel(); dischargeJob.current = null; setPrintQueued(false); return }
+      dischargeJob.current ??= startPaper('discharge')
+      setPrintQueued(true)
+      return
+    }
     setPrintQueued(false)
     printSummary.current()
   }
@@ -577,7 +593,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
   // says to try again), so no print starts later on its own.
   useEffect(() => {
     if (!printQueued) return
-    if (summaryFailed) { setPrintQueued(false); return }
+    if (summaryFailed) { dischargeJob.current?.cancel(); dischargeJob.current = null; setPrintQueued(false); return }
     if (!summaryReady) return
     setPrintQueued(false)
     printSummary.current()

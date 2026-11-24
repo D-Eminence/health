@@ -319,17 +319,21 @@ describe('Waiting list in the frame', () => {
     await waitFor(() => expect(reads()).toBe(3))
   })
 
-  it('does not send an expired search result to check-in, and says to search again', async () => {
+  it('leaves a search result’s expiry to the server, so a device clock running fast never blocks check-in', async () => {
+    // By this device's clock the result's 10 minutes are already over; the server still accepts its matchRef.
     const desk = facility(REAL_FACILITY, 'Fictional Clinic', FRONT_DESK, ['receptionist'])
-    const sent = serve({ [SESSION]: [sessionAt(desk, [desk])], [LIST]: [listOf()], [SEARCH]: [found('2020-01-01T00:00:00.000Z')] })
+    const sent = serve({
+      [SESSION]: [sessionAt(desk, [desk])], [LIST]: [listOf(), listOf(card())], [SEARCH]: [found('2020-01-01T00:00:00.000Z')],
+      [CHECK_IN]: [() => json({ outcome: 'checked_in', entry: card() })],
+    })
     await openStaffApp('/provider/waiting-list')
     fireEvent.change(await screen.findByRole('textbox', { name: 'Health ID' }), { target: { value: 'HID-ZZZZ22' } })
     fireEvent.click(screen.getByRole('button', { name: 'Find patient' }))
     const result = await screen.findByRole('listitem', { name: 'Testa Queueperson' })
     fireEvent.click(within(result).getByRole('button', { name: 'Check in Testa Queueperson' }))
-    expect(await screen.findByText('This search result has expired. Search again.')).toBeDefined()
-    await settle()
-    expect(sent.filter(call => call.route === CHECK_IN)).toEqual([])
+    expect(await screen.findByText('Testa Queueperson is checked in and waiting.')).toBeDefined()
+    expect(sent.find(call => call.route === CHECK_IN)!.body).toEqual({ matchRef: MATCH_REF })
+    expect(screen.queryByText('This search result has expired. Search again.')).toBeNull()
   })
 
   it('says a refused or missing patient search in the waiting list’s words, never “by name” or “use the Health ID”', async () => {

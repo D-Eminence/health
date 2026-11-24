@@ -162,6 +162,22 @@ describe('Safari and every browser on an iPhone or iPad: a PDF in a new tab', ()
     expect(tab.close).toHaveBeenCalled()
     expect(tab.location.replace).not.toHaveBeenCalled()
   })
+
+  it('cancels a print the paper never came for: its tab is closed and nothing prints, in Safari or Chrome', () => {
+    browser(SAFARI)
+    const tab = fakeTab()
+    vi.spyOn(window, 'open').mockReturnValue(tab as unknown as Window)
+    const print = vi.spyOn(window, 'print').mockImplementation(() => {})
+    const job = startPrint({ size: 'A4', kind: 'Discharge summary' })
+    job.cancel()
+    expect(tab.close).toHaveBeenCalledOnce()
+    // A run after it makes no PDF.
+    job.run(paper(), () => {})
+    expect(paperPdf).not.toHaveBeenCalled()
+    browser(CHROME)
+    startPrint({ size: 'A4', kind: 'Discharge summary' }).cancel()
+    expect(print).not.toHaveBeenCalled()
+  })
 })
 
 describe('point-of-care slips', () => {

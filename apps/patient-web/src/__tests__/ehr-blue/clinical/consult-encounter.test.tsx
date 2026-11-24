@@ -32,6 +32,8 @@ vi.mock('../../../staff/App', async () => {
 })
 vi.mock('../../../staff/session', () => ({ staffSessionGeneration: () => 1, untilStaffSessionReady: async () => {} }))
 vi.mock('../../../staff/env', () => ({ getEnvironment: () => ({ name: 'test' }) }))
+const paperPdf = vi.hoisted(() => vi.fn<(root: Element, options: { size: string; title: string }) => Promise<Blob>>())
+vi.mock('../../../print/paperPdf', () => ({ paperPdf: (root: Element, options: { size: string; title: string }) => paperPdf(root, options) }))
 vi.mock('../../../ehr-blue/clinical/consult/orders', () => ({
   EncounterOrders: ({ encounter }: { encounter: { id: string } }) => <p>Connected orders for {encounter.id}</p>,
   EncounterOrderPages: () => <p>Order pages part</p>,
@@ -352,6 +354,60 @@ describe('Consultation record', () => {
     expect(button.getAttribute('aria-disabled')).toBe('true')
     expect(within(card('Actions')).getByText(/can be printed once the visit’s diagnoses, note, tests and medicines have loaded/)).toBeTruthy()
     expect(printSpy).not.toHaveBeenCalled()
+  })
+
+  describe('on Safari, whose PDF tab opens only in the click', () => {
+    const SAFARI = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.1 Safari/605.1.15'
+    function safariTab() {
+      vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(SAFARI)
+      const tab = { document: document.implementation.createHTMLDocument(''), location: { replace: vi.fn() }, close: vi.fn(), closed: false, opener: {} as unknown }
+      tab.close.mockImplementation(() => { tab.closed = true })
+      const open = vi.spyOn(window, 'open').mockReturnValue(tab as unknown as Window)
+      const print = vi.spyOn(window, 'print').mockImplementation(() => {})
+      return { tab, open, print }
+    }
+    /** The lab requests, read only once Print is pressed: answered when the test says. */
+    function labsOnHold() {
+      let answer: (items: unknown[]) => void = () => {}
+      let fail: (error: unknown) => void = () => {}
+      api.records.mockImplementation(async (_f: string, _p: string, _e: string, kind: string) => kind === 'lab-requests'
+        ? new Promise((resolve, reject) => { answer = items => resolve({ items, nextCursor: null }); fail = reject })
+        : { items: records[kind] ?? [], nextCursor: null })
+      return { answer: (items: unknown[]) => answer(items), fail: (error: unknown) => fail(error) }
+    }
+    afterEach(() => { paperPdf.mockReset(); vi.unstubAllGlobals() })
+
+    it('opens the PDF tab in the press that waits for the summary, and prints the summary there once it is ready', async () => {
+      staff.permissions = [...ALL, 'ehr.lab-request.read']
+      const labs = labsOnHold()
+      const { tab, open, print } = safariTab()
+      paperPdf.mockResolvedValue(new Blob(['%PDF-1.3'], { type: 'application/pdf' }))
+      vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:https://ehr.example.test/5d4c3b2a'), revokeObjectURL: vi.fn() }))
+      await openEncounter()
+      fireEvent.click(within(card('Actions')).getByRole('button', { name: 'Print discharge summary' }))
+      // In the click, though the lab requests are only now being read.
+      expect(open).toHaveBeenCalledOnce()
+      expect(within(card('Actions')).getByText(/can be printed once the visit’s diagnoses, note, tests and medicines have loaded/)).toBeTruthy()
+      await act(async () => { labs.answer([{ id: 'lab-1', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T08:45:00.000Z', status: 'active', testDisplay: 'Malaria smear' }]) })
+      await waitFor(() => expect(tab.location.replace).toHaveBeenCalledWith('blob:https://ehr.example.test/5d4c3b2a'))
+      expect(paperPdf.mock.calls[0]![0].textContent).toContain('Malaria smear')
+      expect(open).toHaveBeenCalledOnce()
+      // The page never prints itself, which would put Safari's header and footer, with the web address, on the paper.
+      expect(print).not.toHaveBeenCalled()
+    })
+
+    it('closes the tab a waiting press opened when a part could not be loaded, and prints nothing', async () => {
+      staff.permissions = [...ALL, 'ehr.lab-request.read']
+      const labs = labsOnHold()
+      const { tab, open, print } = safariTab()
+      await openEncounter()
+      fireEvent.click(within(card('Actions')).getByRole('button', { name: 'Print discharge summary' }))
+      expect(open).toHaveBeenCalledOnce()
+      await act(async () => { labs.fail(new HidApiError(503, 'Unavailable')) })
+      await waitFor(() => expect(tab.close).toHaveBeenCalled())
+      expect(paperPdf).not.toHaveBeenCalled()
+      expect(print).not.toHaveBeenCalled()
+    })
   })
 
   it('says on the paper when the visit has more prescriptions than the first page', async () => {

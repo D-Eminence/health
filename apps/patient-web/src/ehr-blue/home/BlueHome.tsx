@@ -41,13 +41,13 @@ const pickedShortcuts = new Map<string, readonly string[]>()
  * leads (the label still says it: never colour alone).
  */
 type AreaTone = 'brand' | 'success' | 'violet' | 'warn' | 'info' | 'danger' | 'neutral'
-const FRONT_DESK = new Set(['patients', 'registration', 'in-person-check', 'appointments', 'journey'])
+const FRONT_DESK = new Set(['patients', 'registration', 'in-person-check', 'waiting-list', 'appointments', 'journey'])
 const AREA_CHIP: Readonly<Record<AreaTone, string>> = {
   brand: 'bg-brand-soft text-brand', success: 'bg-success-soft text-success', violet: 'bg-violet-soft text-violet',
   warn: 'bg-warn-soft text-warn', info: 'bg-info-soft text-info', danger: 'bg-danger-soft text-danger', neutral: 'bg-subtle text-ink-2',
 }
 /** The sidebar's name for the area a page sits in: the clinical pages split into Front desk and Care, as the menu does. */
-function areaName(page: { readonly path: string; readonly group: string }): string {
+export function areaName(page: { readonly path: string; readonly group: string }): string {
   if (page.group !== 'Clinical') return page.group
   return FRONT_DESK.has(basePath(page.path)) ? 'Front desk' : 'Care'
 }

@@ -124,12 +124,6 @@ export function parsePatientSearchAnswer(value: unknown): PatientSearchAnswer {
   }
 }
 
-/** Whether a card's matchRef has expired (10 minutes after the search), so it can no longer be used. */
-export function matchRefExpired(card: PatientSearchCard, now = Date.now()): boolean {
-  const at = Date.parse(card.matchRefExpiresAt)
-  return Number.isFinite(at) && at <= now
-}
-
 /** "NIN Verified" or "NIN Not Verified", as every staff screen says it (ID-0). */
 export function ninStatusLabel(status: NinStatus): string {
   return status === 'verified' ? 'NIN Verified' : 'NIN Not Verified'

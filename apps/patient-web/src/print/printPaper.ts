@@ -30,6 +30,8 @@ export interface PaperPrint {
 export interface PrintJob {
   /** Prints `root`, the paper as it is on the page now; `done` once it no longer needs to be there. Returns an undo. */
   run(root: Element | null, done: () => void): () => void
+  /** Drops a job that will not be run (the paper could not be made ready): closes its PDF tab, prints nothing. */
+  cancel(): void
 }
 
 const logger = createLogger({ minLevel: 'warn', baseContext: { app: 'patient-web', part: 'print' } })
@@ -107,6 +109,7 @@ function pagePrint(paper: PaperPrint, pageMargins: boolean): PrintJob {
         if (!over) restore()
       }
     },
+    cancel() {},
   }
 }
 
@@ -161,12 +164,19 @@ function pdfPrint(paper: PaperPrint, tab: Window): PrintJob {
         })
       return () => {}
     },
+    cancel() {
+      if (started) return
+      started = true
+      printTabs.delete(tab)
+      try { if (!tab.closed) tab.close() } catch { /* already gone */ }
+    },
   }
 }
 
 /**
  * Starts printing a paper. Call it in the click that asks to print (a WebKit browser opens the PDF's tab only then),
- * then `run` the job with the paper once it is on the page.
+ * then `run` the job with the paper once it is on the page, even when the paper is made ready only after the click
+ * (a read still loading); `cancel` it if the paper will not be printed after all.
  */
 export function startPrint(paper: PaperPrint): PrintJob {
   if (!printsAddressAnyway()) return pagePrint(paper, false)

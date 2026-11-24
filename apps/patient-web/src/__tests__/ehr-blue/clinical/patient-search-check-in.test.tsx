@@ -96,14 +96,17 @@ describe('Check in from Search by name', () => {
     expect(await within(list).findByText('The waiting list is not available yet. Try again later.')).toBeTruthy()
   })
 
-  it('does not send an expired card’s matchRef, and says to search again', async () => {
+  it('leaves a card’s expiry to the server: a device clock running fast never stops the check-in being sent', async () => {
+    // By this device's clock the card's 10 minutes are already over; the server still accepts its matchRef.
     api.searchPatients.mockResolvedValue({ mode: 'standard', outcome: 'found', reach: 'everywhere', message: null,
       patients: [{ ...CARD, matchRefExpiresAt: '2020-01-01T00:00:00.000Z' }] })
+    queue.checkIn.mockResolvedValue({ outcome: 'checked_in', entry: { fullName: 'Testa Queueperson' } })
     search()
     const list = await screen.findByRole('list', { name: 'Patients found' })
     fireEvent.click(within(list).getByRole('button', { name: 'Check in Testa Queueperson' }))
-    expect(await within(list).findByText('This search result has expired. Search again.')).toBeTruthy()
-    expect(queue.checkIn).not.toHaveBeenCalled()
+    expect(await within(list).findByText('Testa Queueperson is checked in and waiting. See the Waiting list.')).toBeTruthy()
+    expect(queue.checkIn).toHaveBeenCalledWith(FACILITY_ID, { matchRef: MATCH_REF })
+    expect(within(list).queryByText('This search result has expired. Search again.')).toBeNull()
   })
 
   it('is not offered to a role the waiting list is closed to', async () => {
