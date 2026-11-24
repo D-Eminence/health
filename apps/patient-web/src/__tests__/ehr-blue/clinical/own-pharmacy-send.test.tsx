@@ -171,7 +171,7 @@ describe('Send to pharmacy on the prescription page', () => {
   it('sends the prescription with its row version, says it was sent, and does not offer it again', async () => {
     api.ownPharmacySend.mockResolvedValueOnce({ pharmacyHandoff: { status: 'sent', message: 'Sent to this hospital\'s pharmacy.' } })
     await openPrescription()
-    // Today's pharmacist hand-off is not offered beside it.
+    // This role may not accept pharmacy work, so today's pharmacist hand-off is not offered.
     expect(screen.queryByRole('button', { name: 'Send to Pharmacy' })).toBeNull()
     fireEvent.click(sendButton()!)
     const form = within(actionsCard()).getAllByRole('button', { name: 'Send to pharmacy' }).at(-1)!.closest('form')!
@@ -339,6 +339,16 @@ describe('Today’s pharmacist hand-off beside the automatic send', () => {
     await openPrescription()
     expect(handoffButton()).toBeNull()
     expect(sendButton()).toBeNull()
+  })
+
+  it('is offered beside the prescriber’s own Send to pharmacy, as classic offers it on every active prescription (Clinical.tsx:1865)', async () => {
+    list = [prescription()]
+    await openPrescription()
+    expect(sendButton()).toBeTruthy()
+    expect(handoffButton()).toBeTruthy()
+    // Each opens its own form: the hand-off's reason, the send's confirmation.
+    fireEvent.click(handoffButton()!)
+    expect(screen.getByRole('button', { name: 'Send to Pharmacy', expanded: true })).toBeTruthy()
   })
 
   it.each([
