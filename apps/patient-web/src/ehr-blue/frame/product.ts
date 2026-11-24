@@ -31,12 +31,13 @@ export const PRODUCTS: Readonly<Record<Product, ProductInfo>> = {
 }
 
 /**
- * Pages every product keeps: running the facility itself (its people, its audit trail, its profile), and Patients and
- * Access requests. A lab scientist or a pharmacist reaches a patient's record only through a request the patient
- * approves, and the classic portal listed both pages on every site, by permission (staff/navigation.ts). Each still
- * needs its own permission; the EHR's other clinical pages, registration among them, stay out.
+ * Pages every product keeps: running the facility itself (its people, its audit trail, its profile, its subscription),
+ * and Patients and Access requests. A lab scientist or a pharmacist reaches a patient's record only through a request
+ * the patient approves, and the classic portal listed these pages on every site, by permission (staff/navigation.ts:
+ * Plan & billing under billing.subscription.read included; parity report 15c and 3.3-64). Each still needs its own
+ * permission; the EHR's other clinical pages, registration among them, stay out.
  */
-const SHARED: ReadonlySet<string> = new Set(['staff', 'audit', 'facility', 'hr', 'institutions', 'patients', 'requests'])
+const SHARED: ReadonlySet<string> = new Set(['staff', 'audit', 'facility', 'hr', 'institutions', 'patients', 'requests', 'billing'])
 
 const SINGLE: readonly Exclude<Product, 'ehr'>[] = ['lab', 'pharmacy', 'outreach', 'migrate']
 
@@ -84,27 +85,27 @@ export function inProduct(product: Product, path: string): boolean {
 /**
  * Whether this product's workspace offers a page: the frame lists only these (each still under its own permission), and
  * What's left shows only these, so a lab's, pharmacy's, outreach team's or migration site never offers the hospital's
- * pages (Patient registration is the EHR's alone). A single product has no Home: its first page is its own. (The frame
- * lists Home there only to a session that may not open that page, as /provider stays on Home for it: BlueFrame.tsx.)
+ * pages (Patient registration is the EHR's alone). Home is listed on every site, as the classic portal listed its
+ * Overview on every site (staff/navigation.ts; parity report 3.3-53). A sign-in on a product's site still lands on the
+ * product's own first page (BlueFrame.tsx), as the classic sign-in landed there (staff/navigation.ts staffLandingPath).
  */
 export function productLists(product: Product, path: string): boolean {
-  return inProduct(product, path) && (product === 'ehr' || path !== '')
+  return path === '' || inProduct(product, path)
 }
 
 /**
  * Pages a single product opens at their address but does not list, because something on every product's screens
  * leads there, or because its staff need them:
- *  - Facility subscription: the billing banner above every page leads there ("Choose a plan", "Pay now":
- *    staff/routes/Billing.tsx).
  *  - What's left: the Demo chip in the header leads there ("See what's left": TopBarParts.tsx). Its own `visible`
  *    keeps it to the demo facilities.
  *  - Facility setup: a facility that signed itself up works on its product's site (signup/AfterSubmit.tsx). Its own
  *    `visible` keeps it to those facilities' staff managers.
  *  - Help: the Guide in the top bar of every page leads there ("All guides": PageGuide.tsx), as does Help in the top
  *    bar and the account menu. It lists nothing anywhere (pages.ts), so it is opened, not listed.
- * (Patients and Access requests are not among them: every product lists them, by permission, through SHARED above.)
+ * (Patients, Access requests and Facility subscription are not among them: every product lists them, by permission,
+ * through SHARED above.)
  */
-const OPENED_UNLISTED: ReadonlySet<string> = new Set(['billing', 'whats-left', 'onboarding', 'help'])
+const OPENED_UNLISTED: ReadonlySet<string> = new Set(['whats-left', 'onboarding', 'help'])
 
 /**
  * "Start an outreach group" (owner decision 5 of 11 November 2026) opens unlisted on Health ID Outreach: Switch facility

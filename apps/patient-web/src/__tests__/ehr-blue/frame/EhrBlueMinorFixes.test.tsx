@@ -88,8 +88,8 @@ describe('b. today\'s own routes keep today\'s tab title inside the blue frame',
     // The frame's own Page not found, not today's catch-all inside it: one look and one way back across the workspace.
     expect(await screen.findByRole('heading', { level: 1, name: 'Page not found' })).toBeDefined()
     const page = document.querySelector<HTMLElement>('.hid-ehr-blue-page')!
-    expect(within(page).getAllByRole('link')).toEqual([within(page).getByRole('link', { name: 'Go to Home' })])
-    expect(screen.queryByText(/provider overview/)).toBeNull()
+    expect(within(page).getAllByRole('link')).toEqual([within(page).getByRole('link', { name: 'Go to provider overview' })])
+    expect(screen.getAllByText('This provider page is unavailable.')).toHaveLength(1)
   })
 })
 
@@ -121,11 +121,14 @@ describe('c. Needs attention says nothing needs attention only when it lists not
     expect(card.queryAllByRole('listitem')).toHaveLength(0)
   })
 
-  it('lists the open patient, and does not also say nothing needs attention', async () => {
+  // Parity report 3.3-55: the open patient is classic's own "Current patient" card, said once, not a Needs attention line.
+  it('shows the open patient in classic\'s Current patient card, which opens the clinical record', async () => {
     const open = { hid: 'HID-DEMO-001', purpose: 'direct-care', lookup: { patient: { fullName: 'Alex Example' } } } as unknown as StaffApp.ActivePatient
     const card = await home(open)
-    expect(card.getByRole('link', { name: /^Alex Example/ }).getAttribute('href')).toBe('/provider/clinical')
-    expect(card.queryByText(NOTHING)).toBeNull()
+    expect(card.queryByText('Alex Example')).toBeNull()
+    const current = within(screen.getByRole('region', { name: 'Current patient' }))
+    expect(current.getByText('Alex Example')).toBeDefined()
+    expect(current.getByRole('link', { name: 'Open clinical record' }).getAttribute('href')).toBe('/provider/clinical')
   })
 })
 

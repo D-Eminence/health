@@ -28,9 +28,11 @@ export const financeListed = (session: StaffSession) => {
   return FINANCE_PERMISSIONS.some(permission => held.includes(permission)) || !COUNTER_MENU_PERMISSIONS.some(permission => held.includes(permission))
 }
 
+// Partial, not live (parity report 3.1 #20b): they call addresses Health ID does not serve yet. Partial, never sample,
+// which would change who may open them.
 export const commercePages: EhrBluePage[] = [
-  { path: 'payments', group: 'Finance', label: 'Payments', permission: 'billing.bill.read', status: 'live', icon: icon(Wallet), element: <Payments />, listed: financeListed, visible: pointOfCareShown },
-  { path: 'price-list', group: 'Finance', label: 'Price list', permission: 'billing.catalogue.read', status: 'live', icon: icon(Tags), element: <PriceList />, listed: financeListed, visible: pointOfCareShown },
-  { path: 'end-of-day', group: 'Finance', label: 'End of day', permission: 'billing.shift.own', status: 'live', icon: icon(CalendarCheck), element: <EndOfDay />, listed: financeListed, visible: pointOfCareShown },
-  { path: 'payment-setup', group: 'Finance', label: 'Payment setup', permission: 'billing.settings.manage', status: 'live', icon: icon(SlidersHorizontal), element: <PaymentSetup />, listed: financeListed, visible: pointOfCareShown },
+  { path: 'payments', group: 'Finance', label: 'Payments', permission: 'billing.bill.read', status: 'partial', icon: icon(Wallet), element: <Payments />, listed: financeListed, visible: pointOfCareShown },
+  { path: 'price-list', group: 'Finance', label: 'Price list', permission: 'billing.catalogue.read', status: 'partial', icon: icon(Tags), element: <PriceList />, listed: financeListed, visible: pointOfCareShown },
+  { path: 'end-of-day', group: 'Finance', label: 'End of day', permission: 'billing.shift.own', status: 'partial', icon: icon(CalendarCheck), element: <EndOfDay />, listed: financeListed, visible: pointOfCareShown },
+  { path: 'payment-setup', group: 'Finance', label: 'Payment setup', permission: 'billing.settings.manage', status: 'partial', icon: icon(SlidersHorizontal), element: <PaymentSetup />, listed: financeListed, visible: pointOfCareShown },
 ]

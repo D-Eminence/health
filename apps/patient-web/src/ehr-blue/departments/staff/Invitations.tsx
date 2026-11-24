@@ -9,7 +9,8 @@ import { DeptFacts, type DeptFact } from '../parts/DeptRecord'
 import type { StaffShared } from './shared'
 import { ErrorBox } from './StaffFields'
 import {
-  dateText, DELIVERY_WORDS, deliveryNotice, IDS, invitationStatus, licenceNumberText, plural, resendTime, type StaffNotice,
+  dateText, DELIVERY_WORDS, deliveryNotice, deliverySentence, IDS, invitationStatus, licenceNumberText, plural, resendTime,
+  type StaffNotice,
 } from './staffText'
 
 const nameId = (id: string) => `ehr-staff-invitation-${id}`
@@ -180,9 +181,8 @@ function InvitationRow({ invitation, shared, selected, onSelect, onDetails }: {
     setBusy('resend')
     try {
       const sent = await facilityStaffApi.resend(facilityId, invitation)
-      const notice = deliveryNotice(sent.deliveryOutcome, invitation.email, true)
-      if (!notice) toast.success('Invitation sent again')
-      done([detailsButton(id), IDS.invitations], notice)
+      // The classic Staff page's full sentence, in the page's banner, whatever became of the email.
+      done([detailsButton(id), IDS.invitations], deliverySentence(sent.deliveryOutcome, invitation.email, true))
     } catch (caught) { setError(refused(caught)) }
     finally { setBusy(null) }
   }

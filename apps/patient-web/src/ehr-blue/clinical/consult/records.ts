@@ -42,6 +42,11 @@ export interface RecordList<T> {
    * the change was saved.
    */
   readonly reload: (first?: boolean) => Promise<string | null>
+  /**
+   * The page shown as last read, read when called: after `await reload()` it is what that read answered, though the
+   * list's `items` are those of the render the caller was made in.
+   */
+  readonly latest: () => readonly T[] | null
   /** Reads the page shown afresh; a failure is the list's error (a refreshed note's content is hidden then). */
   readonly refresh: () => Promise<string | null>
 }
@@ -84,6 +89,7 @@ function usePagedList<T>(scope: string, enabled: boolean, reader: Reader<T>, fal
   // The cursors last asked for: a read after a change reads them again, a failed move goes back to those before.
   const requested = useRef<{ scope: string; cursors: Cursors }>({ scope, cursors: FIRST_PAGE })
   const reading = useLatest(reader)
+  const lastRead = useRef<{ scope: string; items: readonly T[] } | null>(null)
 
   const load = useCallback(async (mode: Mode, wanted: Cursors): Promise<string | null> => {
     if (!enabled) return null
@@ -104,6 +110,7 @@ function usePagedList<T>(scope: string, enabled: boolean, reader: Reader<T>, fal
       if (run !== sequence.current) return null
       requested.current = { scope, cursors: result.cursors }
       const items = result.page.items
+      lastRead.current = { scope, items }
       setState(current => ({
         scope,
         items,
@@ -149,6 +156,7 @@ function usePagedList<T>(scope: string, enabled: boolean, reader: Reader<T>, fal
     notice: shown.notice,
     show: cursors => { void load('page', cursors) },
     reload: (first = false) => load('change', first ? FIRST_PAGE : asked()),
+    latest: () => enabled && lastRead.current?.scope === scope ? lastRead.current.items : null,
     refresh: () => load('refresh', asked()),
   }
 }

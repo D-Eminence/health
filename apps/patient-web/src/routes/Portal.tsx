@@ -58,7 +58,7 @@ import { useShareServed } from '../shareServed'
 import { shareDurationLabel, shareLevelLabel } from '../shareRecords'
 import { accessLevelLabel, countryLabel, fileSizeLabel, fileTypeLabel, genderLabel, labPriorityLabel, labRequestStatusLabel, medicineStatusLabel, patientAccessStatusLabel, plainCode,
   visitClassLabel, visitStatusLabel } from '../plainLabels'
-import { askedTo, byAccessPin, dayAndTime, endedEarly, groupByFacility, groupCounts, holder, holderAt, isOpen, purposeLabel, staffName, stillOpenThere, theirReason, whoHasAccessTitle } from './whoHasAccess'
+import { askedTo, byAccessPin, dayAndTime, endedEarly, groupByFacility, groupCounts, holder, holderAt, isOpen, purposeLabel, requester, requesterKnown, staffName, stillOpenThere, theirReason, whoHasAccessTitle } from './whoHasAccess'
 import { SignInAgainButton } from './RecentSignIn'
 import { supportHref } from '../supportContact'
 
@@ -905,18 +905,18 @@ export function AccessPage() {
       {requestList && (requestList.length === 0
         ? <div className="border-t border-line"><EmptyState compact icon={ShieldCheck} title="No requests yet" description="When a facility asks to see your records, you decide here." /></div>
         : <ul className="m-0 list-none divide-y divide-line border-t border-line p-0">
-        {requestList.map(item => { const pending = item.status.toLowerCase() === 'pending', pin = byAccessPin(item.reason)
+        {requestList.map(item => { const pending = item.status.toLowerCase() === 'pending', pin = byAccessPin(item.reason), who = requester(item)
           return <li key={item.accessRequestId}>
             <button type="button" id={`review-${item.accessRequestId}`} onClick={() => openReview(item.accessRequestId)}
               className={cx('flex w-full cursor-pointer flex-wrap items-center gap-3 border-0 px-4 py-4 text-left font-[inherit] hover:bg-subtle sm:px-5', pending ? 'bg-warn-soft/40' : 'bg-transparent')}>
               <IconChip icon={Building2} tone={pending ? 'warn' : 'neutral'} />
               <span className="min-w-0 flex-[1_1_10rem]">
                 <span className="block text-sm font-semibold break-words text-ink">{item.facilityName}</span>{' '}
-                {/* The status is said once: the Review button while it waits, the badge after. Who asked, what for and why,
-                    as Who has access says it: the list names no staff member, so several from one facility differ by these.
-                    An Access PIN request carries Identity's own words, not a reason anyone gave: it says the PIN instead. */}
-                <span className="block text-[13px] text-ink-2">{pin ? `A staff member used your Access PIN to ${askedTo(item.scope)}` : pending ? `A staff member wants to ${askedTo(item.scope)}${forHowLong(item.requestedDurationMinutes)}`
-                  : `A staff member asked to ${askedTo(item.scope)}`} · {timeAgo(item.requestedAt)}</span>{' '}
+                {/* The status is said once: the Review button while it waits, the badge after. Who asked (by name and role
+                    where Identity sends them, hid-system 0128; else "A staff member"), what for and why. An Access PIN
+                    request carries Identity's own words, not a reason anyone gave: it says the PIN instead. */}
+                <span className="block text-[13px] text-ink-2">{pin ? `${who} used your Access PIN to ${askedTo(item.scope)}` : pending ? `${who} wants to ${askedTo(item.scope)}${forHowLong(item.requestedDurationMinutes)}`
+                  : `${who} asked to ${askedTo(item.scope)}`} · {timeAgo(item.requestedAt)}</span>{' '}
                 {!pin && item.reason?.trim() && <span className="block line-clamp-2 text-[13px] [overflow-wrap:anywhere] text-ink-3">Reason given: “{item.reason.trim()}”</span>}
               </span>{' '}
               {pending ? <span className={buttonClass({ variant: 'primary', size: 'sm', className: 'ml-auto' })}>Review</span>
@@ -997,6 +997,7 @@ export function AccessPage() {
           <div className="mt-2"><SignInAgainButton back="/access" id={`sign-in-again-${open.accessRequestId}`} /></div></Alert>}
         {open.reason && !byAccessPin(open.reason) && <blockquote className="m-0 rounded-xl bg-subtle px-4 py-3 text-sm [overflow-wrap:anywhere] text-ink ring-1 ring-line">“{open.reason}”</blockquote>}
         <dl className="m-0 grid grid-cols-2 gap-x-4 gap-y-3 text-[13px]">
+          {requesterKnown(open) && <div className="col-span-2"><dt className="text-ink-3">Asked by</dt><dd className="m-0 mt-0.5 font-medium [overflow-wrap:anywhere] text-ink">{requester(open)}</dd></div>}
           <div><dt className="text-ink-3">Access asked for</dt><dd className="m-0 mt-0.5 font-medium text-ink">{accessLevelLabel(open.scope)}</dd></div>
           <div><dt className="text-ink-3">For</dt><dd className="m-0 mt-0.5 font-medium text-ink">{forHowLong(open.requestedDurationMinutes).replace(/^ for /, '') || 'Not stated'}</dd></div>
           {open.status.toLowerCase() !== 'pending' && <div><dt className="text-ink-3">Status</dt><dd className="m-0 mt-0.5"><Badge tone={statusTone(open.status)} size="sm">{patientAccessStatusLabel(open.status)}</Badge></dd></div>}

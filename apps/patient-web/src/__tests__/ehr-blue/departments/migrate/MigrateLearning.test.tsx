@@ -30,7 +30,7 @@ vi.mock('../../../../staff/App', async () => {
   }
 })
 
-const ALL = ['ocr.job.read', 'ocr.job.write', 'ocr.validation.write', 'ocr.patient.confirm', 'ocr.publication.write']
+const ALL = ['ocr.job.read', 'ocr.job.write', 'ocr.job.start', 'ocr.validation.write', 'ocr.patient.confirm', 'ocr.publication.write']
 const PATIENT = 'a0000000-0000-4000-8000-000000000001'
 const DOCUMENT = 'd0000000-0000-4000-8000-000000000001'
 const awaiting = { id: 'j0000000-0000-4000-8000-000000000001', documentId: DOCUMENT, patientId: PATIENT, provider: 'textract', version: 3,

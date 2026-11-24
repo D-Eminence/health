@@ -118,7 +118,7 @@ describe('2. Home says what today\'s Overview says (a novu-v1 build)', () => {
     const none = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
     serve({ [SESSION]: [sessionAt(none, [none])] })
     const { unmount } = await openStaffApp('/provider')
-    const sentence = 'You have no clinical work at this facility yet. Ask an administrator to check your role.'
+    const sentence = 'Your active facility has no clinical modules for your role. Ask an administrator to review your assignment.'
     expect(await screen.findByText(sentence)).toBeDefined()
     unmount()
     vi.resetModules()
@@ -201,7 +201,7 @@ describe('6. Home reads only what today\'s Overview reads', () => {
     expect([...new Set(sent.map(call => call.route))]).toEqual(['GET /api/v1/auth/session', REQUESTS])
     // Today's work links to the work pages instead of counting their work.
     expect(screen.getByRole('heading', { name: 'Today\'s work' })).toBeDefined()
-    const main = document.querySelector('.hid-ehr-blue-page') as HTMLElement
+    const main = screen.getByRole('heading', { name: 'Today\'s work' }).closest('section') as HTMLElement
     expect(within(main).getByRole('link', { name: /^Laboratory/ }).getAttribute('href')).toBe('/provider/laboratory')
     expect(within(main).getByRole('link', { name: /^Pharmacy/ }).getAttribute('href')).toBe('/provider/pharmacy')
   })

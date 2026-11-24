@@ -22,10 +22,10 @@ describe('the in-person check’s stylesheet', () => {
   })
 
   it('lets its groups shrink to the screen and its statements wrap at 320px', () => {
-    for (const group of ['.hid-ehr .hid-ehr-dept-inperson-group', '.hid-ehr .hid-ehr-dept-inperson-method']) {
-      expect(valueAt(css, group, 'min-width', PHONE)).toBe('0')
-      expect(valueAt(css, group, 'border', PHONE)).toBe('0')
-    }
+    expect(valueAt(css, '.hid-ehr .hid-ehr-dept-inperson-group', 'min-width', PHONE)).toBe('0')
+    expect(valueAt(css, '.hid-ehr .hid-ehr-dept-inperson-group', 'border', PHONE)).toBe('0')
+    // Each of classic's three steps shrinks to the screen too.
+    expect(valueAt(css, '.hid-ehr .hid-ehr-dept-inperson-stepgroup', 'min-width', PHONE)).toBe('0')
     expect(valueAt(css, '.hid-ehr .hid-ehr-dept-inperson-choice', 'overflow-wrap', PHONE)).toBe('anywhere')
     // A statement's box keeps its size beside words that wrap.
     expect(valueAt(css, '.hid-ehr .hid-ehr-dept-inperson-choice input', 'flex', PHONE)).toBe('none')

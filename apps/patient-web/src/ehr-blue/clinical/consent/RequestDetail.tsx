@@ -5,10 +5,10 @@ import { FormPage, LoadingRows } from '../../../kasuwa/parts'
 import { Alert, Badge, Button, Card, CardHeader, DescriptionList, type Tone } from '../../../kasuwa/ui'
 import { staffApi, type AccessRequest } from '../../../staff/api'
 import { outcome } from '../../../staff/routes/AccessRequests'
-import { ACCESS_ENDED } from '../parts/chart'
 import { RecordNotFound } from '../parts/Notices'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 import { isAdult, STAFF_ACCESS_COVERS_PAPER } from '../../../paperRecordsWording'
+import { scanAccess } from '../../../scanAccess'
 import { ACCESS_CLOSED, CLOSE_GRANT, CLOSE_REASON, METHOD_ROUTES, actionUnavailable, administratorOf } from './access'
 import { closable, closeError, latest, patientContext, requestDetails, statusFilter, useAccessRequests } from './requests'
 import { formatWhen } from '../parts/format'
@@ -26,9 +26,10 @@ function StateNote({ request }: { request: AccessRequest }) {
   const href = useWorkspaceHref()
   const { activePatient, permissions } = useClinical()
   // The paper records line only once this patient's age is known here (their record is open for direct care) and they
-  // are an adult, to a role that brings in paper records, on a request that allows adding to the record.
+  // are an adult, to a role that brings in paper records (one that starts readings, hid-system 0136), on a request that
+  // allows adding to the record.
   const open = activePatient?.purpose === 'direct-care' && activePatient.lookup.patient.patientId === request.patientId ? activePatient : null
-  const coversPaper = open !== null && request.scope === 'write_records' && permissions.includes('ocr.job.read') && isAdult(open.lookup.patient.dateOfBirth)
+  const coversPaper = open !== null && request.scope === 'write_records' && scanAccess(permissions).startsReadings && isAdult(open.lookup.patient.dateOfBirth)
   const key = request.effectiveStatus ?? request.status
   if (key === 'pending') return <Alert intent="info" live={false} title="Waiting for the patient">You can see their records once they approve.</Alert>
   if (key === 'active' || key === 'approved') {
@@ -56,21 +57,22 @@ export function RequestDetail() {
   const list = useAccessRequests(filter === 'active' ? 'approved' : filter)
   const [notice, setNotice] = useState('')
   const [failure, setFailure] = useState('')
-  const [ended, setEnded] = useState(false)
   const [closing, setClosing] = useState(false)
   const [settled, setSettled] = useState(0)
   // A close already on its way is not sent again by a second press.
   const sending = useRef(false)
   const status = useRef<HTMLDivElement>(null)
+  const title = useRef<HTMLHeadingElement>(null)
   const administrator = administratorOf(facility, permissions)
   const closeUnavailable = actionUnavailable(CLOSE_GRANT, permissions, administrator)
   const emergencyUnavailable = actionUnavailable(METHOD_ROUTES.emergency, permissions, administrator)
 
-  // Closing takes its button away: focus goes to what happened, unless it is somewhere already.
+  // Closing takes its button away: focus goes to the page heading, unless it is somewhere already, as today's does
+  // (AccessRequests.tsx:65-66, 101); with no heading of this page shown, to what happened.
   useLayoutEffect(() => {
     if (!settled) return
     const focused = document.activeElement
-    if (!focused || focused === document.body || !focused.isConnected) status.current?.focus()
+    if (!focused || focused === document.body || !focused.isConnected) (title.current ?? status.current)?.focus()
   }, [settled])
 
   const request = list.requests?.find(item => item.accessRequestId === recordId)
@@ -83,14 +85,10 @@ export function RequestDetail() {
     setFailure('')
     setNotice('')
     let refused = ''
-    let endedOpen = false
     try {
       await staffApi.closeGrant(facility.id, grantId, CLOSE_REASON)
       // The open record, if this grant opened it, has ended too.
-      if (activePatient?.lookup.authorization.consentGrantId === grantId) {
-        setActivePatient(null)
-        endedOpen = true
-      }
+      if (activePatient?.lookup.authorization.consentGrantId === grantId) setActivePatient(null)
     } catch (caught) {
       refused = closeError(caught)
     }
@@ -102,7 +100,7 @@ export function RequestDetail() {
       setClosing(false)
     }
     if (refused) setFailure(refused)
-    else { setNotice(ACCESS_CLOSED); setEnded(endedOpen) }
+    else setNotice(ACCESS_CLOSED)
     setSettled(value => value + 1)
   }
 
@@ -121,7 +119,8 @@ export function RequestDetail() {
 
   // A refused close is said whatever the read after it found: today's page reads again, then puts the refusal in its one
   // alert, in place of any list error (AccessRequests.tsx:94-95,118).
-  const refusedClose = failure ? <Alert intent="error" title="Couldn’t close access">{failure}</Alert> : null
+  // Today's has no title for it (AccessRequests.tsx:122).
+  const refusedClose = failure ? <Alert intent="error">{failure}</Alert> : null
 
   // A closed access is confirmed even while the list is read, cannot be read, or lacks it. The page and its heading stay
   // the same element while the request loads, so the focus the frame gave the heading stays.
@@ -129,7 +128,7 @@ export function RequestDetail() {
     if (!list.error && list.requests !== null) return <><RecordNotFound backHref={href()} />{refusedClose}{statusRegion}</>
     return <FormPage title="Access request" back={{ to: href(), label: 'Back to access requests' }}>
       {statusRegion}
-      {list.error ? <Alert intent="error" title={failure ? 'Couldn’t close access' : 'Couldn’t load this request'}
+      {list.error ? <Alert intent="error" title={failure ? undefined : 'Couldn’t load this request'}
         action={<Button size="sm" onClick={() => void readAgain()}>Try again</Button>}>{failure || list.error}</Alert>
         : <>{refusedClose}<Card><LoadingRows rows={3} label="Loading this request" /></Card></>}
     </FormPage>
@@ -140,10 +139,8 @@ export function RequestDetail() {
   // Emergency access is offered only while the patient has not given access: waiting, or refused.
   const offerEmergency = emergencyUnavailable === null && (key === 'pending' || key === 'denied')
   return (
-    <FormPage title={`Access request · ${who}`} back={{ to: href(), label: 'Back to access requests' }}
+    <FormPage title={`Access request · ${who}`} titleRef={title} back={{ to: href(), label: 'Back to access requests' }}
       description={<span className="inline-flex flex-wrap items-center gap-2"><OutcomeBadge request={request} /><span>Updated {formatWhen(latest(request))}</span></span>}>
-      {ended ? <Alert intent="error" title="Access to this patient ended"
-        action={<Button size="sm" to={href.to('patients')}>Find a patient</Button>}>{ACCESS_ENDED}</Alert> : null}
       {statusRegion}
       {refusedClose}
       {list.error ? <Alert intent="error" title="Couldn’t refresh this request">{list.error}</Alert> : null}

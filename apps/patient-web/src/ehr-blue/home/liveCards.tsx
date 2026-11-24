@@ -15,6 +15,11 @@ import { learnWrongPatientServed } from '../../wrongPatientServed'
 import { learnLateCorrectionServed, saysLateCorrection, useLateCorrectionServed } from '../../lateCorrectionServed'
 import { useAccessRequests } from '../frame/attention'
 import { STAGE_LABEL, stageOf } from '../departments/laboratory/stage'
+import { roleLabels } from '../../staff/staffAccess'
+import { loginOpensSite, siteOf, siteServing, SITE_PRODUCT_NAMES } from '../../productSites'
+import { Badge, Button, Card, CardHeader, ListRow } from '../../kasuwa/ui'
+import { ChevronRight, Hospital, LayoutGrid, ScanText } from 'lucide-react'
+import { withdrawnReasonOf } from '../departments/pharmacy/pharmacyText'
 
 /**
  * Home's live cards. Each reads what today's Overview or work pages read, under the same permissions, with the same
@@ -244,7 +249,8 @@ export function TodayCard({ facilityId, lab, pharmacy }: { readonly facilityId: 
   const lines = [
     ...(labRead.state === 'ready' ? labRead.items.slice(0, 5).map(item => ({ key: `lab-${item.id}`, title: item.testName ?? 'Lab test',
       meta: `Laboratory · ${STAGE_LABEL[stageOf(item)]}`, to: '/provider/laboratory' })) : []),
-    ...(pharmacyRead.state === 'ready' ? pharmacyRead.items.slice(0, 5).map(item => ({ key: `rx-${item.id}`, title: item.medication?.display ?? 'Medicine',
+    // Work withdrawn by the prescribing team (0133) is neither to dispense nor dispensed: it is left out here.
+    ...(pharmacyRead.state === 'ready' ? pharmacyRead.items.filter(item => !withdrawnReasonOf(item)).slice(0, 5).map(item => ({ key: `rx-${item.id}`, title: item.medication?.display ?? 'Medicine',
       meta: `Pharmacy · ${item.dispensing && !item.dispensing.reversed ? 'dispensed' : 'to dispense'}`, to: '/provider/pharmacy' })) : []),
   ]
   const loading = labRead.state === 'loading' || pharmacyRead.state === 'loading'
@@ -285,4 +291,82 @@ export function TodayLinks({ lab, pharmacy }: { readonly lab: boolean; readonly 
       ) : <p className="hid-ehr-blue-muted">Nothing scheduled for you</p>}
     </EhrCard>
   )
+}
+
+// --- The classic Overview's own cards (staff/routes/Dashboard.tsx), in its words (parity report 3.3-54, 3.3-56, 3.3-57). ---
+
+/**
+ * "Active facility": the facility worked at and the person's roles there as a badge, in classic's words: a role the
+ * list does not name reads "Staff" ("Doctor, Staff": roleLabels), never its code (Dashboard.tsx).
+ */
+export function ActiveFacilityCard({ facility }: { readonly facility: Facility }) {
+  return <Card aria-labelledby="hid-ehr-blue-active-facility">
+    <CardHeader as="h2" titleId="hid-ehr-blue-active-facility" title="Active facility" icon={Hospital} />
+    <div className="flex flex-col items-start gap-2 px-5 py-4">
+      <p className="m-0 text-sm text-ink">{facility.name}</p>
+      <Badge tone="info" size="sm">{roleLabels(facility.roles) || 'Staff'}</Badge>
+    </div>
+  </Card>
+}
+
+/**
+ * The classic Overview's workspaces, each under the permission it lists by (Dashboard.tsx `modules`, copied: that list
+ * is not exported). Only the permission decides, as there; which of them open on this site is the caller's.
+ */
+export const WORKSPACES = [
+  { title: 'Patient access', to: '/provider/patients', permission: 'identity.patient.read', detail: 'Look up a Health ID after consent, patient PIN, or emergency authorization.' },
+  { title: 'Clinical record', to: '/provider/clinical', permission: 'ehr.encounter.read', detail: 'Document encounters, observations, diagnoses, prescriptions, and lab requests.' },
+  { title: 'Laboratory', to: '/provider/laboratory', permission: 'lab.work-item.read', detail: 'Review accepted test work and create specimen accessions.' },
+  { title: 'Pharmacy', to: '/provider/pharmacy', permission: 'pharmacy.work-item.read', detail: 'Review accepted prescriptions and confirm dispensing.' },
+  { title: 'Document OCR', to: '/provider/ocr', permission: 'ocr.job.read', detail: 'Follow extraction jobs for governed clinical documents.' },
+  { title: 'Outreach', to: '/provider/outreach', permission: 'outreach.registration.read', detail: 'Review facility campaign registration work.' },
+] as const
+
+/**
+ * "Workspaces": the classic Overview's grid of the workspaces this role holds that open on this site (`opens`), with
+ * its notes: none of the clinical workspaces held; the others on another Health ID site this login opens, linked in the
+ * sidebar; none here at all. The first note drops classic's "module permissions" for plain words (house rule: no
+ * "permission" on blue staff screens); the others are classic's own.
+ */
+export function WorkspacesCard({ permissions, products, opens }: {
+  readonly permissions: readonly string[]
+  readonly products: unknown
+  readonly opens: (path: string) => boolean
+}) {
+  const held = WORKSPACES.filter(workspace => permissions.includes(workspace.permission))
+  const here = held.filter(workspace => opens(workspace.to.replace(/^\/provider\/?/, '')))
+  const hostname = window.location.hostname
+  const elsewhere = held.some(workspace => {
+    const site = siteServing(workspace.to, hostname)
+    return site !== null && loginOpensSite(site.key, products)
+  })
+  const noneHere = held.length > 0 && here.length === 0 && !elsewhere
+  const site = siteOf(hostname)
+  const productName = site ? SITE_PRODUCT_NAMES[site.key] : 'Health ID'
+  return <Card aria-labelledby="hid-ehr-blue-workspaces">
+    <CardHeader as="h2" titleId="hid-ehr-blue-workspaces" title="Workspaces" icon={LayoutGrid} />
+    {here.length > 0 ? <ul className="m-0 list-none divide-y divide-line p-0">
+      {here.map(workspace => <li key={workspace.to}>
+        <ListRow to={workspace.to} title={workspace.title} subtitle={workspace.detail}
+          trailing={<span className="inline-flex items-center gap-1 text-[13px] font-medium text-brand-ink">Open workspace<ChevronRight className="size-4" aria-hidden /></span>} />
+      </li>)}
+    </ul> : null}
+    {held.length === 0 || elsewhere || noneHere ? <div className="flex flex-col gap-2 px-5 py-4 text-[13px] text-ink-3">
+      {held.length === 0 ? <p className="m-0">Your active facility has no clinical modules for your role. Ask an administrator to review your assignment.</p> : null}
+      {elsewhere ? <p className="m-0">Your other workspaces are on other Health ID sites, linked in the sidebar.</p> : null}
+      {noneHere ? <p className="m-0">Your role has no workspace in {productName}. Ask an administrator to review your assignment.</p> : null}
+    </div> : null}
+  </Card>
+}
+
+/**
+ * "Health ID Migrate": the classic Overview's card for a role that reads document jobs (ocr.job.read), where this site
+ * opens Document OCR. No role holds it at launch (hid-system 0091), so it shows nowhere yet.
+ */
+export function MigrateCard() {
+  return <Card aria-labelledby="hid-ehr-blue-migrate">
+    <CardHeader as="h2" titleId="hid-ehr-blue-migrate" title="Health ID Migrate" icon={ScanText} />
+    <p className="m-0 px-5 pt-4 text-sm text-ink-2">Document capture, extraction, validation, and publication.</p>
+    <div className="px-5 pb-4 pt-2"><Button to="/provider/ocr" variant="link" size="sm" iconRight={ChevronRight}>Open document workflow</Button></div>
+  </Card>
 }

@@ -1,7 +1,9 @@
-import { useCallback, useLayoutEffect, useState, type ReactNode } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { OutreachCampaign, OutreachCase } from '../../../staff/api'
 import { dateText } from '../parts/format'
+import { PrintHeader } from '../../frame/PrintHeader'
+import { startPrint, type PrintJob } from '../../../print/printPaper'
 import { ageText, caseName, sexText } from './outreachParts'
 import './outreachSlip.css'
 
@@ -13,33 +15,35 @@ import './outreachSlip.css'
  * Health ID never answers it again, so it can't be printed after that.
  */
 
-/** Where a person without a Health ID can get one later. */
-export const GET_HEALTH_ID_LATER = 'You can get a Health ID later at app.healthidentitydirectory.com.'
+/** Where a person without a Health ID can get one later. No web address: nothing printed carries one (owner, 23 Nov 2026). */
+export const GET_HEALTH_ID_LATER = 'You can get a Health ID later at any Health ID facility or on the Health ID app.'
 /** As GET_HEALTH_ID_LATER, for anyone under 18: a parent or guardian gets it for them. */
-export const GET_HEALTH_ID_LATER_MINOR = 'A parent or guardian can get them a Health ID later at app.healthidentitydirectory.com.'
+export const GET_HEALTH_ID_LATER_MINOR = 'A parent or guardian can get them a Health ID later at any Health ID facility or on the Health ID app.'
 export const KEEP_SLIP = 'Keep this slip. You’ll need your Health ID and this code to start using it.'
 export const CHECKS_RECORDED = 'Health checks were recorded today.'
 /** A Health ID made by email (0119) has no password yet: the person sets one with "Forgot password". */
 export const FORGOT_PASSWORD = 'To start using your Health ID, open the Health ID app, tap “Forgot password?” and use the email you gave today.'
 
 /**
- * Prints a slip: it is put under <body> (outreachSlip.css hides it on screen and prints it alone), window.print runs in
- * the commit that shows it, and it goes once the print dialog closes.
+ * Prints a slip: it is put under <body> (outreachSlip.css hides it on screen and prints it alone), it prints in the
+ * commit that shows it (as a PDF in Safari, printPaper.ts: no browser prints its web address on it), and it goes once
+ * it has printed. Its title names the facility, never the person.
  */
 export function useSlipPrint() {
-  const [slip, setSlip] = useState<{ node: ReactNode; round: number } | null>(null)
+  const [slip, setSlip] = useState<{ node: ReactNode; round: number; job: PrintJob } | null>(null)
+  const area = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
     if (!slip) return
-    const done = () => setSlip(current => current?.round === slip.round ? null : current)
-    window.addEventListener('afterprint', done, { once: true })
-    try { window.print() } catch { done() }
-    return () => window.removeEventListener('afterprint', done)
+    return slip.job.run(area.current, () => setSlip(current => current?.round === slip.round ? null : current))
   }, [slip])
-  const print = useCallback((node: ReactNode) => setSlip(current => ({ node, round: (current?.round ?? 0) + 1 })), [])
-  const area = slip && typeof document !== 'undefined'
-    ? createPortal(<div data-outreach-slip="" aria-hidden="true">{slip.node}</div>, document.body)
+  const print = useCallback((node: ReactNode) => {
+    const job = startPrint({ size: 'A6', kind: 'Registration slip' })
+    setSlip(current => ({ node, round: (current?.round ?? 0) + 1, job }))
+  }, [])
+  const portal = slip && typeof document !== 'undefined'
+    ? createPortal(<div ref={area} data-outreach-slip="" aria-hidden="true">{slip.node}</div>, document.body)
     : null
-  return { print, area }
+  return { print, area: portal }
 }
 
 /** The last day a claim code works, as "14 May 2027", or '' when not known. */
@@ -88,8 +92,8 @@ export function OutreachSlip({ groupName, campaign, item, healthId, claimCode, c
   ]
   return (
     <article className="hid-outreach-slip">
+      <PrintHeader facility={groupName} className="hid-outreach-slip-brand" />
       <header className="hid-outreach-slip-head">
-        {groupName ? <p className="hid-outreach-slip-group">{groupName}</p> : null}
         <h1>Outreach registration slip</h1>
       </header>
       <dl className="hid-outreach-slip-facts">

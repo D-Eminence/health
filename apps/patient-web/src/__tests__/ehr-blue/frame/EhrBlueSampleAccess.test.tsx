@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, within } from '@testing-library/react'
 import { designGrants, designRolesOf, moduleOf, sampleCan } from '../../../ehr-blue/frame/sampleAccess'
 import { pages as framePages } from '../../../ehr-blue/frame/pages'
 import type { StaffSession } from '../../../staff/api'
-import { DEMO_HOSPITAL, REAL_FACILITY, SESSION, facility, homeHeading, openStaffApp, serve, sessionAt, where, withFramePages } from './blueHarness'
+import { DEMO_HOSPITAL, REAL_FACILITY, SESSION, facility, openStaffApp, serve, sessionAt, where, withFramePages } from './blueHarness'
 
 /**
  * Who may open a sample workspace: the design's role mapping (design/ehr-target src/catalog.ts permissions(role)), for
@@ -15,7 +15,8 @@ vi.mock('../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'htt
 beforeEach(() => { withFramePages() })
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules() })
 
-const NOTICE = 'Your current permissions no longer allow that page. Choose an authorized workflow.'
+/** The words a page refused in its place says when it has none of its own (parity report 3.3-50). */
+const NOTICE = 'Your role at this facility doesn’t include this page. Ask your facility administrator.'
 const nav = () => screen.getByRole('navigation', { name: 'Main navigation' })
 const groupsOf = () => within(nav()).queryAllByRole('button').map(button => button.firstChild?.textContent)
 const linksOf = () => within(nav()).getAllByRole('link').map(link => link.textContent)
@@ -89,7 +90,7 @@ describe('the design\'s grants', () => {
 
 describe('the sidebar follows the design\'s roles', () => {
   // Only working screens are listed (the owner's decision of 2026-10-31), so the design's roles decide a sample by address.
-  it('opens a receptionist Appointments and Patient visits, and sends finance and administration Home', async () => {
+  it('opens a receptionist Appointments and Patient visits, and refuses finance and administration in their place', async () => {
     await openAs(['receptionist'], '/provider/appointments')
     expect(await screen.findByRole('heading', { level: 1, name: 'Appointments' })).toBeDefined()
     expect(screen.queryByText(NOTICE)).toBeNull()
@@ -101,8 +102,9 @@ describe('the sidebar follows the design\'s roles', () => {
     expect(screen.queryByText(NOTICE)).toBeNull()
     for (const label of ['Patient billing', 'Inpatient / Wards', 'Maternity', 'Shifts & Roster', 'Facility review', 'Radiology']) {
       openFromWhatsLeft(label)
-      expect(await screen.findByText(NOTICE)).toBeDefined()
-      expect({ label, at: where() }).toEqual({ label, at: '/provider' })
+      expect(await screen.findByRole('heading', { level: 1, name: `${label} unavailable` })).toBeDefined()
+      expect(screen.getByText(NOTICE)).toBeDefined()
+      expect({ label, home: where() === '/provider' }).toEqual({ label, home: false })
     }
   })
 
@@ -122,29 +124,27 @@ describe('the sidebar follows the design\'s roles', () => {
   })
 
   // The redesign offers no demo role dashboards (EhrBlueSwitchReview): a Billing Officer's own roles decide instead.
-  it('opens a Billing Officer Patient billing, and sends a page it lacks to Home with the notice', async () => {
+  it('opens a Billing Officer Patient billing, and refuses a page it lacks in its place', async () => {
     await openAs(['billing'], '/provider/patient-billing')
     expect(await screen.findByRole('heading', { level: 1, name: 'Patient billing' })).toBeDefined()
     expect(screen.queryByText(NOTICE)).toBeNull()
     // What's left links every page, Appointments included.
     openFromWhatsLeft('Appointments')
-    expect(await screen.findByText(NOTICE)).toBeDefined()
-    expect(where()).toBe('/provider')
-    expect(screen.getByRole('heading', { level: 1, name: homeHeading() })).toBeDefined()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Appointments unavailable' })).toBeDefined()
+    expect(screen.getByText(NOTICE)).toBeDefined()
+    expect(where()).toBe('/provider/appointments')
   })
 })
 
-describe('Home in place of a refused page, and Page not found for an unknown one', () => {
-  it('sends a page the role may not open to Home, with the design\'s notice, until it is dismissed', async () => {
+describe('a refused page in its place, and Page not found for an unknown one', () => {
+  // Parity report 3.3-50: each classic page refused where it stood; nobody is sent Home with a general notice.
+  it('refuses a page the role may not open in its place, in plain words, reading nothing of it', async () => {
     const sent = await openAs(['receptionist'], '/provider/patient-billing')
-    expect(await screen.findByText(NOTICE)).toBeDefined()
-    expect(where()).toBe('/provider')
-    const notice = screen.getByText(NOTICE).closest('.hid-ehr-blue-redirect-notice')!
-    // Above the heading.
-    expect(notice.compareDocumentPosition(screen.getByRole('heading', { level: 1 })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    fireEvent.click(within(notice as HTMLElement).getByRole('button', { name: 'Dismiss notice' }))
-    await waitFor(() => expect(screen.queryByText(NOTICE)).toBeNull())
-    expect(where()).toBe('/provider')
+    expect(await screen.findByRole('heading', { level: 1, name: 'Patient billing unavailable' })).toBeDefined()
+    expect(where()).toBe('/provider/patient-billing')
+    expect(screen.getByText(NOTICE)).toBeDefined()
+    expect(document.querySelector('.hid-ehr-blue-redirect-notice')).toBeNull()
+    expect(document.querySelector('.hid-ehr-blue-page')!.textContent).not.toMatch(/permission/i)
     // Nothing of the refused page was read, and nothing is kept in the browser.
     expect(sent.every(call => call.route === SESSION)).toBe(true)
     expect(window.localStorage.length).toBe(0)
@@ -165,7 +165,7 @@ describe('Home in place of a refused page, and Page not found for an unknown one
     expect(await screen.findByRole('heading', { level: 1, name: 'Page not found' })).toBeDefined()
     expect(where()).toBe('/provider/not-a-page')
     expect(screen.queryByText(NOTICE)).toBeNull()
-    expect(screen.getByRole('link', { name: 'Go to Home' }).getAttribute('href')).toBe('/provider')
+    expect(screen.getByRole('link', { name: 'Go to provider overview' }).getAttribute('href')).toBe('/provider')
     expect(sent.every(call => call.route === SESSION)).toBe(true)
   })
 })

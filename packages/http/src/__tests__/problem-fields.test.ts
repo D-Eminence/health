@@ -168,3 +168,27 @@ describe('problem retryAfterSeconds', () => {
     expect(new HidApiError(409, 'x').retryInSeconds).toBeNull()
   })
 })
+
+/**
+ * hid-system ORD-2 and ORD-4: 409 PHARMACY_PRESCRIPTION_NOT_DISPENSABLE carries `withdrawnReason` (`changed` or
+ * `sent_elsewhere`), a problem member, so a page branches on it and never on the text.
+ */
+describe('problem withdrawnReason', () => {
+  const SENT = { status: 409, code: 'PHARMACY_PRESCRIPTION_NOT_DISPENSABLE', withdrawnReason: 'sent_elsewhere',
+    detail: 'This prescription was sent to another pharmacy, so it can no longer be dispensed here' }
+
+  it('keeps the reason on the error the client throws', async () => {
+    const problem = new Response(JSON.stringify(SENT), { status: 409, headers: { 'Content-Type': 'application/problem+json' } })
+    const error = await client(problem).post('/api/v1/pharmacy/work-items/x/accept', {}).catch((e: unknown) => e)
+    expect(error).toMatchObject({ status: 409, code: 'PHARMACY_PRESCRIPTION_NOT_DISPENSABLE', withdrawnReason: 'sent_elsewhere' })
+  })
+
+  it('is null when absent, or anything but a lowercase code', () => {
+    expect(parseErrorEnvelope({ code: 'PHARMACY_PRESCRIPTION_NOT_DISPENSABLE' }, { status: 409 }).withdrawnReason).toBeNull()
+    for (const value of ['Changed', 'changed by Dr One', 1, null, { reason: 'changed' }]) {
+      expect(parseErrorEnvelope({ withdrawnReason: value }, { status: 409 }).withdrawnReason).toBeNull()
+    }
+    expect(parseErrorEnvelope({ withdrawnReason: 'changed' }, { status: 409 }).withdrawnReason).toBe('changed')
+    expect(new HidApiError(409, 'x').withdrawnReason).toBeNull()
+  })
+})

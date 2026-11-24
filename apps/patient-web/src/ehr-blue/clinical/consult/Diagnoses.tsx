@@ -207,7 +207,8 @@ export function DiagnosesCard({ chart, encounterId, list, canWrite, onSaved, onR
       {canWrite ? (
         <>
           <SubHeading>Add diagnoses</SubHeading>
-          <RecordForm key={added} fields={ADD_FIELDS} initial={ADD_INITIAL} submitLabel="Add diagnosis" submitVariant="secondary" onSubmit={add} />
+          {/* Classic's submit for a diagnosis, and its required check left to the browser (Clinical.tsx RecordForm :579). */}
+          <RecordForm key={added} fields={ADD_FIELDS} initial={ADD_INITIAL} submitLabel="Save record" submitVariant="secondary" nativeRequired onSubmit={add} />
         </>
       ) : null}
     </EhrCard>

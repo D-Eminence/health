@@ -99,13 +99,13 @@ describe('1. design-only entries are only at the demo facilities', () => {
   })
 
   // A sample, so the design's roles decide who opens it (sampleAccess.ts): Facility review is the Platform Super Admin's
-  // alone, and a clinician's address for it opens Home with the design's notice.
-  it('keeps Facility review for the design\'s Platform Super Admin alone: a clinician is sent Home', async () => {
+  // alone, and a clinician's address for it refuses in its place (parity report 3.3-50).
+  it('keeps Facility review for the design\'s Platform Super Admin alone: a clinician is refused there', async () => {
     const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
     serve({ [SESSION]: [sessionAt(demo, [demo])] })
     await openStaffApp('/provider/platform')
-    expect(await screen.findByText('Your current permissions no longer allow that page. Choose an authorized workflow.')).toBeDefined()
-    expect(where()).toBe('/provider')
+    expect(await screen.findByRole('heading', { level: 1, name: 'Facility review unavailable' })).toBeDefined()
+    expect(where()).toBe('/provider/platform')
     expect(screen.queryByRole('heading', { level: 1, name: 'Facility review' })).toBeNull()
     expect(within(nav()).queryByRole('link', { name: 'Facility review' })).toBeNull()
   })
@@ -138,7 +138,7 @@ describe('2. the next sign-in opens the blue EHR (there is no classic EHR choice
 })
 
 describe('3. Home says what today\'s Overview says about clinical modules', () => {
-  const SENTENCE = 'You have no clinical work at this facility yet. Ask an administrator to check your role.'
+  const SENTENCE = 'Your active facility has no clinical modules for your role. Ask an administrator to review your assignment.'
 
   it('tells an administrator with only audit and billing that no clinical module is open', async () => {
     const admin = facility(DEMO_HOSPITAL, 'Demo Hospital', ['audit.read', 'billing.subscription.read'], ['org_admin'])
@@ -170,14 +170,15 @@ describe('4. a live stand-in opened without its permission refuses in its own wo
     expect(sent.some(call => call.route === LAB_WORK)).toBe(false)
   })
 
-  it('sends Home with the design\'s notice from a blue page that replaced its stand-in', async () => {
+  it('refuses in its place a blue page that replaced its stand-in and has no refusal of its own', async () => {
     withFramePages(() => [{ path: 'laboratory/*', group: 'Diagnostics', label: 'Laboratory', status: 'live',
       permission: 'lab.work-item.read', element: <p>Fictional blue laboratory</p> }])
     const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
     serve({ [SESSION]: [sessionAt(demo, [demo])] })
     await openStaffApp('/provider/laboratory')
-    expect(await screen.findByText('Your current permissions no longer allow that page. Choose an authorized workflow.')).toBeDefined()
-    expect(where()).toBe('/provider')
+    expect(await screen.findByRole('heading', { level: 1, name: 'Laboratory unavailable' })).toBeDefined()
+    expect(screen.getByText('Your role at this facility doesn’t include this page. Ask your facility administrator.')).toBeDefined()
+    expect(where()).toBe('/provider/laboratory')
     expect(screen.queryByText('Fictional blue laboratory')).toBeNull()
   })
 })

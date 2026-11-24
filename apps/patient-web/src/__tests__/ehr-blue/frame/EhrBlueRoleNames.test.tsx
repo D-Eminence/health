@@ -62,10 +62,19 @@ describe('the roles under the facility name', () => {
     expect(document.body.textContent).not.toMatch(CODES)
   })
 
-  it('leaves out a role it has no name for beside one it has', async () => {
+  // Parity report 3.3-54: as classic's badge, a role it has no name for reads "Staff" beside one it has, never its code.
+  it('calls a role it has no name for "Staff" beside one it has, as classic did', async () => {
     await openHome(['nurse', 'porter'])
-    expect(screen.getAllByText('Nurse · Demo facility').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Nurse, Staff · Demo facility').length).toBeGreaterThan(0)
+    expect(document.body.textContent).not.toMatch(/porter/)
     expect(document.body.textContent).not.toMatch(CODES)
+  })
+
+  it('shows classic\'s Active facility card on Home, with the roles as its badge', async () => {
+    await openHome(['doctor', 'porter'])
+    const card = within(screen.getByRole('region', { name: 'Active facility' }))
+    expect(card.getByText('Demo Hospital')).toBeDefined()
+    expect(card.getByText('Doctor, Staff')).toBeDefined()
   })
 })
 
@@ -92,7 +101,7 @@ describe('Choose workspace', () => {
     await screen.findByRole('heading', { level: 1, name: homeHeading() })
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Main navigation' })).getByRole('link', { name: 'Choose workspace' }))
     await screen.findByRole('heading', { level: 1, name: 'Switch facility' })
-    const card = (name: string) => screen.getByRole('heading', { level: 2, name }).closest('li') as HTMLElement
+    const card = (name: string) => screen.getByRole('radio', { name: new RegExp(`^${name}`) }).closest('label') as HTMLElement
     expect(within(card('Demo Hospital')).getByText('Facility administrator, Doctor')).toBeDefined()
     expect(within(card('Demo Laboratory')).getByText('Staff')).toBeDefined()
     expect(document.body.textContent).not.toMatch(CODES)

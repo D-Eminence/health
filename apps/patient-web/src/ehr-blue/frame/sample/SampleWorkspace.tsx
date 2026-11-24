@@ -11,6 +11,7 @@ import {
 import { useStaff } from '../../../staff/App'
 import { useBluePage, useSampleHref } from '../pageContext'
 import { pageHrefOf } from '../pageHref'
+import { printsAddressAnyway } from '../../../print/printEngine'
 import type { Action, Field, Module } from './catalog'
 import {
   actOnSample, clearSampleHandoff, connectedSamples, createSample, editSampleDraft, FICTIONAL_PATIENTS, findSample,
@@ -558,9 +559,13 @@ function InvoiceTotals({ record }: { readonly record: SampleRecord }) {
     <>
       <SavedFields fields={{ total: String(total), paid: String(paid), due: String(total - paid) }} />
       <p>Totals above are integer minor currency units (cents / kobo). All payments are fictional.</p>
-      <div className="hid-ehr-actions">
-        <EhrButton variant="secondary" onClick={() => window.print()}>Print</EhrButton>
-      </div>
+      {/* The page prints as it is, which Safari and every browser on an iPhone or iPad print with their own web address
+          round it (printEngine.ts): a sample's Print is not offered there. */}
+      {printsAddressAnyway() ? null : (
+        <div className="hid-ehr-actions">
+          <EhrButton variant="secondary" onClick={() => window.print()}>Print</EhrButton>
+        </div>
+      )}
     </>
   )
 }

@@ -967,6 +967,20 @@ describe('Triage & Vitals record', () => {
     expect(window.location.href).not.toContain(PATIENT_HID)
   })
 
+  it('ORD-3: says each order’s own pharmacy or laboratory progress under its history row, and nothing when the backend sends none', async () => {
+    staff.permissions = [...ALL, 'ehr.lab-request.read', 'ehr.prescription.read']
+    others = {
+      'clinical-notes': [],
+      'lab-requests': [{ ...LAB, ownProgress: { status: 'results_ready', receivedAt: null, collectedAt: null, lastResultAt: '2026-10-30T10:05:00.000Z' } }],
+      prescriptions: [PRESCRIPTION],
+    }
+    await openRecord()
+    await waitFor(() => expect(within(history()).queryByText('Loading records…')).toBeNull())
+    const row = (name: string) => within(history()).getByRole('link', { name }).closest('li') as HTMLElement
+    expect(within(row('Laboratory · Full blood count')).getByText('Results ready 30 Oct 2026, 11:05')).toBeTruthy()
+    expect(row('Pharmacy · Prescription').querySelector('.hid-ehr-clinical-cell-sub')).toBeNull()
+  })
+
   it('audit 15: each kind is read only by a role that may read it; a read in progress or refused says so in the history', async () => {
     others = { 'clinical-notes': [OBSERVATION], 'lab-requests': [LAB], prescriptions: [PRESCRIPTION] }
     staff.permissions = ['ehr.vital.read', 'ehr.vital.write']

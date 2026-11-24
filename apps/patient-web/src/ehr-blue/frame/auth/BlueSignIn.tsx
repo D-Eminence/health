@@ -9,12 +9,13 @@ import { getEnvironment } from '../../../staff/env'
 import { STAFF_MFA_NOTICE } from '../../../staff/routes/SignIn'
 import { StaffMfaSteps, type StaffMfaLook } from '../../../staff/routes/StaffMfaSteps'
 import { ClinicianSignUpEntry, PageLink } from '../../../staff/clinician/ClinicianSignUpEntry'
-import { CLINICIAN_STATUS_PATH, patientSignInHref, staffRecoveryHref, staffSignInHref } from '../../../productHostname'
+import {
+  CLINICIAN_STATUS_PATH, patientSignInHref, resolveStaffProductHostname, staffRecoveryHref, staffSignInHref,
+} from '../../../productHostname'
 import { OpenStaffPage } from '../../../staffSignIn'
 import { servesClinicianApplications } from '../../../backendContract'
-import { authHrefs, BlueAuthLayout, HINT, LINK, NOTE, registerLabel, siteName, SiteLink } from './BlueAuthLayout'
+import { authHrefs, BlueAuthLayout, HINT, LINK, SiteLink } from './BlueAuthLayout'
 import { getStaffLandingPath, passwordRefusal, SIGN_IN_FAILED, TurnstileChallenge } from './signInParts'
-import { productOf, type Product } from '../product'
 
 function BlueMfaButton({ primary, className, type = 'button', ...rest }: { primary?: boolean } & ButtonHTMLAttributes<HTMLButtonElement>) {
   return <button type={type} {...rest} className={buttonClass({ variant: primary ? 'primary' : 'ghost', size: primary ? 'lg' : 'md', block: primary, className })} />
@@ -28,22 +29,26 @@ const BLUE_MFA_LOOK: StaffMfaLook = {
 }
 
 /**
- * The sign-in's welcome line, its last button and the example work address in the email field, in the words of the
- * product this site is (product.ts): the Hospital EHR on ehr. (and wherever no product site is named), each product's
- * own name on lab., pharmacy., outreach., migrate. The example is you@hospital.org on the Hospital EHR only and
- * you@work.org on each product site.
+ * The sign-in's welcome line and the authenticator step's last button, in the classic page's words
+ * (staff/routes/SignIn.tsx), the same on every product site (parity report 3.3-42, 3.3-44).
  */
-export function signInWords(product: Product): { readonly lede: string; readonly done: string; readonly emailExample: string } {
-  if (product === 'ehr') return { lede: 'Sign in to your hospital workspace.', done: 'Continue to the Hospital EHR', emailExample: 'you@hospital.org' }
-  const name = siteName(product)
-  // A lab, pharmacy or outreach team is not always a hospital's: the example address names no kind of workplace.
-  return { lede: `Sign in to ${name}.`, done: `Continue to ${name}`, emailExample: 'you@work.org' }
+export const SIGN_IN_LEDE = 'Sign in with your work account.'
+export const SIGN_IN_DONE = 'Continue'
+
+/**
+ * The header's sign-up link: the classic page's "Set up your facility", except on outreach., where the owner decisions
+ * of 11 November 2026 (App.tsx, OutreachOrganiserSignUp.tsx) made "Start running outreach" the site's main way in.
+ * Classic's sentence predates that decision, so it is not the reference there. Both lead to this site's /provider/enroll.
+ */
+export function signUpLabel(hostname: string): string {
+  return resolveStaffProductHostname(hostname)?.key === 'outreach' ? 'Start running outreach' : 'Set up your facility'
 }
 
 /**
  * The Hospital EHR's staff sign-in, working as today's does (staff/routes/SignIn.tsx): work email and password with
- * Turnstile, then the authenticator or its set-up, recovery codes, today's refusals and landing. Each product site's
- * own ways in (Register, Accept invitation, Forgot password?) stay on that site. On a site where staff do not sign in
+ * Turnstile, then the authenticator or its set-up, recovery codes, today's refusals and landing, in its words and order:
+ * "Set up your facility" in the header ("Start running outreach" on outreach.), the refusal below the human check, then "Forgot your password?". Each product
+ * site's own ways in stay on that site. On a site where staff do not sign in
  * (the production patient portal, an admin site), it opens the EHR site's sign-in at once, with no step of its own.
  * staff/App.tsx opens it at /provider/sign-in in place of today's page once the clinic switch is on (README.md).
  */
@@ -103,26 +108,20 @@ export function BlueSignIn() {
   }
 
   const hrefs = authHrefs()
-  // Before signing in there are no permissions to go by: the site's own address names the product.
-  const words = signInWords(productOf(window.location.hostname, []))
   const recovery = staffRecoveryHref(window.location.hostname)
   return (
     <BlueAuthLayout title="Welcome back." titleId="blue-sign-in-title" titleAs={challenge ? 'p' : 'h1'} titleRef={heading}
-      lede={challenge ? undefined : words.lede} links={false}>
+      lede={SIGN_IN_LEDE} links={false} headerLink={{ href: hrefs.register, label: signUpLabel(window.location.hostname) }}>
       {challenge ? (
         <StaffMfaSteps challenge={challenge} look={BLUE_MFA_LOOK}
           calls={{ verify: verifyMfa, sendEnrollmentCode, startEnrollment, activate: activateEnrollment }}
-          doneLabel={words.done} onSignedIn={finish} onRestart={restart} restartLabel="Start again" />
+          doneLabel={SIGN_IN_DONE} onSignedIn={finish} onRestart={restart} restartLabel="Start again" />
       ) : <>
         {mfaRequired ? <Alert intent="info" size="sm">{STAFF_MFA_NOTICE}</Alert> : null}
-        {/* One alert: the refusal, with the way to check a clinician application when that is why. */}
-        {error ? <Alert intent="error" size="sm">{error}
-          {noFacility && servesClinicianApplications() ? <> Applied as a doctor or nurse? You can sign in once your application
-            is approved. <PageLink path={CLINICIAN_STATUS_PATH}>Check your application</PageLink>.</> : null}</Alert> : null}
         <form className="staff-form" onSubmit={event => void submit(event)}>
           <div className="auth-field-label">
             <label htmlFor="blue-sign-in-email">Work email</label>
-            <input id="blue-sign-in-email" type="email" autoComplete="username" placeholder={words.emailExample} value={email} required
+            <input id="blue-sign-in-email" type="email" autoComplete="username" value={email} required
               onChange={event => setEmail(event.target.value)} />
           </div>
           <div className="auth-field-label">
@@ -130,21 +129,21 @@ export function BlueSignIn() {
             <PasswordInput appearance="plain" id="blue-sign-in-password" autoComplete="current-password" value={password} required
               onChange={event => setPassword(event.target.value)} />
           </div>
-          <p className="-mt-3 m-0 flex flex-wrap items-center justify-end gap-x-2 text-[13px]">
-            <SiteLink className={LINK} href={recovery}>Forgot password?</SiteLink>
-            <span className="text-ink-3">Need a staff account? Ask your facility administrator.</span>
-          </p>
           <TurnstileChallenge onToken={setToken} resetKey={turnstileResetKey} />
+          {/* The refusal below the human check, as on the classic page, with the way to check a clinician application when that is why. */}
+          {error ? <p className="m-0 text-[13px] font-medium text-danger-ink" role="alert">{error}</p> : null}
+          {error && noFacility && servesClinicianApplications() ? <p className={HINT}>Applied as a doctor or nurse? You can sign in
+            once your application is approved. <PageLink path={CLINICIAN_STATUS_PATH}>Check your application</PageLink>.</p> : null}
           <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || (!!siteKey && !token)}>
             {busy ? 'Signing in…' : 'Sign in'}
           </Button>
         </form>
-        <div className="flex flex-col gap-1">
-          <p className={NOTE}>New to Health ID? <SiteLink className={LINK} href={hrefs.register}>{registerLabel()}</SiteLink></p>
-          <p className={NOTE}>Joining your team? <SiteLink className={LINK} href={hrefs.invitation}>Accept invitation</SiteLink></p>
-          <p className={NOTE}>Are you a patient? <SiteLink className={LINK} href={patientSignInHref(window.location.hostname)}>Sign in to Health ID</SiteLink></p>
-          <ClinicianSignUpEntry className={HINT} />
-        </div>
+        <p className={HINT}>
+          <SiteLink className={LINK} href={recovery}>Forgot your password?</SiteLink>
+          {' '}Need a staff account? Ask your facility administrator.
+        </p>
+        <p className={HINT}>Are you a patient? <SiteLink className={LINK} href={patientSignInHref(window.location.hostname)}>Sign in to Health ID</SiteLink></p>
+        <ClinicianSignUpEntry className={HINT} />
       </>}
     </BlueAuthLayout>
   )

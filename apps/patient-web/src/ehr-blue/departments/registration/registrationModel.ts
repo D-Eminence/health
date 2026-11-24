@@ -6,6 +6,9 @@ export const FIELD = {
   gender: 'registration-gender', caseId: 'registration-case-id', candidate: 'registration-candidate',
   linkReason: 'registration-link-reason', approveReason: 'registration-approve-reason', email: 'registration-email',
   enrollReason: 'registration-enroll-reason',
+  // Register without a NIN (hid-system 0130): its own fields, beside the desk's (DESK_PREFIX).
+  withoutFirst: 'registration-without-first', withoutLast: 'registration-without-last', withoutDob: 'registration-without-dob',
+  withoutGender: 'registration-without-gender', reason: 'registration-without-reason',
 } as const
 
 /** The prefix of the desk fields' control ids (registration-phone, …: collected/DeskFields.tsx deskControlId). */
@@ -46,7 +49,7 @@ export interface Availability {
 export type ReviewAction = 'approve' | 'link'
 
 /** Where a refusal belongs: the form or view whose request it answered. */
-export type ErrorAt = 'find' | 'refresh' | 'resolve' | ReviewAction | 'enroll'
+export type ErrorAt = 'find' | 'refresh' | 'resolve' | 'without' | ReviewAction | 'enroll'
 /** Which case read is running (Registration.tsx 55: one at a time), so only the control that asked says "Loading…". */
 export type CaseLoading = 'find' | 'refresh' | null
 export interface ShownError { readonly text: string; readonly at: ErrorAt }
