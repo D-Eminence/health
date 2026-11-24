@@ -3,10 +3,13 @@ import { HidApiError } from '@hid/http'
 import { MemoryRouter, Route, Routes, useLocation, useNavigationType } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConsultWorkspace, consultStatus } from '../../../ehr-blue/clinical/consult/ConsultWorkspace'
+import { NOTES_ARE_DRAFTS } from '../../../ehr-blue/clinical/consult/encounters'
 import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
 import { consultationLabel } from '../../../plainLabels'
+import { ALLERGIES_NOT_SHOWN, ALLERGIES_UNREAD, NOTHING_REPORTED } from '../../../ehr-blue/clinical/patients/AllergiesCard'
+import { parseAllergyList } from '../../../staff/allergies'
 import { BASE, ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, labelled, patientBanner, renderPage } from './harness'
-import { SAID_FIELDS_REFUSED, SAID_UNAVAILABLE } from '../../said'
+import { SAID_FIELDS_REFUSED, SAID_NETWORK, SAID_NOT_FOUND, SAID_UNAVAILABLE } from '../../said'
 
 /**
  * Consultation, the list and "New consultation": the open patient's encounters (today's paging, the access re-check
@@ -16,8 +19,9 @@ import { SAID_FIELDS_REFUSED, SAID_UNAVAILABLE } from '../../said'
 
 const api = vi.hoisted(() => ({
   lookupPatient: vi.fn(), consentStatus: vi.fn(), encounters: vi.fn(), encounter: vi.fn(), createEncounter: vi.fn(), updateEncounter: vi.fn(),
+  createConsultation: vi.fn(),
   records: vi.fn(), createRecord: vi.fn(), updateRecord: vi.fn(), updateDiagnosis: vi.fn(), noteRevisions: vi.fn(), addNoteRevision: vi.fn(),
-  documents: vi.fn(), documentDownload: vi.fn(), uploadDocument: vi.fn(), reportedHealthProfile: vi.fn(),
+  documents: vi.fn(), documentDownload: vi.fn(), uploadDocument: vi.fn(), reportedHealthProfile: vi.fn(), allergies: vi.fn(),
 }))
 const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true) }))
 
@@ -65,7 +69,12 @@ beforeEach(() => {
   api.documents.mockResolvedValue({ items: [], nextCursor: null })
   api.noteRevisions.mockResolvedValue([])
   api.reportedHealthProfile.mockResolvedValue(null)
+  // A backend before 0117 by default: the allergy list is not served, so the patient's own text is read instead.
+  api.allergies.mockRejectedValue(new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' }))
   api.createEncounter.mockResolvedValue({ ...ENCOUNTER, id: NEW_ID, chiefComplaint: 'Cough' })
+  // A backend before EHR-C5 by default: the one-call route answers 404, so "New consultation" below is today's separate
+  // calls, unchanged. "New consultation in one call (EHR-C5)" serves it.
+  api.createConsultation.mockRejectedValue(new HidApiError(404, 'Cannot POST', { code: 'NOT_FOUND' }))
   api.createRecord.mockImplementation(async (_f: string, _p: string, encounterId: string, kind: string) => ({ id: `${kind}-1`, patientId: PATIENT_ID, encounterId, createdAt: '2026-10-30T09:00:00.000Z' }))
 })
 
@@ -117,7 +126,7 @@ describe('Consultation list', () => {
     const link = within(table).getByRole('link', { name: consultationLabel(ENCOUNTER) })
     expect(link.getAttribute('href')).toBe(`/provider/clinical/${ENCOUNTER_ID}`)
     expect(within(table).getByText('Fever for two days')).toBeTruthy()
-    expect(within(table).getByText('No complaint recorded')).toBeTruthy()
+    expect(within(table).getByText('No chief complaint provided')).toBeTruthy()
     expect(within(table).queryByText(PATIENT_NAME)).toBeNull()
     expect(within(patientBanner()).getByText(PATIENT_NAME)).toBeTruthy()
     expect(within(table).getByText('In progress')).toBeTruthy()
@@ -175,7 +184,7 @@ describe('Consultation list', () => {
     await screen.findByRole('table', { name: 'Consultations' })
     expect(screen.getByText('Clinical record · Demo Hospital')).toBeTruthy()
     const line = screen.getByText(/· Direct care access\./)
-    expect(line.textContent).toBe(`HID ${PATIENT_HID} · Direct care access. Change patient →`)
+    expect(line.textContent).toBe(`HID ${PATIENT_HID} · Direct care access. Patient page · Change patient →`)
     expect(within(line).getByRole('link', { name: 'Change patient →' }).getAttribute('href')).toBe('/provider/patients')
   })
 
@@ -351,6 +360,7 @@ describe('Consultation list', () => {
       // The list is not read on the way, nor the chart sections under it.
       expect(api.encounters).not.toHaveBeenCalled()
       expect(api.reportedHealthProfile).not.toHaveBeenCalled()
+      expect(api.allergies).not.toHaveBeenCalled()
       view.unmount()
     }
   })
@@ -425,9 +435,12 @@ describe('New consultation', () => {
     expect(within(patientBanner()).getByText(PATIENT_NAME)).toBeTruthy()
     expect(within(patientBanner()).getByText(PATIENT_HID)).toBeTruthy()
     const context = await screen.findByRole('region', { name: 'Allergies' })
-    expect(within(context).getByText('Penicillin (told us by the patient, not checked by a clinician).')).toBeTruthy()
+    // Before 0117 (the allergy list answers 404): the patient's own words, labelled as theirs.
+    expect(within(context).getByText('Allergies reported by the patient: Penicillin (entered by the patient in their Health ID portal, not clinically verified).')).toBeTruthy()
+    expect(within(context).queryByText(/recorded by clinicians/)).toBeNull()
+    expect(api.allergies).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, expect.any(AbortSignal))
     expect(api.reportedHealthProfile).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, expect.any(AbortSignal))
-    expect(screen.getByText('Notes are saved as drafts. Review a note, then sign it.')).toBeTruthy()
+    expect(screen.getByText('Notes are saved as drafts. Signing needs its own reviewed action.')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Back to list' })).toBeTruthy()
   })
 
@@ -437,47 +450,95 @@ describe('New consultation', () => {
     expect(screen.getByLabelText(labelled('Presenting complaint')).tagName).toBe('TEXTAREA')
   })
 
-  it('says no allergies are recorded when the patient reported none', async () => {
-    await openNew()
-    const context = await screen.findByRole('region', { name: 'Allergies' })
-    expect(within(context).getByText('None recorded. Confirm with the patient.')).toBeTruthy()
-  })
+  describe('allergies (hid-system 0117)', () => {
+    const allergy = (id: string, substance: string, severity: string, reaction: string | null, status = 'active') => ({
+      id, substance, reaction, severity, status, rowVersion: 1, createdAt: '2026-10-01T09:00:00.000Z', enteredInErrorReason: null, recordedHere: false,
+    })
+    /** Ola's case: a clinician recorded a severe penicillin allergy and the patient entered nothing. */
+    const severePenicillin = allergy('a0000000-0000-4000-8000-000000000001', 'Penicillin', 'severe', 'Anaphylaxis')
 
-  it('says nothing about allergies when the read is refused, not served or unreadable, as today', async () => {
-    for (const failure of [
-      new HidApiError(403, 'Forbidden', { code: 'FORBIDDEN' }),
-      new HidApiError(404, 'Not found', { code: 'NOT_FOUND' }),
-      new TypeError('The answer could not be read.'),
-    ]) {
-      api.reportedHealthProfile.mockRejectedValueOnce(failure)
+    it('shows the allergies clinicians recorded, in the EHR’s order, and never "None recorded" when there are some', async () => {
+      api.allergies.mockResolvedValue({ recorded: [
+        severePenicillin,
+        allergy('a0000000-0000-4000-8000-000000000002', 'Latex', 'unknown', null),
+        allergy('a0000000-0000-4000-8000-000000000003', 'Codeine', 'mild', 'Itch'),
+      ], patientReported: { allergies: null, updatedAt: null } })
+      await openNew()
+      const context = await screen.findByRole('region', { name: 'Allergies' })
+      expect(within(context).getByText('Allergies recorded by clinicians: Penicillin (severe: Anaphylaxis); Latex (severity not known); Codeine (mild: Itch).')).toBeTruthy()
+      expect(within(context).getByText(NOTHING_REPORTED)).toBeTruthy()
+      expect(context.textContent).not.toMatch(/None recorded/)
+      expect(api.reportedHealthProfile).not.toHaveBeenCalled()
+    })
+
+    it('labels what the patient entered as theirs, beside what clinicians recorded', async () => {
+      api.allergies.mockResolvedValue({ recorded: [severePenicillin], patientReported: { allergies: 'Sulfa drugs', updatedAt: null } })
+      await openNew()
+      const context = await screen.findByRole('region', { name: 'Allergies' })
+      expect(within(context).getByText('Allergies recorded by clinicians: Penicillin (severe: Anaphylaxis).')).toBeTruthy()
+      expect(within(context).getByText('Allergies reported by the patient: Sulfa drugs (entered by the patient in their Health ID portal, not clinically verified).')).toBeTruthy()
+    })
+
+    it('says "none" only after a read that found none', async () => {
+      api.allergies.mockResolvedValue({ recorded: [], patientReported: { allergies: null, updatedAt: null } })
       const view = open('/new')
-      expect(await screen.findByRole('button', { name: 'Start consultation' })).toBeTruthy()
-      await waitFor(() => expect(api.reportedHealthProfile).toHaveBeenCalled())
+      let context = await screen.findByRole('region', { name: 'Allergies' })
+      expect(within(context).getByText('Allergies recorded by clinicians: none.')).toBeTruthy()
+      expect(within(context).getByText(`${NOTHING_REPORTED} Confirm allergies with the patient.`)).toBeTruthy()
+      view.unmount()
+
+      // Before 0117 only the patient's text is read: nothing is said about allergies clinicians recorded.
+      api.allergies.mockRejectedValue(new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' }))
+      open('/new')
+      context = await screen.findByRole('region', { name: 'Allergies' })
+      expect(within(context).getByText(`${NOTHING_REPORTED} Confirm allergies with the patient.`)).toBeTruthy()
+      expect(context.textContent).not.toMatch(/None recorded|recorded by clinicians/)
+    })
+
+    it('never says "None recorded" when the read failed, was refused, is not served or could not be read: it says so', async () => {
+      const cases: Array<[() => void, string]> = [
+        [() => { api.allergies.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' })) }, ALLERGIES_UNREAD],
+        [() => { api.allergies.mockRejectedValue(new HidApiError(403, 'Forbidden', { code: 'FORBIDDEN' })) }, ALLERGIES_NOT_SHOWN],
+        [() => { api.allergies.mockRejectedValue(new TypeError('The answer could not be read.')) }, ALLERGIES_UNREAD],
+        [() => { api.allergies.mockResolvedValue({ recorded: 'not a list' }) }, ALLERGIES_UNREAD],
+        // One recorded allergy that can't be read fails the whole list (the real parser): never the rest as if complete.
+        [() => { api.allergies.mockImplementation(async () => parseAllergyList({ recorded: [{ id: 'a1240000-0000-4000-8000-000000000051', substance: 'Penicillin', reaction: null, severity: 'severe', status: 'active', rowVersion: 1, createdAt: null, enteredInErrorReason: null, recordedHere: true }, { id: 'a1240000-0000-4000-8000-000000000052', substance: '', severity: 'mild', status: 'active', rowVersion: 1 }], patientReported: { allergies: null, updatedAt: null } })) }, ALLERGIES_UNREAD],
+        [() => { api.reportedHealthProfile.mockRejectedValue(new HidApiError(404, 'Not found', { code: 'NOT_FOUND' })) }, ALLERGIES_NOT_SHOWN],
+        [() => { api.reportedHealthProfile.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' })) }, ALLERGIES_UNREAD],
+      ]
+      for (const [arrange, words] of cases) {
+        api.allergies.mockRejectedValue(new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' }))
+        api.reportedHealthProfile.mockResolvedValue(null)
+        arrange()
+        const view = open('/new')
+        const context = await screen.findByRole('region', { name: 'Allergies' })
+        expect(within(context).getByText(words, { exact: false })).toBeTruthy()
+        expect(context.textContent).not.toMatch(/None recorded|: none\.|not entered any allergies/)
+        expect(within(patientBanner()).getByText(PATIENT_NAME)).toBeTruthy()
+        view.unmount()
+      }
+    })
+
+    it('reads again when asked after a failure', async () => {
+      api.allergies.mockRejectedValueOnce(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
+        .mockResolvedValueOnce({ recorded: [severePenicillin], patientReported: { allergies: null, updatedAt: null } })
+      await openNew()
+      const context = await screen.findByRole('region', { name: 'Allergies' })
+      fireEvent.click(within(context).getByRole('button', { name: 'Try again' }))
+      expect(await within(context).findByText('Allergies recorded by clinicians: Penicillin (severe: Anaphylaxis).')).toBeTruthy()
+      expect(api.allergies).toHaveBeenCalledTimes(2)
+    })
+
+    it('asks nothing without ehr.note.read, and says the allergies can’t be shown, never that there are none', async () => {
+      staff.permissions = ALL.filter(permission => permission !== 'ehr.note.read')
+      await openNew()
       await act(async () => {})
       expect(within(patientBanner()).getByText(PATIENT_NAME)).toBeTruthy()
-      // A section shows only when it has something to say.
-      expect(screen.queryByRole('region', { name: 'Allergies' })).toBeNull()
-      expect(screen.queryByText(/None recorded|couldn’t be loaded/)).toBeNull()
-      view.unmount()
-      api.reportedHealthProfile.mockClear()
-    }
-  })
-
-  it('says the allergies could not be loaded when the service fails to answer', async () => {
-    api.reportedHealthProfile.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
-    await openNew()
-    const context = await screen.findByRole('region', { name: 'Allergies' })
-    expect(within(context).getByText('What the patient told us couldn’t be loaded. Confirm with the patient.')).toBeTruthy()
-    expect(screen.queryByText(/None recorded/)).toBeNull()
-  })
-
-  it('reads no allergies and says nothing about them without ehr.note.read', async () => {
-    staff.permissions = ALL.filter(permission => permission !== 'ehr.note.read')
-    await openNew()
-    await act(async () => {})
-    expect(within(patientBanner()).getByText(PATIENT_NAME)).toBeTruthy()
-    expect(screen.queryByRole('region', { name: 'Allergies' })).toBeNull()
-    expect(api.reportedHealthProfile).not.toHaveBeenCalled()
+      const context = screen.getByRole('region', { name: 'Allergies' })
+      expect(within(context).getByText(ALLERGIES_NOT_SHOWN)).toBeTruthy()
+      expect(api.allergies).not.toHaveBeenCalled()
+      expect(api.reportedHealthProfile).not.toHaveBeenCalled()
+    })
   })
 
   it('checks required fields on submit and moves focus to the first, calling nothing', async () => {
@@ -692,5 +753,294 @@ describe('New consultation', () => {
     expect(ended.textContent).toContain('Open the patient again to keep working.')
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
     expect(api.createEncounter).not.toHaveBeenCalled()
+  })
+})
+
+describe('New consultation in one call (EHR-C5)', () => {
+  const KEY = /^[A-Za-z0-9_-]{16,128}$/
+  const NOTE = {
+    noteType: 'Consultation', title: 'Consultation note', status: 'draft',
+    content: 'History\nThree days of cough.\n\nExamination\nChest clear.\n\nClinical note\nFluids and rest.\n\nFollow-up\nReview in a week',
+  }
+  const DIAGNOSIS = { codeSystem: 'ICD-10', code: 'J06.9', display: 'Upper respiratory infection', clinicalStatus: 'active', verificationStatus: 'unconfirmed' }
+
+  /** The 201 for the body sent: a new visit, unless `reused` gives the open visit today with its own complaint. */
+  function saved(reused?: { chiefComplaint: string }) {
+    return async (_f: string, _p: string, input: { visit: { encounterType: string; chiefComplaint: string } }) => ({
+      encounter: {
+        ...ENCOUNTER, id: NEW_ID, encounterType: input.visit.encounterType,
+        chiefComplaint: reused?.chiefComplaint ?? input.visit.chiefComplaint, reusedOpenVisit: Boolean(reused),
+      },
+      note: null, vitals: null, diagnoses: [],
+    })
+  }
+
+  beforeEach(() => {
+    api.createConsultation.mockReset()
+    api.createConsultation.mockImplementation(saved())
+  })
+
+  function fill(label: string, value: string) {
+    fireEvent.change(screen.getByLabelText(labelled(label)), { target: { value } })
+  }
+
+  async function openNew() {
+    const view = open('/new')
+    expect(await screen.findByRole('heading', { level: 1, name: 'New consultation' })).toBeTruthy()
+    return { view, save: await screen.findByRole('button', { name: 'Start consultation' }) }
+  }
+
+  function fillAll() {
+    fireEvent.change(screen.getByLabelText(labelled('Type of visit')), { target: { value: 'virtual' } })
+    fill('Presenting complaint', 'Cough')
+    fill('History', 'Three days of cough.')
+    fill('Examination', 'Chest clear.')
+    fill('Diagnosis', 'Upper respiratory infection')
+    fill('Code system', 'ICD-10')
+    fill('Code', 'J06.9')
+    fill('Clinical note', 'Fluids and rest.')
+    fill('Follow-up', 'Review in a week')
+  }
+
+  const call = (index: number) => api.createConsultation.mock.calls[index] as [string, string, { visit: { startedAt: string } }, string]
+
+  it('saves the visit, its draft note and its diagnosis in one call with the exact body, after the access re-check, then opens it', async () => {
+    const { save } = await openNew()
+    fillAll()
+    fireEvent.click(save)
+
+    expect(await screen.findByText('Consultation started.')).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
+    expect(api.createConsultation).toHaveBeenCalledTimes(1)
+    expect(api.createConsultation).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, {
+      visit: { encounterType: 'virtual', status: 'in_progress', startedAt: expect.any(String), chiefComplaint: 'Cough' },
+      note: NOTE,
+      diagnoses: [DIAGNOSIS],
+    }, expect.stringMatching(KEY))
+    expect(Number.isNaN(Date.parse(call(0)[2].visit.startedAt))).toBe(false)
+    // Nothing goes by the separate calls, and there is no "Save the rest".
+    expect(api.createEncounter).not.toHaveBeenCalled()
+    expect(api.createRecord).not.toHaveBeenCalled()
+    expect(api.lookupPatient.mock.invocationCallOrder.some(order => order < api.createConsultation.mock.invocationCallOrder[0]!)).toBe(true)
+  })
+
+  it('sends only the parts today’s flow writes: the visit alone when nothing else is typed, and no part the role may not write', async () => {
+    let { view, save } = await openNew()
+    fill('Presenting complaint', 'Cough')
+    fireEvent.click(save)
+    expect(await screen.findByText('Consultation started.')).toBeTruthy()
+    expect(call(0)[2]).toEqual({ visit: { encounterType: 'ambulatory', status: 'in_progress', startedAt: expect.any(String), chiefComplaint: 'Cough' } })
+    view.unmount()
+
+    // Today adds a diagnosis only with its read as well as its write, and a note only with the note write.
+    staff.permissions = ALL.filter(permission => permission !== 'ehr.diagnosis.read' && permission !== 'ehr.note.write')
+    ;({ view, save } = await openNew())
+    for (const label of ['Diagnosis', 'History', 'Clinical note']) expect(screen.queryByLabelText(labelled(label))).toBeNull()
+    fill('Presenting complaint', 'Cough')
+    fireEvent.click(save)
+    expect(await screen.findByText('Consultation started.')).toBeTruthy()
+    expect(Object.keys(call(1)[2])).toEqual(['visit'])
+  })
+
+  it('keeps today’s fields, limits and notice', async () => {
+    await openNew()
+    for (const label of ['Type of visit', 'Presenting complaint', 'History', 'Examination', 'Diagnosis', 'Code system', 'Code', 'Clinical status', 'Verification', 'Clinical note', 'Follow-up']) {
+      expect(screen.getByLabelText(labelled(label))).toBeTruthy()
+    }
+    expect((screen.getByLabelText(labelled('Presenting complaint')) as HTMLTextAreaElement).maxLength).toBe(4000)
+    expect((screen.getByLabelText(labelled('Clinical note')) as HTMLTextAreaElement).maxLength).toBe(100000)
+    // The words are pinned by the test of today's form above; the one-call form shows the same line.
+    expect(screen.getByText(NOTES_ARE_DRAFTS)).toBeTruthy()
+  })
+
+  it('keeps the key and the body when pressed again after no answer or a server failure', async () => {
+    api.createConsultation
+      .mockRejectedValueOnce(new HidApiError(0, 'Failed to fetch', { code: 'NETWORK_ERROR' }))
+      .mockRejectedValueOnce(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
+    const { save } = await openNew()
+    fillAll()
+    fireEvent.click(save)
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_NETWORK)
+    fireEvent.click(screen.getByRole('button', { name: 'Start consultation' }))
+    expect(await screen.findByText(SAID_UNAVAILABLE)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Start consultation' }))
+    expect(await screen.findByText('Consultation started.')).toBeTruthy()
+
+    expect(api.createConsultation).toHaveBeenCalledTimes(3)
+    // The same key and the identical body, start time included, so a save that went through answers again.
+    expect(call(1)[3]).toBe(call(0)[3])
+    expect(call(2)[3]).toBe(call(0)[3])
+    expect(call(1)[2]).toEqual(call(0)[2])
+    expect(call(2)[2]).toEqual(call(0)[2])
+  })
+
+  it('gives a new consultation a new key, and replaces the key after a final answer', async () => {
+    let { view, save } = await openNew()
+    fill('Presenting complaint', 'Cough')
+    fireEvent.click(save)
+    expect(await screen.findByText('Consultation started.')).toBeTruthy()
+    view.unmount()
+
+    ;({ view, save } = await openNew())
+    fill('Presenting complaint', 'Headache')
+    fireEvent.click(save)
+    expect(await screen.findByText('Consultation started.')).toBeTruthy()
+    expect(call(1)[3]).toMatch(KEY)
+    expect(call(1)[3]).not.toBe(call(0)[3])
+    view.unmount()
+
+    // A refusal saved nothing under the key: the next press is a new save with a new key.
+    api.createConsultation.mockRejectedValueOnce(new HidApiError(400, 'Invalid clinical data', { code: 'INVALID_CLINICAL_DATA' }))
+    ;({ save } = await openNew())
+    fill('Presenting complaint', 'Cough')
+    fireEvent.click(save)
+    expect(await screen.findByRole('alert')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Start consultation' }))
+    expect(await screen.findByText('Consultation started.')).toBeTruthy()
+    expect(call(3)[3]).not.toBe(call(2)[3])
+    expect(new Set(api.createConsultation.mock.calls.map(item => item[3])).size).toBe(4)
+  })
+
+  it('keeps the key, and never says nothing was saved, when the key may already hold a save', async () => {
+    // hid-system executeCreate: REQUEST_IN_PROGRESS and IDEMPOTENCY_RESULT_UNAVAILABLE mean the key's row exists.
+    for (const code of ['REQUEST_IN_PROGRESS', 'IDEMPOTENCY_RESULT_UNAVAILABLE']) {
+      api.createConsultation.mockReset()
+      api.createConsultation.mockImplementation(saved())
+      api.createConsultation.mockRejectedValueOnce(new HidApiError(409, 'Key in use', { code }))
+      const { view, save } = await openNew()
+      fillAll()
+      fireEvent.click(save)
+      expect((await screen.findByRole('alert')).textContent, code).toBe(
+        'This consultation may already be saved. Open the patient’s consultations to check it before you save again.')
+      expect(document.body.textContent).not.toContain('Nothing was saved')
+      expect(document.body.textContent).not.toContain(code)
+      fireEvent.click(screen.getByRole('button', { name: 'Start consultation' }))
+      expect(await screen.findByText('Consultation started.')).toBeTruthy()
+      expect(call(1)[3]).toBe(call(0)[3])
+      expect(call(1)[2]).toEqual(call(0)[2])
+      view.unmount()
+    }
+  })
+
+  it('after a press with no answer, a 403 keeps the key and never says nothing was saved', async () => {
+    // ConsultationPartsGuard and the consent check run before the key is looked up, so they say nothing of that press.
+    const cases: Array<[HidApiError, string]> = [
+      [new HidApiError(403, 'Required permission is missing', { code: 'PERMISSION_DENIED' }),
+        'This consultation may already be saved. Open the patient’s consultations to check it before you save again. You don’t have access to save all of this now. Ask your facility administrator if you need it.'],
+      [new HidApiError(403, 'Consent required', { code: 'CONSENT_REQUIRED' }),
+        'This consultation may already be saved. Open the patient’s consultations to check it before you save again. The patient has not approved changes to their record by this facility, so it can’t be saved now.'],
+    ]
+    for (const [error, words] of cases) {
+      api.createConsultation.mockReset()
+      api.createConsultation.mockImplementation(saved())
+      api.createConsultation
+        .mockRejectedValueOnce(new HidApiError(0, 'Failed to fetch', { code: 'NETWORK_ERROR' }))
+        .mockRejectedValueOnce(error)
+      const { view, save } = await openNew()
+      fillAll()
+      fireEvent.click(save)
+      expect((await screen.findByRole('alert')).textContent).toBe(SAID_NETWORK)
+      fireEvent.click(screen.getByRole('button', { name: 'Start consultation' }))
+      expect(await screen.findByText(words)).toBeTruthy()
+      expect(document.body.textContent).not.toContain('Nothing was saved')
+      expect(document.body.textContent).not.toContain(error.code)
+      fireEvent.click(screen.getByRole('button', { name: 'Start consultation' }))
+      expect(await screen.findByText('Consultation started.')).toBeTruthy()
+      expect(new Set(api.createConsultation.mock.calls.map(item => item[3])).size).toBe(1)
+      view.unmount()
+    }
+  })
+
+  it('says each refusal in plain words, never the server’s text or code, and sends nothing else', async () => {
+    const cases: Array<[HidApiError, string]> = [
+      [new HidApiError(403, 'Consent required', { code: 'CONSENT_REQUIRED' }),
+        'Nothing was saved. The patient has not approved changes to their record by this facility. Ask them to approve a read-and-write request first.'],
+      [new HidApiError(403, 'Required permission is missing', { code: 'PERMISSION_DENIED' }),
+        'Nothing was saved. You don’t have access to save all of this. Ask your facility administrator if you need it.'],
+      [new HidApiError(409, 'Idempotency key reused', { code: 'IDEMPOTENCY_KEY_REUSED' }),
+        'This consultation was already saved with the details as they were before your last change. Open the patient’s consultations to check it before you save again.'],
+      [new HidApiError(409, 'Visit entered in error', { code: 'VISIT_ENTERED_IN_ERROR' }),
+        'Nothing was saved. The patient’s visit today is marked as entered in error. Open the patient’s consultations to check it, then try again.'],
+      [new HidApiError(409, 'Conflict', { code: 'SOMETHING_CONFLICTED' }),
+        'Nothing was saved. This patient’s record changed meanwhile. Open the patient’s consultations to check it, then try again.'],
+      [new HidApiError(400, 'Not today', { code: 'REUSE_OPEN_VISIT_STARTED_AT_NOT_TODAY' }),
+        'Nothing was saved. The date or time on this device looks wrong. Check it, then save again.'],
+      [new HidApiError(400, 'Invalid clinical data', { code: 'INVALID_CLINICAL_DATA' }),
+        'Nothing was saved. Some details weren’t accepted. Check the details you entered and try again.'],
+      [new HidApiError(400, 'Use the open visit', { code: 'CONSULTATION_USES_OPEN_VISIT' }), 'The consultation could not be started.'],
+      [new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }), SAID_UNAVAILABLE],
+      // A 404 that names a code of its own is the route answering, not a backend before it: no separate calls.
+      [new HidApiError(404, 'Patient not found', { code: 'PATIENT_NOT_FOUND' }), SAID_NOT_FOUND],
+    ]
+    for (const [error, words] of cases) {
+      api.createConsultation.mockRejectedValueOnce(error)
+      const { view, save } = await openNew()
+      fillAll()
+      fireEvent.click(save)
+      expect((await screen.findByRole('alert')).textContent, error.code).toBe(words)
+      expect(document.body.textContent).not.toContain(error.code)
+      expect(document.body.textContent).not.toContain(error.message)
+      // Nothing was saved, so this is still the start of the consultation.
+      expect(screen.getByRole('button', { name: 'Start consultation' })).toBeTruthy()
+      view.unmount()
+    }
+    expect(api.createEncounter).not.toHaveBeenCalled()
+    expect(api.createRecord).not.toHaveBeenCalled()
+  })
+
+  it('shows a refused part at its section, as the contract names only the part', async () => {
+    api.createConsultation.mockRejectedValueOnce(new HidApiError(400, 'One or more request fields are invalid.', {
+      code: 'VALIDATION_FAILED', details: [{ field: 'visit', messages: [] }, { field: 'note', messages: [] }, { field: 'diagnoses', messages: [] }],
+    }))
+    const { save } = await openNew()
+    fillAll()
+    fireEvent.click(save)
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_FIELDS_REFUSED)
+    expect(document.body.textContent).not.toContain('request fields are invalid')
+    expect(screen.getByLabelText(labelled('Presenting complaint')).getAttribute('aria-invalid')).toBe('true')
+    expect(screen.getByLabelText(labelled('Clinical note')).getAttribute('aria-invalid')).toBe('true')
+    expect(screen.getByLabelText(labelled('Diagnosis')).getAttribute('aria-invalid')).toBe('true')
+    expect(screen.getByText('Check the type of visit and the presenting complaint.')).toBeTruthy()
+    expect(screen.getByText('Check History, Examination, Clinical note and Follow-up.')).toBeTruthy()
+    expect(screen.getByText('Check the diagnosis, its code system and its code.')).toBeTruthy()
+  })
+
+  it('falls back to today’s separate calls when the route answers 404 (a backend before it), and asks it no more', async () => {
+    api.createConsultation.mockRejectedValue(new HidApiError(404, 'Cannot POST', { code: 'API_ROUTE_NOT_FOUND' }))
+    api.createRecord.mockRejectedValueOnce(new HidApiError(400, 'One or more request fields are invalid.', {
+      code: 'VALIDATION_FAILED', details: [{ field: 'content', messages: ['content must be shorter than or equal to 100000 characters'] }],
+    }))
+    const { save } = await openNew()
+    fillAll()
+    fireEvent.click(save)
+
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_FIELDS_REFUSED)
+    expect(api.createEncounter).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID,
+      { encounterType: 'virtual', status: 'in_progress', startedAt: expect.any(String), chiefComplaint: 'Cough' }, expect.any(String))
+    expect(screen.getByRole('button', { name: 'Save the rest' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Save the rest' }))
+    expect(await screen.findByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
+    expect(api.createConsultation).toHaveBeenCalledTimes(1)
+    expect(api.createEncounter).toHaveBeenCalledTimes(1)
+    expect(api.createRecord.mock.calls.map(item => [item[3], item[4]])).toEqual([['clinical-notes', NOTE], ['clinical-notes', NOTE], ['diagnoses', DIAGNOSIS]])
+    // One access re-check before the first save of the press, not a second one before the visit.
+    const checks = api.lookupPatient.mock.invocationCallOrder
+    expect(checks.filter(order => order > api.createConsultation.mock.invocationCallOrder[0]! && order < api.createEncounter.mock.invocationCallOrder[0]!)).toHaveLength(0)
+  })
+
+  it('on the open visit today, says the complaint typed is not on it, so it is not lost', async () => {
+    api.createConsultation.mockImplementation(saved({ chiefComplaint: 'Headache' }))
+    let { view, save } = await openNew()
+    fill('Presenting complaint', 'Cough')
+    fireEvent.click(save)
+    expect(await screen.findByText('Saved on the patient’s open visit today. That visit keeps its own presenting complaint, so the one typed here is not on it: Cough. Add it to the note if it is needed.')).toBeTruthy()
+    expect(screen.queryByText('Consultation started.')).toBeNull()
+    view.unmount()
+
+    api.createConsultation.mockImplementation(saved({ chiefComplaint: 'Cough' }))
+    ;({ view, save } = await openNew())
+    fill('Presenting complaint', 'Cough')
+    fireEvent.click(save)
+    expect(await screen.findByText('Saved on the patient’s open visit today.')).toBeTruthy()
   })
 })

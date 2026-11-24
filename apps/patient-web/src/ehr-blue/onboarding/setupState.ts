@@ -2,7 +2,7 @@
  * What the sample steps (Type, Departments, Branches, Billing) hold: fictional settings kept in the wizard's component
  * state for this visit only. Nothing here is sent to Health ID or kept anywhere: leaving the page, or a reload, starts
  * again. The starting values are the design's for a new hospital (design/ehr-target src/service.ts:427-459), less the
- * facility details Health ID does not collect.
+ * facility's details, which the Facility step reads from and saves to Health ID.
  */
 
 export interface SampleBranch {

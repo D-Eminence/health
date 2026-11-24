@@ -2,7 +2,7 @@ import { isAppleMobile, runningInstalled } from './deviceKind'
 
 /**
  * This device's side of "Notifications on this device" (contract b6-contract.md §11.3): the only module allowed the
- * browser's push APIs (ESLint NO_SERVICE_WORKER is off here alone, apart from public/sw.js). The Notifications page and sign-out load
+ * browser's push APIs (ESLint NO_SERVICE_WORKER is off here, in outreachShell.ts, which registers the same worker on Outreach's site, and in public/sw.js). The Notifications page and sign-out load
  * it with import('./pushDevice'), so it is a chunk of its own (assets/pushDevice-<hash>.js) that the launch build check
  * finds by name, and a page that never offers push never loads it.
  *

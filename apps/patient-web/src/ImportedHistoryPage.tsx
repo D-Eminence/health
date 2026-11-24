@@ -19,12 +19,15 @@ export function importedHistoryUnavailable(reason: unknown): boolean {
   return isHidApiError(reason) && (reason.status === 404 || (reason.status === 503 && reason.code === 'IMPORTED_HISTORY_DISABLED'))
 }
 
+/** A record read refused for want of the patient's consent (403 CONSENT_REQUIRED), said the same wherever a record is read. */
+export const CONSENT_REQUIRED_TEXT = 'The patient has not given consent for this facility to read their record.'
+
 /** What a refused or failed read says, from hid-system's codes (INTERFACE_CONTRACT.md, "Imported legacy medical history"). */
 export function importedHistoryFailure(reason: unknown, audience: ImportedHistoryAudience): string {
   if (isHidApiError(reason)) {
     if (reason.status === 401) return 'Your session ended. Please sign in again.'
     switch (reason.code) {
-      case 'CONSENT_REQUIRED': return 'The patient has not given consent for this facility to read their record.'
+      case 'CONSENT_REQUIRED': return CONSENT_REQUIRED_TEXT
       case 'DIRECT_CARE_PURPOSE_REQUIRED': return 'Imported medical history is read for direct care only.'
       case 'BREAK_GLASS_EXCLUDED': return 'Imported medical history is not shown under emergency access.'
       case 'IMPORTED_HISTORY_UNAVAILABLE': return 'Older records can’t be loaded right now. Try again.'

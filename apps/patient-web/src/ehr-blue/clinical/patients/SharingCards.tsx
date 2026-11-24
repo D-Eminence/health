@@ -36,47 +36,18 @@ function useCardLoad<T>(facilityId: string | undefined, allowed: boolean, read: 
   return [load, setLoad] as const
 }
 
+/** Today's texts (SharedPatients.tsx:78, 146-148, 153): each list says when it is empty, and a role that may not accept says why. */
+export const NOTHING_SHARED = 'No patient has shared their record with you here.'
+export const NO_INVITATIONS = 'No invitations are waiting for your sign-in email.'
+export const NOT_ELIGIBLE = 'Only a doctor, clinician or nurse at a facility Health ID has checked can accept invitations. Your role here '
+  + 'cannot, so invitations sent to your email are not shown. Switch to such a facility to see them.'
+
 const DURATION_LABELS: Readonly<Record<ShareDuration, string>> = {
   '24h': '24 hours', '7d': '7 days', '30d': '30 days', until_revoked: 'Until the patient ends it (up to 1 year)',
 }
 
 const readShared = (facilityId: string, signal: AbortSignal) => staffApi.sharedWithMe(facilityId, signal)
 const readInvitations = (facilityId: string, signal: AbortSignal) => staffApi.staffShareInvitations(facilityId, signal)
-
-/** "Shared with you": opening one is the same Health ID lookup as a search. */
-export function SharedWithYou({ facilityId, permissions, openUnavailable, busy, onOpen }: {
-  facilityId: string | undefined
-  permissions: readonly string[]
-  openUnavailable: string | null
-  busy: boolean
-  onOpen: (hid: string) => void
-}) {
-  const [load] = useCardLoad<SharedPatient[]>(facilityId, roleMay('identity.sharedWithMe', 'GET', permissions), readShared,
-    'The patients shared with you could not be loaded.')
-  // Today's words (staff/routes/SharedPatients.tsx:74-78), an empty list included.
-  if (load.state === 'hidden') return null
-  if (load.state === 'failed') return <Alert intent="error" title="Couldn’t load patients shared with you">{load.message}</Alert>
-  return (
-    <Card>
-      <CardHeader as="h2" title="Shared with you" description="Patients who chose to share their record with you at this facility."
-        icon={Share2} iconTone="brand" />
-      {load.value.length === 0 ? <p className="m-0 px-5 py-4 text-[13px] text-ink-3">No patient has shared their record with you here.</p> : null}
-      {openUnavailable && load.value.length > 0 ? <p id="shared-open-unavailable" className="m-0 px-5 pt-3 text-[12px] text-ink-3">{openUnavailable}</p> : null}
-      {load.value.length > 0 ? <ul className="m-0 list-none divide-y divide-line p-0">
-        {load.value.map(item => (
-          <li key={item.consentGrantId} className="flex items-center gap-3 px-5 py-3">
-            <span aria-hidden="true" className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-brand-soft text-[12px] font-semibold text-brand-ink">{item.fullName.split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase()}</span>
-            <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium text-ink">{item.fullName}</span>
-              <span className="block text-[12px] text-ink-3">{item.hid} · until {shareDay(item.expiresAt)}</span></span>
-            <Badge size="sm" tone="brand">{shareLevelLabel(item.level) ?? item.level}</Badge>
-            <Button size="sm" disabled={openUnavailable !== null} aria-disabled={busy || undefined} aria-label={`Open ${item.fullName}’s record`}
-              aria-describedby={openUnavailable ? 'shared-open-unavailable' : undefined} onClick={() => { if (!busy) onOpen(item.hid) }}>Open</Button>
-          </li>
-        ))}
-      </ul> : null}
-    </Card>
-  )
-}
 
 function acceptProblem(caught: unknown): string {
   if (isHidApiError(caught)) {
@@ -89,9 +60,23 @@ function acceptProblem(caught: unknown): string {
   return plainErrorText(caught, 'The invitation could not be accepted. Please try again.', { audience: 'facility' })
 }
 
-/** "Invitations": invitations sent to this clinician's sign-in email, with Accept; no patient is named. */
-export function ShareInvitationsForMe({ facilityId, permissions }: { facilityId: string | undefined; permissions: readonly string[] }) {
-  const [load, setLoad] = useCardLoad<StaffShareInvitationList>(facilityId,
+/**
+ * Patients shared with you and invitations waiting for you, as one card (owner, 17 Nov 2026: to a clinician they are
+ * the same thing, a patient letting them in). Patients who have shared come first, each with Open; then the
+ * invitations sent to this clinician's sign-in email, each with Accept, which the patient then confirms. Same reads,
+ * permissions and refusals as the two cards it replaces; hidden while both load, when neither is open to the role, and
+ * when neither is served.
+ */
+export function SharedWithYouCard({ facilityId, permissions, openUnavailable, busy, onOpen }: {
+  facilityId: string | undefined
+  permissions: readonly string[]
+  openUnavailable: string | null
+  busy: boolean
+  onOpen: (hid: string) => void
+}) {
+  const [shared] = useCardLoad<SharedPatient[]>(facilityId, roleMay('identity.sharedWithMe', 'GET', permissions), readShared,
+    'The patients shared with you could not be loaded.')
+  const [invites, setInvites] = useCardLoad<StaffShareInvitationList>(facilityId,
     roleMay('identity.staffShareInvitations', 'GET', permissions), readInvitations, 'Your invitations could not be loaded.')
   const acceptAllowed = roleMay('identity.staffShareInvitationAccept', 'POST', permissions)
   const [accepting, setAccepting] = useState<string | null>(null)
@@ -100,16 +85,14 @@ export function ShareInvitationsForMe({ facilityId, permissions }: { facilityId:
   const [moved, setMoved] = useState(0)
   const errorRef = useRef<HTMLDivElement>(null)
   const resultRef = useRef<HTMLParagraphElement>(null)
-
   useEffect(() => { setError(''); setAccepted('') }, [facilityId])
-  // Accept takes its row away: focus goes to what happened, or to the refusal.
   useLayoutEffect(() => {
     if (!moved) return
     if (accepted) resultRef.current?.focus()
     else errorRef.current?.focus()
   }, [moved, accepted])
 
-  const withdraw = (invitationId: string) => setLoad(current => current.state !== 'ready' ? current
+  const withdraw = (invitationId: string) => setInvites(current => current.state !== 'ready' ? current
     : { state: 'ready', value: { ...current.value, items: current.value.items.filter(item => item.invitationId !== invitationId) } })
 
   async function accept(item: StaffShareInvitation) {
@@ -118,6 +101,8 @@ export function ShareInvitationsForMe({ facilityId, permissions }: { facilityId:
     try {
       await staffApi.acceptShareInvitation(facilityId, item.invitationId)
       withdraw(item.invitationId)
+      // Classic's sentence (SharedPatients.tsx:128), with the reference: the share-invitation reference is one staff and
+      // patients read to each other, left on screen by the owner (docs/LOG.md, IDs on screen), and this row shows it too.
       setAccepted(`You accepted invitation ${item.reference || 'to share'}. The patient must now confirm before you can open their `
         + 'record. Once they do, they appear under Shared with you.')
     } catch (caught) {
@@ -129,32 +114,50 @@ export function ShareInvitationsForMe({ facilityId, permissions }: { facilityId:
     }
   }
 
-  // As today's card (staff/routes/SharedPatients.tsx:145-148): a role that cannot accept is told why invitations sent
-  // to its email are not shown, and where they would be; an empty list says so. Hidden only while the list loads, for a
-  // role the route would refuse, and when it is not served (404).
-  if (load.state === 'hidden') return null
-  if (load.state === 'failed') return <Alert intent="error" title="Couldn’t load your invitations">{load.message}</Alert>
-  const { eligible, items } = load.value
+  if (shared.state === 'hidden' && invites.state === 'hidden') return null
+  const patients = shared.state === 'ready' ? shared.value : []
+  const waiting = invites.state === 'ready' && invites.value.eligible ? invites.value.items : []
+  const empty = patients.length === 0 && waiting.length === 0
+  // Each read that answered says so when it has nothing, in today's words; an invitations list for a role that may not
+  // accept says why instead.
+  const notes = [
+    shared.state === 'ready' && patients.length === 0 ? NOTHING_SHARED : '',
+    invites.state === 'ready' && !invites.value.eligible ? NOT_ELIGIBLE : '',
+    invites.state === 'ready' && invites.value.eligible && waiting.length === 0 ? NO_INVITATIONS : '',
+  ].filter(Boolean)
   return (
     <Card>
-      <CardHeader as="h2" title="Invitations" icon={Mail} iconTone="violet"
-        description="Patients can invite you by email to see their record. Accept here, signed in with that email; the patient then confirms, and is not named until they do." />
-      {!eligible ? <p className="m-0 px-5 py-4 text-[13px] text-ink-3">Only a doctor, clinician or nurse at a facility Health ID has checked can accept
-        invitations. Your role here cannot, so invitations sent to your email are not shown. Switch to such a facility to see them.</p>
-      : items.length === 0 ? <p className="m-0 px-5 py-4 text-[13px] text-ink-3">No invitations are waiting for your sign-in email.</p>
-      : <ul className="m-0 list-none divide-y divide-line p-0">
-        {items.map(item => (
-          <li key={item.invitationId} className="flex items-center gap-3 px-5 py-3">
-            <span className="min-w-0 flex-1"><span className="block text-sm font-medium text-ink">{item.reference ? `Invitation ${item.reference}` : 'Invitation'}</span>
-              {item.inviteeName ? <span className="block text-[12px] text-ink-2">To {item.inviteeName}</span> : null}
-              <span className="block text-[12px] text-ink-3">{DURATION_LABELS[item.duration]} · sent {shareDay(item.createdAt)} · open until {shareDay(item.expiresAt)}</span></span>
+      <CardHeader as="h2" title="Shared with you" icon={Share2} iconTone="brand"
+        description="Patients who let you see their record here, and invitations they sent to your email." />
+      {shared.state === 'failed' ? <div className="px-5 pt-4"><Alert intent="error" size="sm" title="Couldn’t load patients shared with you">{shared.message}</Alert></div> : null}
+      {invites.state === 'failed' ? <div className="px-5 pt-4"><Alert intent="error" size="sm" title="Couldn’t load your invitations">{invites.message}</Alert></div> : null}
+      {notes.length > 0 ? <div className="flex flex-col gap-1 px-5 py-4">{notes.map(note => <p key={note} className="m-0 text-[13px] text-ink-3">{note}</p>)}</div> : null}
+      {openUnavailable && patients.length > 0 ? <p id="shared-open-unavailable" className="m-0 px-5 pt-3 text-[12px] text-ink-3">{openUnavailable}</p> : null}
+      {!empty ? <ul className="m-0 list-none divide-y divide-line p-0">
+        {patients.map(item => (
+          <li key={item.consentGrantId} className="flex items-center gap-3 px-5 py-3">
+            <span aria-hidden="true" className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-brand-soft text-[12px] font-semibold text-brand-ink">{item.fullName.split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase()}</span>
+            <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium text-ink">{item.fullName}</span>
+              <span className="block text-[12px] text-ink-3">{item.hid} · until {shareDay(item.expiresAt)}</span></span>
             <Badge size="sm" tone="brand">{shareLevelLabel(item.level) ?? item.level}</Badge>
+            <Button size="sm" disabled={openUnavailable !== null} aria-disabled={busy || undefined} aria-label={`Open ${item.fullName}’s record`}
+              aria-describedby={openUnavailable ? 'shared-open-unavailable' : undefined} onClick={() => { if (!busy) onOpen(item.hid) }}>Open</Button>
+          </li>
+        ))}
+        {waiting.map(item => (
+          <li key={item.invitationId} className="flex items-center gap-3 px-5 py-3">
+            <span aria-hidden="true" className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-violet-soft text-violet-ink"><Mail className="size-4" /></span>
+            <span className="min-w-0 flex-1"><span className="block text-sm font-medium text-ink">Invitation{item.reference ? ` ${item.reference}` : ''} · waiting for you</span>
+              {/* Who it was sent to and when, as classic says them (SharedPatients.tsx:150-152). */}
+              {item.inviteeName ? <span className="block truncate text-[12px] text-ink-3">To {item.inviteeName}</span> : null}
+              <span className="block text-[12px] text-ink-3">{DURATION_LABELS[item.duration]} · sent {shareDay(item.createdAt)} · open until {shareDay(item.expiresAt)}</span></span>
+            <Badge size="sm" tone="violet">{shareLevelLabel(item.level) ?? item.level}</Badge>
             <Button size="sm" loading={accepting === item.invitationId} disabled={!acceptAllowed || (accepting !== null && accepting !== item.invitationId)}
               aria-label={item.reference ? `Accept invitation ${item.reference}` : 'Accept invitation'} onClick={() => void accept(item)}>
               {accepting === item.invitationId ? 'Accepting…' : 'Accept'}</Button>
           </li>
         ))}
-      </ul>}
+      </ul> : null}
       {error ? <div ref={errorRef} tabIndex={-1} className="p-5 outline-none"><Alert intent="error" title="Couldn’t accept">{error}</Alert></div> : null}
       <div role="status" className="empty:hidden">{accepted ? <p ref={resultRef} tabIndex={-1} className="m-0 px-5 py-4 text-[13px] text-ink-2 outline-none">{accepted}</p> : null}</div>
     </Card>

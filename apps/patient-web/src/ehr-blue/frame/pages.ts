@@ -1,12 +1,15 @@
 import { createElement } from 'react'
 import { EhrIcon, type EhrIconName } from '@hid/ui/ehr'
 import { isDemoFacility } from '../blueFacilities'
+import { OCR_JOB_READ, OCR_JOB_READ_OWN } from '../../scanAccess'
 import type { StaffSession } from '../../staff/api'
 import type { EhrBluePage, EhrBluePageStatus } from './types'
 import { LivePage, StaffAccessPage } from './LivePages'
 import { SampleWorkspace } from './sample/SampleWorkspace'
 import { FacilityProfileSample, FacilitySetupSample, PlatformReviewSample, ReportsSample } from './admin/AdminSamples'
 import { WhatsLeft } from './WhatsLeft'
+import { HelpPage } from './HelpPage'
+import { CircleHelp } from 'lucide-react'
 import { FacilitySubscriptionPage } from './BlueSubscription'
 import { ChooseWorkspacePage } from './ChooseWorkspace'
 import { DesignTourIndex, JourneyTour } from './tour/DesignTour'
@@ -30,10 +33,12 @@ const todayPages = new Set<EhrBluePage>()
  * A stand-in for today's page at its address: today's page itself, unless `element` draws it in the design. Today's page
  * is `live`; one drawn in the design is `partial` while its words or steps still differ from today's.
  */
-function live(path: string, group: string, label: string, iconName: EhrIconName, permission: string,
+function live(path: string, group: string, label: string, iconName: EhrIconName, permission: string | readonly [string, ...string[]],
   element: EhrBluePage['element'] = createElement(LivePage), status: EhrBluePageStatus = 'live'): EhrBluePage {
   todayPaths.push(path)
-  const entry: EhrBluePage = { path, group, label, icon: icon(iconName), permission, status, element }
+  // Several codes: any one of them opens the page (pageAccess.ts pagePermissions).
+  const [first, ...others] = typeof permission === 'string' ? [permission] : permission
+  const entry: EhrBluePage = { path, group, label, icon: icon(iconName), permission: first, ...(others.length ? { orPermissions: others } : {}), status, element }
   todayPages.add(entry)
   return entry
 }
@@ -99,7 +104,8 @@ export const pages: EhrBluePage[] = [
   sample('ambulance', 'Network & Services', 'Dispatch', 'truck'),
   sample('bloodbank', 'Network & Services', 'Blood Bank', 'droplet'),
   sample('telemedicine', 'Network & Services', 'Telemedicine', 'video'),
-  live('ocr', 'Network & Services', 'Document OCR', 'document', 'ocr.job.read'),
+  // The front desk scans paper records too: it follows the readings of its own uploads (hid-system 0136, Q112 A).
+  live('ocr', 'Network & Services', 'Scan paper records', 'document', [OCR_JOB_READ, OCR_JOB_READ_OWN]),
   live('outreach', 'Network & Services', 'Outreach', 'outreach', 'outreach.registration.read'),
 
   sample('shifts', 'People', 'Shifts & Roster', 'clock'),
@@ -126,6 +132,11 @@ export const pages: EhrBluePage[] = [
   // Made-up figures that read as the facility's own: the demo facilities' alone (parity report 3.2).
   demoOnly(page('reports', 'Insight', 'Reports & Analytics', 'chart', 'sample', createElement(ReportsSample))),
   live('audit', 'Insight', 'Audit trail', 'history', 'audit.read'),
+
+  // Help: short guides for each role's work and what's new (QA P1-7). Every staff member, every facility; it reads nothing.
+  { path: 'help', group: '', label: 'Help', icon: createElement(CircleHelp, { size: 18, strokeWidth: 1.65 }), status: 'live', element: createElement(HelpPage),
+    // Reached from Help in the top bar and the account menu, so it takes no sidebar line of its own.
+    listed: () => false },
 
   // Listed only at the demo facilities; everywhere, the account menu's Switch facility opens it.
   demoOnly(page('whats-left', 'Design review', 'What’s left', 'checklist', 'live', createElement(WhatsLeft))),

@@ -18,6 +18,7 @@ from production_deployment_core import (ACCOUNT, REGION, INDEX_KEY, COMPONENTS, 
     READ_ATTEMPTS, READ_RETRY_SECONDS, atomic_json, canonical, changed_paths, context, file_sha, git, make_candidate, notify,
     require, sha, summarize, validate_candidate, validate_index)
 from staging_release import ROOT, PRODUCTION_HOSTS as HOSTS, verify_manifest, archive_files
+from production_deployment_test_reuse import read_evidence
 
 # All eight portals ship together. These are the Novu gateway and its seven
 # browser-facing upstreams; background workers are optional additional pins.
@@ -34,6 +35,12 @@ def entries():
     return verify_manifest(manifest,folder,ctx["source_commit"],ROOT/"config/production.json",
                            ROOT/"package-lock.json",ROOT/"infra/cloudflare/src", environment="production")
 
+# A release binds the success of this run's build job and of every vitest shard of production-frontends.yml's test job,
+# each by exact name, so a failed, skipped, cancelled or missing shard refuses the release (GitHub.assert_checks).
+TEST_SHARDS = 6
+RELEASE_CHECKS = {"build":"success", "test":"success",
+                  **{"test (%d/%d)" % (shard, TEST_SHARDS):"success" for shard in range(1, TEST_SHARDS+1)}}
+
 def candidate():
     ctx = context("frontend")
     selected = entries()
@@ -44,7 +51,7 @@ def candidate():
         dependency_commits(dependencies, json.loads((ROOT/"config/production.json").read_text())["backend_contract"])
         dependencies["declaration_sha256"] = file_sha(declarations)
     evidence = {e["app"]:{"sha256":e["sha256"],"size_bytes":e["size_bytes"],"hostname":e["hostname"]} for e in selected}
-    release = make_candidate(ctx,list(HOSTS),evidence,{"build":"success"},dependencies=dependencies)
+    release = make_candidate(ctx,list(HOSTS),evidence,dict(RELEASE_CHECKS),dependencies=dependencies)
     release["manifest_sha256"] = file_sha(ROOT/"build/production/manifest.json")
     # Rebind after adding the manifest digest.
     body = dict(release); body.pop("release_id")
@@ -79,9 +86,12 @@ def rollback_candidate(release_id):
             output.write("candidate_sha256="+file_sha(ROOT/"release/candidate.json")+"\n")
 
 VERSION_ID = r"[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}"
-# Right after an upload the version list can lag behind it, so a version not listed yet is re-read briefly.
+# A version this run just uploaded can briefly 404 on its detail read and deployment: asked again briefly.
 UPLOAD_LIST_ATTEMPTS = 6
 UPLOAD_LIST_RETRY_SECONDS = 6
+# Right after an upload the version list can lag behind it (run 44628125283 outlasted 30 seconds), so a version
+# not listed yet is re-read after each of these pauses, longer each time: 148 seconds in all, then it fails closed.
+UPLOAD_VERSION_LIST_WAITS = (3, 5, 8, 12, 15, 20, 25, 30, 30)
 
 def printed_version(stdout):
     # Wrangler 4.147.0 logs "Worker Version ID: <id>" to stdout once after an upload. Anything else is not guessed at.
@@ -160,9 +170,13 @@ class Cloudflare:
                 "WORKER_ORIGIN_SECRET_BINDING_REQUIRED")
         return details
 
-    def uploaded_version(self, app, release_id, printed=None):
-        for attempt in range(UPLOAD_LIST_ATTEMPTS):
-            if attempt: time.sleep(UPLOAD_LIST_RETRY_SECONDS)
+    def uploaded_version(self, app, release_id, printed, lease):
+        for attempt, wait in enumerate((0,)+UPLOAD_VERSION_LIST_WAITS, start=1):
+            if attempt > 1:
+                time.sleep(wait)
+                lease.assert_owned()
+                # Progress only, so the log shows how long the list lagged: the app and which read, never an id or tag.
+                print(json.dumps({"app":app,"version_list_attempt":attempt}), flush=True)
             versions = self.read(app,"versions")
             values = versions.get("items",[]) if isinstance(versions,dict) else versions
             require(isinstance(values,list) and all(isinstance(v,dict) for v in values),
@@ -431,6 +445,9 @@ def deploy(mode):
     release = json.loads(candidate_path.read_text())
     require(file_sha(candidate_path) == os.environ.get("EXPECTED_CANDIDATE_SHA256"), "APPROVED_ARTIFACT_CHANGED")
     validate_candidate(release,ctx)
+    # Which test shards ran in this run and which reused a parent run's tests (a re-pin): kept in the receipts so a
+    # release can be audited against the run whose tests it relied on. A deploy without all six records is refused.
+    tests = read_evidence(ROOT/"release/tests",ctx) if mode == "deploy" else None
     # The approval step before cloud credentials already waited for GitHub's job records to settle.
     github = GitHub(ctx["repository"]); approval = github.assert_approval(release, settle=120)
     aws = AWS(); aws.account()
@@ -457,7 +474,7 @@ def deploy(mode):
         require(all(row.get("origin_secret_version_id") == origin["VersionId"] for row in before.values()),
                 "PRIOR_WORKER_SECRET_VERSION_NOT_CONFIRMED")
         store.put(prefix+"started.json",{"schema":"hid.release-receipt/v1","kind":"frontend","status":"started",
-            "candidate":release,"approval":approval,"before":before})
+            "candidate":release,"approval":approval,"tests":tests,"before":before})
         started = True
         after = copy.deepcopy(before)
         if mode == "rollback":
@@ -513,7 +530,7 @@ def deploy(mode):
                     except subprocess.TimeoutExpired: raise ReleaseError("WORKER_VERSION_UPLOAD_FAILED") from None
                 # A failed/uncertain upload is inspected, never retried automatically.
                 require(result.returncode == 0, "WORKER_VERSION_UPLOAD_FAILED")
-                target = cloud.uploaded_version(app,release["release_id"],printed_version(result.stdout))
+                target = cloud.uploaded_version(app,release["release_id"],printed_version(result.stdout),lease)
                 store.put(prefix+"intent-"+app+".json",{"app":app,"before":before[app],"target_version":target})
                 updated.append(app)
                 cloud.deploy_version(app,target,lease,uploaded=True)
@@ -526,7 +543,7 @@ def deploy(mode):
         new = copy.deepcopy(index); new.update(frontend=after,frontend_release=release["release_id"])
         store.put(INDEX_KEY,new,etag=meta["ETag"])
         store.put(prefix+"complete.json",{"schema":"hid.release-receipt/v1","kind":"frontend","status":"success",
-            "candidate":release,"before":before,"after":after})
+            "candidate":release,"tests":tests,"before":before,"after":after})
         reconciled = True
         try: notify(aws,release,"success" if mode == "deploy" else "rollback-success")
         except ReleaseError:

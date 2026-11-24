@@ -1,7 +1,6 @@
 import { HEALTH_ID_PREFIX, normalizeHealthIdInput } from '@hid/contracts'
 import { Send } from 'lucide-react'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { FormActions, FormPage } from '../../../kasuwa/parts'
 import { Alert, Button, Card, Field, Input, Textarea, cx } from '../../../kasuwa/ui'
 import { staffApi } from '../../../staff/api'
@@ -9,21 +8,20 @@ import { failureText } from '../parts/chart'
 import type { FieldErrors, FormValues } from '../parts/RecordForm'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 import {
-  HID_FORMAT, METHOD_ROUTES, actionUnavailable, administratorOf, dropOfferedHealthId, healthIdProblem, offeredHealthId,
+  COMMAND_FAILED, HID_FORMAT, METHOD_ROUTES, actionUnavailable, administratorOf, dropOfferedHealthId, healthIdProblem,
+  offeredHealthId,
 } from './access'
 import { SCOPE_LABELS } from './requests'
 
-/**
- * Today always asks for 60 minutes, so 60 is the default; the person may choose less, down to 5. Health ID accepts 5 to
- * 1440 minutes, so the box's lowest value is 5 (below that Health ID refuses the request).
- */
-export const MIN_MINUTES = 5
-export const MAX_MINUTES = 60
-export const DEFAULT_MINUTES = '60'
-export const DURATION_PROBLEM = 'Enter a number of minutes from 5 to 60.'
+/** Today always asks for 60 minutes and offers no choice of how long (Patients.tsx:183), so this form asks the same. */
+export const REQUEST_MINUTES = 60
 export const REQUEST_TITLE = 'Ask the patient for access'
 /** Patients.tsx:165. */
 export const REASON_PROBLEM = 'Enter a clinical reason of at least 8 characters.'
+/** Patients.tsx:184. */
+export const REQUEST_SENT = 'Access request sent. The patient must approve it before records are available.'
+/** Patients.tsx:258, today's sentence above the request's fields. */
+export const REQUEST_LEDE = 'Ask the patient to approve access. A pending request does not expose their record.'
 
 function text(values: FormValues, key: string): string {
   const value = values[key]
@@ -31,45 +29,44 @@ function text(values: FormValues, key: string): string {
 }
 
 /**
- * Today's checks for an access request; 5 to 60 minutes for the duration. A Health ID of HID- alone (the
- * field's start) is empty: "Enter the patient’s Health ID.".
+ * Today's checks for an access request. A Health ID of HID- alone (the field's start) is empty: "Enter the patient’s Health ID.".
  */
 export function requestProblems(values: FormValues): FieldErrors {
   const errors: Record<string, string> = {}
   const hidProblem = healthIdProblem(normalizeHealthIdInput(text(values, 'hid')))
   if (hidProblem) errors.hid = hidProblem
   if (text(values, 'reason').trim().length < 8) errors.reason = REASON_PROBLEM
-  const minutes = text(values, 'duration').trim()
-  if (!/^\d{1,2}$/.test(minutes) || Number(minutes) < MIN_MINUTES || Number(minutes) > MAX_MINUTES) errors.duration = DURATION_PROBLEM
   return errors
 }
 
 type Scope = 'read_records' | 'write_records'
-const ORDER = ['hid', 'scope', 'duration', 'reason'] as const
+const ORDER = ['hid', 'scope', 'reason'] as const
 type Key = (typeof ORDER)[number]
 
-const SCOPES: ReadonlyArray<{ value: Scope; label: string; hint: string }> = [
-  { value: 'read_records', label: SCOPE_LABELS.read_records, hint: 'View only' },
-  { value: 'write_records', label: SCOPE_LABELS.write_records, hint: 'For notes, vitals and orders' },
+/** Today's two scopes, named only (Patients.tsx:258): no hint under either. */
+const SCOPES: ReadonlyArray<{ value: Scope; label: string }> = [
+  { value: 'read_records', label: SCOPE_LABELS.read_records },
+  { value: 'write_records', label: SCOPE_LABELS.write_records },
 ]
 
 /**
  * "Ask the patient for access" (today's "Request" method). A request waiting for the patient shows nothing of their
- * record; the page goes to the new request. One column, the Health ID handed over from Find a patient already in it.
+ * record. Sent, the form stays and says so, as today's does (Patients.tsx:181-184). One column, the Health ID handed over
+ * from Find a patient already in it.
  */
 export function RequestAccess() {
   const { facility, permissions, setActivePatient } = useClinical()
   const href = useWorkspaceHref()
-  const navigate = useNavigate()
   const id = useId()
   // A Health ID handed over from Patients, read once; otherwise the field starts at HID-, as today's does.
   const [hid, setHid] = useState(() => offeredHealthId(facility?.id, setActivePatient) || HEALTH_ID_PREFIX)
   useEffect(() => { dropOfferedHealthId() }, [])
   const [scope, setScope] = useState<Scope>('read_records')
-  const [duration, setDuration] = useState(DEFAULT_MINUTES)
   const [reason, setReason] = useState('')
   const [errors, setErrors] = useState<FieldErrors>({})
   const [formError, setFormError] = useState<ReactNode>(null)
+  const [message, setMessage] = useState('')
+  const [sent, setSent] = useState(0)
   const [busy, setBusy] = useState(false)
   const [focusRequest, setFocusRequest] = useState<{ key: Key; n: number } | null>(null)
   // A problem refused from Enter in its own field: focus does not move there, so the field's description would not be
@@ -77,11 +74,14 @@ export function RequestAccess() {
   // staff/useFieldProblems.tsx:12-15,25-27,45); as both it would be spoken twice.
   const [alerted, setAlerted] = useState<{ key: Key; n: number } | null>(null)
   const sending = useRef(false)
+  const status = useRef<HTMLDivElement>(null)
   const unavailable = actionUnavailable(METHOD_ROUTES.request, permissions, administratorOf(facility, permissions))
   const unavailableId = `${id}-unavailable`
 
   // The first problem gets focus as it is shown.
   useLayoutEffect(() => { if (focusRequest) document.getElementById(`${id}-${focusRequest.key}`)?.focus() }, [focusRequest, id])
+  // A request sent: focus goes to what happened, so it is heard.
+  useLayoutEffect(() => { if (sent) status.current?.focus() }, [sent])
   const clear = (key: Key) => setErrors(current => {
     if (!(key in current)) return current
     const next = { ...current }
@@ -92,8 +92,10 @@ export function RequestAccess() {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (sending.current || !facility || unavailable) return
+    // Each press starts afresh, as today's clearFeedback does (Patients.tsx:129,168).
     setFormError(null)
-    const found = requestProblems({ hid, scope, duration, reason })
+    setMessage('')
+    const found = requestProblems({ hid, scope, reason })
     setErrors(found)
     const first = ORDER.find(key => found[key])
     if (first && document.activeElement === document.getElementById(`${id}-${first}`)) {
@@ -105,12 +107,14 @@ export function RequestAccess() {
     sending.current = true
     setBusy(true)
     try {
-      const request = await staffApi.requestAccess(facility.id, normalizeHealthIdInput(hid), scope, reason.trim(), Number(duration.trim()))
-      navigate(href(request.accessRequestId), {
-        state: { notice: 'Request sent. The patient must approve before records are available.' },
-      })
+      // Said in words: never the request's id (owner rule, IDs on screen; Patients.tsx:182). Today's form keeps what was
+      // typed after a send (Patients.tsx:181-184), so this one does too.
+      await staffApi.requestAccess(facility.id, normalizeHealthIdInput(hid), scope, reason.trim(), REQUEST_MINUTES)
+      setMessage(REQUEST_SENT)
+      setSent(value => value + 1)
     } catch (caught) {
-      setFormError(failureText(caught, 'The request couldn’t be sent. Please try again.'))
+      // Today's words for a request that failed (Patients.tsx:226), and the chart's words for an unknown Health ID.
+      setFormError(failureText(caught, COMMAND_FAILED))
     } finally {
       sending.current = false
       setBusy(false)
@@ -121,7 +125,7 @@ export function RequestAccess() {
   const describe = (key: Key, hint?: boolean) => [errors[key] ? `${id}-${key}-error` : hint ? `${id}-${key}-hint` : ''].filter(Boolean).join(' ') || undefined
 
   return (
-    <FormPage title={REQUEST_TITLE} description="They approve on their phone. You see nothing until they do."
+    <FormPage title={REQUEST_TITLE} description={REQUEST_LEDE}
       back={{ to: href(), label: 'Back to access requests' }}>
       <Card>
         <form noValidate className="flex flex-col gap-5 p-5" onSubmit={event => void submit(event)}>
@@ -138,17 +142,10 @@ export function RequestAccess() {
                 scope === option.value ? 'bg-brand-soft ring-brand-line' : 'bg-surface ring-line-control')}>
                 <input id={index === 0 ? `${id}-scope` : undefined} type="radio" name={`${id}-scope`} value={option.value} checked={scope === option.value}
                   onChange={() => setScope(option.value)} className="mt-0.5 size-4 accent-brand-fill" />
-                <span className="min-w-0"><span className="block text-sm font-medium text-ink">{option.label}</span>
-                  <span className="block text-[12px] text-ink-3">{option.hint}</span></span>
+                <span className="min-w-0 text-sm font-medium text-ink">{option.label}</span>
               </label>)}
             </div>
           </fieldset>
-
-          <Field label="How long (minutes)" htmlFor={`${id}-duration`} hint="From 5 to 60 minutes." hintId={`${id}-duration-hint`} error={said('duration')} errorId={`${id}-duration-error`}>
-            <Input id={`${id}-duration`} type="number" inputMode="numeric" min={MIN_MINUTES} max={MAX_MINUTES} step={1} value={duration}
-              className="max-w-32" aria-invalid={errors.duration ? true : undefined} aria-describedby={describe('duration', true)}
-              onChange={event => { setDuration(event.target.value); clear('duration') }} />
-          </Field>
 
           <Field label="Clinical reason" htmlFor={`${id}-reason`} error={said('reason')} errorId={`${id}-reason-error`}>
             <Textarea id={`${id}-reason`} rows={3} maxLength={500} value={reason}
@@ -156,10 +153,14 @@ export function RequestAccess() {
               onChange={event => { setReason(event.target.value); clear('reason') }} />
           </Field>
 
-          {formError ? <Alert intent="error" title="Couldn’t send the request">{formError}</Alert> : null}
+          <div ref={status} tabIndex={-1} role="status" className="outline-none empty:hidden">
+            {message ? <Alert intent="success" live={false}>{message}</Alert> : null}
+          </div>
+          {/* Today's error has no title of its own (Patients.tsx:271). */}
+          {formError ? <Alert intent="error">{formError}</Alert> : null}
           {unavailable ? <p id={unavailableId} className="m-0 text-[13px] text-ink-3">{unavailable}</p> : null}
           <FormActions sticky={false}>
-            {/* Busy, it stays focusable (aria-disabled, not disabled), as Check PIN and open does: focus is not lost while the
+            {/* Busy, it stays focusable (aria-disabled, not disabled), as Verify PIN and open does: focus is not lost while the
                 request is sent, and a second press sends nothing (submit returns while one is on its way). */}
             <Button type="submit" variant="primary" icon={Send} disabled={!facility || unavailable !== null}
               aria-disabled={busy || undefined} aria-busy={busy || undefined}

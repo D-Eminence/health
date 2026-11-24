@@ -3,13 +3,16 @@ import { isHidApiError, plainErrorText } from '@hid/http'
 import { getEnvironment } from '../../../staff/env'
 import type { StaffSession } from '../../../staff/api'
 import { loadTurnstileScript, turnstileSize } from '../../../Turnstile'
-import { resolveStaffProductHostname, STAFF_JOIN_PATH, staffLoginAction } from '../../../productHostname'
+import { resolveStaffProductHostname, STAFF_JOIN_PATH, STAFF_PRODUCT_ROUTES, staffLoginAction } from '../../../productHostname'
 import { staffLandingPath } from '../../../staff/navigation'
+import { facilityChoiceNeeded } from '../../../staff/facilitySelection'
+import { scanAccess } from '../../../scanAccess'
 import { staffReturnPath } from '../../../staff/session'
 import { STAFF_MFA_FACTOR_UNPROVEN, STAFF_MFA_UNAVAILABLE } from '../../../staff/routes/StaffMfaSteps'
 import { usesNovuBackend } from '../../../backendContract'
 import { capturedStaffInvitation } from '../../../staff/invitationCapture'
-import { Alert } from '../../../kasuwa/ui'
+import { NO_FACILITY_YET, productNotAuthorised } from '../../../staffSignInRefusals'
+import { opensAccountOnly, START_OUTREACH_GROUP_PATH } from '../../../staff/accountOnly'
 
 /*
  * Today's sign-in rules, as staff/routes/SignIn.tsx keeps them inside the page. They are copied here, word for word,
@@ -20,7 +23,7 @@ import { Alert } from '../../../kasuwa/ui'
 /** The sign-in step's own words: a refused password, and anything else that stopped it. Never Identity's text. */
 export const SIGN_IN_FAILED = 'We couldn’t sign you in. Check your connection and try again.'
 export const SIGN_IN_CODES: Readonly<Record<string, string>> = {
-  NO_ACTIVE_FACILITY_MEMBERSHIP: 'You aren’t active at any facility yet. Ask your facility administrator for access.',
+  NO_ACTIVE_FACILITY_MEMBERSHIP: NO_FACILITY_YET,
 }
 export const SIGN_IN_STATUSES: Readonly<Partial<Record<number, string>>> = {
   400: 'Check your email address and password, then try again.',
@@ -31,16 +34,32 @@ export const SIGN_IN_STATUSES: Readonly<Partial<Record<number, string>>> = {
 export function passwordRefusal(caught: unknown): string {
   if (isHidApiError(caught) && caught.code === 'STAFF_MFA_FACTOR_UNPROVEN') return STAFF_MFA_FACTOR_UNPROVEN
   if (isHidApiError(caught) && caught.code === 'MFA_UNAVAILABLE') return STAFF_MFA_UNAVAILABLE
+  if (isHidApiError(caught) && caught.code === 'PRODUCT_NOT_AUTHORISED') return productNotAuthorised()
   return plainErrorText(caught, SIGN_IN_FAILED, { codes: SIGN_IN_CODES, statuses: SIGN_IN_STATUSES, audience: 'facility' })
 }
 
 /** Where a sign-in lands: an invitation carried through it, the page to return to, the product host's page, else Overview. */
 export function getStaffLandingPath(search: string, session: StaffSession): string {
+  // An account with no facility yet, on outreach.: the one page it opens (owner's answer to Q88).
+  if (opensAccountOnly(session)) return START_OUTREACH_GROUP_PATH
   if (usesNovuBackend() && capturedStaffInvitation()) return STAFF_JOIN_PATH
   const product = resolveStaffProductHostname(window.location.hostname)?.route
   const returnTo = staffReturnPath(new URLSearchParams(search).get('returnTo'))
   if (returnTo && returnTo !== product) return returnTo
-  return product ? staffLandingPath(product, session) : '/provider'
+  return product ? blueLandingPath(product, session) : '/provider'
+}
+
+/**
+ * The product host's own page a blue sign-in lands on: classic's rule (staff/navigation.ts staffLandingPath), except
+ * Scan paper records (/provider/ocr), which opens to everyone who follows readings, the front desk included
+ * (ocr.job.read-own since hid-system 0136), as the page itself does (departments/migrate/page.tsx). Classic's sidebar
+ * list (PROVIDER_NAVIGATION) keeps its own rule. Owner's decision (24 November 2026, "Migrate works as before"): the
+ * front desk signing in on Health ID Migrate lands on Scan paper records, not on Home.
+ */
+function blueLandingPath(wanted: string, session: StaffSession): string {
+  const facility = session.actor.facility
+  if (wanted !== STAFF_PRODUCT_ROUTES.migrate || !facility || facilityChoiceNeeded(session)) return staffLandingPath(wanted, session)
+  return scanAccess(facility.permissions).followsReadings ? wanted : '/provider'
 }
 
 const CHALLENGE_UNAVAILABLE = 'Human verification could not load. Refresh the page and try again.'
@@ -73,5 +92,6 @@ export function TurnstileChallenge({ onToken, resetKey }: { readonly onToken: (t
   }, [siteKey, resetKey])
 
   if (!siteKey) return null
-  return <div className="flex flex-col gap-2"><div ref={host} />{error ? <Alert intent="error" size="sm">{error}</Alert> : null}</div>
+  // As on the classic page: the check's own line under it, in the same plain words as the sign-in's refusal.
+  return <div><div ref={host} />{error ? <p role="alert" className="m-0 text-[13px] font-medium text-danger-ink">{error}</p> : null}</div>
 }

@@ -1,25 +1,27 @@
 import { usesNovuBackend } from '../../../backendContract'
+import { ImportedFromPaper, IMPORTS_PERMISSION } from '../../../staff/routes/ImportedFromPaper'
 import { ImportedPatientHistory } from '../../../staff/routes/ImportedPatientHistory'
 import { PatientReportedHealth } from '../../../staff/routes/PatientReportedHealth'
 import { StaffImportedHistory } from '../../../staff/routes/StaffImportedHistory'
-import { StaffPatientChat } from '../../../staff/routes/StaffPatientChat'
-import { importedRecordsEnabled, staffPatientChatEnabled } from '../../../staff/stagingOnlyFeatures'
+import { importedRecordsEnabled } from '../../../staff/stagingOnlyFeatures'
 import type { Chart } from '../parts/chart'
+import { readReportedHealth } from '../parts/reportedHealth'
 import { useClinical } from '../parts/Workspace'
 
 /**
  * Today's chart sections, below the consultation list and a visit (mounted once for both, ConsultWorkspace): staff
- * imported history, the patient assistant, "Reported by the patient" and the imported medical history. Each is today's
- * own component, with today's reads, permission checks, build switches and keys (staff/routes/Clinical.tsx), so a
+ * imported history, "Reported by the patient", the imported medical history, and the Lab results
+ * and medicines imported from paper (ImportedFromPaper, each behind its own read permission). Each is today's own
+ * component, with today's reads, permission checks, build switches and keys (staff/routes/Clinical.tsx), so a
  * previous actor, facility, patient or permission set never survives; each key names its section, so React keeps the
  * sections apart while they stay mounted. clinical.css draws them in the design's card style. Direct care only, as today.
+ The patient assistant is in the patient banner on every chart page (parts/PatientAssistant.tsx, QA P1-9).
  */
 export function TodaySections({ chart }: { chart: Chart }) {
   const { state, facility, permissions } = useClinical()
   if (!facility || chart.purpose !== 'direct-care') return null
   const actorId = state.status === 'ready' ? state.session.actor.id : ''
   const key = JSON.stringify([actorId, facility.id, chart.patientId, chart.purpose, permissions])
-  const chatKey = JSON.stringify([actorId, facility.id, facility.membershipId, chart.patientId, chart.purpose, permissions])
   const novu = usesNovuBackend()
 
   return (
@@ -27,17 +29,10 @@ export function TodaySections({ chart }: { chart: Chart }) {
       {/* Off unless the build turns them on: hid-system main does not serve their routes (stagingOnlyFeatures.ts). */}
       {!novu && permissions.includes('ehr.imported-history.read')
         ? <StaffImportedHistory key={`staff-imported-history:${key}`} facilityId={facility.id} patientId={chart.patientId} /> : null}
-      {permissions.includes(novu ? 'ehr.note.read' : 'ehr.record-chat.use') && staffPatientChatEnabled() ? (
-        <StaffPatientChat
-          key={chatKey}
-          facilityId={facility.id}
-          facilityName={facility.name}
-          patientId={chart.patientId}
-          patientName={chart.patient.lookup.patient.fullName ?? chart.patient.hid}
-          hid={chart.patient.hid}
-        />
-      ) : null}
-      {permissions.includes('ehr.note.read') ? <PatientReportedHealth key={`reported-health:${key}`} facilityId={facility.id} patientId={chart.patientId} /> : null}
+      {/* The patient page's read of it, shared for the open patient (parts/reportedHealth.ts): opening the patient, then the
+          chart, reads and logs it once, as today's chart did. Its retry reads afresh. */}
+      {permissions.includes('ehr.note.read') ? <PatientReportedHealth key={`reported-health:${key}`} facilityId={facility.id} patientId={chart.patientId}
+        read={fresh => readReportedHealth(chart.patient, facility.id, chart.patientId, { fresh })} /> : null}
       {permissions.includes('ehr.note.read') && importedRecordsEnabled() ? (
         <ImportedPatientHistory
           key={`imported-records:${key}`}
@@ -48,6 +43,11 @@ export function TodaySections({ chart }: { chart: Chart }) {
           canDownload={permissions.includes('ehr.document.read')}
         />
       ) : null}
+      {/* Lab results and medicines read from the patient's paper records, each only for a role that may read its list. */}
+      {permissions.includes(IMPORTS_PERMISSION.lab)
+        ? <ImportedFromPaper key={`imported-lab:${key}`} kind="lab" facilityId={facility.id} patientId={chart.patientId} /> : null}
+      {permissions.includes(IMPORTS_PERMISSION.pharmacy)
+        ? <ImportedFromPaper key={`imported-pharmacy:${key}`} kind="pharmacy" facilityId={facility.id} patientId={chart.patientId} /> : null}
     </div>
   )
 }

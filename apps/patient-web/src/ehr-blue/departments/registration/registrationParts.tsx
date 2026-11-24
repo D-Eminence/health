@@ -1,8 +1,6 @@
 import { useCallback, useId, useRef, useState, type ReactNode } from 'react'
-import { EhrField, EhrInput, EhrTextarea } from '@hid/ui/ehr'
 import { focusIsWithin } from '../../../staff/fieldProblem'
 import { useFocusById } from '../../../staff/focus'
-import { NOT_COLLECTED, PROVISIONAL_LABEL } from './registrationText'
 
 /** The design's ErrorBox: a refusal after an action, or a read that failed. */
 export function ErrorBox({ message }: { readonly message: string }) {
@@ -55,36 +53,6 @@ export function useCommandKey() {
     },
     clear() { previous.current = null },
   }
-}
-
-/**
- * A field of the design's form that Health ID does not take (owner decision): shown, disabled, and saying so. It has
- * no name and no value, so nothing typed here could be sent or kept; it is disabled, so nothing can be typed.
- */
-export function NotCollectedField({ label, multiline = false, className }: {
-  readonly label: string
-  readonly multiline?: boolean
-  readonly className?: string
-}) {
-  return (
-    <EhrField label={label} hint={NOT_COLLECTED} className={className}>
-      {multiline ? <EhrTextarea rows={3} disabled /> : <EhrInput disabled autoComplete="off" />}
-    </EhrField>
-  )
-}
-
-/** The design's "Provisional local identity" checkbox, beside its label, likewise not taken: disabled, with the hint. */
-export function NotCollectedCheck() {
-  const id = useId()
-  return (
-    <div className="hid-ehr-field hid-ehr-dept-registration-check">
-      <label className="hid-ehr-label" htmlFor={`${id}-control`}>
-        {PROVISIONAL_LABEL}
-        <input id={`${id}-control`} type="checkbox" disabled aria-describedby={`${id}-hint`} />
-      </label>
-      <p id={`${id}-hint`} className="hid-ehr-hint">{NOT_COLLECTED}</p>
-    </div>
-  )
 }
 
 /** A design action Health ID cannot do: shown disabled, its one-line reason under it. */

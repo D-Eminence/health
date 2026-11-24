@@ -1,4 +1,4 @@
-import { RotateCcw, Siren, UserSearch } from 'lucide-react'
+import { AlertTriangle, RotateCcw, Siren, UserSearch } from 'lucide-react'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { FormPage, LoadingRows, PatientBanner, Value } from '../../../kasuwa/parts'
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, type Tone } from '../../../kasuwa/ui'
@@ -8,12 +8,14 @@ import { staffApi, type EmergencyRecords, type EmergencySection } from '../../..
 import { refusalText } from '../../../staff/fieldProblem'
 import { priorityLabel } from '../../../staff/orderRoutes'
 import { selfServiceReview } from '../../../staff/staffAccess'
+import { NOTHING_REPORTED, RecordedAllergyFacts, RecordedHeading, ReportedHeading, profileUpdated } from '../patients/AllergiesCard'
 import { oldVitalsLine } from '../nursing/observations'
-import { ChartGate, type Chart } from '../parts/chart'
+import { ChartGate, readEndsAccess, type Chart } from '../parts/chart'
 import { formatWhen } from '../parts/format'
 import { codeText, MoreDetails } from '../parts/MoreDetails'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
-import { ACCESS_CLOSED, CLOSE_FAILED, CLOSE_GRANT, CLOSE_REASON, CLOSE_REFUSALS, actionUnavailable } from './access'
+import { ACCESS_CLOSED, CLOSE_FAILED, CLOSE_GRANT, CLOSE_REASON, actionUnavailable } from './access'
+import { emergencyAllergies, type EmergencyAllergies } from './emergencyAllergies'
 import { ReleasedResults } from './ReleasedResults'
 import { plainErrorText } from '@hid/http'
 
@@ -21,6 +23,17 @@ import { plainErrorText } from '@hid/http'
 export const SUMMARY_EYEBROW = 'Emergency summary'
 export const SUMMARY_LEDE = 'View only. This facility’s finished visits, signed notes, diagnoses, prescriptions, lab tests and documents that your role may see. Every opening is recorded.'
 export const VITALS_NOTICE = 'Vital signs aren’t shown here: a recorded value may have been corrected since.'
+/** Before any medicine, wherever the allergies can't be shown or none are listed (Ola, W5). */
+export const ASK_ABOUT_ALLERGIES = 'Ask the patient, or the person with them, about allergies before giving any medicine.'
+/**
+ * The emergency read carries no allergies (an EHR before hid-system#218 at 7fbb04aa), or carries some that can't be
+ * read: said plainly, so the summary's silence is never read as "no allergies".
+ */
+export const EMERGENCY_ALLERGIES_NOT_SHOWN = `Allergies can’t be shown here. ${ASK_ABOUT_ALLERGIES}`
+/** The emergency read's recorded list is empty: no clinician recorded one, which is not "no allergies". */
+export const NO_RECORDED_ALLERGIES = 'No allergies recorded by clinicians.'
+/** Where the patient's own words come from, as the EHR says it. */
+export const PATIENT_REPORTED_SOURCE = 'Entered by the patient in their Health ID portal, not checked by a clinician.'
 export const SUMMARY_FAILED = 'Please try again.'
 export const LOADING_SUMMARY = 'Loading emergency summary'
 
@@ -150,6 +163,52 @@ function Text({ children }: { children: ReactNode }) {
   return <p className="m-0 whitespace-pre-wrap text-ink">{children}</p>
 }
 
+/**
+ * The patient's allergies under emergency access (Ola, W5; hid-system#218 at 7fbb04aa), first: those clinicians recorded,
+ * at this facility or another, in the EHR's order (most serious first, never sorted again here), then the patient's own
+ * words, each labelled by its source with the chart card's headings and badges (RecordedHeading, ReportedHeading). The
+ * date beside the patient's words is their health profile's (profileUpdated). Reading only: nothing here adds, marks or
+ * reads anything; the allergy routes are direct care only. `allergies` null: the answer has none that can be shown, said
+ * plainly, never as "none".
+ */
+function AllergiesSection({ allergies }: { allergies: EmergencyAllergies | null }) {
+  const id = useId()
+  const recordedId = `${id}-recorded`
+  const reportedId = `${id}-reported`
+  if (!allergies) {
+    return (
+      <Card>
+        <CardHeader as="h2" title="Allergies" icon={AlertTriangle} iconTone="danger" />
+        <div className="px-5 py-4"><Alert intent="warning" size="sm" live={false}>{EMERGENCY_ALLERGIES_NOT_SHOWN}</Alert></div>
+      </Card>
+    )
+  }
+  const { recorded, patientReported } = allergies
+  return (
+    <Card>
+      <CardHeader as="h2" title="Allergies" icon={AlertTriangle} iconTone="danger" />
+      <div className="flex flex-col gap-4 px-5 py-4">
+        <section aria-labelledby={recordedId}>
+          <RecordedHeading id={recordedId} />
+          {recorded.length === 0
+            ? <p className="m-0 mt-1 text-sm text-ink-3">{NO_RECORDED_ALLERGIES}</p>
+            : <ul className="m-0 mt-2 flex list-none flex-col gap-2 p-0">
+                {recorded.map(item => <li key={item.id} className="rounded-md border border-line px-3 py-2"><RecordedAllergyFacts item={item} /></li>)}
+              </ul>}
+        </section>
+        <section aria-labelledby={reportedId}>
+          <ReportedHeading id={reportedId} />
+          {patientReported.allergies ? <>
+            <p className="m-0 mt-1 text-[12px] text-ink-3">{PATIENT_REPORTED_SOURCE}{profileUpdated(patientReported.updatedAt)}</p>
+            <p className="m-0 mt-1 text-sm break-words whitespace-pre-line text-ink">{patientReported.allergies}</p>
+          </> : <p className="m-0 mt-1 text-sm text-ink-3">{NOTHING_REPORTED}</p>}
+        </section>
+        {recorded.length === 0 && !patientReported.allergies ? <p className="m-0 text-sm text-ink">{ASK_ABOUT_ALLERGIES}</p> : null}
+      </div>
+    </Card>
+  )
+}
+
 /** The sections of one emergency summary. Reading only: no control here creates, changes, signs or sends anything. */
 function Sections({ summary, facilityId, may }: { summary: EmergencyRecords; facilityId: string; may: (permission: string) => boolean }) {
   const sectionProps = (key: keyof typeof EMERGENCY_CAPS) => ({
@@ -160,6 +219,7 @@ function Sections({ summary, facilityId, may }: { summary: EmergencyRecords; fac
   const released = (key: EmergencySection) => !summary.released || summary.released.includes(key)
   return (
     <>
+      <AllergiesSection allergies={emergencyAllergies(summary)} />
       {released('vitals') ? <Alert intent="info" size="sm" live={false}>{VITALS_NOTICE}</Alert> : null}
       <SummarySection title="Finished visits" items={summary.encounters} {...sectionProps('encounters')}
         empty="No finished visits at this facility." render={item => <>
@@ -263,6 +323,9 @@ function Summary({ chart, onClosed }: { chart: Chart; onClosed: () => void }) {
   // The latest re-check, so a new function identity does not read the summary again.
   const verify = useRef(chart.verify)
   useLayoutEffect(() => { verify.current = chart.verify })
+  // The latest chart: opened from an emergency search card (no Health ID to look up again), a refused read ends access.
+  const latest = useRef(chart)
+  useLayoutEffect(() => { latest.current = chart })
 
   useEffect(() => {
     let active = true
@@ -272,7 +335,11 @@ function Summary({ chart, onClosed }: { chart: Chart; onClosed: () => void }) {
     verify.current()
       .then(() => staffApi.emergencyRecords(facilityId, patientId))
       .then(result => { if (active) setSummary(result) })
-      .catch((caught: unknown) => { if (active) setError(refusalText(caught, SUMMARY_FAILED)) })
+      .catch((caught: unknown) => {
+        if (!active) return
+        if (readEndsAccess(latest.current.patient, caught)) latest.current.endAccess()
+        else setError(refusalText(caught, SUMMARY_FAILED))
+      })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [facilityId, patientId, revision])
@@ -292,7 +359,7 @@ function Summary({ chart, onClosed }: { chart: Chart; onClosed: () => void }) {
     try {
       await staffApi.closeGrant(facilityId, grantId, CLOSE_REASON)
     } catch (caught) {
-      setCloseError(plainErrorText(caught, CLOSE_FAILED, { codes: CLOSE_REFUSALS, audience: 'facility' }))
+      setCloseError(plainErrorText(caught, CLOSE_FAILED, { audience: 'facility' }))
       return
     } finally {
       closing.current = false
@@ -321,7 +388,8 @@ function Summary({ chart, onClosed }: { chart: Chart; onClosed: () => void }) {
               ? <Button variant="ghost" icon={UserSearch} to={href.to('patients')}>Find another patient</Button> : null}
           </div>
           {grantId && closeUnavailable ? <p id={closeUnavailableId} className="m-0 text-[13px] text-ink-3">{closeUnavailable}</p> : null}
-          {closeError ? <Alert intent="error" title="Couldn’t end access">{closeError}</Alert> : null}
+          {/* Today's failure has no title of its own (Patients.tsx:246, 271). */}
+          {closeError ? <Alert intent="error">{closeError}</Alert> : null}
         </div>
       </Card>
       {loading && !summary ? <Card><LoadingRows rows={3} label={LOADING_SUMMARY} /></Card> : null}

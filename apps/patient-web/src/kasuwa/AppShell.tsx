@@ -17,6 +17,9 @@ import { Avatar, cx, type Icon } from './ui'
 import { keepTabInside, ThemeSwitch } from './interactive'
 import { focusLost, focusPageHeading } from '../pageFocus'
 
+/** Router state on a move made from the menu or the tab bar: a page chosen there opens as a page, never in a drawer. */
+export const MENU_STATE = { menu: true } as const
+
 /** Whether the sidebar is folded to its rail: kept for the visit only (nothing is stored in the browser). */
 let railed = false
 
@@ -77,13 +80,15 @@ function useMenu(open: boolean, close: () => void, button: RefObject<HTMLElement
 /** The text after the last " · " of a tab's title: the product it names ("Health ID", "Health ID Platform"). */
 const productOf = (title: string) => title.includes(' · ') ? title.slice(title.lastIndexOf(' · ') + 3) : 'Health ID'
 
-export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, headerStart, headerActions, tabs, create, extraFooter, sidebarTop, children, mainAs = 'main', wide, skipLink = 'Skip to main content' }: {
+export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, signOutProblem, headerStart, headerActions, tabs, create, extraFooter, sidebarTop, children, mainAs = 'main', wide, skipLink = 'Skip to main content' }: {
   brand: ReactNode
   switcher: Switcher
   nav: readonly NavGroup[]
   person: { name: string; detail: string; avatar?: ReactNode; profileTo?: string }
   onSignOut: () => void
   signingOut?: boolean
+  /** Why the last sign-out failed, shown on the phone Menu page beside Sign out (the page itself is hidden there). */
+  signOutProblem?: string
   /** What the header shows on the left, phones and desktop. */
   headerStart?: ReactNode
   headerActions?: ReactNode
@@ -188,7 +193,7 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
   const badge = (count: number) => <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-ink px-1.5 text-[11px] font-semibold text-surface tabular" aria-label={`${count} new`}>{count}</span>
 
   const navLink = (item: NavItem) => (
-    <NavLink to={item.to} end={item.end} title={rail ? item.label : undefined}
+    <NavLink to={item.to} state={MENU_STATE} end={item.end} title={rail ? item.label : undefined}
       className={({ isActive }) => cx('relative flex h-11 items-center gap-3 rounded-xl no-underline transition-colors duration-75',
         rail ? 'mx-auto w-11 justify-center' : 'px-3 text-sm font-medium',
         isActive ? 'bg-hover font-semibold text-ink' : 'text-ink-2 hover:bg-hover/60 hover:text-ink')}>
@@ -278,7 +283,7 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
     {nav.map((group, i) => <div key={group.title ?? i}>
       {group.title && <p className="m-0 px-1 pb-2 text-[13px] font-medium text-ink-3">{group.title}</p>}
       <ul className="m-0 list-none divide-y divide-line overflow-hidden rounded-2xl bg-surface p-0 ring-1 ring-line">
-        {group.items.map(item => <li key={item.to}><Link to={item.to} className={row}>
+        {group.items.map(item => <li key={item.to}><Link to={item.to} state={MENU_STATE} className={row}>
           <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-tray text-ink-2"><item.icon className="size-[18px]" aria-hidden /></span>
           <span className="min-w-0 flex-1 truncate">{item.label}</span>
           {item.badge ? badge(item.badge) : null}
@@ -294,6 +299,7 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
         className="inline-flex h-11 cursor-pointer items-center gap-2 rounded-xl border-0 bg-transparent px-3.5 text-[14px] font-medium text-danger-ink ring-1 ring-line ring-inset hover:bg-danger-soft aria-disabled:cursor-default aria-disabled:opacity-60"><LogOut className="size-4" aria-hidden />{signingOut ? 'Signing out…' : 'Sign out'}</button>
       {signingOutSaid}
     </div>
+    {signOutProblem ? <div role="alert" className="rounded-2xl bg-danger-soft px-4 py-3 text-[14px] text-danger-ink ring-1 ring-line"><p className="m-0 font-semibold">Couldn’t sign out</p><p className="m-0">{signOutProblem}</p></div> : null}
   </div>
 
   const tabCls = (on: boolean) => cx('flex min-h-14 flex-col items-center justify-end gap-0.5 pt-2 pb-1.5 text-[12px] font-medium no-underline', on ? 'text-ink' : 'text-ink-3')
@@ -307,7 +313,7 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
   return <div className="min-h-dvh bg-surface">
     {skipLink && mainAs === 'main' && <a href="#main" onClick={event => { event.preventDefault(); document.getElementById('main')?.focus() }}
       className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[var(--z-toast)] focus:rounded-md focus:bg-surface focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-ink focus:ring-2 focus:ring-brand">{skipLink}</a>}
-    <aside className={cx('fixed inset-y-0 left-0 z-30 hidden border-r border-line bg-surface transition-[width] duration-200 lg:block', sidebarWidth)}>{sidebar}</aside>
+    <aside className={cx('fixed inset-y-0 left-0 z-30 hidden border-r border-line bg-surface transition-[width] duration-200 lg:block print:hidden!', sidebarWidth)}>{sidebar}</aside>
     {creating && create && <div className="fixed inset-0 z-[var(--z-drawer)] lg:hidden">
       <div className="absolute inset-0 animate-fade-in bg-[#101828]/45" onClick={() => setCreating(false)} />
       <div ref={sheet} role="dialog" aria-modal="true" aria-label={create.label} className="absolute inset-x-0 bottom-0 animate-rise rounded-t-3xl bg-surface px-3 pt-2.5 pb-[calc(env(safe-area-inset-bottom)+12px)] shadow-[var(--shadow-dialog)]">
@@ -322,9 +328,9 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
         <button type="button" onClick={() => setCreating(false)} className="mt-1 flex h-12 w-full cursor-pointer items-center justify-center rounded-2xl border-0 bg-transparent text-[15px] font-medium text-ink-2 ring-1 ring-line ring-inset">Cancel</button>
       </div>
     </div>}
-    <div className={cx('transition-[padding] duration-200', rail ? 'lg:pl-[76px]' : 'lg:pl-[264px]')}>
+    <div className={cx('transition-[padding] duration-200 print:pl-0!', rail ? 'lg:pl-[76px]' : 'lg:pl-[264px]')}>
       {/* The header: shown on phones (brand, actions); on a computer only when it carries something. */}
-      <header className={cx('sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-line bg-surface px-4 sm:px-6 lg:px-8', !headerStart && !headerActions && 'lg:hidden')}>
+      <header className={cx('sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-line bg-surface px-4 sm:px-6 lg:px-8 print:hidden', !headerStart && !headerActions && 'lg:hidden')}>
         <div className="flex min-w-0 items-center gap-2.5">{headerStart}</div>
         <div className="flex-1" />
         <div className="flex items-center gap-2">{headerActions}</div>
@@ -337,12 +343,12 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
       {/* Four places when there is nothing to start; with ➕ in the middle when there is. */}
       {/* Up to three places, Menu last; ➕ in the middle when there is something to start. */}
       <div className="mx-auto grid max-w-xl items-end" style={{ gridTemplateColumns: `repeat(${Math.min(tabs.length, 3) + 1 + (create ? 1 : 0)}, minmax(0, 1fr))` }}>
-        {tabs.slice(0, 2).map(t => <NavLink key={t.to} to={t.to} end={t.end} className={({ isActive }) => tabCls(isActive && !menu)}>{({ isActive }) => tabInner(t, isActive && !menu)}</NavLink>)}
+        {tabs.slice(0, 2).map(t => <NavLink key={t.to} to={t.to} state={MENU_STATE} end={t.end} className={({ isActive }) => tabCls(isActive && !menu)}>{({ isActive }) => tabInner(t, isActive && !menu)}</NavLink>)}
         {create ? <div className="flex justify-center pb-1.5">
           <button ref={plus} type="button" onClick={() => setCreating(true)} aria-label={create.label}
             className="-mt-5 inline-flex size-14 cursor-pointer items-center justify-center rounded-full border-0 bg-brand-fill text-white shadow-[0_10px_24px_-8px_rgba(23,92,211,.7)] ring-4 ring-surface transition-transform active:scale-95"><Plus className="size-7" aria-hidden /></button>
         </div> : null}
-        {tabs[2] ? <NavLink to={tabs[2].to} end={tabs[2].end} className={({ isActive }) => tabCls(isActive && !menu)}>{({ isActive }) => tabInner(tabs[2]!, isActive && !menu)}</NavLink> : null}
+        {tabs[2] ? <NavLink to={tabs[2].to} state={MENU_STATE} end={tabs[2].end} className={({ isActive }) => tabCls(isActive && !menu)}>{({ isActive }) => tabInner(tabs[2]!, isActive && !menu)}</NavLink> : null}
         <button type="button" onClick={() => menu ? closeMenu() : openMenu()} aria-pressed={menu} className={cx(tabCls(menu), 'cursor-pointer border-0 bg-transparent')}>{tabInner({ icon: MenuIcon, label: 'Menu' }, menu)}</button>
       </div>
     </nav>

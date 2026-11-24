@@ -21,6 +21,7 @@ import {
   type EmailChangeStarted, type HealthFields, type HealthProfile, type PhoneChanged, type ProfileDetails,
 } from './profileParity'
 import { photoBody } from './photoImage'
+import { NIN_CHECK_TIMEOUT_MS } from './ninCheck'
 import {
   parseShareInvitations, parseShareProviders,
   type ShareCreated, type ShareInput, type ShareInvitationConfirmed, type ShareInvitationCreated, type ShareInvitationInput,
@@ -536,6 +537,13 @@ export interface AccessRequest {
   deniedReason: string | null
   /** The purpose of use (hid-system 0104 D5), when Identity sends it: 'healthcare-operations' is records processing. */
   purpose?: string
+  /**
+   * Who asked (hid-system 0128, identity-api at 4c843270): the requesting staff member's name and their role at the
+   * request's facility (a role code such as `doctor` or `nurse`). Each null when Identity could not read it; both left
+   * out by an Identity before 0128.
+   */
+  requesterName?: string | null
+  requesterRole?: string | null
 }
 
 export interface PatientNotification {
@@ -893,9 +901,10 @@ export function createPatientApi(sender: ApiClient) {
     // decision 25, and the open read with the link's secret in its address (identity.sharedCard) is no longer called.
     // ADR-063: public, by name and place only. Empty while the facility route is off.
     participatingFacilities: () => call<ParticipatingFacilities>('GET', 'identity/patient-enrollments/participating-facilities'),
+    // The NIN start checks the NIN with QoreID, which can take longer than the client's usual 15 s (ninCheck.ts).
     enrollmentStart: (nin: string, turnstileToken: string, idempotencyKey: string) =>
       call<EnrollmentProgress>('POST', 'identity/patient-enrollments', { nin, turnstileAction: 'patient-enrollment', turnstileToken },
-        { headers: { 'Idempotency-Key': idempotencyKey } }),
+        { headers: { 'Idempotency-Key': idempotencyKey }, timeoutMs: NIN_CHECK_TIMEOUT_MS }),
     // The sign-up without a NIN: the details and the security check; the answer is verify_contact, with a code
     // sent to the email. A fresh Idempotency-Key per attempt. Its code is sent again with enrollmentContact.
     enrollmentSignup: (details: EnrollmentSignupDetails, turnstileToken: string, idempotencyKey: string) =>
@@ -933,8 +942,11 @@ export function createPatientApi(sender: ApiClient) {
       call<{ completed: true }>('POST', 'auth/otp/complete', { challengeId, verificationToken, newPassword, purpose: 'PASSWORD_RESET' }),
     profile: (signal?: AbortSignal) => call<PatientProfile>('GET', 'identity/me', undefined, { signal }),
     // The date of birth is checked against the NIN record; an account made without a NIN has none on its profile.
-    verifyNin: (nin: string, dateOfBirth: string) =>
-      call<PatientNinVerification>('POST', 'identity/me/verification/nin', { nin, dateOfBirth }),
+    // A QoreID check, as the NIN start's (ninCheck.ts). The key is the same for a retry of the same details; Identity
+    // asks QoreID once per NIN whatever it is (hid-system 0137), and reads it once the route takes one.
+    verifyNin: (nin: string, dateOfBirth: string, idempotencyKey: string) =>
+      call<PatientNinVerification>('POST', 'identity/me/verification/nin', { nin, dateOfBirth },
+        { headers: { 'Idempotency-Key': idempotencyKey }, timeoutMs: NIN_CHECK_TIMEOUT_MS }),
     records: async (signal?: AbortSignal) => {
       const value = await call<PatientRecords>('GET', 'ehr/me/records', undefined, { signal })
       // Only the staging branches' answer carries importedRecords; main's does not (it keeps exactly its keys).

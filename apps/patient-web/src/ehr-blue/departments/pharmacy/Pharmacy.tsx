@@ -1,3 +1,4 @@
+import { cameFrom } from '../../clinical/parts/cameFrom'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { EhrButton } from '@hid/ui/ehr'
@@ -6,7 +7,7 @@ import { PageState } from '../../../kasuwa/parts'
 import { Alert, Button, FilterTabs, Input } from '../../../kasuwa/ui'
 import { staffApi, type PharmacyWorkItem } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
-import { cannotCompleteOffered, holdsReceivePermission, routeClosedForWork, wrongPatientOffered } from '../../../staff/orderRoutes'
+import { cannotCompleteOffered, holdsReceivePermission, receivingAnswer, routeClosedForWork, wrongPatientOffered } from '../../../staff/orderRoutes'
 import { IncomingOrders } from '../../../staff/routes/IncomingOrders'
 import { LateWrongPatient } from '../../../staff/routes/LateWrongPatient'
 import { CannotCompleteEndings, type CannotCompleteEnding } from '../../../staff/routes/CannotComplete'
@@ -23,18 +24,21 @@ import { useLearnDocumentTypesServed } from '../parts/WorkItemDocuments'
 import {
   CAP_CANNOT_COMPLETE, patientLabel, readsKept, RefreshButton, RoutedWorkPaused, SaidAboveList, SaidAboveTheList,
   StandaloneWorkNote, useLearnCannotCompleteServed, useLearnLateCorrectionServed, useLearnWrongPatientServed,
-  useNotCompletedEndings, useReceiving, useRowSaid, WORK_LIST_CAP, WorkListCap, type Said,
+  useNotCompletedEndings, useReceiving, useRowSaid, WORK_LIST_CAP, WorkListCap, WorkListSince, type Said,
 } from '../parts/routedWork'
 import { PharmacyCard, PharmacyCards } from './PharmacyQueue'
 import { PaperPrescription } from './PaperPrescription'
 import { PharmacyRecord } from './PharmacyRecord'
-import { doseMissing, inTab, matchesItem, queueOrder, queueTone, routeAlert, statusOf, type PharmacyTab } from './pharmacyText'
+import {
+  doseMissing, incomingCountText, inTab, isWithdrawn, matchesItem, PRESCRIPTIONS_EMPTY, PRESCRIPTIONS_LOAD_FAILED, PRESCRIPTIONS_REFRESH,
+  prescriptionsIntro, queueOrder, queueTone, routeAlert, statusOf, WITHDRAWN_WORDS, withdrawnReasonOf, type PharmacyTab,
+} from './pharmacyText'
+import { useStaffNameLookup } from './staffNames'
 import { BillBadge } from '../commerce/BillBadge'
 import { pointOfCareOpen } from '../commerce/served'
 import { StockLine } from './pointOfCare'
 import { billOf, stockOf } from './pocFields'
 
-const LOAD_FAILED = 'Prescriptions could not be loaded. Please retry.'
 /** The design's list shows 50 records a page. */
 const PAGE_SIZE = 50
 const HEADING = 'pharmacy-heading'
@@ -69,11 +73,20 @@ function openedOf(pathname: string): string | null {
 function PrescriptionQueue() {
   const { facilityId, permissions, facility } = useDeptAccess()
   const canRead = permissions.includes('pharmacy.work-item.read')
-  const read = useFacilityRead(facilityId, canRead, useCallback((id: string) => staffApi.pharmacyWorkItems(id), []), LOAD_FAILED)
+  const read = useFacilityRead(facilityId, canRead, useCallback((id: string) => staffApi.pharmacyWorkItems(id), []), PRESCRIPTIONS_LOAD_FAILED)
   const items = read.value ? read.value.items : null
   // Prescriptions other facilities send here (Novu, P4c): received by pharmacists (pharmacy.order-route.receive), and
   // only at a pharmacy: a hospital's or clinic's own pharmacy is never sent any (useReceiving).
   const { mounted, probe, watch, holds, receives, onFound, onAnswer } = useReceiving(facility, 'pharmacy', read)
+  // Classic Overview's count of prescriptions waiting in Incoming (parity row 6a), from Incoming's own reads: only one
+  // that asked for every order (never one patient's, found by Health ID), at this facility.
+  const [incoming, setIncoming] = useState<{ facilityId: string; count: number; receives: boolean | undefined } | null>(null)
+  const answered = useCallback((answer: unknown, healthId?: string) => {
+    onAnswer(answer)
+    if (healthId || !facilityId) return
+    const items = (answer as { items?: unknown } | null)?.items
+    setIncoming({ facilityId, count: Array.isArray(items) ? items.length : 0, receives: receivingAnswer(answer)?.receives })
+  }, [onAnswer, facilityId])
   useLearnWrongPatientServed(items)
   useLearnLateCorrectionServed(read.value)
   useLearnCannotCompleteServed(read.value)
@@ -101,6 +114,8 @@ function PrescriptionQueue() {
   // A dispensing or reversal being sent from the open record: Back to list waits for its outcome.
   const [recording, setRecording] = useState(false)
   const focus = useFocusById()
+  // Who accepted a prescription, by name (SX-9), asked only by an open record that shows an acceptance, once per member.
+  const staffName = useStaffNameLookup(facilityId ?? '')
   // The facility's payment setup (POINT_OF_CARE_SPEC §1), whether a bill must be paid before dispensing, is not read:
   // its address is proposed, not served (commerce/served.ts), so reading it on every open sent a request that always
   // failed. Unread, nothing waits for payment, as today. Pass it to the record again once Health ID serves it.
@@ -145,7 +160,9 @@ function PrescriptionQueue() {
     </DeptPage>
   )
   const here = facilityId
-  const notDispensable = (id: string) => undispensable.facilityId === here && undispensable.ids.has(id)
+  // Withdrawn work (ORD-2) is not dispensable from the start; other work only once Pharmacy refused it.
+  const withdrawnIds = new Set((visible ?? []).filter(isWithdrawn).map(item => item.id))
+  const notDispensable = (id: string) => withdrawnIds.has(id) || (undispensable.facilityId === here && undispensable.ids.has(id))
 
   function open(item: PharmacyWorkItem) {
     show(item.id)
@@ -154,6 +171,9 @@ function PrescriptionQueue() {
   function back() {
     // Focusable while a request runs, but a press does nothing: the record must stay to say how it ended.
     if (recording) return
+    // Opened from another page that said where it was (Home's Today's work): Back returns there.
+    const came = cameFrom(location.state)
+    if (came) { navigate(came.to); return }
     const id = selected?.id
     // Opened from the list: step back in history, so the browser's Back doesn't reopen it. Else (a shared address) replace.
     if ((location.state as { fromQueue?: unknown } | null)?.fromQueue === true) navigate(-1)
@@ -195,16 +215,23 @@ function PrescriptionQueue() {
     navigate(`${PRESCRIPTIONS}/${encodeURIComponent(nextItem.id)}`, { replace: true, state: location.state })
     focus(`pharmacy-${nextItem.id}-title`)
   }
-  const refresh = <RefreshButton loading={read.loading} onRefresh={read.refresh}>Refresh</RefreshButton>
+  const refresh = <RefreshButton loading={read.loading} onRefresh={read.refresh}>{PRESCRIPTIONS_REFRESH}</RefreshButton>
+  // As the Overview said it: where the facility receives now, "0 waiting" included; else only orders actually waiting.
+  const waiting = mounted && facility && incoming?.facilityId === here && (incoming.receives === true || incoming.count > 0)
+    ? incomingCountText(incoming.count, facility.name) : null
   const emptyTab = tab === 'todo'
     ? { icon: CircleCheck, title: 'Nothing waiting to dispense', description: 'New prescriptions show here as soon as Pharmacy accepts them.' }
     : tab === 'payment' ? { icon: Wallet, title: 'Nothing waiting for payment', description: 'Prescriptions with a bill still owed show here.' }
     : tab === 'dispensed' ? { icon: Pill, title: 'Nothing dispensed yet', description: 'Prescriptions you dispense move here.' }
       : { icon: Pill, title: 'No prescriptions yet', description: 'Prescriptions show here once they are accepted.' }
+  // Nothing accepted at all: classic's empty list, with its Refresh.
+  const emptyList = { icon: Pill, title: PRESCRIPTIONS_EMPTY.title, description: PRESCRIPTIONS_EMPTY.description,
+    action: <EhrButton variant="secondary" onClick={() => void read.refresh()}>{PRESCRIPTIONS_EMPTY.retry}</EhrButton> }
   return (
     <DeptPage title={selected ? <span id={`pharmacy-${selected.id}-title`} tabIndex={-1}>{selected.medication.display}</span>
       : <span id={HEADING} tabIndex={-1}>Prescriptions</span>}
-      onBack={selected ? back : undefined} backLabel="Back to prescriptions" backUnavailable={selected ? recording : undefined}
+      description={selected ? undefined : prescriptionsIntro(holds)}
+      onBack={selected ? back : undefined} backLabel={cameFrom(location.state)?.label ?? "Back to prescriptions"} backUnavailable={selected ? recording : undefined}
       primaryAction={!selected && pointOfCareOpen(facilityId) && permissions.includes('pharmacy.walk-in.create')
         ? <Button variant="primary" icon={FileText} to={`${PRESCRIPTIONS}/paper`}>Paper prescription</Button> : undefined}
       secondaryActions={selected ? undefined : refresh}>
@@ -214,9 +241,10 @@ function PrescriptionQueue() {
       {notCompleted.endings.length > 0 && <DeptEmbedded><CannotCompleteEndings service="pharmacy" endings={notCompleted.endings}
         onClose={notCompleted.close} /></DeptEmbedded>}
       <div hidden={selected !== null} className="flex flex-col gap-4">
+        {waiting && <p id="pharmacy-incoming-count" className="hid-ehr-dept-muted m-0">{waiting}</p>}
         <StandaloneWorkNote facility={facility} kind="pharmacy" ordersOn={read.value?.crossFacilityOrders === true} receives={receives} />
         {mounted && facility && <DeptEmbedded><IncomingOrders service="pharmacy" facilityId={here} facilityName={facility.name}
-          probe={probe} watch={watch} membershipId={facility.membershipId} onFound={onFound} onAnswer={onAnswer}
+          probe={probe} watch={watch} membershipId={facility.membershipId} onFound={onFound} onAnswer={answered}
           onAccepted={() => void read.refresh()} closedRouteId={notCompleted.lastRouteId} cannotCompleteBeside="opened" /></DeptEmbedded>}
         {lateCorrection && <DeptEmbedded><LateWrongPatient service="pharmacy" facilityId={here}
           onEnded={ending => { setEnded({ facilityId: here, ending }); void read.refresh() }} onNotCompleted={notCompletedHere}
@@ -227,6 +255,7 @@ function PrescriptionQueue() {
           dispensed, but it stays listed and counts toward these {WORK_LIST_CAP}.</DeptNotice>
           {cannotServed === true && lateCorrection && <DeptNotice>{CAP_CANNOT_COMPLETE}</DeptNotice>}</WorkListCap>
         <SaidAboveList id="pharmacy-said" text={said.listSaid} />
+        <WorkListSince since={read.value?.since} />
         <div className="flex flex-col gap-3 @3xl:flex-row @3xl:flex-wrap @3xl:items-center @3xl:justify-between">
           <FilterTabs label="Show prescriptions" value={tab} onChange={value => { setTab(value); setPage(0) }} options={[
             // A count only once the list is read: while it loads, or when it couldn't be read, "0" would say nothing is waiting.
@@ -251,7 +280,7 @@ function PrescriptionQueue() {
         </nav>}
         <PageState loading={read.loading} error={listed ? null : read.error || null} hasData={listed} onRetry={() => void read.refresh()}
           what="prescriptions" rows={3}
-          empty={!listed ? emptyTab : matching.length === 0 ? (search
+          empty={!listed ? emptyList : matching.length === 0 ? (search
             ? { icon: Search, title: 'No matching prescriptions', description: 'Check the spelling, or search by another drug or patient name.' }
             : emptyTab) : null}>
           <PharmacyCards label="Prescriptions">
@@ -259,16 +288,22 @@ function PrescriptionQueue() {
               const status = statusOf(item, notDispensable(item.id))
               const text = selected ? null : said.rowSaid(item.orderRoute?.id)
               const alert = routeAlert(item.orderRoute, late)
+              // Withdrawn by the prescribing team (ORD-2, 0133): who withdrew it and why, said once, under the card.
+              const reason = withdrawnReasonOf(item)
+              const withdrawn = reason ? WITHDRAWN_WORDS[reason] : null
               const bill = billOf(item)
               const stock = stockOf(item)
+              // Work withdrawn by the prescribing team (0133) is not waiting: no bill, stock or missing dose is said of it.
+              const workable = !item.dispensing && !reason
               return <PharmacyCard key={item.id} item={item} buttonId={`pharmacy-${item.id}-name`} status={status} tone={queueTone(status)}
-                badges={!item.dispensing && (bill !== undefined || (stock && stock.onHand <= 0)) ? <>
+                badges={workable && (bill !== undefined || (stock && stock.onHand <= 0)) ? <>
                   {bill !== undefined ? <BillBadge bill={bill} /> : null}
                   {stock && stock.onHand <= 0 ? <StockLine stock={stock} className="rounded-md bg-danger-soft px-2 py-0.5 text-[12px]" /> : null}
                 </> : undefined}
-                missing={!item.dispensing && doseMissing(item)} patientFallback={patientLabel(item)} when={dateText(item.acceptedAt)}
+                missing={workable && doseMissing(item)} patientFallback={patientLabel(item)} when={dateText(item.acceptedAt)}
                 onOpen={() => open(item)}
-                below={item.orderRoute || alert ? <>
+                below={item.orderRoute || alert || withdrawn ? <>
+                  {withdrawn && <small className="hid-ehr-dept-pharmacy-alert">{withdrawn}</small>}
                   {text && item.orderRoute && <p id={`pharmacy-${item.id}-said`} className="hid-ehr-dept-pharmacy-said" role="alert" tabIndex={-1}>{text}</p>}
                   {item.orderRoute && <small className="hid-ehr-dept-reference">From {item.orderRoute.orderingFacilityName ?? 'the ordering facility'}</small>}
                   {alert && <small className="hid-ehr-dept-pharmacy-alert">{alert}</small>}
@@ -283,7 +318,7 @@ function PrescriptionQueue() {
           ids: new Set(current.facilityId === here ? current.ids : []).add(selected.id) }))}
         said={said.rowSaid(selected.orderRoute?.id)} holds={holds} crossFacilityWork={read.value?.crossFacilityWork}
         onChanged={read.refresh} onBusy={setRecording} onEnded={endedHere} onNotCompleted={notCompletedHere} onReread={said.reread}
-        next={nextItem ? nextItem.medication.display : null} onNext={openNext} onBack={back} />}
+        next={nextItem ? nextItem.medication.display : null} onNext={openNext} onBack={back} staffName={staffName} />}
     </DeptPage>
   )
 }

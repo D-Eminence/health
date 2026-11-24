@@ -6,11 +6,10 @@ import { Alert, Button, Card, Field, Input, ListRow, PageHeader, Select } from '
 import { ACCESS_OUTCOME_FILTERS, ACCESS_REQUEST_STATUSES, staffApi, type AccessRequest, type AccessRequestStatus } from '../../../staff/api'
 import { outcome } from '../../../staff/routes/AccessRequests'
 import { accessLevelLabel } from '../../../plainLabels'
-import { ACCESS_ENDED } from '../parts/chart'
 import { formatWhen } from '../parts/format'
 import { Workspace, useClinical, useWorkspaceHref } from '../parts/Workspace'
 import type { EhrBluePageStatus } from '../types'
-import { ShareInvitationsForMe, SharedWithYou } from '../patients/SharingCards'
+import { SharedWithYouCard } from '../patients/SharingCards'
 import { ACCESS_CLOSED, CLOSE_GRANT, CLOSE_REASON, OPEN_SHARED, actionUnavailable, administratorOf } from './access'
 import { PinAccess } from './PinAccess'
 import { RequestAccess } from './RequestAccess'
@@ -50,20 +49,17 @@ function RequestList() {
   const [closing, setClosing] = useState<string | null>(null)
   const [notice, setNotice] = useState('')
   const [failure, setFailure] = useState('')
-  const [ended, setEnded] = useState(false)
   const [settled, setSettled] = useState(0)
   // A close already on its way is not sent again by a second press.
   const sending = useRef(false)
-  const statusRef = useRef<HTMLDivElement>(null)
-  const failureRef = useRef<HTMLDivElement>(null)
+  const title = useRef<HTMLHeadingElement>(null)
 
-  // Closing, or a refresh after a refused close, can take the row's Close access away: focus goes to what happened,
-  // unless it is somewhere already.
+  // Closing, or a refresh after a refused close, can take the row's Close access away: focus goes to the page heading,
+  // unless it is somewhere already, as today's does (AccessRequests.tsx:65-66, 101). What happened is announced.
   useLayoutEffect(() => {
     if (!settled) return
     const focused = document.activeElement
-    // The failure's box is mounted only while a close has been refused.
-    if (!focused || focused === document.body || !focused.isConnected) (failureRef.current ?? statusRef.current)?.focus()
+    if (!focused || focused === document.body || !focused.isConnected) title.current?.focus()
   }, [settled])
 
   /** Today's Close access from the list (AccessRequests.tsx:83-98): the same close as the request's page, at once. */
@@ -74,16 +70,11 @@ function RequestList() {
     setClosing(request.accessRequestId)
     setFailure('')
     setNotice('')
-    setEnded(false)
     let refused = ''
-    let endedOpen = false
     try {
       await staffApi.closeGrant(facility.id, grantId, CLOSE_REASON)
       // The open record, if this grant opened it, has ended too.
-      if (activePatient?.lookup.authorization.consentGrantId === grantId) {
-        setActivePatient(null)
-        endedOpen = true
-      }
+      if (activePatient?.lookup.authorization.consentGrantId === grantId) setActivePatient(null)
     } catch (caught) {
       refused = closeError(caught)
     }
@@ -95,14 +86,13 @@ function RequestList() {
       setClosing(null)
     }
     if (refused) setFailure(refused)
-    else { setNotice(ACCESS_CLOSED); setEnded(endedOpen) }
+    else setNotice(ACCESS_CLOSED)
     setSettled(value => value + 1)
   }
 
   function changeStatus(value: AccessRequestStatus | '') {
     setNotice('')
     setFailure('')
-    setEnded(false)
     setStatus(value)
   }
 
@@ -126,7 +116,7 @@ function RequestList() {
     <div className="flex flex-col gap-6">
       {/* One primary: ask a patient. The PIN is the quieter second way in. Today's PIN name and lede (Patients.tsx:238,
           AccessRequests.tsx:108); the request button says "Ask for access", as the Start menu asks (owner, 2 Nov). */}
-      <PageHeader title={TITLE} description="Requests are scoped to your active facility and staff account. A pending request never grants record access."
+      <PageHeader title={TITLE} titleRef={title} description="Requests are scoped to your active facility and staff account. A pending request never grants record access."
         actions={can('identity.consent.write') || can('identity.patient-access-pin.verify') ? <>
           {can('identity.patient-access-pin.verify') ? <Button to={href('pin')} icon={KeyRound}>Patient PIN</Button> : null}
           {can('identity.consent.write') ? <Button to={href('new')} variant="primary" icon={Send}>Ask for access</Button> : null}
@@ -144,15 +134,12 @@ function RequestList() {
         {/* Focusable while the list is read, when a second press does nothing. */}
         <Button icon={RotateCcw} aria-busy={loading || undefined} onClick={() => { if (!loading) void load() }}>Refresh</Button>
       </div>
-      {ended ? <Alert intent="error" title="Access to this patient ended"
-        action={<Button size="sm" to={href.to('patients')}>Find a patient</Button>}>{ACCESS_ENDED}</Alert> : null}
-      {/* Mounted throughout and only visually hidden while empty, so what a close says is announced. */}
-      <div ref={statusRef} tabIndex={-1} role="status" className="outline-none empty:sr-only">
+      {/* Mounted throughout and only visually hidden while empty, so what a close says is announced. Today's says only
+          the sentence (AccessRequests.tsx:122-124): no title, and nothing more when the open record's grant was the one closed. */}
+      <div role="status" className="empty:sr-only">
         {notice ? <Alert intent="success" live={false}>{notice}</Alert> : null}
       </div>
-      {failure ? <div ref={failureRef} tabIndex={-1} className="outline-none">
-        <Alert intent="error" title="Couldn’t close access">{failure}</Alert>
-      </div> : null}
+      {failure ? <Alert intent="error">{failure}</Alert> : null}
       {!facility ? null : <PageState loading={loading} error={error} hasData={requests !== null} onRetry={() => void load()} what="requests" empty={empty}>
         <Card>
           <ul className="m-0 list-none divide-y divide-line p-0" aria-label="Access requests">
@@ -177,9 +164,8 @@ function RequestList() {
           nobody sees it twice. Each card keeps its own permission checks; opening a shared record needs a patient
           lookup, which such a role cannot make, so Open says why and does nothing. */}
       {facility && !can('identity.patient.read') ? <div className="flex flex-col gap-6 empty:hidden">
-        <SharedWithYou facilityId={facility.id} permissions={permissions} busy={false}
+        <SharedWithYouCard facilityId={facility.id} permissions={permissions} busy={false}
           openUnavailable={actionUnavailable(OPEN_SHARED, permissions, administrator)} onOpen={() => {}} />
-        <ShareInvitationsForMe facilityId={facility.id} permissions={permissions} />
       </div> : null}
     </div>
   )

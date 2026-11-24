@@ -118,7 +118,7 @@ describe('2. Home says what today\'s Overview says (a novu-v1 build)', () => {
     const none = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
     serve({ [SESSION]: [sessionAt(none, [none])] })
     const { unmount } = await openStaffApp('/provider')
-    const sentence = 'You have no clinical work at this facility yet. Ask an administrator to check your role.'
+    const sentence = 'Your active facility has no clinical modules for your role. Ask an administrator to review your assignment.'
     expect(await screen.findByText(sentence)).toBeDefined()
     unmount()
     vi.resetModules()
@@ -138,21 +138,21 @@ describe('3. access requests are read where today reads them, each time', () => 
       status: 'pending', requestedDurationMinutes: 60, requestedAt: '2026-10-29T09:00:00Z', approvedAt: null, deniedAt: null, deniedReason: null }]
     serve({ [SESSION]: [sessionAt(demo, [demo])], [REQUESTS]: [() => json([]), () => json(waiting), () => json(waiting)] })
     await openStaffApp('/provider')
-    // None waiting: Needs attention is all clear once they are read.
-    expect(await screen.findByText('All clear')).toBeDefined()
+    // None waiting: the Access requests card says so once they are read.
+    expect(await screen.findByText('0 pending requests')).toBeDefined()
     follow('Access requests')
     await waitFor(() => expect(where()).toBe('/provider/requests'))
     follow('Home')
-    expect((await screen.findByRole('link', { name: /^1 access request waiting/ })).getAttribute('href')).toBe('/provider/requests')
+    expect(await screen.findByText('1 pending request')).toBeDefined()
   })
 
-  it('reads none on another page', async () => {
+  it('reads them once on another page, for the bell, and not again', async () => {
     const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.consent.write', 'audit.read'])
     const sent = serve({ [SESSION]: [sessionAt(demo, [demo])], [REQUESTS]: many(() => json([])), 'GET /api/v1/audit/events': many(() => json({ items: [] })) })
     await openStaffApp('/provider/audit')
     await screen.findByRole('navigation', { name: 'Main navigation' })
     await waitFor(() => expect(sent.some(call => call.route === 'GET /api/v1/audit/events')).toBe(true))
-    expect(sent.some(call => call.route === REQUESTS)).toBe(false)
+    await waitFor(() => expect(sent.filter(call => call.route === REQUESTS)).toHaveLength(1))
   })
 })
 
@@ -201,7 +201,7 @@ describe('6. Home reads only what today\'s Overview reads', () => {
     expect([...new Set(sent.map(call => call.route))]).toEqual(['GET /api/v1/auth/session', REQUESTS])
     // Today's work links to the work pages instead of counting their work.
     expect(screen.getByRole('heading', { name: 'Today\'s work' })).toBeDefined()
-    const main = document.querySelector('.hid-ehr-blue-page') as HTMLElement
+    const main = screen.getByRole('heading', { name: 'Today\'s work' }).closest('section') as HTMLElement
     expect(within(main).getByRole('link', { name: /^Laboratory/ }).getAttribute('href')).toBe('/provider/laboratory')
     expect(within(main).getByRole('link', { name: /^Pharmacy/ }).getAttribute('href')).toBe('/provider/pharmacy')
   })

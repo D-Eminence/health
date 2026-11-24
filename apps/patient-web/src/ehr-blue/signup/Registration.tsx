@@ -1,14 +1,23 @@
-import { useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { EhrButton, EhrDialog, EhrField, EhrInput, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
+import { useLayoutEffect, useRef, useState, type FormEvent } from 'react'
+import { EhrButton, EhrDialog, EhrField, EhrInput, EhrSelect } from '@hid/ui/ehr'
 import { Turnstile } from '../../Turnstile'
 import { hasOtherFacilitySignUps, OtherFacilitySignUps } from '../../staff/routes/ProviderEnrollment'
 import { organizationTypeLabel, productLabel, waitWords, type Product } from './enrollmentRules'
 import { PasswordField } from './PasswordField'
 import { ErrorWords, Required } from './parts'
 import { CAC_STEP, REGISTRATION_STEPS, REVIEW_STEP, type Enrollment } from './useEnrollment'
+import {
+  ADMINISTRATOR_ROLES, administratorRoleName, FACILITY_DETAILS_FIELDS, PLATFORM_FIELDS, profileFieldProblem, profileRows,
+  type ProfileField,
+} from '../collected/facilityProfile'
+import { PHONE_REFUSED, phoneE164, REQUIRED as FIELD_REQUIRED } from '../collected/places'
+import { profileControlId, ProfileFields } from '../collected/ProfileFields'
 
-/** What every design field Health ID does not take says: shown, disabled, never sent or kept. */
-export const NOT_COLLECTED = 'Not collected by Health ID yet'
+/*
+ * Every field of the design is collected (hid-system 0114; owner: "allow trading name, all fields required"), except
+ * the operating licence, CAC certificate and proof of address, which wait for the document store and its virus scanner
+ * and are not shown at all until then.
+ */
 
 /*
  * The design's four agreement boxes (facility-fields.ts step 5) are not drawn. The start Submit sends has no field for
@@ -23,25 +32,38 @@ export const NOT_COLLECTED = 'Not collected by Health ID yet'
 const TERMS_URL = 'https://healthidentitydirectory.com/terms'
 const PRIVACY_URL = 'https://healthidentitydirectory.com/privacy'
 
-// The design's own options for fields Health ID does not take (facility-fields.ts, model.ts:349-365).
-const ROLES = ['Owner', 'Medical Director', 'Administrator', 'Other authorised representative']
-const OWNERSHIP = ['Public', 'Private', 'Faith-based', 'NGO']
-const CARE_LEVELS = ['Primary', 'Secondary', 'Tertiary']
-const YES_NO = ['Yes', 'No']
-const DEPARTMENTS = ['General Outpatient', 'Emergency', 'Inpatient', 'Laboratory', 'Pharmacy', 'Maternity', 'Pediatrics',
-  'Radiology', 'Dental', 'Physiotherapy', 'Dialysis', 'Oncology', 'Cardiology', 'ICU', 'Theatre']
+/** The prefix of the facility details' control ids (profileControlId). */
+export const PROFILE_PREFIX = 'hid-ehr-signup'
 
-/** The fixed ids of the controls Health ID takes, so a problem can point at one. */
+/** The fixed ids of the controls, so a problem can point at one. */
 export const IDS = {
   name: 'hid-ehr-signup-name',
+  phone: 'hid-ehr-signup-phone',
   email: 'hid-ehr-signup-email',
+  role: 'hid-ehr-signup-role',
   type: 'hid-ehr-signup-type',
   cac: 'hid-ehr-signup-cac',
   product: 'hid-ehr-signup-product',
 } as const
 
-type Checked = 'name' | 'email' | 'cac'
+// The account's phone and email are 'adminPhone' and 'adminEmail': 'phone' and 'email' are the facility's (ProfileField).
+type Checked = 'name' | 'adminPhone' | 'adminEmail' | 'role' | 'cac' | ProfileField
 type Problems = Partial<Record<Checked, string>>
+
+/** Each step's checked fields, in the order the step shows them: the first with a problem takes focus. */
+const STEP_CHECKS: Readonly<Record<number, readonly Checked[]>> = {
+  0: ['name', 'adminPhone', 'adminEmail', 'role'],
+  1: FACILITY_DETAILS_FIELDS,
+  [CAC_STEP]: ['smohLicenceNumber', 'hasRegistryId', 'registryId', 'cac', 'medicalDirectorName', 'medicalDirectorMdcn',
+    'hasNhiaAccreditation', 'nhiaAccreditationNumber'],
+  3: PLATFORM_FIELDS,
+}
+
+function idOf(key: Checked): string {
+  if (key === 'adminPhone') return IDS.phone
+  if (key === 'adminEmail') return IDS.email
+  return key === 'name' || key === 'role' || key === 'cac' ? IDS[key] : profileControlId(PROFILE_PREFIX, key)
+}
 
 const REQUIRED = 'This field is required.'
 // The WHATWG's valid e-mail address, as the browser checks type="email".
@@ -52,35 +74,35 @@ const CAC = /^(RC|BN|IT)[0-9]{4,20}$/
 /** What a step needs before Continue, by the limits today's form sets on its fields (ProviderEnrollment.tsx:1034-1049). */
 function problemsOf(step: number, e: Enrollment): Problems {
   const problems: Problems = {}
-  if (step === 0) {
-    const name = e.name.trim()
-    if (!name) problems.name = REQUIRED
-    else if (name.length < 2) problems.name = 'Enter at least two characters.'
-    const email = e.email.trim()
-    if (!email) problems.email = REQUIRED
-    else if (!EMAIL.test(email)) problems.email = 'Enter a valid email address.'
-  }
-  if (step === CAC_STEP) {
-    if (!e.cac) problems.cac = REQUIRED
-    else if (!CAC.test(e.cac)) problems.cac = 'Enter the number on your CAC certificate: RC, BN or IT, then its digits, for example RC123456.'
+  for (const key of STEP_CHECKS[step] ?? []) {
+    const problem = problemOf(key, e)
+    if (problem) problems[key] = problem
   }
   return problems
 }
 
-const FIRST: Record<Checked, string> = { name: IDS.name, email: IDS.email, cac: IDS.cac }
-
-/** A design field Health ID does not take: shown, disabled, unnamed, never sent or kept. */
-function NotCollected({ label, full, hint = NOT_COLLECTED, children }: {
-  readonly label: string
-  readonly full?: boolean
-  readonly hint?: string
-  readonly children: ReactNode
-}) {
-  return <EhrField label={label} hint={hint} className={full ? 'hid-ehr-signup-full' : undefined}>{children}</EhrField>
+function problemOf(key: Checked, e: Enrollment): string | null {
+  switch (key) {
+    case 'name': {
+      const name = e.name.trim()
+      return !name ? REQUIRED : name.length < 2 ? 'Enter at least two characters.' : null
+    }
+    case 'adminPhone':
+      return !e.administratorPhone.trim() ? FIELD_REQUIRED : phoneE164(e.administratorPhone) ? null : PHONE_REFUSED
+    case 'adminEmail': {
+      const email = e.email.trim()
+      return !email ? REQUIRED : EMAIL.test(email) ? null : 'Enter a valid email address.'
+    }
+    case 'role': return e.administratorRole ? null : 'Choose your role at the facility.'
+    case 'cac':
+      return !e.cac ? REQUIRED : CAC.test(e.cac) ? null
+        : 'Enter the number on your CAC certificate: RC, BN or IT, then its digits, for example RC123456.'
+    default: return profileFieldProblem(key, e.profile)
+  }
 }
 
-function Options({ list }: { readonly list: readonly string[] }) {
-  return <><option value="">Select…</option>{list.map(option => <option key={option}>{option}</option>)}</>
+function Options({ list }: { readonly list: ReadonlyArray<readonly [string, string]> }) {
+  return <><option value="">Select…</option>{list.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</>
 }
 
 /** The design's progress: "Step N of 5 · name", the bar, and the five names with the current one marked. */
@@ -102,11 +124,11 @@ function Progress({ step }: { readonly step: number }) {
 }
 
 /**
- * Register your facility (design screens 02-07): the design's five steps over today's one details form. Step 1 takes
- * the administrator's name and email, step 2 the facility type (today's five), step 3 the CAC number, step 4 the
- * product (today's one per type); step 5 reviews them, links the Terms of Service and Privacy Policy, and submits
- * beside today's security check. Submitting asks first (07), then runs today's start. Every other design field is shown
- * disabled and is never sent or kept.
+ * Register your facility (design screens 02-07): the design's five steps. Step 1 takes the administrator's name, phone,
+ * email and role, step 2 the facility's name and details and its type (today's five), step 3 its regulatory details and
+ * the CAC number, step 4 the expected staff, the product (today's one per type) and two questions; step 5 reviews them
+ * all, links the Terms of Service and Privacy Policy, and submits beside today's security check. Submitting asks first
+ * (07), then runs the start, which sends every field (hid-system 0114). Every field is required.
  */
 export function Registration({ e }: { readonly e: Enrollment }) {
   const stepHeading = useRef<HTMLHeadingElement>(null)
@@ -138,8 +160,8 @@ export function Registration({ e }: { readonly e: Enrollment }) {
     event.preventDefault()
     if (step === REVIEW_STEP) { submit(); return }
     const found = problemsOf(step, e)
-    const first = (Object.keys(FIRST) as Checked[]).find(key => found[key])
-    if (first) { setProblems(found); setFieldFocus({ id: FIRST[first] }); return }
+    const first = (STEP_CHECKS[step] ?? []).find(key => found[key])
+    if (first) { setProblems(found); setFieldFocus({ id: idOf(first) }); return }
     move(step + 1)
   }
 
@@ -158,7 +180,12 @@ export function Registration({ e }: { readonly e: Enrollment }) {
     setConfirming(true)
   }
 
-  const refusalAtCac = e.error?.at === 'cac' ? e.error : null
+  // The facility's details, drawn over steps 2 to 4 (ProfileFields), with this step's problems.
+  const profileProps = {
+    errors: problems, prefix: PROFILE_PREFIX, fullClassName: 'hid-ehr-signup-full',
+    onChange: e.setProfileField,
+  } as const
+    const refusalAtCac = e.error?.at === 'cac' ? e.error : null
   const stepError = e.error && !refusalAtCac ? e.error : null
 
   return (
@@ -181,8 +208,12 @@ export function Registration({ e }: { readonly e: Enrollment }) {
               <EhrInput required minLength={2} maxLength={200} autoComplete="name" value={e.name}
                 onChange={event => e.setName(event.target.value)} />
             </EhrField>
-            <NotCollected label="Phone"><EhrInput type="tel" disabled /></NotCollected>
-            <EhrField label={<Required>Email</Required>} controlId={IDS.email} error={problems.email}>
+            <EhrField label={<Required>Your phone</Required>} controlId={IDS.phone} error={problems.adminPhone}
+              hint="For Health ID support to reach you about this sign-up. It is not shown to anyone else.">
+              <EhrInput type="tel" required maxLength={32} autoComplete="tel" value={e.administratorPhone}
+                onChange={event => e.setAdministratorPhone(event.target.value)} />
+            </EhrField>
+            <EhrField label={<Required>Email</Required>} controlId={IDS.email} error={problems.adminEmail}>
               <EhrInput type="email" required maxLength={254} autoComplete="email" value={e.email}
                 onChange={event => e.setEmail(event.target.value)} />
             </EhrField>
@@ -191,14 +222,16 @@ export function Registration({ e }: { readonly e: Enrollment }) {
             <PasswordField label="Confirm password" controlId="hid-ehr-signup-confirm-later" disabled
               toggleLabel="Show password confirmation"
               hint="You choose your password after confirming your email." />
-            <NotCollected label="Role at the facility"><EhrSelect disabled><Options list={ROLES} /></EhrSelect></NotCollected>
+            <EhrField label={<Required>Role at the facility</Required>} controlId={IDS.role} error={problems.role}>
+              <EhrSelect required value={e.administratorRole}
+                onChange={event => e.setAdministratorRole(event.target.value as typeof e.administratorRole)}>
+                <Options list={ADMINISTRATOR_ROLES} />
+              </EhrSelect>
+            </EhrField>
           </div>}
 
           {step === 1 && <div className="hid-ehr-signup-grid">
-            <NotCollected label="Facility name"
-              hint={`${NOT_COLLECTED}: your facility’s registered name comes from its CAC record.`}>
-              <EhrInput disabled />
-            </NotCollected>
+            <ProfileFields form={e.profile} fields={['tradingName']} {...profileProps} />
             <EhrField label={<Required>Facility type</Required>} controlId={IDS.type}
               hint={hasOtherFacilitySignUps() ? <OtherFacilitySignUps inline linkClassName="hid-ehr-signup-link" /> : undefined}>
               <EhrSelect required value={e.organizationType}
@@ -206,28 +239,12 @@ export function Registration({ e }: { readonly e: Enrollment }) {
                 {e.typeChoices.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
               </EhrSelect>
             </EhrField>
-            <NotCollected label="Ownership"><EhrSelect disabled><Options list={OWNERSHIP} /></EhrSelect></NotCollected>
-            <NotCollected label="Level of care"><EhrSelect disabled><Options list={CARE_LEVELS} /></EhrSelect></NotCollected>
-            <NotCollected label="Address"><EhrInput disabled /></NotCollected>
-            <NotCollected label="State"><EhrSelect disabled><Options list={[]} /></EhrSelect></NotCollected>
-            <NotCollected label="Local government area"><EhrSelect disabled><Options list={[]} /></EhrSelect></NotCollected>
-            <NotCollected label="GPS pin (latitude, longitude)"><EhrInput disabled /></NotCollected>
-            <NotCollected label="Facility phone"><EhrInput type="tel" disabled /></NotCollected>
-            <NotCollected label="Facility email"><EhrInput type="email" disabled /></NotCollected>
-            <NotCollected label="Bed count"><EhrInput type="number" disabled /></NotCollected>
-            <NotCollected label="Operating hours"><EhrInput disabled /></NotCollected>
-            <NotCollected label="24-hour emergency"><EhrSelect disabled><Options list={YES_NO} /></EhrSelect></NotCollected>
-            <NotCollected label="Departments" full>
-              <EhrSelect multiple disabled className="hid-ehr-signup-multiple">
-                {DEPARTMENTS.map(department => <option key={department}>{department}</option>)}
-              </EhrSelect>
-            </NotCollected>
-            <NotCollected label="Services offered" full><EhrTextarea rows={3} disabled /></NotCollected>
+            <ProfileFields form={e.profile} fields={FACILITY_DETAILS_FIELDS.filter(field => field !== 'tradingName')}
+              {...profileProps} />
           </div>}
 
           {step === CAC_STEP && <div className="hid-ehr-signup-grid">
-            <NotCollected label="State Ministry of Health licence number"><EhrInput disabled /></NotCollected>
-            <NotCollected label="National facility registry ID (optional)"><EhrInput disabled /></NotCollected>
+            <ProfileFields form={e.profile} fields={['smohLicenceNumber', 'hasRegistryId', 'registryId']} {...profileProps} />
             <EhrField label={<Required>CAC registration number</Required>} controlId={IDS.cac}
               hint="We check your CAC against the official registry, and Health ID support checks every new facility within one working day."
               error={problems.cac ?? (refusalAtCac ? <span role="alert"><ErrorWords error={refusalAtCac} /></span> : undefined)}>
@@ -235,29 +252,22 @@ export function Registration({ e }: { readonly e: Enrollment }) {
                 autoCapitalize="characters" autoComplete="off" spellCheck={false}
                 pattern="(RC|BN|IT)[0-9]{4,20}" maxLength={22} placeholder="RC123456" />
             </EhrField>
-            <NotCollected label="Medical Director’s full name"><EhrInput disabled /></NotCollected>
-            <NotCollected label="MDCN number"><EhrInput disabled /></NotCollected>
-            <NotCollected label="NHIA accreditation (optional)"><EhrInput disabled /></NotCollected>
-            <NotCollected label="Operating licence (image/PDF, max 2 MB)" full><EhrInput type="file" disabled /></NotCollected>
-            <NotCollected label="CAC certificate (image/PDF, max 2 MB)" full><EhrInput type="file" disabled /></NotCollected>
-            <NotCollected label="Proof of address (image/PDF, max 2 MB)" full><EhrInput type="file" disabled /></NotCollected>
+            <ProfileFields form={e.profile} fields={['medicalDirectorName', 'medicalDirectorMdcn', 'hasNhiaAccreditation',
+              'nhiaAccreditationNumber']} {...profileProps} />
           </div>}
 
           {step === 3 && <>
             <p className="hid-ehr-signup-muted">Your facility starts with one Health ID product. The products a facility can
               choose depend on its type.</p>
             <div className="hid-ehr-signup-grid">
-              <NotCollected label="Expected number of staff"><EhrInput type="number" disabled /></NotCollected>
+              <ProfileFields form={e.profile} fields={['expectedStaff']} {...profileProps} />
               <EhrField label={<Required>Product to start with</Required>} controlId={IDS.product} hint={e.productNote}
                 className="hid-ehr-signup-full">
                 <EhrSelect required value={e.productCode} onChange={event => e.setProductCode(event.target.value as Product)}>
                   {e.productChoices.map(code => <option key={code} value={code}>{productLabel(code)}</option>)}
                 </EhrSelect>
               </EhrField>
-              <NotCollected label="Migrating existing records?"><EhrSelect disabled><Options list={YES_NO} /></EhrSelect></NotCollected>
-              <NotCollected label="Need interoperability with other facilities?">
-                <EhrSelect disabled><Options list={YES_NO} /></EhrSelect>
-              </NotCollected>
+              <ProfileFields form={e.profile} fields={['migratingRecords', 'needsInteroperability']} {...profileProps} />
             </div>
           </>}
 
@@ -307,10 +317,14 @@ function Review({ e, onEdit }: {
 }) {
   // Only what has a value, as the design lists it; never a password.
   const sections: ReadonlyArray<ReadonlyArray<readonly [string, string]>> = [
-    [['Full name', e.name.trim()], ['Email', e.administratorEmail]],
-    [['Facility type', organizationTypeLabel(e.organizationType)]],
-    [['CAC registration number', e.cac]],
-    [['Product', productLabel(e.productCode)]],
+    [['Full name', e.name.trim()], ['Your phone', phoneE164(e.administratorPhone) ?? e.administratorPhone.trim()],
+      ['Email', e.administratorEmail], ['Role at the facility', administratorRoleName(e.administratorRole)]],
+    [...profileRows(e.profile, ['tradingName']), ['Facility type', organizationTypeLabel(e.organizationType)],
+      ...profileRows(e.profile, FACILITY_DETAILS_FIELDS.filter(field => field !== 'tradingName'))],
+    [...profileRows(e.profile, ['smohLicenceNumber', 'hasRegistryId', 'registryId']), ['CAC registration number', e.cac],
+      ...profileRows(e.profile, ['medicalDirectorName', 'medicalDirectorMdcn', 'hasNhiaAccreditation', 'nhiaAccreditationNumber'])],
+    [...profileRows(e.profile, ['expectedStaff']), ['Product', productLabel(e.productCode)],
+      ...profileRows(e.profile, ['migratingRecords', 'needsInteroperability'])],
   ]
   const kept = e.kept
   const carried = e.carried
@@ -343,7 +357,7 @@ function Review({ e, onEdit }: {
       </div> : null}
 
       {carried ? <div className="hid-ehr-signup-note">
-        <p>A new facility type or administrator name takes effect only with a new code. The code already sent is for the
+        <p>Changed details take effect only with a new code. The code already sent is for the details you gave before: the
           {' '}facility type {organizationTypeLabel(carried.carries.organizationType)}, with {carried.carries.administratorName} as
           {' '}administrator.</p>
         {carried.enterableUntil > e.now ? <EhrButton variant="secondary" size="sm"

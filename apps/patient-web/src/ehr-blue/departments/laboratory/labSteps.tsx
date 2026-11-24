@@ -9,13 +9,14 @@ import {
   type LabWorkItem,
 } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
-import { clinicalIndicationOf } from './stage'
 import { sampleCheckText } from '../../../staff/orderRoutes'
-import { refusalText } from '../../../staff/fieldProblem'
 import { sameScientistCheck } from '../../../staff/labRevisions'
 import { errorText } from '../parts/errors'
 import { dateText } from '../parts/format'
-import { ABNORMAL_FLAGS, FLAG_WORDS, flagFromRange, flagLevel, revisionText } from './labText'
+import {
+  ABNORMAL_FLAGS, ACCESSION_WORDS, accessionCreatedText, DECISION_WORDS, EXECUTION_WORDS, FLAG_WORDS, flagFromRange, flagLevel, RESULT_WORDS,
+  revisionText, SPECIMEN_WORDS,
+} from './labText'
 
 /*
  * The lab's steps on one request, each the one thing to do at its stage, in the shared parts: register the sample (the
@@ -66,12 +67,11 @@ function sampleProblem(caught: unknown, fallback: string, routed: boolean) {
  * test is done), which needs only the right to register it; then each sample waiting is collected, confirmed against
  * the patient, or rejected before it is taken, each with its own note and by its own permission.
  */
-export function CollectStep({ facilityId, permissions, subject, routed, onDone, onRefused, item, accession, defaultType, defaultReason, onRegistered, onListChanged }: StepBase & {
+export function CollectStep({ facilityId, permissions, subject, routed, onDone, onRefused, item, accession, defaultType, onRegistered, onListChanged }: StepBase & {
   readonly item: LabWorkItem
   readonly accession: LabAccession | null
   /** The sample the price list names for the test ("Blood, EDTA tube"), as the first guess. */
   readonly defaultType?: string | null
-  readonly defaultReason?: string | null
   /** The accession this step made: the page holds it until the record is read by its new id, so it is never made twice. */
   readonly onRegistered: (accession: LabAccession) => void
   /** Registering was refused as already done or no longer possible: the work list is read again, which shows why. */
@@ -94,7 +94,7 @@ export function CollectStep({ facilityId, permissions, subject, routed, onDone, 
     {item.patient && acts ? <Alert intent="warning" size="sm">{sampleCheckText(item.patient.fullName)}</Alert> : null}
     {accession ? required.map(specimen => <SpecimenForm key={`${specimen.id}-${specimen.version}`} {...base} specimen={specimen}
       accessionId={accession.id} test={test} />)
-      : <RegisterForm {...base} item={item} defaultType={defaultType} defaultReason={defaultReason} onRegistered={onRegistered}
+      : <RegisterForm {...base} item={item} defaultType={defaultType} onRegistered={onRegistered}
         onListChanged={onListChanged} />}
   </div>
 }
@@ -102,16 +102,16 @@ export function CollectStep({ facilityId, permissions, subject, routed, onDone, 
 /** The longest reason Lab takes when a sample is registered (lab-api CreateAccessionDto). */
 const ACCESSION_REASON_MAX = 500
 
-function RegisterForm({ facilityId, permissions, routed, onDone, onRefused, item, defaultType, defaultReason, onRegistered, onListChanged }: StepBase & {
-  readonly item: LabWorkItem; readonly defaultType?: string | null; readonly defaultReason?: string | null
+/**
+ * Classic's accession form (Operations.tsx AccessionForm): the specimen type, and the clinical reason typed by the
+ * scientist. The reason starts empty, as on classic: nothing is filled in for them (parity row 12).
+ */
+function RegisterForm({ facilityId, permissions, routed, onDone, onRefused, item, defaultType, onRegistered, onListChanged }: StepBase & {
+  readonly item: LabWorkItem; readonly defaultType?: string | null
   readonly onRegistered: (accession: LabAccession) => void; readonly onListChanged: () => void
 }) {
   const [type, setType] = useState(defaultType ?? '')
-  const [reason, setReason] = useState(defaultReason ?? '')
-  // The request's clinical information, when Lab sends it and it fits the sample's reason (500 characters, as Lab takes
-  // it): it is why the test is done, so it is shown and sent as it is, and the scientist does not type it again.
-  const written = clinicalIndicationOf(item)
-  const fromRequest = written !== null && written.length <= ACCESSION_REASON_MAX ? written : null
+  const [reason, setReason] = useState('')
   const [errors, setErrors] = useState<{ type?: string; reason?: string }>({})
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState('')
@@ -120,19 +120,19 @@ function RegisterForm({ facilityId, permissions, routed, onDone, onRefused, item
   async function register(event: FormEvent) {
     event.preventDefault()
     if (busy) return
-    const found: typeof errors = {}
-    if (!type.trim()) found.type = 'Choose or type the sample, like Blood.'
-    if (!fromRequest && !reason.trim()) found.reason = 'Say why the test is done, as on the request.'
+    // Classic's one message, said at the first field left empty.
+    const found: typeof errors = !type.trim() ? { type: ACCESSION_WORDS.missing } : !reason.trim() ? { reason: ACCESSION_WORDS.missing } : {}
     setErrors(found); setProblem('')
     const first = found.type ? 'lab-collect-type' : found.reason ? 'lab-collect-reason' : null
     if (first) { document.getElementById(first)?.focus(); return }
     // Registering takes nothing from the person: the patient is checked when each sample is collected.
     setBusy(true)
     try {
-      onRegistered(await staffApi.createLabAccession(facilityId, item.id, type.trim(), fromRequest ?? reason.trim()))
-      onDone('Sample registered. Print the label, then collect the sample.')
+      const accession = await staffApi.createLabAccession(facilityId, item.id, type.trim(), reason.trim())
+      onRegistered(accession)
+      onDone(accessionCreatedText(accession.accessionNumber))
     } catch (caught) {
-      setProblem(sampleProblem(caught, 'The sample could not be registered. Refresh the list and try again.', routed))
+      setProblem(sampleProblem(caught, ACCESSION_WORDS.failed, routed))
       onRefused(caught)
       // A conflict: a colleague registered it, an earlier press's answer was lost, or the order closed. Trying again
       // fails the same way, so the list is read again: a sample registered elsewhere then opens here.
@@ -141,7 +141,7 @@ function RegisterForm({ facilityId, permissions, routed, onDone, onRefused, item
   }
 
   return <form className="@container flex flex-col gap-4" noValidate onSubmit={event => void register(event)}>
-    <Field label="Sample" htmlFor="lab-collect-type" error={errors.type} errorId="lab-collect-type-error">
+    <Field label={ACCESSION_WORDS.type} htmlFor="lab-collect-type" error={errors.type} errorId="lab-collect-type-error">
       <Input id="lab-collect-type" value={type} maxLength={240} autoComplete="off" className="h-11" placeholder="Blood, urine, swab…"
         aria-invalid={errors.type ? true : undefined} aria-describedby={errors.type ? 'lab-collect-type-error' : undefined}
         onChange={event => { setType(event.target.value); setErrors({}) }} />
@@ -152,19 +152,15 @@ function RegisterForm({ facilityId, permissions, routed, onDone, onRefused, item
         className={cx('inline-flex min-h-11 cursor-pointer items-center rounded-full border-0 px-4 text-[14px] font-medium ring-1 ring-inset',
           type === option ? 'bg-brand-soft text-brand-ink ring-brand-line' : 'bg-surface text-ink ring-line-strong hover:bg-subtle')}>{option}</button>)}
     </div>
-    {fromRequest ? <div className="flex flex-col gap-1.5">
-      <p className="m-0 text-[13px] font-medium text-ink-2">Why the test</p>
-      <p className="m-0 whitespace-pre-line break-words text-[15px] text-ink">{fromRequest}</p>
-      <p className="m-0 text-xs text-ink-3">From the request, as it was written.</p>
-    </div> : <Field label="Why the test" htmlFor="lab-collect-reason" error={errors.reason} errorId="lab-collect-reason-error">
+    <Field label={ACCESSION_WORDS.reason} htmlFor="lab-collect-reason" error={errors.reason} errorId="lab-collect-reason-error">
       <Textarea id="lab-collect-reason" rows={2} maxLength={ACCESSION_REASON_MAX} value={reason}
         aria-invalid={errors.reason ? true : undefined} aria-describedby={errors.reason ? 'lab-collect-reason-error' : undefined}
         onChange={event => { setReason(event.target.value); setErrors({}) }} />
-    </Field>}
+    </Field>
     <Problem text={problem} />
     {/* Marked busy, not disabled, as on today's page: focus stays on it while it runs, a second press does nothing, and a
         refusal is read beside it. */}
-    <FormActions sticky={false}><Button type="submit" variant="primary" size="lg" icon={Droplet} {...busyMark(busy)}>Register sample</Button></FormActions>
+    <FormActions sticky={false}><Button type="submit" variant="primary" size="lg" icon={Droplet} {...busyMark(busy)}>{ACCESSION_WORDS.button}</Button></FormActions>
   </form>
 }
 
@@ -204,13 +200,13 @@ function SpecimenLine({ specimen, status, labelId }: { readonly specimen: LabSpe
  */
 const CUSTODY_STEP = {
   required: {
-    action: 'collect', permission: 'lab.specimen.collect', badge: 'To collect', field: 'Collection notes', fieldId: 'lab-collect-notes', placeholder: undefined,
-    maxLength: 1000, button: 'Collect sample', icon: Droplet, done: 'Sample collected. Print the label.',
+    action: 'collect', permission: 'lab.specimen.collect', badge: 'To collect', field: SPECIMEN_WORDS.notes, fieldId: 'lab-collect-notes', placeholder: undefined,
+    maxLength: 1000, button: SPECIMEN_WORDS.collect, icon: Droplet, done: SPECIMEN_WORDS.collected,
     cant: 'Your role can’t collect samples. Ask a colleague who can.',
   },
   collected: {
-    action: 'receive', permission: 'lab.specimen.receive', badge: 'Collected', field: 'Condition on arrival', fieldId: 'lab-receive', placeholder: 'Good',
-    maxLength: 500, button: 'Receive sample', icon: PackageCheck, done: 'Sample received. Start the test.', cant: 'Your role can’t receive samples.',
+    action: 'receive', permission: 'lab.specimen.receive', badge: 'Collected', field: SPECIMEN_WORDS.notes, fieldId: 'lab-receive', placeholder: 'Good',
+    maxLength: 500, button: SPECIMEN_WORDS.receive, icon: PackageCheck, done: SPECIMEN_WORDS.received, cant: 'Your role can’t receive samples.',
   },
 } as const
 
@@ -231,15 +227,15 @@ function SpecimenForm({ facilityId, permissions, subject, routed, onDone, onRefu
   const id = specimen.id
   async function step(action: typeof next.action | 'reject') {
     if (busy) return
-    if (action === 'reject' && !reason.trim()) { setReasonError('Say why, like “Haemolysed” or “Not labelled”.'); document.getElementById(`lab-reject-${id}`)?.focus(); return }
+    if (action === 'reject' && !reason.trim()) { setReasonError(SPECIMEN_WORDS.rejectMissing); document.getElementById(`lab-reject-${id}`)?.focus(); return }
     setBusy(true); setProblem('')
     try {
       await staffApi.transitionSpecimen(facilityId, accessionId, specimen, action, action === 'reject' ? reason.trim() : detail.trim())
       setAsking(false)
-      onDone(action === 'reject' ? 'Sample rejected.' : next.done)
+      onDone(action === 'reject' ? SPECIMEN_WORDS.rejected : next.done)
     } catch (caught) {
       setAsking(false)
-      setProblem(sampleProblem(caught, 'The sample could not be updated. Refresh and try again.', routed))
+      setProblem(sampleProblem(caught, SPECIMEN_WORDS.failed, routed))
       onRefused(caught)
     } finally { setBusy(false) }
   }
@@ -267,21 +263,21 @@ function SpecimenForm({ facilityId, permissions, subject, routed, onDone, onRefu
         <Input id={`${next.fieldId}-${id}`} value={detail} maxLength={next.maxLength} autoComplete="off" className="h-11" placeholder={next.placeholder}
           onChange={event => setDetail(event.target.value)} />
       </Field> : null}
-      {rejecting ? <Field label="Why reject it" htmlFor={`lab-reject-${id}`} error={reasonError} errorId={`lab-reject-${id}-error`}>
+      {rejecting ? <Field label={SPECIMEN_WORDS.rejectReason} htmlFor={`lab-reject-${id}`} error={reasonError} errorId={`lab-reject-${id}-error`}>
         <Input id={`lab-reject-${id}`} value={reason} maxLength={500} autoComplete="off" className="h-11" aria-invalid={reasonError ? true : undefined}
           aria-describedby={reasonError ? `lab-reject-${id}-error` : undefined} onChange={event => { setReason(event.target.value); setReasonError('') }} />
       </Field> : null}
       <Problem text={problem} />
       <FormActions sticky={false}>
-        {canReject && !rejecting ? <Button id={`lab-reject-open-${id}`} variant="danger" icon={X} onClick={() => reject(true)}>Reject sample</Button> : null}
+        {canReject && !rejecting ? <Button id={`lab-reject-open-${id}`} variant="danger" icon={X} onClick={() => reject(true)}>{SPECIMEN_WORDS.reject}</Button> : null}
         {rejecting ? <Button onClick={() => reject(false)}>Cancel</Button> : null}
-        {rejecting ? <Button type="submit" variant="destructive" size="lg" {...busyMark(busy)}>Reject sample</Button>
+        {rejecting ? <Button type="submit" variant="destructive" size="lg" {...busyMark(busy)}>{SPECIMEN_WORDS.reject}</Button>
           : canStep ? <Button type="submit" variant="primary" size="lg" icon={next.icon} {...busyMark(busy)}>{next.button}</Button> : null}
       </FormActions>
     </form> : null}
     {next.action === 'collect' ? <ConfirmSheet open={asking} onClose={() => setAsking(false)} title="Collect the sample" subject={subject.banner} busy={busy}
       effect={<>Collect the <strong>{test}</strong> sample ({specimen.specimenType}) from <strong>{subject.name}</strong>?</>}
-      undo="Check the name with the person before you take it." confirmLabel="Collect sample" onConfirm={() => void step('collect')} /> : null}
+      undo="Check the name with the person before you take it." confirmLabel={SPECIMEN_WORDS.collect} onConfirm={() => void step('collect')} /> : null}
   </div>
 }
 
@@ -298,8 +294,8 @@ function StartForm({ facilityId, permissions, routed, onDone, onRefused, specime
     if (busy) return
     if (!details.trim()) { setError('Say what is being done, like “Run on the analyser”.'); document.getElementById(`lab-start-${id}`)?.focus(); return }
     setBusy(true); setProblem('')
-    try { await staffApi.startLabExecution(facilityId, specimen, details.trim(), method); onDone('Test started.') }
-    catch (caught) { setProblem(errorText(caught, 'The test could not be started. Refresh the sample first.', routed)); onRefused(caught) }
+    try { await staffApi.startLabExecution(facilityId, specimen, details.trim(), method); onDone(EXECUTION_WORDS.started) }
+    catch (caught) { setProblem(errorText(caught, EXECUTION_WORDS.startFailed, routed)); onRefused(caught) }
     finally { setBusy(false) }
   }
   return <form className="@container flex flex-col gap-4" noValidate onSubmit={event => void start(event)}>
@@ -326,8 +322,8 @@ function FinishForm({ facilityId, permissions, routed, onDone, onRefused, execut
     event.preventDefault()
     if (busy) return
     setBusy(true); setProblem('')
-    try { await staffApi.completeLabExecution(facilityId, execution, notes); onDone('Test finished. Enter the result.') }
-    catch (caught) { setProblem(errorText(caught, 'The test could not be finished. Refresh before trying again.', routed)); onRefused(caught) }
+    try { await staffApi.completeLabExecution(facilityId, execution, notes); onDone(EXECUTION_WORDS.completed) }
+    catch (caught) { setProblem(errorText(caught, EXECUTION_WORDS.completeFailed, routed)); onRefused(caught) }
     finally { setBusy(false) }
   }
   return <form className="flex flex-col gap-4" noValidate onSubmit={event => void finish(event)}>
@@ -415,10 +411,10 @@ export function ResultForm({ facilityId, subject, routed, onDone, onRefused, exe
       if (result) await staffApi.correctLabResult(facilityId, execution, result, entry, reason.trim(), revisionKind)
       else await staffApi.enterLabResult(facilityId, execution, entry)
       setAsking(false)
-      onDone(result ? 'Correction saved. Check and release it.' : 'Result saved. Next: check and release.')
+      onDone(result ? RESULT_WORDS.corrected : RESULT_WORDS.entered)
     } catch (caught) {
       setAsking(false)
-      setProblem(errorText(caught, 'The result could not be saved. Refresh before trying again.', routed)); onRefused(caught)
+      setProblem(errorText(caught, RESULT_WORDS.failed, routed)); onRefused(caught)
     } finally { setBusy(false) }
   }
   const control = (field: keyof ResultErrors) => ({
@@ -491,20 +487,11 @@ export function ResultValue({ result }: { readonly result: LabResult }) {
   </span>
 }
 
-/** Today's Laboratory page's words when Lab refuses a verify or a release (staff/routes/Operations.tsx, ResultGovernance). */
-const DECISION_FAILED = 'Decision could not be recorded. Refresh before retrying.'
-
 /**
- * A verify refused because the person who entered the result is the one verifying: refreshing never changes that, so
- * it says who must verify instead. The codes are the 409s the backend handoff asks Lab for (docs/BACKEND_OWNER_HANDOFF.md
- * A12; Lab answers 500 today, which says DECISION_FAILED). NOT_VERIFIABLE covers both that and a result no longer
- * waiting to be verified, so it says both. Only the code is compared; it is never shown.
+ * The one-person lab's refusals of a verify (owner decision 33.3, hid-system 0111), which classic has no screen for: said
+ * in plain words by their code, which is never shown.
  */
-const VERIFY_REFUSED: Readonly<Record<string, string>> = {
-  LAB_RESULT_VERIFIER_NOT_INDEPENDENT: 'You entered this result, so someone else must verify it.',
-  LAB_RESULT_NOT_VERIFIABLE: 'You can’t verify this result now. If you entered it, someone else must verify it. If not, it may '
-    + 'have changed: refresh to see it as it is.',
-  // One-person lab (hid-system 0111).
+const SELF_CHECK_REFUSED: Readonly<Record<string, string>> = {
   LAB_RESULT_SECOND_CHECK_REQUIRED: SECOND_PERSON,
   LAB_RESULT_SELF_CHECK_REASON_REQUIRED: 'You entered this result. Type why you are checking it yourself.',
   LAB_RESULT_SELF_CHECK_REASON_INVALID: 'The reason must be 10 to 500 characters.',
@@ -515,29 +502,20 @@ const VERIFY_REFUSED: Readonly<Record<string, string>> = {
 const REASON_REFUSED: ReadonlySet<string> = new Set(['LAB_RESULT_SELF_CHECK_REASON_REQUIRED', 'LAB_RESULT_SELF_CHECK_REASON_INVALID'])
 
 /**
- * The http client's own failures, when no answer came: refreshing while offline can fail to load the page, so these say
- * to check the connection (the blue departments' sentence, as in commerce/api.ts) instead of DECISION_FAILED.
- */
-const UNANSWERED: ReadonlySet<string> = new Set(['NETWORK_ERROR', 'REQUEST_TIMEOUT'])
-const DECISION_UNANSWERED = 'Couldn’t reach Health ID. Check the connection and try again.'
-
-/**
- * A refused verify or release in the page's own words: the sentences errorText writes itself (an order from another
- * facility that closed, a module not in service, paused work), the ones above, else today's sentence. errorText otherwise
- * ends with the refusal's own message, which is the service's text, so that is never shown here.
+ * A refused verify or release in classic's words (Operations.tsx ResultGovernance): errorText with classic's sentence,
+ * which says no connection, signed out, Health ID unavailable and the rest in the words every page shares (parity row
+ * 10). Only the one-person lab's refusals, which classic never meets, have their own sentences.
  */
 function decisionProblem(caught: unknown, routed: boolean): string {
-  const said = errorText(caught, DECISION_FAILED, routed)
-  if (said !== refusalText(caught, DECISION_FAILED)) return said
-  if (!isHidApiError(caught)) return DECISION_FAILED
-  return VERIFY_REFUSED[caught.code] ?? (UNANSWERED.has(caught.code) ? DECISION_UNANSWERED : DECISION_FAILED)
+  if (isHidApiError(caught) && Object.hasOwn(SELF_CHECK_REFUSED, caught.code)) return SELF_CHECK_REFUSED[caught.code]!
+  return errorText(caught, DECISION_WORDS.failed, routed)
 }
 
 /** Each decision's permission and words, as on today's Laboratory page (Operations.tsx, ResultGovernance). */
 const DECISIONS = {
   verify: {
     permission: 'lab.result.verify', action: 'Verify result version', reason: 'Verification reason',
-    done: 'This exact result version was verified.',
+    done: DECISION_WORDS.verified,
   },
   selfCheck: {
     permission: 'lab.result.verify', action: 'Check it yourself', reason: 'Why you are checking it yourself',
@@ -545,15 +523,15 @@ const DECISIONS = {
   },
   release: {
     permission: 'lab.result.release', action: 'Release result version', reason: 'Release reason',
-    // Today says "to authorized readers"; who they are is said instead: releasing is what shows it outside the lab.
-    done: 'This exact verified result version was released. The patient and the ordering clinic can now see it.',
+    // Classic's words: released "to authorized readers" (parity row 10).
+    done: DECISION_WORDS.released,
   },
 } as const
 
 /**
  * Check & release, as two separate actions, as on today's Laboratory page: verify an unverified result (Lab refuses a
- * verify by the person who entered it: someone else checks), then release the verified one, which shows it to the
- * patient and the ordering clinic. Each is its own request with its own permission and its own typed reason, so the
+ * verify by the person who entered it: someone else checks), then release the verified one to authorized readers, as
+ * classic says it. Each is its own request with its own permission and its own typed reason, so the
  * audit says why each was done; one press never does both. Confirmed against the patient first.
  */
 export function CheckStep({ facilityId, permissions, subject, routed, onDone, onRefused, execution }: StepBase & { readonly execution: LabExecution }) {
@@ -615,7 +593,7 @@ export function CheckStep({ facilityId, permissions, subject, routed, onDone, on
         ? <>Check version {result.currentVersion} of the {execution.test.name} result for <strong>{subject.name}</strong> yourself?</>
         : needsVerify
           ? <>Verify version {result.currentVersion} of the {execution.test.name} result for <strong>{subject.name}</strong> after independent review?</>
-          : <>Release verified version {result.currentVersion} of the {execution.test.name} result for <strong>{subject.name}</strong> to the patient and the ordering clinic?</>}
+          : <>Release verified version {result.currentVersion} of the {execution.test.name} result for <strong>{subject.name}</strong> to authorized readers?</>}
       undo={selfCheck
         ? 'Your reason is kept with the check, and the result’s history shows it was checked by the same scientist who entered it. '
           + 'It is released in a separate step; until then only the lab sees it.'

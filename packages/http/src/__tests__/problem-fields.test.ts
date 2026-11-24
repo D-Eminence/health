@@ -143,3 +143,52 @@ describe('problem retryAfter and required', () => {
     expect(error.toLogContext()).not.toHaveProperty('required')
   })
 })
+
+/**
+ * hid-system 0137 (One QoreID check per NIN): 409 NIN_CHECK_IN_PROGRESS, 409 NIN_CHECK_HELD and 504 QOREID_TIMEOUT
+ * carry `retryAfterSeconds`, a problem member (not the Retry-After header), so a page can say when to try again.
+ */
+describe('problem retryAfterSeconds', () => {
+  const HELD = { type: 'about:blank', title: 'Conflict', status: 409, code: 'NIN_CHECK_HELD', correlationId: 'corr-409',
+    detail: 'We could not finish checking this NIN. Please try again in 5 minutes.', retryAfterSeconds: 300 }
+
+  it('keeps the seconds on the error the client throws, and leaves the retry loop\'s header alone', async () => {
+    const problem = new Response(JSON.stringify(HELD), { status: 409, headers: { 'Content-Type': 'application/problem+json' } })
+    const error = await client(problem).post('/api/v1/identity/patient-enrollments', {}).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(HidApiError)
+    expect(error).toMatchObject({ status: 409, code: 'NIN_CHECK_HELD', retryInSeconds: 300 })
+  })
+
+  it('is null when absent, or not a whole number of seconds up to a week', () => {
+    expect(parseErrorEnvelope({ code: 'NIN_CHECK_HELD' }, { status: 409 }).retryInSeconds).toBeNull()
+    for (const value of ['300', -1, 1.5, 604_801, null, { seconds: 300 }]) {
+      expect(parseErrorEnvelope({ retryAfterSeconds: value }, { status: 409 }).retryInSeconds).toBeNull()
+    }
+    expect(parseErrorEnvelope({ retryAfterSeconds: 0 }, { status: 409 }).retryInSeconds).toBe(0)
+    expect(new HidApiError(409, 'x').retryInSeconds).toBeNull()
+  })
+})
+
+/**
+ * hid-system ORD-2 and ORD-4: 409 PHARMACY_PRESCRIPTION_NOT_DISPENSABLE carries `withdrawnReason` (`changed` or
+ * `sent_elsewhere`), a problem member, so a page branches on it and never on the text.
+ */
+describe('problem withdrawnReason', () => {
+  const SENT = { status: 409, code: 'PHARMACY_PRESCRIPTION_NOT_DISPENSABLE', withdrawnReason: 'sent_elsewhere',
+    detail: 'This prescription was sent to another pharmacy, so it can no longer be dispensed here' }
+
+  it('keeps the reason on the error the client throws', async () => {
+    const problem = new Response(JSON.stringify(SENT), { status: 409, headers: { 'Content-Type': 'application/problem+json' } })
+    const error = await client(problem).post('/api/v1/pharmacy/work-items/x/accept', {}).catch((e: unknown) => e)
+    expect(error).toMatchObject({ status: 409, code: 'PHARMACY_PRESCRIPTION_NOT_DISPENSABLE', withdrawnReason: 'sent_elsewhere' })
+  })
+
+  it('is null when absent, or anything but a lowercase code', () => {
+    expect(parseErrorEnvelope({ code: 'PHARMACY_PRESCRIPTION_NOT_DISPENSABLE' }, { status: 409 }).withdrawnReason).toBeNull()
+    for (const value of ['Changed', 'changed by Dr One', 1, null, { reason: 'changed' }]) {
+      expect(parseErrorEnvelope({ withdrawnReason: value }, { status: 409 }).withdrawnReason).toBeNull()
+    }
+    expect(parseErrorEnvelope({ withdrawnReason: 'changed' }, { status: 409 }).withdrawnReason).toBe('changed')
+    expect(new HidApiError(409, 'x').withdrawnReason).toBeNull()
+  })
+})

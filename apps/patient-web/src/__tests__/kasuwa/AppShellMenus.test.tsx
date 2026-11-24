@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup as cleanupShell, fireEvent, render, screen } from '@testing-library/react'
 import { createRoot, type Root } from 'react-dom/client'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -78,3 +78,25 @@ describe('the account menu', () => {
     expect(screen.queryByRole('button', { name: 'Sign out' })).toBeNull()
   })
 })
+
+describe('the phone Menu page', () => {
+  afterEach(() => cleanupShell())
+  const shellAt = (signOutProblem?: string) => render(<MemoryRouter initialEntries={['/admin/overview#menu']}>
+    <AppShell brand={<span>Health ID</span>} switcher={{ name: 'Health ID platform', subtitle: 'Administrator' }} nav={[{ items: TABS }]} tabs={TABS}
+      person={{ name: 'Ada Admin', detail: 'ada.admin@example.test' }} onSignOut={() => undefined} signOutProblem={signOutProblem}><h1>Overview</h1></AppShell>
+  </MemoryRouter>)
+
+  it('says beside Sign out why the last sign-out failed: the page that says so is hidden behind Menu (rehearsal, 14 Nov)', () => {
+    shellAt('No connection. Check your signal and try again.')
+    const alert = screen.getByRole('alert')
+    expect(alert.textContent).toContain('Couldn’t sign out')
+    expect(alert.textContent).toContain('No connection. Check your signal and try again.')
+  })
+
+  it('says nothing when sign-out has not failed', () => {
+    shellAt()
+    expect(screen.getByRole('heading', { name: 'Menu' })).toBeTruthy()
+    expect(screen.queryByText('Couldn’t sign out')).toBeNull()
+  })
+})
+

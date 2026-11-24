@@ -55,9 +55,11 @@ async function profileAnswered(fetched: ReturnType<typeof renderAccess>) {
 const sentence = (duration: string) => `If you approve, staff at Lagos General can add your paper records to your Health ID record for the next ${duration}. Each one is saved as a draft, and you will only see it after a clinician checks and signs it.`
 const TODAY = 'Approving also lets Lagos General add your old paper records to your Health ID while their access lasts.'
 
-describe('a records-processing request before its grant is live (hid-system #229, 0113, not yet deployed)', () => {
-  it('keeps today’s line, as approving cannot yet keep paper records as drafts', async () => {
-    expect(RECORDS_PROCESSING_GRANT.live).toBe(false)
+describe('a records-processing request if its grant were switched off again', () => {
+  beforeEach(() => { RECORDS_PROCESSING_GRANT.live = false })
+  afterEach(() => { RECORDS_PROCESSING_GRANT.live = true })
+
+  it('keeps today’s line, as approving could not keep paper records as drafts', async () => {
     renderAccess(recordsProcessing, '1991-03-04')
     const drawer = await review()
     expect(await drawer.findByText(TODAY)).toBeTruthy()
@@ -66,8 +68,7 @@ describe('a records-processing request before its grant is live (hid-system #229
 })
 
 describe('a records-processing request, as the patient reads it once its grant is live', () => {
-  beforeEach(() => { RECORDS_PROCESSING_GRANT.live = true })
-  afterEach(() => { RECORDS_PROCESSING_GRANT.live = false })
+  it('is live now that hid-system #229 (0113) is deployed', () => expect(RECORDS_PROCESSING_GRANT.live).toBe(true))
 
   it('is the given sentence, word for word', () => {
     expect(paperRecordsOnRecordsProcessingApproval('Lagos General', '24 hours')).toBe(sentence('24 hours'))

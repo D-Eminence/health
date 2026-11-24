@@ -33,7 +33,8 @@ vi.mock('../../../staff/App', async () => {
 })
 vi.mock('../../../staff/session', () => session)
 
-const SENT = 'Request sent. The patient must approve before records are available.'
+/** Today's sentence for a request sent (Patients.tsx:184). */
+const SENT = 'Access request sent. The patient must approve it before records are available.'
 const ALL = ['identity.patient.read', 'identity.consent.write', 'identity.patient-access-pin.verify', 'identity.break-glass.write', 'ehr.encounter.read', 'ehr.note.read']
 
 function request(overrides: Record<string, unknown> = {}) {
@@ -82,9 +83,8 @@ function where() {
 
 const SEND = 'Send access request'
 const REASON = labelled('Clinical reason')
-const DURATION = labelled('How long (minutes)')
-const PIN = labelled('Access PIN')
-const OPEN_WITH_PIN = 'Check PIN and open'
+const PIN = labelled('Patient access PIN')
+const OPEN_WITH_PIN = 'Verify PIN and open'
 /** The list: a kasuwa list of rows, each a link to its request (once a table). */
 const list = () => screen.findByRole('list', { name: 'Access requests' })
 /** What an alert shows, without the visually hidden intent label ("Error: ") a kasuwa Alert reads out first. */
@@ -103,14 +103,14 @@ describe('Access requests list (once External record access)', () => {
     const rows = await list()
     expect(api.listAccessRequests).toHaveBeenCalledWith(FACILITY_ID, undefined)
     expect(within(rows).getByRole('link', { name: /^Follow-up consultation/ }).getAttribute('href')).toBe('/provider/requests/r0000000-0000-4000-8000-000000000001')
-    expect(within(rows).getAllByText(/^Patient ••••0001 · /)).toHaveLength(3)
+    expect(within(rows).getAllByText(/^Patient \(name not shown\) · /)).toHaveLength(3)
     expect(within(rows).getByText('Waiting for the patient')).toBeTruthy()
     expect(within(rows).getByText('Access active')).toBeTruthy()
     expect(within(rows).getByText('Denied by the patient')).toBeTruthy()
     // When it was requested, as today's list shows (AccessRequests.tsx:123), then today's extras after the status
     // (AccessRequests.tsx:123-125): how it was given, until when, the patient's reason.
-    expect(within(rows).getByText(`Patient ••••0001 · Can view records · requested ${formatWhen('2026-10-30T09:00:00.000Z')} · Patient approval · until ${formatWhen('2026-10-30T10:05:00.000Z')}`)).toBeTruthy()
-    expect(within(rows).getByText(`Patient ••••0001 · Can view records · requested ${formatWhen('2026-10-30T09:00:00.000Z')} · Not my clinician`)).toBeTruthy()
+    expect(within(rows).getByText(`Patient (name not shown) · Can view records · requested ${formatWhen('2026-10-30T09:00:00.000Z')} · Patient approval · until ${formatWhen('2026-10-30T10:05:00.000Z')}`)).toBeTruthy()
+    expect(within(rows).getByText(`Patient (name not shown) · Can view records · requested ${formatWhen('2026-10-30T09:00:00.000Z')} · Not my clinician`)).toBeTruthy()
     expect(document.body.textContent).not.toMatch(/updated/i)
     // No patient name or Health ID anywhere on the list.
     expect(document.body.textContent).not.toContain(PATIENT_HID)
@@ -128,7 +128,7 @@ describe('Access requests list (once External record access)', () => {
   it('opens a request from its row, and Ask for access goes to the new request', async () => {
     open()
     fireEvent.click(within(await list()).getByRole('link', { name: /^Review of results/ }))
-    expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient ••••0001' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient (name not shown)' })).toBeTruthy()
     expect(screen.getAllByText('Can view records').length).toBeGreaterThan(0)
   })
 
@@ -229,7 +229,7 @@ describe('Access requests list (once External record access)', () => {
     // The request's page reads with the status that found it: the address carries that filter, and no patient data.
     expect(link.getAttribute('href')).toBe('/provider/requests/r0000000-0000-4000-8000-000000000009?status=active')
     fireEvent.click(link)
-    expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient ••••0001' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient (name not shown)' })).toBeTruthy()
     expect(screen.getByText('Old active grant')).toBeTruthy()
     // An active grant's request is approved: it is read as approved, so closing it leaves it on its page.
     expect(api.listAccessRequests).toHaveBeenLastCalledWith(FACILITY_ID, 'approved')
@@ -266,7 +266,7 @@ describe('Close access from the list (parity 3.1 #23)', () => {
     expect(button.closest('a')).toBeNull()
   })
 
-  it('closes at once with today’s reason, reads the list again, announces it and keeps focus on what happened', async () => {
+  it('closes at once with today’s reason, reads the list again, announces it and moves focus to the heading, as today', async () => {
     staff.activePatient = activePatient()
     open()
     const button = within(await list()).getByRole('button', { name: CLOSE_ROW })
@@ -281,10 +281,11 @@ describe('Close access from the list (parity 3.1 #23)', () => {
     expect(api.listAccessRequests).toHaveBeenCalledTimes(2)
     expect(within(await list()).getByText('Closed by you')).toBeTruthy()
     expect(screen.queryByRole('button', { name: /^Close access/ })).toBeNull()
-    expect(document.activeElement).toBe(said.closest('[role="status"]'))
-    // The open patient this grant opened has ended too.
+    // Today's focus('access-requests-title', true): the page heading, as the row's button is gone.
+    expect(document.activeElement).toBe(screen.getByRole('heading', { level: 1, name: 'Access requests' }))
+    // The open patient this grant opened has ended too, and today's page says nothing more than the one sentence.
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
-    expect(screen.getByText('Access to this patient ended')).toBeTruthy()
+    expect(screen.queryByText('Access to this patient ended')).toBeNull()
   })
 
   it('sends one close on a double press, and says Closing… while it is on its way', async () => {
@@ -310,11 +311,11 @@ describe('Close access from the list (parity 3.1 #23)', () => {
     button.focus()
     fireEvent.click(button)
     const alert = await screen.findByText('This access had already ended. The list has been refreshed.')
-    expect(alert.closest('[role="alert"]')?.textContent).toContain('Couldn’t close access')
+    // Today's alert is the sentence alone, with no title (AccessRequests.tsx:122).
+    expect(alert.closest('[role="alert"]')?.textContent).not.toContain('Couldn’t close access')
     await waitFor(() => expect(screen.queryByRole('button', { name: /^Close access/ })).toBeNull())
-    // Focus goes to what happened, not lost to the page.
-    expect(document.activeElement).not.toBe(document.body)
-    expect(document.activeElement?.contains(alert)).toBe(true)
+    // Focus goes to the page heading, as today's does, not lost to the page.
+    expect(document.activeElement).toBe(screen.getByRole('heading', { level: 1, name: 'Access requests' }))
     expect(screen.queryByText('Access was closed.')).toBeNull()
     expect(api.listAccessRequests).toHaveBeenCalledTimes(2)
     expect(document.body.textContent).not.toContain('CONSENT_COMMAND_CONFLICT')
@@ -353,51 +354,64 @@ describe('Patient sharing on Access requests (parity 3.1 #14)', () => {
 })
 
 describe('Ask the patient for access (once New external record access)', () => {
-  it('checks the Health ID, reason and duration at their fields before sending anything', async () => {
+  it('checks the Health ID and reason at their fields before sending anything', async () => {
     open('/new')
     const form = screen.getByRole('button', { name: SEND }).closest('form')!
-    // Today always asks for 60 minutes: 60 is the default, and less may be chosen.
-    expect((screen.getByLabelText(DURATION) as HTMLInputElement).value).toBe('60')
     fireEvent.submit(form)
     expect(await screen.findByText('Enter the patient’s Health ID.')).toBeTruthy()
     expect(document.activeElement).toBe(screen.getByLabelText(labelled('Health ID')))
     expect(screen.getByText('Enter a clinical reason of at least 8 characters.')).toBeTruthy()
     fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: 'hid-zdem' } })
-    fireEvent.change(screen.getByLabelText(DURATION), { target: { value: '90' } })
     fireEvent.submit(form)
     expect(await screen.findByText('Check the Health ID: it starts with HID-, then 6 to 32 letters and digits, and never uses 0, 1, I or O.')).toBeTruthy()
-    expect(screen.getByText('Enter a number of minutes from 5 to 60.')).toBeTruthy()
     expect(api.requestAccess).not.toHaveBeenCalled()
   })
 
-  it('asks for at least 5 minutes, as Health ID refuses less, and says so before sending', async () => {
+  it('always asks for 60 minutes, as today does, and offers no choice of how long (Patients.tsx:183)', async () => {
     open('/new')
-    const duration = screen.getByLabelText(DURATION) as HTMLInputElement
-    expect(duration.min).toBe('5')
-    expect(duration.max).toBe('60')
-    expect(screen.getByText('From 5 to 60 minutes.')).toBeTruthy()
+    expect(screen.queryByLabelText(/How long/)).toBeNull()
+    expect(screen.queryByRole('spinbutton')).toBeNull()
+    expect(document.body.textContent).not.toMatch(/minutes/i)
     fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: 'hid-zdemaaa2' } })
     fireEvent.change(screen.getByLabelText(REASON), { target: { value: 'Follow-up consultation' } })
-    fireEvent.change(duration, { target: { value: '4' } })
-    fireEvent.submit(duration.closest('form')!)
-    expect(await screen.findByText('Enter a number of minutes from 5 to 60.')).toBeTruthy()
-    expect(api.requestAccess).not.toHaveBeenCalled()
-    fireEvent.change(duration, { target: { value: '5' } })
-    fireEvent.submit(duration.closest('form')!)
-    await waitFor(() => expect(api.requestAccess).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, 'read_records', 'Follow-up consultation', 5))
+    fireEvent.submit(screen.getByLabelText(REASON).closest('form')!)
+    await waitFor(() => expect(api.requestAccess).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, 'read_records', 'Follow-up consultation', 60))
   })
 
-  it('sends the request with the chosen scope and duration, and opens it waiting for the patient', async () => {
+  it('sends the request with the chosen scope for 60 minutes, and says so on the form', async () => {
     open('/new')
     fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: 'hid-zdemaaa2' } })
     fireEvent.change(screen.getByLabelText(REASON), { target: { value: '  Follow-up consultation ' } })
     fireEvent.click(screen.getByRole('radio', { name: /^Can view and add records/ }))
-    fireEvent.change(screen.getByLabelText(DURATION), { target: { value: '45' } })
     fireEvent.submit(screen.getByLabelText(REASON).closest('form')!)
-    await waitFor(() => expect(api.requestAccess).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, 'write_records', 'Follow-up consultation', 45))
-    expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient ••••0001' })).toBeTruthy()
-    expect(screen.getByText(SENT)).toBeTruthy()
-    expect(screen.getByText('Waiting for the patient', { selector: 'p' })).toBeTruthy()
+    await waitFor(() => expect(api.requestAccess).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, 'write_records', 'Follow-up consultation', 60))
+    expect(await screen.findByText(SENT)).toBeTruthy()
+  })
+
+  it('parity 22c: stays on the form after a send and says today’s sentence there, with focus on it and no request id', async () => {
+    open('/new')
+    fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: PATIENT_HID } })
+    fireEvent.change(screen.getByLabelText(REASON), { target: { value: 'Follow-up consultation' } })
+    fireEvent.click(screen.getByRole('button', { name: SEND }))
+    const said = await screen.findByText(SENT)
+    // Still the form, at its own address (the request's page would be a heading of its own).
+    expect(screen.getByRole('heading', { level: 1, name: 'Ask the patient for access' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { level: 1, name: /^Access request/ })).toBeNull()
+    expect(where()).toBeNull()
+    expect(screen.getByRole('button', { name: SEND })).toBeTruthy()
+    // Focus is on what happened, inside the status region, so a screen reader hears it.
+    const status = said.closest('[role="status"]') as HTMLElement
+    expect(document.activeElement).toBe(status)
+    expect(document.body.textContent).not.toContain(request().accessRequestId)
+    // Today's form keeps what was typed after a send (Patients.tsx:181-184).
+    expect((screen.getByLabelText(REASON) as HTMLTextAreaElement).value).toBe('Follow-up consultation')
+    // The next press starts afresh: the sentence goes until that request is sent too.
+    let answer: (value: unknown) => void = () => {}
+    api.requestAccess.mockReturnValue(new Promise(resolve => { answer = resolve }))
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Send access request' })) })
+    expect(screen.queryByText(SENT)).toBeNull()
+    await act(async () => { answer(request()) })
+    expect(await screen.findByText(SENT)).toBeTruthy()
   })
 
   it('says a Health ID refused from Enter in its own field as an alert, new for each refusal, and sends nothing', async () => {
@@ -460,33 +474,6 @@ describe('Ask the patient for access (once New external record access)', () => {
     await waitFor(() => expect(api.requestAccess).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, 'read_records', 'Follow-up consultation', 60))
   })
 
-  it('confirms a request just sent while its page is read, and when it cannot be read', async () => {
-    // Each read gets its own promise, made when the page asks for it, so none is refused before the page holds it.
-    const fails: Array<(reason: unknown) => void> = []
-    api.listAccessRequests.mockImplementation(() => new Promise((_resolve, reject) => { fails.push(reject) }))
-    open('/new')
-    fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: PATIENT_HID } })
-    fireEvent.change(screen.getByLabelText(REASON), { target: { value: 'Follow-up consultation' } })
-    fireEvent.click(screen.getByRole('button', { name: SEND }))
-    expect(await screen.findByRole('status', { name: 'Loading this request' })).toBeTruthy()
-    expect(screen.getByText(SENT)).toBeTruthy()
-    // The page shows "Loading requests…" before its read is asked for: fail the reads only once one has been.
-    await waitFor(() => expect(fails.length).toBeGreaterThan(0))
-    await act(async () => { for (const fail of fails) fail(new HidApiError(503, 'Unavailable', { code: 'SERVICE_UNAVAILABLE' })) })
-    expect(await screen.findByRole('alert')).toBeTruthy()
-    expect(screen.getByText(SENT)).toBeTruthy()
-  })
-
-  it('confirms a request just sent that the list does not hold yet', async () => {
-    api.listAccessRequests.mockResolvedValue([ACTIVE])
-    open('/new')
-    fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: PATIENT_HID } })
-    fireEvent.change(screen.getByLabelText(REASON), { target: { value: 'Follow-up consultation' } })
-    fireEvent.click(screen.getByRole('button', { name: SEND }))
-    expect(await screen.findByRole('heading', { level: 1, name: 'Record not found' })).toBeTruthy()
-    expect(screen.getByText(SENT)).toBeTruthy()
-  })
-
   it('shows a refusal from the server and keeps what was typed', async () => {
     api.requestAccess.mockRejectedValue(new HidApiError(404, 'Patient was not found or is not available', { code: 'PATIENT_NOT_FOUND' }))
     open('/new')
@@ -498,13 +485,27 @@ describe('Ask the patient for access (once New external record access)', () => {
     expect((screen.getByLabelText(REASON) as HTMLTextAreaElement).value).toBe('Follow-up consultation')
   })
 
-  it('says plainly that the request couldn’t be sent when the failure has no words of its own', async () => {
+  it('says the coordinator’s words when the failure has no words of its own, with no title of its own (parity 17g, 22a)', async () => {
     api.requestAccess.mockRejectedValue(new Error(''))
     open('/new')
     fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: PATIENT_HID } })
     fireEvent.change(screen.getByLabelText(REASON), { target: { value: 'Follow-up consultation' } })
     fireEvent.click(screen.getByRole('button', { name: SEND }))
-    expect(shownText(await screen.findByRole('alert'))).toContain('The request couldn’t be sent. Please try again.')
+    const alert = await screen.findByRole('alert')
+    // Not classic's "The access command failed.", which the coordinator's 2 Nov review reverted (db9967ae).
+    expect(shownText(alert)).toBe('Something went wrong. Please try again.')
+    expect(document.body.textContent).not.toContain('The access command failed.')
+    expect(alert.textContent).not.toContain('Couldn’t send the request')
+  })
+
+  it('opens with today’s lede and today’s two scopes, with no hint under either (parity 22a)', () => {
+    open('/new')
+    expect(screen.getByText('Ask the patient to approve access. A pending request does not expose their record.')).toBeTruthy()
+    expect(screen.getByRole('radio', { name: 'Can view records' })).toBeTruthy()
+    expect(screen.getByRole('radio', { name: 'Can view and add records' })).toBeTruthy()
+    expect(document.body.textContent).not.toContain('They approve on their phone. You see nothing until they do.')
+    expect(document.body.textContent).not.toContain('View only')
+    expect(document.body.textContent).not.toContain('For notes, vitals and orders')
   })
 
   it('parity: Send access request keeps focus while the request is sent (aria-disabled, not disabled), and a second press sends nothing', async () => {
@@ -524,21 +525,29 @@ describe('Ask the patient for access (once New external record access)', () => {
     await act(async () => { fireEvent.click(button) })
     expect(api.requestAccess).toHaveBeenCalledTimes(1)
     await act(async () => { answer(request()) })
-    expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient ••••0001' })).toBeTruthy()
+    expect(await screen.findByText(SENT)).toBeTruthy()
   })
 
-  it('says in plain words that the role can’t ask patients for access, naming no permission, and offers no submit', () => {
+  it('says in today’s words that the role can’t send access requests, naming no permission, and offers no submit', () => {
     staff.permissions = ['identity.patient.read']
     open('/new')
-    // The coordinator's #80 sentence, as Access requests' own refusal (ConsentRefusal) says it.
-    expect(screen.getByText('Your role at this facility can’t ask patients for access. Ask your facility administrator.')).toBeTruthy()
+    // Today's sentence (Patients.tsx:38, 77), as Access requests' own refusal (ConsentRefusal) says it.
+    expect(screen.getByText('Your role at this facility can’t send access requests. Ask your facility administrator.')).toBeTruthy()
     expect(document.body.textContent).not.toContain('identity.consent.write')
     expect((screen.getByRole('button', { name: SEND }) as HTMLButtonElement).disabled).toBe(true)
   })
 })
 
 describe('Use the patient’s Access PIN (once Patient PIN access)', () => {
-  it('verifies the PIN without spaces, waits for the session, then opens the patient through the lookup', async () => {
+  it('says the PIN lets staff see and add to the patient’s records for 24 hours, before the Health ID', () => {
+    open('/pin')
+    const said = screen.getByText('Their PIN lets you see and add to their records for 24 hours.')
+    expect(said.closest('form')).toBe((screen.getByLabelText(labelled('Health ID')) as HTMLInputElement).form)
+    expect(said.compareDocumentPosition(screen.getByLabelText(labelled('Health ID'))) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/60 minutes|one hour|read-only|view only/i)
+  })
+
+  it('verifies the PIN without spaces, waits for the session, then opens the patient’s page through the lookup, not the chart (Q139 B)', async () => {
     open('/pin')
     expect(screen.getByRole('heading', { level: 1, name: 'Use the patient’s Access PIN' })).toBeTruthy()
     fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: 'hid-zdemaaa2' } })
@@ -547,7 +556,9 @@ describe('Use the patient’s Access PIN (once Patient PIN access)', () => {
     expect(pin.type).toBe('password')
     fireEvent.change(pin, { target: { value: '12 34' } })
     fireEvent.submit(pin.closest('form')!)
+    // The patient's page, with the chart summary, not the chart (owner decision Q139 B, 23 Nov; parity 9d).
     await waitFor(() => expect(where()).toBe('/provider/patients/open'))
+    expect(where()).not.toBe('/provider/clinical')
     expect(api.verifyPin).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, '1234')
     expect(session.untilStaffSessionReady).toHaveBeenCalledWith(3)
     expect(api.lookupPatient).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, 'direct-care')
@@ -619,6 +630,32 @@ describe('Use the patient’s Access PIN (once Patient PIN access)', () => {
     expect(field().value).toBe(PATIENT_HID)
   })
 
+  it.each([
+    ['may open the chart', ALL],
+    ['can’t open the chart', ALL.filter(permission => permission !== 'ehr.encounter.read')],
+  ])('opens the patient’s page for a role that %s, never the chart (Q139 B)', async (_label, permissions) => {
+    staff.permissions = permissions
+    open('/pin')
+    fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: PATIENT_HID } })
+    fireEvent.change(screen.getByLabelText(PIN), { target: { value: '1234' } })
+    fireEvent.click(screen.getByRole('button', { name: OPEN_WITH_PIN }))
+    await waitFor(() => expect(where()).toBe('/provider/patients/open'))
+    expect(where()).not.toBe('/provider/clinical')
+  })
+
+  it('says the coordinator’s words when the PIN check fails with no words of its own, with no title of its own (parity 9c, 17g)', async () => {
+    api.verifyPin.mockRejectedValue(new Error(''))
+    open('/pin')
+    fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: PATIENT_HID } })
+    fireEvent.change(screen.getByLabelText(PIN), { target: { value: '1234' } })
+    fireEvent.click(screen.getByRole('button', { name: OPEN_WITH_PIN }))
+    const alert = await screen.findByRole('alert')
+    // Not classic's "The access command failed.", which the coordinator's 2 Nov review reverted (db9967ae).
+    expect(shownText(alert)).toBe('Something went wrong. Please try again.')
+    expect(document.body.textContent).not.toContain('The access command failed.')
+    expect(document.body.textContent).not.toContain('Couldn’t open the record')
+  })
+
   it('review item 10: the PIN form starts at a Health ID offered from Patients, read once', () => {
     offerHealthId(PATIENT_HID, FACILITY_ID, staff.setActivePatient)
     open('/pin')
@@ -631,7 +668,7 @@ describe('Use the patient’s Access PIN (once Patient PIN access)', () => {
     expect(screen.getByRole('link', { name: 'Back to access requests' }).getAttribute('href')).toBe('/provider/requests')
   })
 
-  it('parity: Check PIN and open keeps focus while the PIN is checked (aria-disabled, not disabled), and a second press sends nothing', async () => {
+  it('parity: Verify PIN and open keeps focus while the PIN is checked (aria-disabled, not disabled), and a second press sends nothing', async () => {
     let answer: (value: unknown) => void = () => {}
     api.verifyPin.mockReturnValue(new Promise(resolve => { answer = resolve }))
     open('/pin')
@@ -640,7 +677,8 @@ describe('Use the patient’s Access PIN (once Patient PIN access)', () => {
     const button = screen.getByRole('button', { name: OPEN_WITH_PIN }) as HTMLButtonElement
     button.focus()
     await act(async () => { fireEvent.click(button) })
-    expect(button.textContent).toBe('Checking…')
+    // Today's busy word (Patients.tsx:262).
+    expect(button.textContent).toBe('Working…')
     expect(button.disabled).toBe(false)
     expect(button.getAttribute('aria-disabled')).toBe('true')
     // jsdom leaves focus on a button that becomes disabled (a browser moves it to the page), so this line alone passes
@@ -652,10 +690,10 @@ describe('Use the patient’s Access PIN (once Patient PIN access)', () => {
     await waitFor(() => expect(where()).toBe('/provider/patients/open'))
   })
 
-  it('says in plain words that the role can’t use a patient’s Access PIN, naming no permission', () => {
+  it('says in today’s words that the role can’t verify a patient’s PIN, naming no permission (parity 9c)', () => {
     staff.permissions = ['identity.patient-access-pin.verify']
     open('/pin')
-    expect(screen.getByText('Your role at this facility can’t use a patient’s Access PIN. Ask your facility administrator.')).toBeTruthy()
+    expect(screen.getByText('Your role at this facility can’t verify a patient’s PIN. Ask your facility administrator.')).toBeTruthy()
     expect(document.body.textContent).not.toContain('identity.patient.read')
     expect((screen.getByRole('button', { name: OPEN_WITH_PIN }) as HTMLButtonElement).disabled).toBe(true)
   })
@@ -664,7 +702,7 @@ describe('Use the patient’s Access PIN (once Patient PIN access)', () => {
 describe('An access request’s page', () => {
   it('shows a pending request as waiting, with no Close access, and the emergency step as navigation', async () => {
     open('/r0000000-0000-4000-8000-000000000001')
-    expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient ••••0001' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient (name not shown)' })).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'The request' })).toBeTruthy()
     expect(screen.getByText('Follow-up consultation')).toBeTruthy()
     expect(screen.getByText('Waiting for the patient', { selector: 'p' })).toBeTruthy()
@@ -681,7 +719,7 @@ describe('An access request’s page', () => {
 
   it('shows the patient’s reason for denying', async () => {
     open('/r0000000-0000-4000-8000-000000000003')
-    expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient ••••0001' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient (name not shown)' })).toBeTruthy()
     expect(screen.getByText('Medication review')).toBeTruthy()
     expect(screen.getAllByText('Not my clinician').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Denied by the patient').length).toBeGreaterThan(0)
@@ -697,7 +735,10 @@ describe('An access request’s page', () => {
     expect(await screen.findByText('Access was closed.')).toBeTruthy()
     expect(api.closeGrant).toHaveBeenCalledWith(FACILITY_ID, 'grant-1', 'Clinician closed completed patient access')
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
-    expect(screen.getByRole('alert').textContent).toContain('Access to this patient ended')
+    // Today's page says the one sentence only (parity 23), and focus goes to the page heading (AccessRequests.tsx:101).
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByText('Access to this patient ended')).toBeNull()
+    expect(document.activeElement).toBe(screen.getByRole('heading', { level: 1, name: 'Access request · Patient (name not shown)' }))
     expect(screen.getAllByText('Closed by you').length).toBeGreaterThan(0)
     expect(screen.queryByRole('alertdialog')).toBeNull()
   })
@@ -758,8 +799,9 @@ describe('An access request’s page', () => {
     // Today's one alert: the close refusal takes the list error's place (AccessRequests.tsx:94-95,118).
     const alerts = screen.getAllByRole('alert')
     expect(alerts).toHaveLength(1)
-    expect(shownText(alerts[0]!)).toContain('Couldn’t close access')
+    // Today's alert is the sentence alone, with no title (parity 23).
     expect(shownText(alerts[0]!)).toContain('This access had already ended. The list has been refreshed.')
+    expect(shownText(alerts[0]!)).not.toContain('Couldn’t close access')
     expect(api.listAccessRequests).toHaveBeenCalledTimes(2)
     expect(staff.setActivePatient).not.toHaveBeenCalled()
   })
@@ -770,7 +812,8 @@ describe('An access request’s page', () => {
     const button = await screen.findByRole('button', { name: 'Close access' })
     api.listAccessRequests.mockRejectedValue(new HidApiError(503, 'Unavailable', { code: 'SERVICE_UNAVAILABLE' }))
     fireEvent.click(button)
-    expect(shownText(await screen.findByRole('alert'))).toContain('Couldn’t close access')
+    expect(shownText(await screen.findByRole('alert'))).toContain('This access had already ended. The list has been refreshed.')
+    expect(shownText(screen.getByRole('alert'))).not.toContain('Couldn’t close access')
     // Read again, and refused again: the list's own refusal takes the close refusal's place (AccessRequests.tsx:78).
     api.listAccessRequests.mockRejectedValue(new HidApiError(403, 'Forbidden', { code: 'FACILITY_ACCESS_DENIED' }))
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
@@ -783,7 +826,7 @@ describe('An access request’s page', () => {
     // Read again, and it works: nothing about the close is said any more (AccessRequests.tsx:75).
     api.listAccessRequests.mockResolvedValue([request(), ACTIVE, DENIED])
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
-    expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient ••••0001' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient (name not shown)' })).toBeTruthy()
     expect(screen.queryByText('Couldn’t close access')).toBeNull()
     expect(screen.queryByText('This access had already ended. The list has been refreshed.')).toBeNull()
     expect(screen.queryByRole('alert')).toBeNull()
@@ -828,7 +871,7 @@ describe('An access request’s page', () => {
   it('offers no emergency step on a pending request to a role that may not use emergency access', async () => {
     staff.permissions = ALL.filter(permission => permission !== 'identity.break-glass.write')
     open('/r0000000-0000-4000-8000-000000000001')
-    expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient ••••0001' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient (name not shown)' })).toBeTruthy()
     expect(screen.getByText('Follow-up consultation')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Emergency access' })).toBeNull()
   })
@@ -860,5 +903,45 @@ describe('The Health ID hand-off', () => {
     expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe(PATIENT_HID)
     ending.abort()
     expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe('')
+  })
+})
+
+describe('The paper records line on the PIN and request pages (hid-system 0136)', () => {
+  const LINE = 'This access also lets you bring in the patient’s paper records while it lasts.'
+  /** The front desk's scan codes since 0136: it starts readings of its own uploads. */
+  const FRONT_DESK = ['ehr.document.write', 'ehr.document.read-own', 'ocr.job.write', 'ocr.job.start', 'ocr.job.read-own']
+  /** A doctor's: every OCR read and check, but no longer the start of a reading. */
+  const DOCTOR = ['ehr.document.read', 'ehr.document.write', 'ocr.job.read', 'ocr.job.write', 'ocr.validation.write']
+  /** The patient open here for direct care, on access that can add to the record. */
+  const openWithWrite = () => ({ ...activePatient(), lookup: { ...allowedLookup, authorization: { ...allowedLookup.authorization, scope: 'write_records' } } })
+
+  it('on the PIN page, says it to the front desk, which starts readings, and not to a doctor', () => {
+    staff.activePatient = openWithWrite()
+    staff.permissions = [...ALL, ...FRONT_DESK]
+    const frontDesk = open('/pin')
+    fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: PATIENT_HID } })
+    expect(screen.getByText(LINE)).toBeTruthy()
+    frontDesk.unmount()
+
+    staff.permissions = [...ALL, ...DOCTOR]
+    open('/pin')
+    fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: PATIENT_HID } })
+    expect(screen.getByLabelText(labelled('Health ID'))).toBeTruthy()
+    expect(screen.queryByText(LINE)).toBeNull()
+  })
+
+  it('on an approved request that adds to the record, says it to the front desk and not to a doctor', async () => {
+    api.listAccessRequests.mockResolvedValue([{ ...ACTIVE, scope: 'write_records' }])
+    staff.activePatient = activePatient()
+    staff.permissions = [...ALL, ...FRONT_DESK]
+    const frontDesk = open(`/${ACTIVE.accessRequestId}`)
+    await screen.findByText('The patient approved')
+    expect(document.body.textContent).toContain(LINE)
+    frontDesk.unmount()
+
+    staff.permissions = [...ALL, ...DOCTOR]
+    open(`/${ACTIVE.accessRequestId}`)
+    await screen.findByText('The patient approved')
+    expect(document.body.textContent).not.toContain(LINE)
   })
 })

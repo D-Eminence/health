@@ -1,8 +1,3 @@
-/** An identifier shown masked, as today's pages show it: its last six characters. */
-export function shortId(value: string) {
-  return `••••${value.slice(-6)}`
-}
-
 /**
  * A server time as "26 Oct 2026, 12:41", or "Not available". Never all numbers ("3/4" is a different day in Lagos and
  * in an American template) and on the 24-hour clock, as the clinical pages write it (clinical/parts/format.ts).
@@ -20,6 +15,9 @@ export function birthDateText(value: string | null | undefined) {
   const day = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T00:00:00`) : new Date(value)
   return Number.isNaN(day.getTime()) ? '' : day.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
+
+/** "24 Aug 2026", for a calendar day the server names ("2026-08-24"), as a date of birth is written. */
+export const dayText = birthDateText
 
 /** A count with its noun: "1 order", "3 orders". */
 export function countText(count: number, singular: string, plural = `${singular}s`) {

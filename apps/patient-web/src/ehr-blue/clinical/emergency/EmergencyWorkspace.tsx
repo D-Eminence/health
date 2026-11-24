@@ -34,12 +34,13 @@ function EmergencyHome() {
   const can = useSampleAccess()
   return (
     <div className="flex flex-col gap-8">
-      <FormPage title="Emergency access" description="See the emergency summary of a patient who can’t consent."
+      {/* The form and the board share one column width, so neither sticks out past the other (owner, 18 Nov 2026). */}
+      <FormPage wide title="Emergency access" description="See the emergency summary of a patient who can’t consent."
         actions={demo && can('emergency', 'create') ? <Button to={href('new')}>New board entry</Button> : undefined}>
         <CurrentEmergency />
         <BreakGlassCard />
       </FormPage>
-      {demo ? <SampleList id="emergency" /> : null}
+      {demo ? <div className="mx-auto w-full max-w-3xl"><SampleList id="emergency" /></div> : null}
     </div>
   )
 }

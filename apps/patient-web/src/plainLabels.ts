@@ -71,6 +71,30 @@ export function visitStatusLabel(value: string | null | undefined): string {
   return Object.hasOwn(VISIT_STATUSES, key) ? VISIT_STATUSES[key]! : 'Status not known'
 }
 
+const LAB_REQUEST_STATUSES: Readonly<Record<string, string>> = {
+  draft: 'Not sent yet', active: 'Requested', requested: 'Requested', ordered: 'Requested', on_hold: 'On hold', in_progress: 'In progress',
+  completed: 'Done', resulted: 'Done', final: 'Done', revoked: 'Cancelled', cancelled: 'Cancelled', canceled: 'Cancelled',
+  entered_in_error: 'Entered by mistake', unknown: 'Status not known',
+}
+
+/** Where a lab test the patient was asked to have is: "Requested", "Done"; "Status not known" for any other value, never the value. */
+export function labRequestStatusLabel(value: string | null | undefined): string {
+  const key = (value ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_')
+  return Object.hasOwn(LAB_REQUEST_STATUSES, key) ? LAB_REQUEST_STATUSES[key]! : 'Status not known'
+}
+
+const MEDICINE_STATUSES: Readonly<Record<string, string>> = {
+  draft: 'Not sent yet', active: 'Active', on_hold: 'On hold', completed: 'Finished', stopped: 'Stopped', ended: 'Finished',
+  revoked: 'Cancelled', cancelled: 'Cancelled', canceled: 'Cancelled', dispensed: 'Given out',
+  entered_in_error: 'Entered by mistake', unknown: 'Status not known',
+}
+
+/** Where a medicine the patient was prescribed is: "Active", "Stopped"; "Status not known" for any other value, never the value. */
+export function medicineStatusLabel(value: string | null | undefined): string {
+  const key = (value ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_')
+  return Object.hasOwn(MEDICINE_STATUSES, key) ? MEDICINE_STATUSES[key]! : 'Status not known'
+}
+
 const FILE_TYPES: Readonly<Record<string, string>> = {
   'image/jpeg': 'JPEG image', 'image/jpg': 'JPEG image', 'image/pjpeg': 'JPEG image',
   'image/png': 'PNG image', 'image/tiff': 'TIFF image', 'image/tif': 'TIFF image',
@@ -169,4 +193,10 @@ export function priorityLabel(value: string | null | undefined): string | null {
   const key = (value ?? '').trim().toLowerCase()
   if (!key) return null
   return Object.hasOwn(PRIORITIES, key) ? PRIORITIES[key]! : plainCode(key)
+}
+
+/** How soon a lab test the patient was asked to have is wanted, in words; "Priority not known" for any other value, never the value. */
+export function labPriorityLabel(value: string | null | undefined): string {
+  const key = (value ?? '').trim().toLowerCase()
+  return Object.hasOwn(PRIORITIES, key) ? PRIORITIES[key]! : 'Priority not known'
 }

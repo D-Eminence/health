@@ -196,10 +196,10 @@ describe('provider and platform password recovery', () => {
     open('staff')
     fireEvent.change(screen.getByLabelText('Work email'), { target: { value: 'clinician@example.test' } })
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
-    await press('Send recovery code')
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Recovery code')))
-    fireEvent.change(screen.getByLabelText('Recovery code'), { target: { value: '123456' } })
-    await press('Verify code')
+    await press('Send code')
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Code')))
+    // Six boxes, as on app. (owner's answer to Q89): the sixth digit sends the code.
+    await enterCode(screen.getByLabelText('Code'), '123456')
     await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('New password')))
   }
 
@@ -208,18 +208,17 @@ describe('provider and platform password recovery', () => {
     expect(document.activeElement).toBe(document.body)
   })
 
-  it('leaves focus on another field of the same form the person moved to while the step ran', async () => {
+  it('leaves focus on another control of the same form the person moved to while the step ran', async () => {
     await toPassword()
     let refuse!: (reason: unknown) => void
     principal.complete.mockReturnValue(new Promise((_, reject) => { refuse = reject }))
     fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'a-long-new-password' } })
-    fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'a-long-new-password' } })
     await press('Reset password')
-    const confirm = screen.getByLabelText('Confirm new password')
-    confirm.focus()
+    const show = screen.getByRole('button', { name: 'Show new password' })
+    show.focus()
     await act(async () => { refuse(new HidApiError(429, 'Too many attempts. Try again later.')) })
-    expect(screen.getByRole('alert').textContent).toBe('You’ve tried this too many times. Please wait a few minutes and try again.')
-    expect(document.activeElement).toBe(confirm)
+    expect(shownText(screen.getByRole('alert'))).toBe('You’ve tried this too many times. Please wait a few minutes and try again.')
+    expect(document.activeElement).toBe(show)
   })
 
   it('names the tab after the audience', () => {
@@ -230,30 +229,21 @@ describe('provider and platform password recovery', () => {
     expect(document.title).toBe('Reset your password · Health ID Platform')
   })
 
-  it('says, and ties to the field, that the passwords do not match', async () => {
+  // One new password with Show, as on app.: too short is said at the field, and nothing is sent.
+  it('says, and ties to the field, that the new password is too short', async () => {
     await toPassword()
-    const confirm = screen.getByLabelText('Confirm new password')
-    fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'a-long-new-password' } })
-    // The polite region is there, empty, before anything is said in it.
-    const region = confirm.closest('form')!.querySelector('[aria-live="polite"]')
-    expect(region).toBeTruthy()
-    expect(region!.textContent).toBe('')
-    // Typing the confirmation, while it still agrees, says nothing.
-    fireEvent.change(confirm, { target: { value: 'a-long' } })
-    expect(confirm.getAttribute('aria-invalid')).toBeNull()
-    expect(region!.textContent).toBe('')
-    fireEvent.change(confirm, { target: { value: 'a-long-new-passwore' } })
-    expect(confirm.getAttribute('aria-invalid')).toBe('true')
-    expect(described(confirm)).toBe('Passwords do not match.')
-    expect(screen.getByText('Passwords do not match.').closest('[aria-live="polite"]')).toBeTruthy()
-
-    fireEvent.change(confirm, { target: { value: 'a-long-new-password' } })
-    expect(confirm.getAttribute('aria-invalid')).toBeNull()
-    expect(confirm.getAttribute('aria-describedby')).toBeNull()
-    expect(screen.queryByText('Passwords do not match.')).toBeNull()
+    const password = screen.getByLabelText('New password')
+    expect(screen.queryByLabelText('Confirm new password')).toBeNull()
+    fireEvent.change(password, { target: { value: 'too-short' } })
+    await press('Reset password')
+    expect(password.getAttribute('aria-invalid')).toBe('true')
+    expect(described(password)).toContain('Use at least 12 characters.')
+    expect(principal.complete).not.toHaveBeenCalled()
+    fireEvent.change(password, { target: { value: 'a-long-new-password' } })
+    expect(password.getAttribute('aria-invalid')).toBeNull()
   })
 
-  it.each(['Use a different work email', 'Start again for a new code'])("'%s' puts focus on the work email field", async name => {
+  it.each(['Use a different email', 'Start again for a new code'])("'%s' puts focus on the work email field", async name => {
     await toPassword()
     await press(name)
     await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Work email')))
@@ -265,7 +255,7 @@ describe('provider and platform password recovery', () => {
     const email = screen.getByLabelText('Work email')
     fireEvent.change(email, { target: { value: 'clinician@example.test' } })
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
-    await press('Send recovery code')
+    await press('Send code')
     await waitFor(() => expect(document.activeElement).toBe(email))
     expect(email.getAttribute('aria-invalid')).toBe('true')
     expect(described(email)).toContain('Check what you entered and try again.')
@@ -276,9 +266,8 @@ describe('provider and platform password recovery', () => {
     await toPassword()
     principal.complete.mockResolvedValue({ completed: true })
     fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'a-long-new-password' } })
-    fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'a-long-new-password' } })
     await press('Reset password')
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Password reset complete.' })))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Your password is reset.' })))
   })
 })
 
@@ -323,7 +312,7 @@ describe('patient enrollment', () => {
     await press('Continue')
     await waitFor(() => expect(document.activeElement).toBe(nin))
     expect(nin.getAttribute('aria-invalid')).toBe('true')
-    expect(described(nin)).toContain('We couldn’t verify that NIN. Check the number and try again.')
+    expect(described(nin)).toContain('This NIN could not be verified. Check the number and try again.')
     expect(described(nin)).toContain('It isn’t stored in this browser.')
   })
 

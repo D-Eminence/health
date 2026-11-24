@@ -3,7 +3,8 @@ import { FlaskConical, Hospital, Pill, ScanText, Users } from 'lucide-react'
 import { resolveStaffProductHostname } from '../../productHostname'
 import { PUBLIC_ENVIRONMENT } from '../../publicEnvironment'
 import type { StaffSession } from '../../staff/api'
-import { basePath } from './pageHref'
+import type { EhrBluePage } from './types'
+import { basePath, pageHrefOf } from './pageHref'
 
 /**
  * Which Health ID product this workspace is (the owner's decision of 2026-10-31). A hospital may run everything: the
@@ -30,12 +31,13 @@ export const PRODUCTS: Readonly<Record<Product, ProductInfo>> = {
 }
 
 /**
- * Pages every product keeps: running the facility itself (its people, its audit trail, its profile), and Patients and
- * Access requests. A lab scientist or a pharmacist reaches a patient's record only through a request the patient
- * approves, and the classic portal listed both pages on every site, by permission (staff/navigation.ts). Each still
- * needs its own permission; the EHR's other clinical pages, registration among them, stay out.
+ * Pages every product keeps: running the facility itself (its people, its audit trail, its profile, its subscription),
+ * and Patients and Access requests. A lab scientist or a pharmacist reaches a patient's record only through a request
+ * the patient approves, and the classic portal listed these pages on every site, by permission (staff/navigation.ts:
+ * Plan & billing under billing.subscription.read included; parity report 15c and 3.3-64). Each still needs its own
+ * permission; the EHR's other clinical pages, registration among them, stay out.
  */
-const SHARED: ReadonlySet<string> = new Set(['staff', 'audit', 'facility', 'hr', 'institutions', 'patients', 'requests'])
+const SHARED: ReadonlySet<string> = new Set(['staff', 'audit', 'facility', 'hr', 'institutions', 'patients', 'requests', 'billing'])
 
 const SINGLE: readonly Exclude<Product, 'ehr'>[] = ['lab', 'pharmacy', 'outreach', 'migrate']
 
@@ -84,7 +86,9 @@ export function inProduct(product: Product, path: string): boolean {
  * Whether this product's workspace offers a page: the frame lists only these (each still under its own permission), and
  * What's left shows only these, so a lab's, pharmacy's, outreach team's or migration site never offers the hospital's
  * pages (Patient registration is the EHR's alone). A single product has no Home: its first page is its own. (The frame
- * lists Home there only to a session that may not open that page, as /provider stays on Home for it: BlueFrame.tsx.)
+ * lists Home there only to a session that cannot use that page, as /provider stays on Home for it: BlueFrame.tsx.)
+ * Owner's decision (24 November 2026, "Migrate works as before"): this is how the product sites worked before website
+ * release C, and it beats parity report 3.3-53's Home on every site there.
  */
 export function productLists(product: Product, path: string): boolean {
   return inProduct(product, path) && (product === 'ehr' || path !== '')
@@ -93,16 +97,22 @@ export function productLists(product: Product, path: string): boolean {
 /**
  * Pages a single product opens at their address but does not list, because something on every product's screens
  * leads there, or because its staff need them:
- *  - Facility subscription: the billing banner above every page leads there ("Choose a plan", "Pay now":
- *    staff/routes/Billing.tsx).
  *  - What's left: the Demo chip in the header leads there ("See what's left": TopBarParts.tsx). Its own `visible`
  *    keeps it to the demo facilities.
  *  - Facility setup: a facility that signed itself up works on its product's site (signup/AfterSubmit.tsx). Its own
  *    `visible` keeps it to those facilities' staff managers.
- *  - Patients and Access requests: a lab scientist or a pharmacist reaches a record only through a request the patient
- *    approves (parity report 3.1 #7), and the Notifications drawer's "access requests waiting" leads there.
+ *  - Help: the Guide in the top bar of every page leads there ("All guides": PageGuide.tsx), as does Help in the top
+ *    bar and the account menu. It lists nothing anywhere (pages.ts), so it is opened, not listed.
+ * (Patients, Access requests and Facility subscription are not among them: every product lists them, by permission,
+ * through SHARED above.)
  */
-const OPENED_UNLISTED: ReadonlySet<string> = new Set(['billing', 'whats-left', 'onboarding', 'patients', 'requests'])
+const OPENED_UNLISTED: ReadonlySet<string> = new Set(['whats-left', 'onboarding', 'help'])
+
+/**
+ * "Start an outreach group" (owner decision 5 of 11 November 2026) opens unlisted on Health ID Outreach: Switch facility
+ * links to it, and it is the one page a login with no facility yet opens there (owner's answer to Q88, 17 Nov 2026).
+ */
+const START_OUTREACH_GROUP = 'start-outreach-group'
 
 /**
  * The products with a till of their own (Till / End of day). It leads to the money pages at their own addresses
@@ -119,4 +129,26 @@ const TILLS: ReadonlySet<Product> = new Set<Product>(['lab', 'pharmacy'])
 export function opensInProduct(product: Product, path: string): boolean {
   const base = basePath(path)
   return base === '' || inProduct(product, path) || OPENED_UNLISTED.has(base) || (TILLS.has(product) && COUNTER_PAGES.has(base))
+    || (product === 'outreach' && base === START_OUTREACH_GROUP)
+}
+
+/**
+ * Whether this product's workspace lists a page: productLists for its address, or any page but Home that says it is on
+ * every product's site (EhrBluePage.everyProduct) and whose address this host serves (`served`, productSites.ts
+ * servedHere). A product site sends an address another product's site owns there before the frame loads (App.tsx
+ * ProductHostnameGate), so a link to it would leave the site: such a page is listed only where its address stays.
+ * Its own permission and `visible` are the caller's, as before.
+ */
+export function pageListedInProduct(product: Product, page: Pick<EhrBluePage, 'path' | 'everyProduct'>,
+  served: (href: string) => boolean): boolean {
+  return (page.everyProduct === true && basePath(page.path) !== '' && served(pageHrefOf(page))) || productLists(product, page.path)
+}
+
+/**
+ * Whether this product's workspace opens a page: opensInProduct for its address, or a page on every product's site
+ * whose address this host serves (`served`, as pageListedInProduct).
+ */
+export function pageOpensInProduct(product: Product, page: Pick<EhrBluePage, 'path' | 'everyProduct'>,
+  served: (href: string) => boolean): boolean {
+  return (page.everyProduct === true && served(pageHrefOf(page))) || opensInProduct(product, page.path)
 }

@@ -5,6 +5,7 @@ import {
   type SampleValues,
 } from '../parts/sample/model'
 import { SAMPLE_SERVICES } from './admin'
+import { printsAddressAnyway } from '../../../print/printEngine'
 
 /*
  * Sample definitions: Patient billing, Insurance & Claims and Policies, the design's Finance module. Fields, actions
@@ -175,7 +176,7 @@ export const billingSample: SampleDefinition = {
     const nowDue = Number(record.values.totalCents ?? 0) - nowPaid
     return { status: nowDue === 0 ? 'paid' : nowPaid > 0 ? 'partial' : 'issued', state: { ...record.state, paidCents: nowPaid } }
   },
-  // No receipt to download: a sample hands out no file. Print stays.
+  // No receipt to download: a sample hands out no file. Print stays (not in Safari, or on an iPhone or iPad).
   savedExtra: record => {
     const totals = balance(record)
     return (
@@ -186,9 +187,13 @@ export const billingSample: SampleDefinition = {
           { label: 'Due', value: String(totals.due) },
         ]} />
         <p>Totals above are integer minor currency units (cents / kobo). All payments are fictional.</p>
-        <div className="hid-ehr-dept-sample-buttons">
-          <EhrButton variant="secondary" onClick={() => window.print()}>Print</EhrButton>
-        </div>
+        {/* The page prints as it is, which Safari and every browser on an iPhone or iPad print with their own web address
+            round it (printEngine.ts): a sample's Print is not offered there. */}
+        {printsAddressAnyway() ? null : (
+          <div className="hid-ehr-dept-sample-buttons">
+            <EhrButton variant="secondary" onClick={() => window.print()}>Print</EhrButton>
+          </div>
+        )}
       </>
     )
   },

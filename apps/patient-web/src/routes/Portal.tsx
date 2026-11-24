@@ -15,7 +15,9 @@ import { useAccountDeletionServed } from '../accountDeletionServed'
 import { Actions, ButtonR, Hint, LoadProblem, Problem, Saved, TextareaR } from './profileParts'
 import { HealthIdCard } from './HealthIdCard'
 import { AddRecordDrawer } from './AddRecord'
-import { isAdult, paperRecordsLineForRequest, PIN_COVERS } from '../paperRecordsWording'
+import { PageGuideButton } from '../ehr-blue/frame/PageGuide'
+import { portalGuideFor } from './portalGuides'
+import { isAdult, paperRecordsLineForRequest, PIN_ALLOWS, PIN_COVERS } from '../paperRecordsWording'
 import { Drawer } from '../kasuwa/interactive'
 import { ToastProvider, useToast } from '../kasuwa/toast'
 import { BrandLogo } from '../BrandLogo'
@@ -54,8 +56,9 @@ import { ShareInvitationsCard } from './ShareInvitations'
 import { useShareProbe } from './ShareRecords'
 import { useShareServed } from '../shareServed'
 import { shareDurationLabel, shareLevelLabel } from '../shareRecords'
-import { accessLevelLabel, countryLabel, fileSizeLabel, fileTypeLabel, genderLabel, patientAccessStatusLabel, plainCode, visitClassLabel, visitStatusLabel } from '../plainLabels'
-import { askedTo, byAccessPin, dayAndTime, endedEarly, groupByFacility, groupCounts, holder, holderAt, isOpen, purposeLabel, staffName, stillOpenThere, theirReason, whoHasAccessTitle } from './whoHasAccess'
+import { accessLevelLabel, countryLabel, fileSizeLabel, fileTypeLabel, genderLabel, labPriorityLabel, labRequestStatusLabel, medicineStatusLabel, patientAccessStatusLabel, plainCode,
+  visitClassLabel, visitStatusLabel } from '../plainLabels'
+import { askedTo, byAccessPin, dayAndTime, endedEarly, groupByFacility, groupCounts, holder, holderAt, isOpen, purposeLabel, requester, requesterKnown, staffName, stillOpenThere, theirReason, whoHasAccessTitle } from './whoHasAccess'
 import { SignInAgainButton } from './RecentSignIn'
 import { supportHref } from '../supportContact'
 
@@ -165,7 +168,8 @@ function PatientChrome({ api, signingOut, onSignOut, children }: { api: ReturnTy
     onSignOut={onSignOut}
     signingOut={signingOut}
     headerStart={<NavLink to="/" aria-label="Health ID home" className="inline-flex items-center no-underline lg:hidden"><BrandLogo className="h-7 w-auto" /></NavLink>}
-    headerActions={<NotificationBell />}
+    // The Guide for the page open now, beside the notifications on every page (owner, 18 Nov 2026).
+    headerActions={<div className="flex items-center gap-2"><PortalGuide /><NotificationBell /></div>}
     tabs={[{ to: '/', label: 'Home', icon: House, end: true }, { to: '/records', label: 'Records', icon: FolderHeart }, { to: '/access', label: 'Access', icon: ShieldCheck }]}
     create={{ label: 'Add or share', items: [
       ...(adds ? [{ to: '/records?add=record', label: 'Add a record', hint: addsFiles ? 'A visit, result or medicine, with a photo' : 'A visit, result or medicine', icon: FilePlus2, main: true }] : []),
@@ -368,8 +372,9 @@ const SEARCHED: { readonly [S in RecordSection]: (item: Row<S>) => Array<string 
   notes: item => ['Clinical note', item.title, item.noteType, item.status, item.content, date(item.signedAt)],
   vitals: item => ['Vitals', date(item.recordedAt), vitalsSummary(item)],
   diagnoses: item => ['Diagnosis', item.display, item.code, item.clinicalStatus, item.verificationStatus, item.notes],
-  prescriptions: item => ['Prescription', item.medicationDisplay, item.frequency, item.instructions, item.status],
-  labRequests: item => ['Laboratory request', item.testDisplay, item.priority, item.status, item.clinicalInformation, date(item.createdAt)],
+  prescriptions: item => ['Prescription', item.medicationDisplay, item.frequency, item.instructions, medicineStatusLabel(item.status)],
+  labRequests: item => ['Laboratory request', item.testDisplay, labPriorityLabel(item.priority), labRequestStatusLabel(item.status), item.clinicalInformation,
+    date(item.createdAt)],
   documents: item => ['Clinical document', item.fileName, fileTypeLabel(item.mediaType), item.mediaType, date(item.createdAt)],
 }
 /** The date each section's rows are listed under. */
@@ -646,18 +651,32 @@ export function RecordsPage() {
     || (tab === 'all' && (searching ? sectionMatches(ready, section, query).length > 0 : (ready[section] as unknown[]).length > 0))) : []
   const [opened, setOpened] = useState<OpenRecord | null>(null)
   const row = (record: OpenRecord, key: string) => <RecordRow key={key} record={record} onOpen={setOpened} />
-  const rows: { readonly [S in RecordSection]: (item: Row<S>) => ReactNode } = {
-    encounters: item => row({ section: 'encounters', title: visitClassLabel(item.encounterType), meta: visitStatusLabel(item.status), when: item.startedAt }, item.id),
-    notes: item => row({ section: 'notes', title: item.title || plainCode(item.noteType), meta: plainCode(item.status), detail: item.content, when: item.signedAt, multiline: true }, item.id),
-    vitals: item => row({ section: 'vitals', title: vitalsSummary(item) || 'Vitals', when: item.recordedAt }, item.id),
+  const OPEN: { readonly [S in RecordSection]: (item: Row<S>) => OpenRecord } = {
+    encounters: item => ({ section: 'encounters', title: visitClassLabel(item.encounterType), meta: visitStatusLabel(item.status), when: item.startedAt }),
+    notes: item => ({ section: 'notes', title: item.title || plainCode(item.noteType), meta: plainCode(item.status), detail: item.content, when: item.signedAt, multiline: true }),
+    vitals: item => ({ section: 'vitals', title: vitalsSummary(item) || 'Vitals', when: item.recordedAt }),
     // Plain: the name and its date. The code is for clinicians, so it is kept to the record's own view.
-    diagnoses: item => row({ section: 'diagnoses', title: item.display, meta: plainCode(item.clinicalStatus), detail: item.notes, when: item.onsetAt,
-      extra: item.code ? `Code ${item.code}${item.codeSystem ? ` (${item.codeSystem})` : ''}` : null }, item.id),
-    prescriptions: item => row({ section: 'prescriptions', title: item.medicationDisplay,
-      meta: [item.doseQuantity != null ? `${item.doseQuantity} ${item.doseUnit || ''}`.trim() : '', item.frequency, item.status].filter(Boolean).join(' · '), detail: item.instructions, when: item.startsOn }, item.id),
-    labRequests: item => row({ section: 'labRequests', title: item.testDisplay, meta: `${plainCode(item.priority)} · ${item.status}`, detail: item.clinicalInformation, when: item.createdAt }, item.id),
-    documents: item => row({ section: 'documents', title: item.fileName, meta: [fileTypeLabel(item.mediaType), bytes(item.sizeBytes)].filter(Boolean).join(' · '), when: item.createdAt }, item.id),
+    diagnoses: item => ({ section: 'diagnoses', title: item.display, meta: plainCode(item.clinicalStatus), detail: item.notes, when: item.onsetAt,
+      extra: item.code ? `Code ${item.code}${item.codeSystem ? ` (${item.codeSystem})` : ''}` : null }),
+    prescriptions: item => ({ section: 'prescriptions', title: item.medicationDisplay,
+      meta: [item.doseQuantity != null ? `${item.doseQuantity} ${item.doseUnit || ''}`.trim() : '', item.frequency, medicineStatusLabel(item.status)].filter(Boolean).join(' · '), detail: item.instructions, when: item.startsOn }),
+    labRequests: item => ({ section: 'labRequests', title: item.testDisplay, meta: `${labPriorityLabel(item.priority)} · ${labRequestStatusLabel(item.status)}`, detail: item.clinicalInformation, when: item.createdAt }),
+    documents: item => ({ section: 'documents', title: item.fileName, meta: [fileTypeLabel(item.mediaType), bytes(item.sizeBytes)].filter(Boolean).join(' · '), when: item.createdAt }),
   }
+  const rows: { readonly [S in RecordSection]: (item: Row<S>) => ReactNode } = Object.fromEntries(
+    (Object.keys(OPEN) as RecordSection[]).map(section => [section, (item: { id: string }) => row((OPEN[section] as (item: unknown) => OpenRecord)(item), item.id)])) as never
+  // Opened from Home's "Latest from your providers" (/records?open=encounter-<id> or note-<id>): that record opens here,
+  // in its drawer over the list, and the address is cleared (flow review, 18 Nov 2026).
+  const openAsked = params.get('open')
+  useEffect(() => {
+    if (!openAsked || !ready) return
+    const [kind, ...rest] = openAsked.split('-')
+    const id = rest.join('-')
+    const section: RecordSection | null = kind === 'encounter' ? 'encounters' : kind === 'note' ? 'notes' : null
+    const item = section ? (ready[section] as { id: string }[]).find(entry => entry.id === id) : undefined
+    if (section && item) setOpened((OPEN[section] as (item: unknown) => OpenRecord)(item))
+    setParams(current => { const next = new URLSearchParams(current); next.delete('open'); return next }, { replace: true })
+  }, [openAsked, ready, setParams])
   const NONE: { readonly [S in RecordSection]: string } = {
     encounters: 'No completed visits yet.', notes: 'No signed clinical notes yet.', vitals: 'No vitals recorded yet.', diagnoses: 'No diagnoses recorded.',
     prescriptions: 'No medicines prescribed.', labRequests: 'No lab tests requested.', documents: 'No documents uploaded.',
@@ -886,18 +905,18 @@ export function AccessPage() {
       {requestList && (requestList.length === 0
         ? <div className="border-t border-line"><EmptyState compact icon={ShieldCheck} title="No requests yet" description="When a facility asks to see your records, you decide here." /></div>
         : <ul className="m-0 list-none divide-y divide-line border-t border-line p-0">
-        {requestList.map(item => { const pending = item.status.toLowerCase() === 'pending', pin = byAccessPin(item.reason)
+        {requestList.map(item => { const pending = item.status.toLowerCase() === 'pending', pin = byAccessPin(item.reason), who = requester(item)
           return <li key={item.accessRequestId}>
             <button type="button" id={`review-${item.accessRequestId}`} onClick={() => openReview(item.accessRequestId)}
               className={cx('flex w-full cursor-pointer flex-wrap items-center gap-3 border-0 px-4 py-4 text-left font-[inherit] hover:bg-subtle sm:px-5', pending ? 'bg-warn-soft/40' : 'bg-transparent')}>
               <IconChip icon={Building2} tone={pending ? 'warn' : 'neutral'} />
               <span className="min-w-0 flex-[1_1_10rem]">
                 <span className="block text-sm font-semibold break-words text-ink">{item.facilityName}</span>{' '}
-                {/* The status is said once: the Review button while it waits, the badge after. Who asked, what for and why,
-                    as Who has access says it: the list names no staff member, so several from one facility differ by these.
-                    An Access PIN request carries Identity's own words, not a reason anyone gave: it says the PIN instead. */}
-                <span className="block text-[13px] text-ink-2">{pin ? `A staff member used your Access PIN to ${askedTo(item.scope)}` : pending ? `A staff member wants to ${askedTo(item.scope)}${forHowLong(item.requestedDurationMinutes)}`
-                  : `A staff member asked to ${askedTo(item.scope)}`} · {timeAgo(item.requestedAt)}</span>{' '}
+                {/* The status is said once: the Review button while it waits, the badge after. Who asked (by name and role
+                    where Identity sends them, hid-system 0128; else "A staff member"), what for and why. An Access PIN
+                    request carries Identity's own words, not a reason anyone gave: it says the PIN instead. */}
+                <span className="block text-[13px] text-ink-2">{pin ? `${who} used your Access PIN to ${askedTo(item.scope)}` : pending ? `${who} wants to ${askedTo(item.scope)}${forHowLong(item.requestedDurationMinutes)}`
+                  : `${who} asked to ${askedTo(item.scope)}`} · {timeAgo(item.requestedAt)}</span>{' '}
                 {!pin && item.reason?.trim() && <span className="block line-clamp-2 text-[13px] [overflow-wrap:anywhere] text-ink-3">Reason given: “{item.reason.trim()}”</span>}
               </span>{' '}
               {pending ? <span className={buttonClass({ variant: 'primary', size: 'sm', className: 'ml-auto' })}>Review</span>
@@ -978,6 +997,7 @@ export function AccessPage() {
           <div className="mt-2"><SignInAgainButton back="/access" id={`sign-in-again-${open.accessRequestId}`} /></div></Alert>}
         {open.reason && !byAccessPin(open.reason) && <blockquote className="m-0 rounded-xl bg-subtle px-4 py-3 text-sm [overflow-wrap:anywhere] text-ink ring-1 ring-line">“{open.reason}”</blockquote>}
         <dl className="m-0 grid grid-cols-2 gap-x-4 gap-y-3 text-[13px]">
+          {requesterKnown(open) && <div className="col-span-2"><dt className="text-ink-3">Asked by</dt><dd className="m-0 mt-0.5 font-medium [overflow-wrap:anywhere] text-ink">{requester(open)}</dd></div>}
           <div><dt className="text-ink-3">Access asked for</dt><dd className="m-0 mt-0.5 font-medium text-ink">{accessLevelLabel(open.scope)}</dd></div>
           <div><dt className="text-ink-3">For</dt><dd className="m-0 mt-0.5 font-medium text-ink">{forHowLong(open.requestedDurationMinutes).replace(/^ for /, '') || 'Not stated'}</dd></div>
           {open.status.toLowerCase() !== 'pending' && <div><dt className="text-ink-3">Status</dt><dd className="m-0 mt-0.5"><Badge tone={statusTone(open.status)} size="sm">{patientAccessStatusLabel(open.status)}</Badge></dd></div>}
@@ -1301,7 +1321,7 @@ function AccessPinSettings({ profile, loading, onChanged }: {
     <p className="m-0 flex flex-wrap items-center gap-2 text-[13px] text-ink-3" aria-busy={loading || undefined}>
       <Badge size="sm" tone={profile.accessPinConfigured ? 'success' : 'neutral'}>{profile.accessPinConfigured ? 'Set' : 'Not set'}</Badge>
       {/* The paper records part only to an adult (under-18s are refused paper records). */}
-      {isAdult(profile.dateOfBirth) ? PIN_COVERS : 'A hospital you give it to can use it to open your records.'}</p>
+      {isAdult(profile.dateOfBirth) ? PIN_COVERS : PIN_ALLOWS}</p>
     <Saved>{notice}</Saved>
     {/* On a phone, Save PIN goes under the field and its hint; wider, beside the field. */}
     <form onSubmit={event => void configurePin(event)} className="flex flex-col items-start gap-3 sm:flex-row sm:gap-2">
@@ -1331,4 +1351,17 @@ function AccessPinSettings({ profile, loading, onChanged }: {
 export function SettingsRedirect() {
   const { hash } = useLocation()
   return <Navigate to={{ pathname: '/profile', hash }} replace />
+}
+
+/** The page names the portal's Guide says it is for. */
+const PORTAL_PAGE_NAMES: readonly (readonly [RegExp, string])[] = [
+  [/^\/$/, 'Home'], [/^\/records/, 'Records'], [/^\/access\/share/, 'Share your records'], [/^\/access/, 'Access & sharing'],
+  [/^\/profile/, 'Profile'], [/^\/notifications/, 'Notifications'],
+]
+
+/** The portal's Guide button, for the page open now. */
+function PortalGuide() {
+  const { pathname } = useLocation()
+  const name = PORTAL_PAGE_NAMES.find(([pattern]) => pattern.test(pathname))?.[1] ?? 'This page'
+  return <PageGuideButton look="portal" guide={portalGuideFor(pathname)} label={name} />
 }

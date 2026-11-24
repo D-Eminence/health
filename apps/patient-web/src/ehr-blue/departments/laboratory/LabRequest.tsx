@@ -9,6 +9,7 @@ import { cannotCompleteOffered, licenceLine, routeClosedForWork, wrongPatientOff
 import { isUrgent } from '../parts/WorkQueue'
 import { OrderEndingActions, type CannotCompleteEnding, type OrderEndingMode } from '../../../staff/routes/CannotComplete'
 import type { WrongPatientEnding } from '../../../staff/routes/WrongPatient'
+import { ImportedFromPaper, IMPORTS_PERMISSION } from '../../../staff/routes/ImportedFromPaper'
 import { useCannotCompleteServed } from '../../../cannotCompleteServed'
 import { commerce, type CatalogueItem, type ListPage, type PaymentSettings, type WorkItemBill } from '../commerce/api'
 import { BillBadge } from '../commerce/BillBadge'
@@ -144,7 +145,6 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
   const canCorrect = (execution: LabExecution) => Boolean(execution.result) && permissions.includes('lab.result.correct')
     && (execution.result!.currentReleasedVersion !== execution.result!.currentVersion || permissions.includes('lab.result.revise-released'))
   const step = { facilityId, permissions, subject, routed: Boolean(route), onDone: done, onRefused: record.recheck }
-  const defaultReason = walkIn?.clinicalNote ?? (outside ? `Asked for by ${outside.prescriberName}` : walkIn ? 'Walk-in request' : '')
   // How long it has waited, only while it waits: a finished request, or an ended order, is not waiting.
   const waited = stage === 'done' || closed ? null : waitedText(item.acceptedAt)
 
@@ -176,7 +176,7 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
         {record.loading && !accession && accessionId ? <p role="status" className="m-0 text-[14px] text-ink-3">Loading…</p> : null}
         {/* On an ended order the alert above says why nothing can be recorded: the step would blame the role instead. */}
         {stage === 'collect' && !closed && !waitsForPayment && !(accessionId && !accession) ? <CollectStep {...step} item={item} accession={accession}
-          defaultType={sampleGuess} defaultReason={defaultReason} onRegistered={value => setMade(value)} onListChanged={onListChanged} /> : null}
+          defaultType={sampleGuess} onRegistered={value => setMade(value)} onListChanged={onListChanged} /> : null}
         {stage === 'collect' && waitsForPayment ? <p className="m-0 text-[15px] text-ink-2">Take payment above, then collect the sample.</p> : null}
         {/* Results hidden (their read was refused or could not be checked): no step is offered on what can't be seen. A sample
             still waiting beside one taken keeps its step, since each sample is collected on its own. */}
@@ -233,6 +233,10 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
         never written once its order from another facility has closed. */}
     <WorkItemDocuments kind="lab" facilityId={facilityId} workItemId={item.id} patientId={item.patientId} permissions={permissions}
       writable={!closed} />
+
+    {/* The patient's lab results imported from paper, read only for a role that may read them. */}
+    {permissions.includes(IMPORTS_PERMISSION.lab)
+      ? <ImportedFromPaper key={`${facilityId}:${item.patientId}`} kind="lab" facilityId={facilityId} patientId={item.patientId} /> : null}
 
     {siblings.length > 0 ? <Card>
       <CardHeader as="h2" title="Also on this request" />

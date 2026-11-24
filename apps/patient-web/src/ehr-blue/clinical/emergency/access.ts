@@ -2,9 +2,11 @@ import { findEndpoint, isBlankHealthIdInput, isCompleteHealthId, type EndpointMe
 import { isHidApiError } from '@hid/http'
 
 /*
- * Today's emergency access rules and wording (staff/routes/Patients.tsx), word for word. Patients.tsx keeps them
- * module-local, so they are restated here until it exports them; the permissions still come from the contracts
- * registry (findEndpoint), as there.
+ * Emergency access rules and wording for the redesign, based on today's staff/routes/Patients.tsx. The rules (the
+ * routes, the checks, the refusal codes) are today's; the words are not copied word for word: most are the redesign's
+ * plain words, as the coordinator chose them on 2 Nov (commits a1c93d13, 098b6a77, db9967ae). Ending the access uses
+ * today's words (Patients.tsx:239-248). Patients.tsx keeps all of this module-local, so it is restated here; the
+ * permissions still come from the contracts registry (findEndpoint), as there.
  */
 
 /** Patients.tsx:17, the Health ID field's hint. */
@@ -25,7 +27,16 @@ export const REASON_MAX = 500
 
 /** Patients.tsx:243, the emergency notice, before and after the Novu sentence (Patients.tsx:46). */
 export const NOTICE_WHEN = 'Only when the patient can’t consent and care can’t wait'
-export const NOTICE_BEFORE = 'Emergency access lets you see the emergency summary without the patient’s approval. It ends by itself, and every opening is recorded.'
+/**
+ * What is true of a break-glass grant, and nothing more (no one reviews it). Identity keeps the staff member, facility,
+ * time, reason and expiry with the grant and its audit row (identity.activate_break_glass); the patient's Who has access
+ * list shows each emergency access with its facility, its times and the reason (identity.patient_self_access_history);
+ * and the grant stops being honoured at its expiry (Identity's lookup reads only grants not yet expired).
+ */
+export const NOTICE_BEFORE = 'Emergency access opens part of this patient’s record without their approval. It is recorded with your name, this '
+  + 'facility, the time and your reason. The patient can see that it was used, when and why. It ends by itself.'
+/** The notice in one line (QA P1-16): care can't wait, so the rest is under "More details". */
+export const NOTICE_SHORT = 'Recorded with your name and reason. The patient can see it. It ends by itself.'
 /** Patients.tsx:47: only verified contacts the patient chose to notify are told, and only while the alerts are on. */
 export const EMERGENCY_CONTACTS_TOLD = 'While emergency-contact alerts are on, each verified emergency contact the patient has chosen to notify is told your name, this facility and the time. They never see your reason or any medical details.'
 /**
@@ -42,13 +53,12 @@ export function emergencyNotice(novu: boolean): string {
 export const NOT_GRANTED = 'You don’t have access to this patient yet. Ask the patient, use their Access PIN, or use emergency access if it’s justified.'
 export const COMMAND_FAILED = 'Something went wrong. Please try again.'
 export const CLOSE_REASON = 'Clinician closed completed patient access'
-export const ACCESS_CLOSED = 'Your access has ended.'
-export const CLOSE_FAILED = 'Couldn’t end your access. Please try again.'
-/** A close refused because the access had already ended (409 CONSENT_COMMAND_CONFLICT, 404 CONSENT_RESOURCE_NOT_FOUND). */
-export const CLOSE_REFUSALS: Readonly<Record<string, string>> = {
-  CONSENT_COMMAND_CONFLICT: 'This access had already ended.',
-  CONSENT_RESOURCE_NOT_FOUND: 'This access had already ended.',
-}
+/**
+ * Today's words once the grant is closed, and when it could not be (Patients.tsx:243, 246). Today maps no refusal code
+ * here, so access that had already ended is said in its plain words like any other refusal.
+ */
+export const ACCESS_CLOSED = 'Access was closed.'
+export const CLOSE_FAILED = 'Grant could not be closed.'
 
 /**
  * The break-glass duration today's client sends (staff/api.ts breakGlass: durationMinutes 30). The design's
@@ -89,8 +99,8 @@ export const EMERGENCY_ACCESS: AccessAction = {
   action: 'open emergency access',
 }
 
-/** Patients.tsx:48. */
-export const CLOSE_GRANT: AccessAction = { routes: [{ route: 'access.closeOwnGrant', method: 'POST' }], action: 'end your access' }
+/** Patients.tsx:53. */
+export const CLOSE_GRANT: AccessAction = { routes: [{ route: 'access.closeOwnGrant', method: 'POST' }], action: 'close this grant' }
 
 export type Administrator = 'pending' | 'reviewed' | null
 

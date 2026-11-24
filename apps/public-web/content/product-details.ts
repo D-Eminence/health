@@ -467,7 +467,7 @@ export const PRODUCT_DETAILS: readonly ProductDetail[] = [
     eyebrow: "Field registration",
     title: "Organise registration cases outside the facility.",
     sub: "Manage campaigns, members and registration cases for outreach teams. Resolve a case to an existing patient identity through the supported review workflow.",
-    cta: "Run an outreach campaign",
+    cta: "Start running outreach",
     dash: "Outreach dashboard",
     metrics: [
       { label: "Registration cases", value: "12", footLabel: "Resolved", footValue: "8", tone: "neutral" },

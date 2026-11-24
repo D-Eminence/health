@@ -1,19 +1,23 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { EhrBadge, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
 import { isHidApiError } from '@hid/http'
-import { Users } from 'lucide-react'
+import { UserSearch, Users } from 'lucide-react'
 import { FormActions, PageState } from '../../../kasuwa/parts'
 import { Alert, Button, Card } from '../../../kasuwa/ui'
 import { useConfirm } from '../../clinical/parts/confirm'
-import { staffApi, type OutreachCampaign, type OutreachCampaignRole } from '../../../staff/api'
+import { staffApi, type OutreachCampaign, type OutreachCampaignRole, type OutreachCase } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
 import { DeptPage, DeptSection } from '../parts/DeptPage'
 import { DeptActions, DeptContextLine, DeptFacts, DeptRecordLayout } from '../parts/DeptRecord'
 import { dateText } from '../parts/format'
 import { useFacilityRead } from '../parts/useFacilityRead'
+import { CaseCard, ShowMore, useOutreachCases } from './OutreachCaseList'
+import { healthIdUnavailable, noConnection } from './offlineQueue'
+import { OutreachNumbers, useOutreachTotals } from './outreachNumbers'
 import {
-  CAMPAIGN_ROLES, CAMPAIGN_STALE, CAMPAIGN_STATUS_FAILED, campaignErrorText, campaignFacts, campaignStarted, campaignStatusLabel,
-  COMPLETE_FIELD, controlProps, ErrorBox, MEMBER_ADD_FAILED, memberRoleLabel, MEMBERS_NOT_LOADED, NO_ACTIONS, OutreachField, REASON_LENGTH, RETRY_NOTE,
+  CAMPAIGN_ROLES, CAMPAIGN_STALE, CAMPAIGN_STATUS_FAILED, campaignErrorText, campaignFacts, campaignOpenNow, campaignStarted, campaignStatusLabel,
+  COMPLETE_FIELD, controlProps, ErrorBox, MEMBER_ADD_FAILED, memberRoleLabel, MEMBERS_NOT_LOADED, NO_ACTIONS, NO_CASES, NO_MEMBERS, OutreachField, REASON_LENGTH,
+  RETRY_NOTE,
   servicesText, STAFF_NOT_LOADED, type FieldErrors, type MembersRead,
 } from './outreachParts'
 
@@ -33,10 +37,10 @@ export function CampaignMembersRead({ facilityId, membershipId, campaign, onMemb
   useEffect(() => {
     if (members.value) onMembershipChange(campaign.id, members.value.some(member => member.membershipId === membershipId))
   }, [campaign.id, membershipId, members.value, onMembershipChange])
-  const { value, loading, error, refresh } = members
+  const { value, loading, error, caught, refresh } = members
   useEffect(() => {
-    onRead(campaign.id, { facilityId, items: value, loading, error, refresh })
-  }, [campaign.id, facilityId, value, loading, error, refresh, onRead])
+    onRead(campaign.id, { facilityId, items: value, loading, error, caught, refresh })
+  }, [campaign.id, facilityId, value, loading, error, caught, refresh, onRead])
   useEffect(() => () => onRead(campaign.id, null), [campaign.id, onRead])
   return null
 }
@@ -50,14 +54,27 @@ type ActionField = 'reason' | 'person'
  * has started), close it (for good, after a confirmation) and add people to it, each with what Outreach asks for; its
  * other members and staff are told that only its admins change it. Elsewhere it is read only, as before.
  */
-export function OutreachCampaignView({ facilityId, campaign, members, manage, created = false, onBack, onChanged }: {
+export function OutreachCampaignView({ facilityId, campaign, members, manage, group = false, created = false, exportAction, registrations, onBack, onChanged }: {
   readonly facilityId: string
   readonly campaign: OutreachCampaign
   readonly members: MembersRead | undefined
   /** Outreach serves campaign management and this membership may write campaigns. */
   readonly manage: boolean
+  /**
+   * The working facility is an outreach group, whose helpers join it and are in no campaign until added. Only there is
+   * everyone not in the campaign yet offered at once: at a hospital that would be every member of its staff.
+   */
+  readonly group?: boolean
   /** Opened from "New campaign", which made it. */
   readonly created?: boolean
+  /** "Export" for this campaign's registrations (OutreachExport.tsx), for those who can read them. */
+  readonly exportAction?: ReactNode
+  /** For those who can read registrations: this campaign's, newest first, with "Show more" and a way to open each. */
+  readonly registrations?: {
+    readonly canLink: boolean
+    readonly group: boolean
+    readonly onOpen: (item: OutreachCase) => void
+  }
   readonly onBack: () => void
   /** Reads the campaigns again. */
   readonly onChanged: () => Promise<void>
@@ -72,6 +89,8 @@ export function OutreachCampaignView({ facilityId, campaign, members, manage, cr
   const focus = useFocusById()
   const { ask, sheet } = useConfirm()
   const asking = useRef(false)
+  // Set at once, so a second tap before the page draws again starts nothing.
+  const addingAll = useRef(false)
   const ids = {
     form: `outreach-campaign-${campaign.id}-action`,
     reason: `outreach-campaign-${campaign.id}-reason`,
@@ -87,6 +106,8 @@ export function OutreachCampaignView({ facilityId, campaign, members, manage, cr
   const canOpen = admin && campaign.status === 'planned' && started
   const canClose = admin && !closed
   const canAdd = admin && !closed
+  // At an outreach group only: everyone who has joined it and isn't in this campaign yet, added at once.
+  const canAddEveryone = group && canAdd
   // A form stays open only while the campaign, as last read, still offers it.
   const shown = action === 'open' ? (canOpen ? action : null) : action === 'close' ? (canClose ? action : null)
     : action === 'add' ? (canAdd ? action : null) : null
@@ -180,6 +201,68 @@ export function OutreachCampaignView({ facilityId, campaign, members, manage, cr
     }
   }
 
+  /**
+   * Adds everyone at the outreach group who isn't in this campaign yet as an enumerator, one after another (never at
+   * once). Someone already in it counts as added. A refusal that means the campaign is out of date stops the rest and is
+   * said as "Add a person" says it; so does a failure that would meet every request the same way (no signal, too slow,
+   * Health ID unavailable, signed out, no access). Any other refusal is about that person: listed by name once the rest
+   * are added.
+   */
+  async function addEveryone() {
+    if (busy || addingAll.current) return
+    addingAll.current = true
+    const people = candidates
+    setError('')
+    setDone('')
+    setBusy(true)
+    let added = 0
+    const missed: string[] = []
+    let stale = false
+    let stopped = false
+    let stopRefusal: unknown
+    try {
+      for (const person of people) {
+        try {
+          await staffApi.addOutreachCampaignMember(facilityId, campaign.id, { membershipId: person.membershipId, role: 'enumerator' })
+          added += 1
+        } catch (caught) {
+          if (isHidApiError(caught) && caught.code === 'OUTREACH_CAMPAIGN_MEMBER_EXISTS') {
+            added += 1
+          } else if (isHidApiError(caught) && CAMPAIGN_STALE.has(caught.code)) {
+            stale = true
+            stopRefusal = caught
+            break
+          } else if (noConnection(caught) || healthIdUnavailable(caught) || (isHidApiError(caught) && (caught.status === 401 || caught.status === 403))) {
+            stopped = true
+            stopRefusal = caught
+            break
+          } else {
+            missed.push(person.name)
+          }
+        }
+      }
+      const missedText = missed.length
+        ? `${missed.length === 1 ? '1 person' : `${missed.length} people`} couldn’t be added: ${missed.join(', ')}.` : ''
+      if (added) {
+        // Said only as it will be: the registration form lists a campaign once it is open and takes registrations.
+        const registering = campaign.services.includes('registration')
+        const running = registering && campaign.status === 'active' && campaignOpenNow(campaign)
+        setDone(`${added === 1 ? 'Added 1 person as an enumerator.' : `Added ${added} people as enumerators.`}`
+          + (running ? ' They can register people once they press Refresh.'
+            : registering ? ' They can register people once the campaign is open and they press Refresh.' : ''))
+        focus(ids.done)
+      }
+      if (stale) await refused(stopRefusal, MEMBER_ADD_FAILED)
+      else if (stopped) setError([campaignErrorText(stopRefusal, MEMBER_ADD_FAILED), missedText].filter(Boolean).join(' '))
+      else if (missed.length) setError(`${missedText} Try again.`)
+      // With no signal, reading again would only wait as long again: the button still counts who is left to add.
+      if (!(stopped && noConnection(stopRefusal))) await Promise.all([staff.refresh(), members?.refresh()])
+    } finally {
+      addingAll.current = false
+      setBusy(false)
+    }
+  }
+
   const reasonField = (label: string, hint: string) => (
     <OutreachField id={ids.reason} label={label} required hint={hint}
       error={problems.errors.reason} alert={problems.alert === 'reason'} seq={problems.seq}>
@@ -248,8 +331,13 @@ export function OutreachCampaignView({ facilityId, campaign, members, manage, cr
     const offered = [
       canOpen ? <Button key="open" id={ids.first} variant="primary" onClick={() => choose('open')}>Open campaign</Button> : null,
       canAdd ? (candidates.length
-        ? <Button key="add" id={canOpen ? undefined : ids.first} onClick={() => choose('add')}>Add a person</Button>
+        ? <Button key="add" id={canOpen ? undefined : ids.first} className="hid-ehr-dept-outreach-unavailable" aria-disabled={busy || undefined}
+          onClick={() => choose('add')}>Add a person</Button>
         : <p key="add" className="hid-ehr-dept-muted m-0">Everyone active at this facility is already in this campaign.</p>) : null,
+      canAddEveryone && candidates.length
+        ? <Button key="add-everyone" className="hid-ehr-dept-outreach-unavailable" aria-busy={busy || undefined} aria-disabled={busy || undefined}
+          onClick={() => void addEveryone()}>{busy ? 'Adding…' : candidates.length === 1
+            ? 'Add the 1 person who has joined' : `Add everyone who has joined (${candidates.length})`}</Button> : null,
       canClose ? <Button key="close" id={canOpen || (canAdd && candidates.length) ? undefined : ids.first} onClick={() => choose('close')}>Close campaign</Button> : null,
       admin && campaign.status === 'planned' && !started
         ? <p key="later" className="hid-ehr-dept-muted m-0">You can open it from {dateText(campaign.startsAt)}.</p> : null,
@@ -260,7 +348,7 @@ export function OutreachCampaignView({ facilityId, campaign, members, manage, cr
   const items = members?.items ?? null
   const loading = !members || (members.loading && !items)
   return (
-    <DeptPage title={campaign.name} onBack={onBack} backUnavailable={manage ? busy : undefined}>
+    <DeptPage title={campaign.name} onBack={onBack} backUnavailable={manage ? busy : undefined} secondaryActions={exportAction}>
       <DeptContextLine status={campaignStatusLabel(campaign.status)}
         items={[servicesText(campaign.services), `Starts ${dateText(campaign.startsAt)}`]} />
       {/* Mounted throughout, so what was done is announced. */}
@@ -278,7 +366,7 @@ export function OutreachCampaignView({ facilityId, campaign, members, manage, cr
       <DeptSection title="Members">
         <PageState loading={loading} error={items ? null : members?.error || null} hasData={items !== null} what="members" rows={2}
           onRetry={members ? () => void members.refresh() : undefined}
-          empty={items?.length === 0 ? { icon: Users, title: 'No members yet', description: 'No facility memberships are listed for this campaign.' } : null}>
+          empty={items?.length === 0 ? { icon: Users, title: NO_MEMBERS, description: 'No facility memberships are listed for this campaign.' } : null}>
           <ul className="hid-ehr-dept-rows">
             {(items ?? []).map(member => (
               <li key={member.id}>
@@ -292,7 +380,42 @@ export function OutreachCampaignView({ facilityId, campaign, members, manage, cr
           </ul>
         </PageState>
       </DeptSection>
+      {registrations ? <CampaignRegistrations facilityId={facilityId} campaign={campaign} {...registrations} /> : null}
       {sheet}
     </DeptPage>
+  )
+}
+
+/**
+ * A campaign's registrations, newest first: its newest 100 (asked by campaign; an Outreach before paging sends its newest
+ * 100 of every campaign, and only this campaign's are kept), then "Show more" while older ones are left.
+ */
+function CampaignRegistrations({ facilityId, campaign, canLink, group, onOpen }: {
+  readonly facilityId: string
+  readonly campaign: OutreachCampaign
+  readonly canLink: boolean
+  readonly group: boolean
+  readonly onOpen: (item: OutreachCase) => void
+}) {
+  const cases = useOutreachCases(facilityId, true, campaign.id)
+  // Every registration in the campaign counted, read again each time its list reads its first page again.
+  const totals = useOutreachTotals(facilityId, true, cases.firstPage, campaign.id)
+  const rows = cases.value ?? []
+  return (
+    <DeptSection title="Registrations">
+      {cases.error && cases.value ? <Alert intent="error" title="Couldn’t refresh registrations">{cases.error}</Alert> : null}
+      <PageState loading={cases.loading} error={cases.value ? null : cases.error || null} hasData={cases.value !== null} what="registrations" rows={2}
+        onRetry={() => void cases.refresh()}
+        empty={cases.value?.length === 0 && !cases.more.available
+          ? { icon: UserSearch, title: NO_CASES, description: 'People registered into this campaign show here.' } : null}>
+        <div className="flex flex-col gap-3">
+          <OutreachNumbers cases={cases.value} more={cases.more.available} totals={totals} label={`Numbers for ${campaign.name}`} />
+          <ul aria-label={`Registrations in ${campaign.name}`} className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3 p-0">
+            {rows.map(item => <CaseCard key={item.id} item={item} campaign={campaign} canLink={canLink} group={group} onOpen={() => onOpen(item)} />)}
+          </ul>
+          <ShowMore more={cases.more} shown={rows.length} />
+        </div>
+      </PageState>
+    </DeptSection>
   )
 }

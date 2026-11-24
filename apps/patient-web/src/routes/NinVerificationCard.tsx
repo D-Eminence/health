@@ -7,6 +7,7 @@ import { useActionFocus } from './actionFocus'
 import { ProfileSection } from './ProfileSection'
 import { Button, Field, Input } from '../kasuwa/ui'
 import { Hint, InputR, Problem } from './profileParts'
+import { NIN_STILL_CHECKING, ninCheckProblem, useNinHold, useStillChecking } from '../ninCheck'
 
 /**
  * Why Identity refused POST /identity/me/verification/nin (hid-system
@@ -63,6 +64,11 @@ export function NinVerificationCard({ profile, onVerified }: {
   const fieldFocus = useStepFocus()
   const focusAfter = useActionFocus()
   const heading = useRef<HTMLHeadingElement>(null)
+  // One Idempotency-Key per NIN and date of birth, in memory only: pressing Verify again after a timeout or an answer
+  // that the NIN is still being checked sends the same one; a changed number or date gets a new one.
+  const key = useRef<{ details: string; value: string } | null>(null)
+  const stillChecking = useStillChecking(busy)
+  const ninHold = useNinHold()
   const verified = verifiedHere || ninVerifiedOf(profile)
   // Dormant until Identity says whether the NIN is verified: the Identity before
   // it does not offer the check to a signed-in patient (it answers 503).
@@ -71,12 +77,14 @@ export function NinVerificationCard({ profile, onVerified }: {
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     const fromField = sentFromField(event)
-    if (busy || !/^\d{11}$/.test(nin) || !dateOfBirth) return
+    if (busy || ninHold.held || !/^\d{11}$/.test(nin) || !dateOfBirth) return
     setBusy(true); setError(null); setFieldError(false); setErrorAlert(true)
+    const details = JSON.stringify([nin, dateOfBirth])
+    if (key.current?.details !== details) key.current = { details, value: crypto.randomUUID() }
     try {
-      const result = await api.verifyNin(nin, dateOfBirth)
+      const result = await api.verifyNin(nin, dateOfBirth, key.current.value)
       if (result?.state === 'verified') {
-        setNin(''); setVerifiedHere(true)
+        setNin(''); setVerifiedHere(true); key.current = null
         focusAfter(() => heading.current)
         void onVerified()
         return
@@ -85,6 +93,17 @@ export function NinVerificationCard({ profile, onVerified }: {
       setError(NIN_STATES[result?.state as keyof typeof NIN_STATES] ?? NIN_FAILED)
       setFieldError(aboutNumber); setErrorAlert(!aboutNumber || fromField)
     } catch (reason) {
+      // The NIN check's own answers (ninCheck.ts): still checking, on hold until a time, or taking longer than usual.
+      const problem = ninCheckProblem(reason)
+      if (problem) {
+        // Details Identity refused, or a NIN QoreID has no record of (422 NIN_NOT_VERIFIED), are marked at the NIN field.
+        const aboutDetails = problem.outcome === 'details' || problem.outcome === 'not_verified'
+        setError(problem.text); setFieldError(aboutDetails); setErrorAlert(!aboutDetails || fromField)
+        if (problem.outcome === 'held') ninHold.hold(problem.heldUntil)
+        // Either is changed before the next check, which is a new request with a new key.
+        if (aboutDetails) key.current = null
+        return
+      }
       const aboutNumber = isHidApiError(reason) && reason.status === 400
       const code = isHidApiError(reason) ? reason.code : ''
       setError(aboutNumber ? NIN_RULE : Object.hasOwn(NIN_REFUSALS, code) ? NIN_REFUSALS[code] ?? NIN_FAILED : plainErrorText(reason, NIN_FAILED))
@@ -104,7 +123,7 @@ export function NinVerificationCard({ profile, onVerified }: {
       <Field label="NIN (11 digits)" htmlFor="nin-verify-number" errorId="nin-verify-error"
         error={error && fieldError ? <span role={errorAlert ? 'alert' : undefined}>{error}</span> : undefined}>
         <InputR id="nin-verify-number" ref={fieldFocus.target} required inputMode="numeric" autoComplete="off" pattern="[0-9]{11}" maxLength={11}
-          value={nin} onChange={event => { setNin(event.target.value.replace(/\D/g, '').slice(0, 11)); setFieldError(false) }}
+          value={nin} onChange={event => { setNin(event.target.value.replace(/\D/g, '').slice(0, 11)); setFieldError(false); ninHold.hold(null) }}
           aria-invalid={fieldError || undefined} aria-describedby={describedBy('nin-verify-hint', fieldError && 'nin-verify-error')} />
       </Field>
       <Field label="Date of birth, as on your NIN" htmlFor="nin-verify-dob">
@@ -112,7 +131,9 @@ export function NinVerificationCard({ profile, onVerified }: {
           max={new Date().toISOString().slice(0, 10)} onChange={event => setDateOfBirth(event.target.value)} />
       </Field>
       {error && !fieldError && <Problem id="nin-verify-error" alert={errorAlert}>{error}</Problem>}
-      <Button type="submit" variant="primary" className="self-start" loading={busy} disabled={busy || nin.length !== 11 || !dateOfBirth}>{busy ? 'Verifying…' : 'Verify NIN'}</Button>
+      {/* Kept mounted, so the line is a change of a live region, not a new one. */}
+      <p role="status" className="m-0 text-sm text-ink-2 empty:hidden">{stillChecking ? NIN_STILL_CHECKING : null}</p>
+      <Button type="submit" variant="primary" className="self-start" loading={busy} disabled={busy || ninHold.held || nin.length !== 11 || !dateOfBirth}>{busy ? 'Verifying…' : 'Verify NIN'}</Button>
     </form>
   </ProfileSection>
 }

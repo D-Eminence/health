@@ -239,7 +239,7 @@ describe('a document download (documentDownload, hid-system 0110)', () => {
   })
 
   it('answers 410 DOCUMENT_SOURCE_DELETED as its own outcome, not an error', async () => {
-    const fetch = answering(() => problem(410, { code: 'DOCUMENT_SOURCE_DELETED', message: 'Source page deleted after 24 hours' }))
+    const fetch = answering(() => problem(410, { code: 'DOCUMENT_SOURCE_DELETED', message: 'Source page deleted after 7 days' }))
     const { staffApi } = await signedInStaffApi()
     const { isSourceDeleted } = await import('../documentSource')
     const result = await staffApi.documentDownload(FACILITY, 'document-1')

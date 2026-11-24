@@ -1,0 +1,510 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { strFromU8, unzipSync } from 'fflate'
+import type { OutreachScreening } from '../../../../staff/api'
+import {
+  readAllCases, readScreenings, screeningsFailed, SCREENING_FAILURES_TO_STOP, EXPORT_CAPPED, EXPORT_LATEST_100,
+  buildExport, exportFileName, exportMeta, OUTREACH_EXPORT_COLUMNS, rowsFor, safeCell, slug, toCsv, UTF8_BOM, type ExportCase, type ExportContext,
+} from '../../../../ehr-blue/departments/outreach/outreachExport'
+import { columnName, docxBytes, pdfText, wordLayout, xlsxBytes, xmlText } from '../../../../ehr-blue/departments/outreach/outreachExportFiles'
+
+/*
+ * Outreach export: the columns (one list for every format), CSV as RFC 4180 with a UTF-8 byte order mark and no
+ * spreadsheet formulas, and the Excel and Word files as Office Open XML in a zip. Fictional data.
+ */
+
+const pdf = vi.hoisted(() => ({
+  constructed: [] as unknown[],
+  autoTable: vi.fn(),
+  text: vi.fn(),
+  fonts: [] as unknown[][],
+  files: new Map<string, string>(),
+  added: [] as unknown[][],
+}))
+vi.mock('jspdf', () => ({
+  jsPDF: class {
+    internal = { pageSize: { getWidth: () => 842, getHeight: () => 595 } }
+    constructor(options: unknown) { pdf.constructed.push(options) }
+    setFont(...args: unknown[]) { pdf.fonts.push(args) }
+    addFileToVFS(name: string, data: string) { pdf.files.set(name, data) }
+    addFont(...args: unknown[]) { pdf.added.push(args) }
+    setFontSize() {}
+    setPage() {}
+    text(...args: unknown[]) { pdf.text(...args) }
+    splitTextToSize(value: string) { return [value] }
+    getTextWidth(value: string) { return value.length * 3.5 }
+    getNumberOfPages() { return 2 }
+    output() { return new TextEncoder().encode('%PDF-fake').buffer }
+  },
+}))
+vi.mock('jspdf-autotable', () => ({ autoTable: pdf.autoTable }))
+
+const CAMPAIGNS: Record<string, { name: string }> = { 'campaign-1': { name: 'Demo screening week' } }
+const context: ExportContext = { campaignOf: id => (id ? CAMPAIGNS[id] : undefined) }
+
+const basic: ExportCase = {
+  id: 'c0a5e000-0000-4000-8000-000000000001', campaignId: 'campaign-1', status: 'identity_resolution_pending', fullName: 'Adébáyọ̀ Ọlọ́run',
+  ageYears: 34, sex: 'female', phone: '+2348000000001', temporaryPatientId: 'tmp_c0000000-0000-4000-8000-000000000001',
+  createdAt: '2026-11-14T09:30:00.000Z', rowVersion: 3,
+}
+const older: ExportCase = {
+  id: 'c0a5e000-0000-4000-8000-000000000002', status: 'identity_resolved', fullName: 'Patient Two', sex: 'male', ageYears: 51,
+  createdAt: '2026-11-13T09:00:00.000Z', rowVersion: 5,
+}
+
+afterEach(() => { pdf.constructed.length = 0 })
+
+/** The health check results' columns, in order, after "Health check done". */
+const HEALTH_CHECK_HEADINGS = ['Blood pressure', 'Pulse', 'Temperature (°C)', 'Weight (kg)', 'Height (cm)', 'Blood sugar', 'Malaria test',
+  'Hearing left', 'Hearing right', 'Genotype', 'Blood group', 'Main complaint', 'Seen by clinician', 'Clinician’s name', 'Outcome or advice',
+  'Medicines given', 'Referred', 'Referred to']
+
+describe('the columns', () => {
+  it('writes the core columns in words, the first registered first and numbered, with no internal id or code', () => {
+    const table = rowsFor([basic, older], context)
+    expect(table.headings).toEqual(['No.', 'Full name', 'Sex', 'Age (years)', 'Phone number', 'Campaign', 'Registered on', 'Status'])
+    expect(table.rows[0]).toEqual(['1', 'Patient Two', 'Male', '51', '', 'No campaign', expect.stringMatching(/^13 Nov 2026/), 'Linked'])
+    expect(table.rows[1]).toEqual(['2', 'Adébáyọ̀ Ọlọ́run', 'Female', '34', '+2348000000001', 'Demo screening week',
+      expect.stringMatching(/^14 Nov 2026, \d{2}:\d{2}$/), 'Waiting to link'])
+    const all = JSON.stringify(table)
+    for (const hidden of ['c0a5e000', 'tmp_', 'identity_resolution_pending', 'campaign-1', 'rowVersion']) expect(all).not.toContain(hidden)
+  })
+
+  it('adds an optional column only when a registration has it, said in words', () => {
+    const full: ExportCase = {
+      ...basic, ageYears: undefined, dateOfBirth: '2012-03-04', address: 'Ward 3, Ibadan North', registeredByName: 'Demo Enumerator',
+      consent: { textVersion: 'notice-2026-11', language: 'yo', method: 'guardian', guardianName: 'Demo Guardian' },
+      guardianPhone: '08000000002', guardianRelationship: 'mother', healthId: 'hid-zdemaaa2', healthIdCreatedByOutreach: true, hasScreening: false, possibleDuplicate: true,
+      operationalNotes: 'Needs a follow-up call, please',
+    }
+    const table = rowsFor([full, older], context)
+    // The number, then every column but the health check results, which come only with a screening read for the file (below).
+    expect(table.headings).toEqual(['No.', ...OUTREACH_EXPORT_COLUMNS.map(column => column.heading).filter(heading => !HEALTH_CHECK_HEADINGS.includes(heading))])
+    // The older registration is first.
+    const row = Object.fromEntries(table.headings.map((heading, index) => [heading, table.rows[1]![index]]))
+    expect(row).toMatchObject({
+      'Date of birth': '4 Mar 2012', 'Area or address': 'Ward 3, Ibadan North', 'Registered by': 'Demo Enumerator', 'Health ID': 'HID-ZDEMAAA2', 'Health ID made at outreach': 'Yes',
+      'Health check done': 'No', 'Possible duplicate': 'Yes', 'Parent or guardian': 'Demo Guardian', 'Parent or guardian’s relationship': 'Mother',
+      'Parent or guardian’s phone': '08000000002', 'How they agreed': 'Their parent or guardian agreed', 'Notice language': 'Yoruba',
+      'Notice version': 'notice-2026-11', 'Notes for the team': 'Needs a follow-up call, please',
+    })
+    expect(Number(row['Age (years)'])).toBeGreaterThanOrEqual(14)
+    expect(row['No.']).toBe('2')
+    // The other registration has none of them: its cells are empty, not "undefined".
+    expect(table.rows[0]!.filter(cell => cell === '')).toHaveLength(table.headings.length - 7)
+    // Absent on its own row, "Health ID made at outreach" is said only where it was sent.
+    expect(table.rows[0]![table.headings.indexOf('Health ID made at outreach')]).toBe('')
+    expect(JSON.stringify(table)).not.toMatch(/undefined|null/)
+  })
+
+  it('leaves out what it has no words for, and an id given as who registered', () => {
+    const odd: ExportCase = { ...basic, sex: 'x_code', status: 'something_new', registeredBy: 'a0000000-0000-4000-8000-000000000001',
+      consent: { method: 'new_method', language: 'zz' }, guardianRelationship: 'cousin_code', healthId: 'a0000000-0000-4000-8000-000000000002', healthIdCreatedByOutreach: 'yes' as unknown as boolean, campaignId: 'campaign-gone' }
+    const table = rowsFor([odd], context)
+    expect(table.headings).toEqual(['No.', 'Full name', 'Sex', 'Age (years)', 'Phone number', 'Campaign', 'Registered on', 'Status'])
+    expect(table.rows[0]).toEqual(['1', 'Adébáyọ̀ Ọlọ́run', '', '34', '+2348000000001', 'A campaign not listed here', expect.any(String), 'Status not known'])
+  })
+
+  it('takes a later column in one place, reaching every format', () => {
+    const table = rowsFor([basic], context, [...OUTREACH_EXPORT_COLUMNS, { heading: 'Blood pressure', value: () => '120/80' }])
+    expect(table.headings.at(-1)).toBe('Blood pressure')
+    expect(table.rows[0]!.at(-1)).toBe('120/80')
+  })
+})
+
+describe('CSV', () => {
+  it('starts with a UTF-8 byte order mark and keeps every letter of a name', async () => {
+    const csv = toCsv({ headings: ['Full name'], rows: [['Adébáyọ̀ Ọlọ́run']] })
+    expect(csv.startsWith(UTF8_BOM)).toBe(true)
+    expect(csv).toBe('﻿Full name\r\nAdébáyọ̀ Ọlọ́run\r\n')
+    const bytes = new Uint8Array(await (await buildExport('csv', { headings: ['A'], rows: [['b']] }, exportMeta(undefined, 1, new Date()))).arrayBuffer())
+    expect([...bytes.slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf])
+  })
+
+  it('quotes commas, quotes and line breaks as RFC 4180 says', () => {
+    const csv = toCsv({ headings: ['Name', 'Notes'], rows: [['Okafor, Ada', 'Said "call me"'], ['Two\nlines', 'plain'], ['Back\rslash', '']] })
+    expect(csv).toBe('﻿Name,Notes\r\n"Okafor, Ada","Said ""call me"""\r\n"Two\nlines",plain\r\n"Back\rslash",\r\n')
+  })
+
+  it.each([
+    ['=HYPERLINK("http://example.test")', '\'=HYPERLINK("http://example.test")'],
+    ['+SUM(A1)', '\'+SUM(A1)'],
+    ['+ 1', '\'+ 1'],
+    ['+=1', '\'+=1'],
+    ['+234abc', '\'+234abc'],
+    ['-1+1', '\'-1+1'],
+    ['@SUM(A1)', '\'@SUM(A1)'],
+    ['\tTab', '\'\tTab'],
+    ['\rReturn', '\'\rReturn'],
+    ['Ada = Okafor', 'Ada = Okafor'],
+    ['', ''],
+  ])('never lets a spreadsheet run %j', (value, safe) => {
+    expect(safeCell(value)).toBe(safe)
+  })
+
+  it.each(['+2348000000001', '+234 801 234 5678', '(0803) 123-4567', '08031234567', '+1-1', '42'])(
+    'leaves a phone number or plain number as it is (%j)', value => {
+      expect(safeCell(value)).toBe(value)
+      expect(toCsv({ headings: ['Phone'], rows: [[value]] })).toBe(`\uFEFFPhone\r\n${value}\r\n`)
+    })
+
+  it('makes every CSV cell safe, headings too, and quotes the result when it must', () => {
+    const csv = toCsv({ headings: ['=Name'], rows: [['=1+1,2']] })
+    expect(csv).toBe('﻿\'=Name\r\n"\'=1+1,2"\r\n')
+  })
+})
+
+describe('file names and titles', () => {
+  const day = new Date(2026, 10, 14, 9, 0)
+  it('names the file after the campaign and the day', () => {
+    expect(exportFileName('Demo Screening Week!', 'csv', day)).toBe('outreach-demo-screening-week-2026-11-14.csv')
+    expect(exportFileName('Ìbàdàn Outreach / Ward 3', 'xlsx', day)).toBe('outreach-ibadan-outreach-ward-3-2026-11-14.xlsx')
+    expect(exportFileName(undefined, 'pdf', day)).toBe('outreach-all-registrations-2026-11-14.pdf')
+    expect(slug('!!!')).toBe('campaign')
+  })
+
+  it('says what the file holds and how to keep it', () => {
+    const meta = exportMeta('Demo screening week', 1, day)
+    expect(meta.title).toBe('Outreach registrations: Demo screening week')
+    expect(meta.subtitle).toMatch(/^1 registration\. Exported 14 Nov 2026, \d{2}:\d{2}\. .*keep it safe and delete it/)
+    expect(exportMeta(undefined, 2, day).title).toBe('Outreach registrations: all campaigns')
+  })
+})
+
+describe('Excel', () => {
+  it('writes a workbook whose cells are text, never formulas, with the heading row bold', async () => {
+    const table = { headings: ['Full name', 'Phone number'], rows: [['Adébáyọ̀ <Ọlọ́run> & co', '+2348000000001']] }
+    const files = unzipSync(await xlsxBytes(table, exportMeta(undefined, 1, new Date())))
+    expect(Object.keys(files).sort()).toEqual(['[Content_Types].xml', '_rels/.rels', 'docProps/core.xml', 'xl/_rels/workbook.xml.rels',
+      'xl/styles.xml', 'xl/workbook.xml', 'xl/worksheets/sheet1.xml'])
+    const sheet = strFromU8(files['xl/worksheets/sheet1.xml']!)
+    expect(sheet).toContain('<c r="A1" t="inlineStr" s="1"><is><t xml:space="preserve">Full name</t></is></c>')
+    expect(sheet).toContain('<c r="A2" t="inlineStr" s="2"><is><t xml:space="preserve">Adébáyọ̀ &lt;Ọlọ́run&gt; &amp; co</t></is></c>')
+    // The phone number is a text cell in the Text ("@") format: it keeps its "+" and every digit, and is never a number.
+    expect(sheet).toContain('<c r="B2" t="inlineStr" s="2"><is><t xml:space="preserve">+2348000000001</t></is></c>')
+    expect(strFromU8(files['xl/styles.xml']!)).toMatch(/<cellXfs count="3">.*<xf numFmtId="49" fontId="0"[^>]*applyNumberFormat="1"\/><\/cellXfs>/)
+    expect(sheet).not.toContain('<f>')
+    expect(sheet).not.toMatch(/<c [^>]*t="n"|<v>/)
+    expect(strFromU8(files['xl/workbook.xml']!)).toContain('name="Registrations"')
+  })
+
+  it('makes every cell safe for a spreadsheet before it is written, and leaves a phone number as it is', async () => {
+    const blob = await buildExport('xlsx', { headings: ['Phone'], rows: [['=cmd'], ['+2348000000001']] }, exportMeta(undefined, 1, new Date()))
+    expect(blob.type).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    const sheet = strFromU8(unzipSync(new Uint8Array(await blob.arrayBuffer()))['xl/worksheets/sheet1.xml']!)
+    expect(sheet).toContain('>\'=cmd<')
+    expect(sheet).toContain('>+2348000000001<')
+  })
+
+  it('names columns as a spreadsheet does', () => {
+    expect([0, 25, 26, 27, 701, 702].map(columnName)).toEqual(['A', 'Z', 'AA', 'AB', 'ZZ', 'AAA'])
+  })
+
+  it('drops what XML cannot hold', () => {
+    expect(xmlText('a\u0001b\u0008c"d\n')).toBe('abc&quot;d\n')
+  })
+})
+
+describe('Word', () => {
+  it('writes a landscape document with the title and a table whose heading row repeats', async () => {
+    const blob = await buildExport('docx', { headings: ['Full name', 'Notes'], rows: [['Adébáyọ̀', 'Line one\nLine two']] },
+      { title: 'Outreach registrations: Demo', subtitle: '1 registration.' })
+    expect(blob.type).toBe('application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+    const files = unzipSync(new Uint8Array(await blob.arrayBuffer()))
+    const document = strFromU8(files['word/document.xml']!)
+    expect(document).toContain('w:orient="landscape"')
+    expect(document).toContain('Outreach registrations: Demo')
+    expect(document).toContain('<w:tblHeader/>')
+    expect(document).toContain('>Adébáyọ̀<')
+    expect(document).toContain('<w:br/><w:t xml:space="preserve">Line two</w:t>')
+    expect(strFromU8(files['[Content_Types].xml']!)).toContain('wordprocessingml.document.main+xml')
+  })
+
+  it('keeps every word whole: a wide table gets a larger page, never columns too narrow for their words', async () => {
+    const few = wordLayout({ headings: ['Full name', 'Notes'], rows: [['Adébáyọ̀', 'Line one']] })
+    expect(few.page).toEqual({ width: 16838, height: 11906 })
+    const wordsWide = (word: string) => [...word].length * 95 + 160
+    const headings = ['Full name', ...HEALTH_CHECK_HEADINGS, 'Phone number', 'Campaign', 'Registered on', 'Registered by', 'Status', 'Health ID',
+      'Area or address', 'Age (years)', 'Sex', 'Notes for the team']
+    const row = headings.map(heading => (heading.startsWith('Hearing') ? 'Didn’t pass (needs a full hearing test)' : `${heading} value`))
+    const wide = wordLayout({ headings, rows: [row] })
+    expect(wide.page.width).toBeGreaterThan(16838)
+    headings.forEach((heading, index) => {
+      const longest = Math.max(...[heading, row[index]!].flatMap(value => value.split(/\s+/)).map(wordsWide))
+      expect(wide.widths[index]).toBeGreaterThanOrEqual(longest)
+    })
+    expect(wide.widths.reduce((sum, width) => sum + width, 0)).toBeLessThanOrEqual(wide.page.width - 2 * 720)
+    const document = strFromU8(unzipSync(await docxBytes({ headings, rows: [row] }, { title: 'T', subtitle: 'S' }))['word/document.xml']!)
+    expect(document).toContain(`<w:pgSz w:w="${wide.page.width}" w:h="${wide.page.height}" w:orient="landscape"/>`)
+  })
+
+  it('keeps Word text as written: a spreadsheet does not run it', async () => {
+    const document = strFromU8(unzipSync(await docxBytes({ headings: ['Phone'], rows: [['+234']] }, { title: 'T', subtitle: 'S' }))['word/document.xml']!)
+    expect(document).toContain('>+234<')
+  })
+})
+
+describe('PDF', () => {
+  beforeEach(() => { pdf.autoTable.mockClear(); pdf.text.mockClear(); pdf.fonts.length = 0; pdf.files.clear(); pdf.added.length = 0 })
+
+  it('draws a landscape table with the title and page numbers', async () => {
+    const blob = await buildExport('pdf', { headings: ['Full name'], rows: [['Adébáyọ̀ Ọlọ́run']] },
+      { title: 'Outreach registrations: Demo', subtitle: '1 registration.' })
+    expect(blob.type).toBe('application/pdf')
+    expect(pdf.constructed).toEqual([{ orientation: 'landscape', unit: 'pt', format: 'a4' }])
+    expect(pdf.autoTable).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ head: [['Full name']],
+      body: [['Adébáyọ̀ Ọlọ́run'.normalize('NFC')]], styles: expect.objectContaining({ font: 'NotoSans' }) }))
+    // Noto Sans, both weights, from the lazy chunk, registered and used for the title and the text.
+    expect([...pdf.files.keys()]).toEqual(['NotoSans-Regular.ttf', 'NotoSans-Bold.ttf'])
+    // A TrueType file starts 00 01 00 00.
+    for (const data of pdf.files.values()) expect([...atob(data.slice(0, 8)).slice(0, 4)].map(c => c.charCodeAt(0))).toEqual([0, 1, 0, 0])
+    expect(pdf.added).toEqual([['NotoSans-Regular.ttf', 'NotoSans', 'normal'], ['NotoSans-Bold.ttf', 'NotoSans', 'bold']])
+    // The title in bold, then the text; the columns are measured in the same font.
+    expect(pdf.fonts.slice(0, 2)).toEqual([['NotoSans', 'bold'], ['NotoSans', 'normal']])
+    expect(pdf.fonts.every(([name]) => name === 'NotoSans')).toBe(true)
+    const texts = pdf.text.mock.calls.map(call => call[0])
+    expect(texts).toContain('Outreach registrations: Demo')
+    expect(texts).toEqual(expect.arrayContaining(['Page 1 of 2', 'Page 2 of 2']))
+  })
+
+  it('keeps Yoruba, Igbo and Hausa letters and tone marks, and writes what the font lacks as ?', () => {
+    expect(pdfText('Adébáyọ̀ Ọlọ́rùn’s “notes” – ₦500')).toBe('Adébáyọ̀ Ọlọ́rùn’s “notes” – ₦500'.normalize('NFC'))
+    expect(pdfText('Ṣadé Ẹ̀kọ́ · Ɓello Ɗanjuma Ƙasimu Ƴaro · Chukwuemeka Ọ̄kọ̀')).toBe('Ṣadé Ẹ̀kọ́ · Ɓello Ɗanjuma Ƙasimu Ƴaro · Chukwuemeka Ọ̄kọ̀'.normalize('NFC'))
+    expect(pdfText('漢')).toBe('?')
+  })
+})
+
+describe('reading every page', () => {
+  const rows = (prefix: string, count: number) => Array.from({ length: count }, (_, i) => ({ id: `${prefix}-${i}`, status: 'identity_resolved', rowVersion: 1 }))
+
+  it('follows the cursor until it is no longer sent, telling how many rows so far', async () => {
+    const pages = [{ items: rows('a', 500), nextCursor: 'b' }, { items: rows('b', 500), nextCursor: 'c' }, { items: rows('c', 7), nextCursor: null }]
+    const read = vi.fn(async (before: string | undefined) => pages[[undefined, 'b', 'c'].indexOf(before)]!)
+    const progress = vi.fn()
+    const result = await readAllCases(read, progress)
+    expect(read.mock.calls.map(call => call[0])).toEqual([undefined, 'b', 'c'])
+    expect(progress.mock.calls.map(call => call[0])).toEqual([500, 1000, 1007])
+    expect(result.cases).toHaveLength(1007)
+    expect(result).toMatchObject({ capped: false, latestOnly: false })
+  })
+
+  it('keeps one row for a registration sent on two pages, and stops on a cursor that does not move', async () => {
+    const read = vi.fn(async () => ({ items: rows('same', 3), nextCursor: 'stuck' }))
+    const result = await readAllCases(read)
+    expect(read).toHaveBeenCalledTimes(2)
+    expect(result.cases).toHaveLength(3)
+  })
+
+  it('stops at 20 pages and says the file is cut short', async () => {
+    let n = 0
+    const result = await readAllCases(async () => { n += 1; return { items: rows(`p${n}`, 500), nextCursor: `c${n}` } })
+    expect(n).toBe(20)
+    expect(result.cases).toHaveLength(10000)
+    expect(result.capped).toBe(true)
+    expect(EXPORT_CAPPED).toBe('Showing the first 10,000 registrations. The file holds only these.')
+  })
+
+  it('goes on across pages, the name on each, when the columns cannot fit across one page', async () => {
+    const headings = ['Phone number', 'Full name', ...HEALTH_CHECK_HEADINGS]
+    await buildExport('pdf', { headings, rows: [headings.map(() => 'A-very-long-word-that-cannot-break')] }, { title: 'T', subtitle: 'S' })
+    expect(pdf.autoTable).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({
+      horizontalPageBreak: true, horizontalPageBreakRepeat: 1, columnStyles: expect.objectContaining({ 0: { cellWidth: expect.any(Number) } }),
+    }))
+    await buildExport('pdf', { headings: ['Full name', 'Sex'], rows: [['Patient One', 'Female']] }, { title: 'T', subtitle: 'S' })
+    expect(pdf.autoTable.mock.lastCall![1]).not.toHaveProperty('horizontalPageBreak')
+  })
+
+  it('marks exactly 100 rows with no cursor as an older Outreach’s newest 100, and fewer as complete', async () => {
+    expect((await readAllCases(async () => ({ items: rows('x', 100), nextCursor: null }))).latestOnly).toBe(true)
+    expect((await readAllCases(async () => ({ items: rows('x', 99), nextCursor: null }))).latestOnly).toBe(false)
+    expect(EXPORT_LATEST_100).toBe('Only the latest 100 registrations could be exported.')
+  })
+})
+
+/** A saved screening with nothing recorded but what is given. */
+const screening = (given: Partial<OutreachScreening> = {}): OutreachScreening => ({
+  bpSystolic: null, bpDiastolic: null, pulseBpm: null, temperatureC: null, weightKg: null, heightCm: null, glucoseValue: null, glucoseUnit: null,
+  glucoseTiming: null, malariaRdt: null, hearingLeft: null, hearingRight: null, mainComplaint: null, seenByClinician: null, clinicianName: null,
+  outcome: null, medicinesGiven: null, referred: null, referredTo: null,
+  caseId: 'c0a5e000-0000-4000-8000-000000000001', version: 1, recordedAt: '2026-11-14T10:00:00.000Z',
+  recordedByMembershipId: 'a0000000-0000-4000-8000-000000000009', updatedAt: '2026-11-14T10:00:00.000Z', ...given,
+})
+
+describe('health check results', () => {
+  it('writes each health check in the words the Health checks form uses, after "Health check done"', () => {
+    const checked: ExportCase = {
+      ...basic, hasScreening: true, screening: screening({
+        bpSystolic: 120, bpDiastolic: 80, pulseBpm: 72, temperatureC: 36.8, weightKg: 64.5, heightCm: 165, glucoseValue: 5.4, glucoseUnit: 'mmol/L',
+        glucoseTiming: 'fasting', malariaRdt: 'negative', hearingLeft: 'pass', hearingRight: 'refer', mainComplaint: 'Headache for 3 days',
+        seenByClinician: true, clinicianName: 'Demo Nurse', outcome: 'Genotype: AS. Blood group: O+. Drink more water.',
+        medicinesGiven: [{ name: 'Paracetamol', dose: '500 mg' }, { name: 'ORS', dose: null }], referred: true, referredTo: 'Demo General Hospital',
+      }),
+    }
+    const table = rowsFor([checked, { ...older, hasScreening: false }], context)
+    const done = table.headings.indexOf('Health check done')
+    expect(table.headings.slice(done + 1, done + 1 + HEALTH_CHECK_HEADINGS.length)).toEqual(HEALTH_CHECK_HEADINGS)
+    // The older registration (no health checks) is first; this one second.
+    const row = Object.fromEntries(table.headings.map((heading, index) => [heading, table.rows[1]![index]]))
+    expect(row).toMatchObject({
+      'Health check done': 'Yes', 'Blood pressure': '120/80', Pulse: '72', 'Temperature (°C)': '36.8', 'Weight (kg)': '64.5', 'Height (cm)': '165',
+      'Blood sugar': '5.4 mmol/L, fasting', 'Malaria test': 'Negative', 'Hearing left': 'Passed', 'Hearing right': 'Didn’t pass (needs a full hearing test)',
+      Genotype: 'AS', 'Blood group': 'O+', 'Main complaint': 'Headache for 3 days', 'Seen by clinician': 'Yes', 'Clinician’s name': 'Demo Nurse',
+      'Outcome or advice': 'Drink more water.', 'Medicines given': 'Paracetamol (500 mg); ORS', Referred: 'Yes', 'Referred to': 'Demo General Hospital',
+    })
+    // The registration with no health checks has none of them: empty cells, never "null".
+    expect(HEALTH_CHECK_HEADINGS.map(heading => table.rows[0]![table.headings.indexOf(heading)])).toEqual(HEALTH_CHECK_HEADINGS.map(() => ''))
+    expect(JSON.stringify(table)).not.toMatch(/undefined|null|not_done|"refer"|"pass"|"negative"/)
+  })
+
+  it('keeps genotype and blood group out of "Outcome or advice", and leaves out what was not recorded', () => {
+    const only = (outcome: string) => rowsFor([{ ...basic, hasScreening: true, screening: screening({ outcome, malariaRdt: 'not_done', seenByClinician: false }) }], context)
+    const bloodOnly = only('Blood group: B−. ')
+    expect(bloodOnly.headings).not.toContain('Genotype')
+    expect(bloodOnly.headings).not.toContain('Outcome or advice')
+    expect(bloodOnly.headings).not.toContain('Blood pressure')
+    const cells = Object.fromEntries(bloodOnly.headings.map((heading, index) => [heading, bloodOnly.rows[0]![index]]))
+    expect(cells).toMatchObject({ 'Blood group': 'B−', 'Malaria test': 'Not done', 'Seen by clinician': 'No' })
+    const adviceOnly = only('Come back next week.')
+    expect(adviceOnly.headings).not.toContain('Genotype')
+    expect(adviceOnly.rows[0]![adviceOnly.headings.indexOf('Outcome or advice')]).toBe('Come back next week.')
+  })
+
+  it('writes one blood pressure number as nothing, and a typed formula safely in a spreadsheet', () => {
+    const table = rowsFor([{ ...basic, hasScreening: true, screening: screening({ bpSystolic: 120, mainComplaint: '=HYPERLINK("x")' }) }], context)
+    expect(table.headings).not.toContain('Blood pressure')
+    expect(toCsv(table)).toContain(`"'=HYPERLINK(""x"")"`)
+  })
+
+  it('reads only those with health checks, never more than 3 at once, and counts those that could not be read', async () => {
+    const cases = Array.from({ length: 10 }, (_, i) => ({ ...basic, id: `case-${i}`, hasScreening: i !== 4 && i !== 7 }))
+    const releases: Array<() => void> = []
+    let running = 0
+    let most = 0
+    const asked: string[] = []
+    const readOne = vi.fn((caseId: string) => {
+      asked.push(caseId)
+      running += 1
+      most = Math.max(most, running)
+      return new Promise<{ screening: OutreachScreening | null }>((resolve, reject) => {
+        releases.push(() => {
+          running -= 1
+          if (caseId === 'case-2' || caseId === 'case-8') reject(new TypeError('Failed to fetch'))
+          else resolve({ screening: screening({ caseId, pulseBpm: 70 }) })
+        })
+      })
+    })
+    const progress: string[] = []
+    // No further tries here (they are tested below): one round, as it reads.
+    const reading = readScreenings(cases, readOne, (done, total) => progress.push(`${done} of ${total}`), undefined, [])
+    while (asked.length < 8 || releases.length > 0) {
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(running).toBeLessThanOrEqual(3)
+      releases.shift()?.()
+    }
+    const read = await reading
+    expect(most).toBe(3)
+    expect(asked).toEqual(['case-0', 'case-1', 'case-2', 'case-3', 'case-5', 'case-6', 'case-8', 'case-9'])
+    expect(read.failed).toBe(2)
+    expect(read.failedIds).toEqual(['case-2', 'case-8'])
+    expect([...read.screenings.keys()].sort()).toEqual(['case-0', 'case-1', 'case-3', 'case-5', 'case-6', 'case-9'])
+    // Progress counts those read: the two not read are not counted.
+    expect(progress[0]).toBe('0 of 8')
+    expect(progress.at(-1)).toBe('6 of 8')
+  })
+
+  it('stops trying in a round once reads keep failing (no signal), counting the rest as not read', async () => {
+    const cases = Array.from({ length: 20 }, (_, i) => ({ ...basic, id: `case-${i}`, hasScreening: true }))
+    const readOne = vi.fn(async () => { throw new TypeError('Failed to fetch') })
+    const read = await readScreenings(cases, readOne, () => {}, undefined, [0, 0])
+    expect(read.failed).toBe(20)
+    expect(read.failedIds).toEqual(cases.map(item => item.id))
+    // Three rounds (the first and two more tries), each stopping after a run of failures.
+    expect(readOne.mock.calls.length).toBeLessThanOrEqual(3 * (SCREENING_FAILURES_TO_STOP + 2))
+  })
+
+  it('tries again those that failed, after waiting, so a moment of weak signal leaves no one out', async () => {
+    vi.useFakeTimers()
+    try {
+      const cases = Array.from({ length: 4 }, (_, i) => ({ ...basic, id: `case-${i}`, hasScreening: true }))
+      const tries = new Map<string, number>()
+      const readOne = vi.fn(async (caseId: string) => {
+        const n = (tries.get(caseId) ?? 0) + 1
+        tries.set(caseId, n)
+        // case-1 fails once, then reads; case-3 never reads.
+        if ((caseId === 'case-1' && n === 1) || caseId === 'case-3') throw new TypeError('Failed to fetch')
+        return { screening: screening({ caseId, pulseBpm: 60 + n }) }
+      })
+      const reading = readScreenings(cases, readOne)
+      await vi.advanceTimersByTimeAsync(1999)
+      // Nothing is tried again before the first wait is over.
+      expect(tries.get('case-1')).toBe(1)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(tries.get('case-1')).toBe(2)
+      await vi.advanceTimersByTimeAsync(5000)
+      const read = await reading
+      expect([...read.screenings.keys()].sort()).toEqual(['case-0', 'case-1', 'case-2'])
+      expect(read.failed).toBe(1)
+      expect(read.failedIds).toEqual(['case-3'])
+      // The one that read on the second try is not tried a third time; the one that never reads is tried three times.
+      expect(tries.get('case-1')).toBe(2)
+      expect(tries.get('case-3')).toBe(3)
+      expect(tries.get('case-0')).toBe(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('stops at once when the export is stopped while it waits to try again', async () => {
+    vi.useFakeTimers()
+    try {
+      const cases = Array.from({ length: 2 }, (_, i) => ({ ...basic, id: `case-${i}`, hasScreening: true }))
+      const stop = new AbortController()
+      const readOne = vi.fn(async (caseId: string) => {
+        if (caseId === 'case-1') throw new TypeError('Failed to fetch')
+        return { screening: screening({ caseId }) }
+      })
+      const reading = readScreenings(cases, readOne, () => {}, stop.signal)
+      await vi.advanceTimersByTimeAsync(500)
+      expect(readOne).toHaveBeenCalledTimes(2)
+      stop.abort()
+      // It answers without waiting out the 2 s, and tries nothing more.
+      const read = await reading
+      expect(readOne).toHaveBeenCalledTimes(2)
+      expect(read.failedIds).toEqual(['case-1'])
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('tries no more once the export is stopped', async () => {
+    const cases = Array.from({ length: 10 }, (_, i) => ({ ...basic, id: `case-${i}`, hasScreening: true }))
+    const stop = new AbortController()
+    const readOne = vi.fn(async (caseId: string) => {
+      if (caseId === 'case-1') stop.abort()
+      return { screening: screening({ caseId }) }
+    })
+    await readScreenings(cases, readOne, () => {}, stop.signal)
+    expect(readOne.mock.calls.length).toBeLessThanOrEqual(3)
+  })
+
+  it('reads nothing when no one has health checks', async () => {
+    const readOne = vi.fn()
+    expect(await readScreenings([basic, { ...older, hasScreening: false }], readOne)).toEqual({ screenings: new Map(), failed: 0, failedIds: [] })
+    expect(readOne).not.toHaveBeenCalled()
+  })
+
+  it('says plainly how many people’s health checks are blank', () => {
+    expect(screeningsFailed(3)).toBe('3 people’s health checks couldn’t be read and are blank in the file. Export again with better signal.')
+    expect(screeningsFailed(1)).toBe('1 person’s health checks couldn’t be read and are blank in the file. Export again with better signal.')
+  })
+
+  it('names those whose health checks are blank, at most 20 and how many more', () => {
+    expect(screeningsFailed(2, ['Patient One', 'Patient Two']))
+      .toBe('2 people’s health checks couldn’t be read and are blank in the file. Patient One, Patient Two. Export again with better signal.')
+    const many = Array.from({ length: 23 }, (_, i) => `Patient ${i + 1}`)
+    const said = screeningsFailed(23, many)
+    expect(said).toContain('Patient 20 and 3 more.')
+    expect(said).not.toContain('Patient 21')
+  })
+})

@@ -85,20 +85,20 @@ describe('with the clinic switch on', () => {
 
   it('signs in on the blue page, with today\'s steps, into the blue EHR', async () => {
     await open('/provider/sign-in')
-    expect(await screen.findByText('Sign in to your hospital workspace.')).toBeDefined()
+    expect(await screen.findByText('Sign in with your work account.')).toBeDefined()
     expect(blueRoot()).not.toBeNull()
     expect(loads.signIn).toBe(1)
     fireEvent.change(screen.getByRole('textbox', { name: 'Work email' }), { target: { value: 'next.clinician@example.test' } })
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'fictional passphrase for tests' } })
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/provider'))
-    expect(await screen.findByRole('heading', { level: 1, name: /^Good (morning|afternoon|evening), Demo Clinician$/ })).toBeDefined()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Good to see you, Demo.' })).toBeDefined()
     expect(document.querySelector('.hid-ehr.hid-ehr-shell')).not.toBeNull()
   })
 
   it('recovers on the blue page', async () => {
     await open('/provider/recover')
-    expect(await screen.findByRole('heading', { level: 1, name: 'Recover account access' })).toBeDefined()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Reset your password.' })).toBeDefined()
     expect(blueRoot()).not.toBeNull()
     expect(loads.recovery).toBe(1)
   })
@@ -106,7 +106,7 @@ describe('with the clinic switch on', () => {
   it('opens an invitation on the blue page (Novu)', async () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
     const { unmount } = await open('/provider/invitation')
-    expect(await screen.findByRole('heading', { level: 1, name: 'Accept your invitation' })).toBeDefined()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Join your facility.' })).toBeDefined()
     expect(blueRoot()).not.toBeNull()
     expect(loads.invitation).toBe(1)
     unmount()

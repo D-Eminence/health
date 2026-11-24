@@ -27,7 +27,7 @@ afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules()
 
 const CHECK = 'POST /api/v1/identity/assisted-verifications'
 const PERMISSION = 'identity.patient.assisted_registration'
-const UNAVAILABLE = 'Your role at this facility cannot check patients in person. Doctors, clinicians and nurses at a facility that takes part in registration can. Ask a platform administrator if your role should.'
+const UNAVAILABLE = 'Doctors and nurses at a taking-part facility can. Ask your administrator.'
 const nav = () => screen.getByRole('navigation', { name: 'Main navigation' })
 const settle = () => act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
 
@@ -36,12 +36,12 @@ describe('In-person check in the frame', () => {
     const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', [PERMISSION, 'identity.registration.write'], ['clinician'])
     const sent = serve({ [SESSION]: [sessionAt(demo, [demo])] })
     const { container } = await openStaffApp('/provider/in-person-check')
-    expect(await screen.findByRole('heading', { level: 1, name: 'In-person check' })).toBeDefined()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Check a patient in person' })).toBeDefined()
     expect(where()).toBe('/provider/in-person-check')
     // The blue page, not today's page inside the frame.
     expect(container.querySelector('.hid-ehr-dept-inperson')).not.toBeNull()
     expect(container.querySelector('.staff-in-person')).toBeNull()
-    expect(screen.getByRole('textbox', { name: 'Desk code' })).toBeDefined()
+    expect(screen.getByRole('textbox', { name: 'Code' })).toBeDefined()
     // Its sidebar entry is the stand-in's, in the stand-in's place: after Patient registration.
     const link = within(nav()).getByRole('link', { name: 'In-person check' })
     expect(link.getAttribute('href')).toBe('/provider/in-person-check')
@@ -60,13 +60,13 @@ describe('In-person check in the frame', () => {
     const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', [PERMISSION], ['clinician'])
     const sent = serve({ [SESSION]: [sessionAt(demo, [demo])], [CHECK]: [() => json({ outcome: 'verified' })] })
     await openStaffApp('/provider/in-person-check')
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Desk code' }), { target: { value: 'abcd-efgh jk' } })
-    fireEvent.change(screen.getByRole('combobox', { name: 'Document checked' }), { target: { value: 'voters_card' } })
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Code' }), { target: { value: 'abcd-efgh jk' } })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Which ID?' }), { target: { value: 'voters_card' } })
     fireEvent.change(screen.getByRole('textbox', { name: 'First name' }), { target: { value: 'Demo-Patient' } })
     fireEvent.change(screen.getByRole('textbox', { name: 'Last name' }), { target: { value: 'Fictional-One' } })
     for (const box of within(screen.getByRole('group', { name: 'Confirm each statement' })).getAllByRole('checkbox')) fireEvent.click(box)
-    fireEvent.click(screen.getByRole('button', { name: 'Check the details' }))
-    expect(await screen.findByRole('heading', { name: 'Checked. The patient can continue on their phone.' })).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Check details' }))
+    expect(await screen.findByRole('heading', { name: 'Checked' })).toBeDefined()
     const checks = sent.filter(call => call.route === CHECK)
     expect(checks).toHaveLength(1)
     expect(checks[0]!.body).toEqual({
@@ -80,14 +80,14 @@ describe('In-person check in the frame', () => {
     expect(document.body.textContent).not.toMatch(/Demo-Patient|Fictional-One|ABCDEFGHJK/)
   })
 
-  it('is refused without its permission in today’s words, unlisted, and reads nothing', async () => {
+  it('is refused without its permission in classic’s words, unlisted, and reads nothing', async () => {
     const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.patient.read'], ['clinician'])
     const sent = serve({ [SESSION]: [sessionAt(demo, [demo])] })
     await openStaffApp('/provider/in-person-check')
     expect(await screen.findByText(UNAVAILABLE)).toBeDefined()
-    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('In-person check unavailable')
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('You can’t check patients in person here')
     expect(screen.queryByText(/is not open to you here/)).toBeNull()
-    expect(screen.queryByRole('textbox', { name: 'Desk code' })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: 'Code' })).toBeNull()
     await waitFor(() => expect(within(nav()).getByRole('link', { name: 'Patients' })).toBeDefined())
     expect(within(nav()).queryByRole('link', { name: 'In-person check' })).toBeNull()
     await settle()

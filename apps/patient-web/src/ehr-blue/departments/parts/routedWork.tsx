@@ -16,7 +16,7 @@ import { learnLateCorrectionServed, saysLateCorrection, useLateCorrectionServed 
 import { learnCannotCompleteFrom } from '../../../cannotCompleteServed'
 import { DeptEmbedded } from './DeptEmbedded'
 import { DeptNotice } from './DeptNotice'
-import { shortId } from './format'
+import { dayText } from './format'
 
 /*
  * Work from orders other facilities sent, as today's Laboratory and Pharmacy pages
@@ -24,9 +24,9 @@ import { shortId } from './format'
  * blue look. Logic is ported line for line; only the markup differs.
  */
 
-/** Who the patient is on a work row: named once an order from another facility is accepted, else masked. */
+/** Who the patient is on a work row: named once an order from another facility is accepted, else said in words, never by id. */
 export function patientLabel(item: { patientId: string; patient?: LabWorkItem['patient'] }): string {
-  return item.patient ? patientCard(item.patient) : `Patient ${shortId(item.patientId)}`
+  return item.patient ? patientCard(item.patient) : 'Patient (name not shown)'
 }
 
 /**
@@ -58,6 +58,15 @@ export function WorkListCap({ count, children }: { readonly count: number; reado
   if (count < WORK_LIST_CAP) return null
   return <><DeptNotice>This list can show only the {WORK_LIST_CAP} oldest accepted work items. Any item accepted after them is not shown and cannot be reached from this page: completing work or refreshing the list does not bring it into view. Contact your facility administrator about orders not listed here.</DeptNotice>
     {children}</>
+}
+
+/**
+ * Q123 A (hid-system #298): which finished work a lab or pharmacy list holds, from its `since` (kept by the client only
+ * when it is a real date). Nothing from a backend that sends none, so today's answers show as before.
+ */
+export function WorkListSince({ since }: { readonly since: string | undefined }) {
+  const day = since ? dayText(since) : ''
+  return day ? <p className="hid-ehr-dept-muted">Showing open work, and finished work received since {day}.</p> : null
 }
 
 /** A list's refresh: focusable while its read runs (aria-busy), when a second press does nothing. */

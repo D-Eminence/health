@@ -7,7 +7,7 @@
 import { CSRF, EXPECTED_404, configure, notServed, respond, workspaceFor } from './routes.mjs'
 
 const params = new URLSearchParams(window.location.search)
-configure({ facility: params.get('facility') === 'classic' ? 'classic' : 'blue' })
+configure({ facility: params.get('facility') === 'classic' ? 'classic' : params.get('facility') === 'outreach' ? 'outreach' : 'blue' })
 // ?product=lab|pharmacy|outreach shows the provider workspace as that product alone (ehr-blue/frame/product.ts).
 const PRODUCTS = ['ehr', 'lab', 'pharmacy', 'outreach']
 const product = PRODUCTS.includes(params.get('product') ?? '') ? params.get('product') : 'ehr'

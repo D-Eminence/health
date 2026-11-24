@@ -38,10 +38,9 @@ describe('page statuses', () => {
   it.each([
     ['registration', 'Patient registration', 'identity.registration.write'],
     ['in-person-check', 'In-person check', 'identity.patient.assisted_registration'],
-    ['audit', 'Audit trail', 'audit.read'],
     ['billing', 'Facility subscription', 'billing.subscription.read'],
     ['outreach', 'Outreach', undefined],
-    ['ocr', 'Document OCR', 'ocr.job.read'],
+    ['ocr', 'Scan paper records', 'ocr.job.read'],
     ['staff', 'Staff & access', 'workforce.manage'],
     ['laboratory', 'Laboratory', 'lab.work-item.read'],
     ['laboratory/work/*', 'Work list', 'lab.work-item.read'],
@@ -60,6 +59,11 @@ describe('page statuses', () => {
     ['pharmacy/products', 'Products & prices', 'billing.catalogue.read'],
     ['pharmacy/till', 'Till / End of day', 'billing.shift.own'],
     ['pharmacy/settings', 'Payment setup', 'billing.settings.manage'],
+    // Finance's four pages (report 3.1 #20b): the same unserved addresses, so partial too.
+    ['payments', 'Payments', 'billing.bill.read'],
+    ['price-list', 'Price list', 'billing.catalogue.read'],
+    ['end-of-day', 'End of day', 'billing.shift.own'],
+    ['payment-setup', 'Payment setup', 'billing.settings.manage'],
   ])('labels %s (%s) partial, under the same permission', (path, label, permission) => {
     const entry = page(path)
     expect(entry.label).toBe(label)
@@ -70,6 +74,18 @@ describe('page statuses', () => {
     const holder = sessionWith([permission])
     expect(pageAllowed(entry, sessionWith([]))).toBe(false)
     expect(pageAllowed(entry, holder)).toBe(entry.visible?.(holder) ?? true)
+  })
+
+  // Parity report 3.3-74: Audit trail works on Health ID in the classic page's words throughout, so it is live, under
+  // the same permission and with the same refusal at its address.
+  it('labels Audit trail live, under the same permission', () => {
+    const entry = page('audit')
+    expect(entry.label).toBe('Audit trail')
+    expect(entry.status).toBe('live')
+    expect(entry.permission).toBe('audit.read')
+    expect(entry.refusal).toBeDefined()
+    expect(pageAllowed(entry, sessionWith([]))).toBe(false)
+    expect(pageAllowed(entry, sessionWith(['audit.read']))).toBe(true)
   })
 
   it('keeps Facility subscription one of today\'s pages, so without its permission it still refuses in its own words', () => {
@@ -143,14 +159,15 @@ describe('What\'s left on a product\'s own site', () => {
   const addresses = (table: HTMLElement) => within(table).getAllByRole('link').map(link => link.getAttribute('href')!.replace(/^\/provider\/?/, ''))
 
   // Pages only a hospital's EHR has: none may be listed on a lab's, pharmacy's, outreach team's or migration site.
-  // Patients and Access requests are every product's too (product.ts, parity report 3.1 #7).
-  const EHR_ONLY = ['Patient registration', 'Home', 'In-person check', 'Triage & Vitals', 'Consultation', 'Nursing observations',
-    'Emergency', 'Radiology', 'Patient billing', 'Facility subscription', 'Reports & Analytics']
+  // Patients and Access requests are every product's too (product.ts, parity report 3.1 #7), as are Home and Facility
+  // subscription, which classic listed on every site (parity report 3.3-53, 15c).
+  const EHR_ONLY = ['Patient registration', 'In-person check', 'Triage & Vitals', 'Consultation', 'Nursing observations',
+    'Emergency access', 'Radiology', 'Patient billing', 'Reports & Analytics']
 
   /** What's left lists only this product's own pages and the shared ones, says so, counts only those, and notes no EHR part. */
   function expectOnly(table: HTMLElement, product: string, home: string, own: readonly string[], other: string) {
     for (const label of [...EHR_ONLY, other]) expect(within(table).queryByRole('link', { name: label })).toBeNull()
-    for (const address of addresses(table)) expect(address).toMatch(new RegExp(`^(${home}(/|$)|(staff|audit|facility|hr|institutions|patients|requests)$)`))
+    for (const address of addresses(table)) expect(address).toMatch(new RegExp(`^(${home}(/|$)|(|staff|audit|facility|hr|institutions|patients|requests|billing)$)`))
     // Its own pages, and the facility's own (its people, its audit trail), are still there.
     for (const label of [...own, 'Staff & access', 'Audit trail']) expect(within(table).getAllByRole('link', { name: label }).length).toBeGreaterThan(0)
     // The page says what it lists, and its counts are of those rows only.

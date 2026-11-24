@@ -1,19 +1,27 @@
+import { codeOf, FREQUENCIES, LAB_TESTS, MEDICINES, namesOf, ROUTES } from '../../parts/vocabulary'
 import { isHidApiError, PlainError } from '@hid/http'
-import { EhrCard, EhrField, EhrInput, EhrSelect } from '@hid/ui/ehr'
+import { EhrCard, EhrField, EhrSelect } from '@hid/ui/ehr'
 import { useEffect, useId, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { orderRoutesApi, staffApi, type SavedRecord } from '../../../../staff/api'
-import { ALLERGY_ACKNOWLEDGEMENT_REQUIRED, REASON_LIMIT, REASON_MIN, SEVERITY_LABELS, warningMessages } from '../../../../staff/allergies'
-import { useAllergies } from '../../patients/AllergiesCard'
+import type { AllergyAcknowledgement } from '../../../../staff/allergies'
+import { AllergyLines, useAllergies, type AllergiesState } from '../../patients/AllergiesCard'
 import { refusalSentences, refusalText, refusedFields } from '../../../../staff/fieldProblem'
 import { sendRefusal } from '../../../../staff/orderRoutes'
 import { choiceProblem, NO_DESTINATION, savedNotSent, type DestinationChoice, type RouteContext } from '../../../../staff/routes/OrderRoutes'
+import {
+  ALLERGY_GO_AHEAD_ERROR, NO_WARNING_NOT_SAFE, acknowledgementRefused, readAllergyRefusal, sameMedicine, useAllergyAcknowledgement,
+  warningFromCheck, withAllergyAcknowledgement, type WarnedMedicine,
+} from '../../parts/allergyWarning'
+import { AllergyWarningPanel } from '../../parts/AllergyWarningPanel'
 import { ChartBanner, type Chart } from '../../parts/chart'
 import { useConfirm } from '../../parts/confirm'
 import { ErrorBox, Loading, RecordHeading } from '../../parts/Notices'
-import { RecordForm, type FieldDef, type FieldErrors, type FormValues, type SubmitOutcome } from '../../parts/RecordForm'
+import { RecordForm, type FieldDef, type FieldErrors, type FormValue, type FormValues, type SubmitOutcome } from '../../parts/RecordForm'
 import { useWorkspaceHref } from '../../parts/Workspace'
+import { checkDetails, detailsBody, detailsRefusal, takesDispensingDetails, withDetailFields } from '../../../prescriptionDetails'
 import { KINDS, learnFrom, orderRights, patientWord, sentFrom, useFlash, type CreateWarning, type OrderKind, type Sent } from './orders'
+import { ACK_REFUSED_ERROR, checkAllergies, MEDICINE_CHANGED_ERROR, warnAfterRefusal } from './prescribingAllergies'
 import { DestinationFields, type RouteErrors } from './Routing'
 import {
   DOSE_NUMBER_TEXT, DOSE_PAIR, handoffNames, LAB_ACTIVE_NOTE, labDraftWarning, labHandoffOutcome, NO_CHANGES, PRESCRIPTION_HINT, PRESCRIPTION_ROUTING_HINT,
@@ -41,13 +49,13 @@ const DOSE_NUMBER = /^\d+(\.\d{1,4})?$/
  */
 // Today's labels and placeholders, word for word (Clinical.tsx:567); the unit is picked from a list.
 const PRESCRIPTION_FIELDS: readonly FieldDef[] = [
-  { key: 'medicationDisplay', label: 'Medication', required: true, maxLength: 500 },
+  { key: 'medicationDisplay', label: 'Medication', required: true, maxLength: 500, suggestions: MEDICINES, hint: 'Start typing the generic name and pick from the list.' },
   { key: 'doseQuantity', label: 'Dose quantity', inputMode: 'decimal', placeholder: '0.5', maxLength: 12, row: 'dose', normalise: leadingZero },
   { key: 'doseUnitChoice', label: 'Dose unit', row: 'dose',
     choices: [...DOSE_UNITS.map(unit => ({ value: unit, label: unit })), { value: OTHER_UNIT, label: 'Other…' }] },
   { key: 'doseUnit', label: 'Other unit', maxLength: 80, when: values => values.doseUnitChoice === OTHER_UNIT },
-  { key: 'routeCode', label: 'Route code', placeholder: 'oral', maxLength: 100 },
-  { key: 'frequency', label: 'Frequency', required: true, placeholder: 'Twice daily', maxLength: 240 },
+  { key: 'routeCode', label: 'Route code', placeholder: 'oral', maxLength: 100, suggestions: ROUTES },
+  { key: 'frequency', label: 'Frequency', required: true, placeholder: 'Twice daily', maxLength: 240, suggestions: FREQUENCIES },
   { key: 'instructions', label: 'Instructions', type: 'textarea', required: true, maxLength: 4000 },
 ]
 
@@ -59,7 +67,9 @@ function doseUnitOf(values: FormValues): string {
 
 /** The lab request's fields and limits, with today's labels (Clinical.tsx:570); Priority and Request handling follow as controlled choices. */
 const LAB_FIELDS: readonly FieldDef[] = [
-  { key: 'testDisplay', label: 'Test display', required: true, maxLength: 500 },
+  { key: 'testDisplay', label: 'Test display', required: true, maxLength: 500, suggestions: namesOf(LAB_TESTS),
+    hint: 'Start typing and pick from the list. The commonest tests fill their LOINC code.',
+    fills: value => { const code = codeOf(LAB_TESTS, value); return code ? { testCode: code, testCodeSystem: 'LOINC' } : null } },
   { key: 'testCodeSystem', label: 'Test code system', required: true, placeholder: 'LOINC', maxLength: 255, row: 'code' },
   { key: 'testCode', label: 'Test code', required: true, maxLength: 100, row: 'code' },
   { key: 'specimenTypeCode', label: 'Specimen type code', maxLength: 100 },
@@ -97,7 +107,7 @@ export function CreateOrder({ kind, chart, encounterId }: { kind: OrderKind; cha
   const info = KINDS[kind]
   const back = href(encounterId)
   // Today's form heading, "Add {tab}" (Clinical.tsx:561).
-  const heading = <RecordHeading title={kind === 'pharmacy' ? 'Add prescriptions' : 'Add lab requests'} backHref={back} />
+  const heading = <RecordHeading title={kind === 'pharmacy' ? 'Add prescriptions' : 'Add lab requests'} backHref={back} backLabel="Back to consultation" />
 
   // As in classic, an order is added only where it can be read back: the saved order opens next.
   if (!chart.can(info.write) || !chart.can(info.read)) {
@@ -128,74 +138,27 @@ function usePatientCheck(chart: Chart) {
 }
 
 /**
- * The patient's allergies on a new prescription (the patient is named in the banner above): the allergies clinicians
- * recorded and what the patient reported in their Health ID portal, each labelled (hid-system 0124); on a backend before
- * 0124, what the patient reported only. Nothing is said while it loads, without ehr.note.read, or when EHR refuses (403)
- * or serves neither (404); "None recorded" only after a read that answered.
+ * The patient's allergies above a new prescription (the patient is named in the banner above; a saved prescription's
+ * page shows the reasons given to go ahead over a warning instead, AllergyOverrides), in the same lines as triage and a
+ * new consultation (AllergyLines, Ola's W4):
+ * the allergies clinicians recorded, in the EHR's order (the most serious first), and what the patient reported in their
+ * Health ID portal, each labelled (hid-system 0117); on a backend before 0117, what the patient reported only. Nothing
+ * while it loads; a read that failed, was refused or is not served says so, never "none". Where the EHR checks the
+ * medicine (0117), it says too that no warning does not mean the medicine is safe (Ola, wording #10), warning or not.
+ * `allergies` is useAllergies(chart).state, read again by the form whenever it shows an allergy warning.
  */
-function RecordedAllergies({ chart }: { chart: Chart }) {
-  const { state: allergies } = useAllergies(chart)
-  if (allergies.status === 'loading' || allergies.status === 'hidden') return null
-  if (allergies.status === 'failed') {
-    return <p className="hid-ehr-clinical-note">{allergies.recordedOffered
-      ? 'Allergies: the patient’s allergies could not be loaded. Confirm with the patient.'
-      : 'Recorded allergies: what the patient entered about their health could not be loaded. Confirm with the patient.'}</p>
-  }
-  if (!allergies.recordedOffered) {
-    // Before 0124: today's sentence, from what the patient reported.
-    return (
-      <p className="hid-ehr-clinical-note">
-        {allergies.patientReported
-          ? `Recorded allergies: ${allergies.patientReported} (patient-reported: entered by the patient in their Health ID portal, not clinically verified).`
-          : 'Recorded allergies: None recorded. Confirm with the patient.'}
-      </p>
-    )
-  }
-  const recorded = allergies.recorded.filter(item => item.status === 'active')
-    .map(item => `${item.substance} (${SEVERITY_LABELS[item.severity].toLowerCase()})`)
+function RecordedAllergies({ allergies }: { allergies: AllergiesState }) {
   return (
     <>
-      <p className="hid-ehr-clinical-note">
-        {recorded.length > 0 ? `Allergies recorded by clinicians: ${recorded.join(', ')}.` : 'Allergies recorded by clinicians: none.'}
-      </p>
-      <p className="hid-ehr-clinical-note">
-        {allergies.patientReported
-          ? `Allergies reported by the patient: ${allergies.patientReported} (entered by the patient in their Health ID portal, not clinically verified).`
-          : 'Allergies reported by the patient: none. Confirm allergies with the patient.'}
-      </p>
+      <AllergyLines allergies={allergies} lineClassName="hid-ehr-clinical-note" />
+      {allergies.status === 'shown' && allergies.recordedOffered ? <p className="hid-ehr-clinical-note">{NO_WARNING_NOT_SAFE}</p> : null}
     </>
   )
 }
 
-/** Said at the form when a medicine may match an allergy and the prescriber has not yet given a reason to go ahead. */
-export const ALLERGY_FORM_ERROR = 'This medicine may match one of the patient’s allergies. Read the allergy warning, then give a reason to go ahead or change the medicine.'
-export const ALLERGY_TICK_ERROR = 'Tick the box and give a reason (at least 3 characters) to go ahead with this medicine.'
-
-type AllergyWarning = { readonly medication: string; readonly messages: readonly string[] }
-
-/**
- * The allergy warning on the prescribing form (hid-system 0124): each match in the EHR's own plain sentence, a tick and
- * a reason the prescriber must give to go ahead. Shown only after the EHR said the medicine may match an allergy.
- */
-function AllergyWarningPanel({ warning, checked, reason, error, onChecked, onReason }: {
-  warning: AllergyWarning; checked: boolean; reason: string; error: string
-  onChecked: (value: boolean) => void; onReason: (value: string) => void
-}) {
-  const checkId = useId()
-  return (
-    <div role="alert" className="hid-ehr-clinical-orders-notice hid-ehr-clinical-orders-danger">
-      <p className="m-0 font-semibold">Allergy warning for {warning.medication}</p>
-      <ul className="m-0 mt-1 pl-5">{warning.messages.map(message => <li key={message}>{message}</li>)}</ul>
-      <p className="m-0 mt-1">Check with the patient before you go ahead. No warning does not mean a medicine is safe.</p>
-      <div className="mt-2 flex items-start gap-2">
-        <input id={checkId} type="checkbox" checked={checked} onChange={event => onChecked(event.target.checked)} />
-        <label htmlFor={checkId}>I have checked these allergies and want to go ahead with this prescription.</label>
-      </div>
-      <EhrField label="Reason for going ahead" error={error || undefined}>
-        <EhrInput value={reason} maxLength={REASON_LIMIT} onChange={event => onReason(event.target.value)} />
-      </EhrField>
-    </div>
-  )
+/** The medicine a prescription form holds, as the check and the save are sent it (the form has no code field). */
+function medicineOf(values: FormValues): WarnedMedicine {
+  return { display: value(values, 'medicationDisplay') }
 }
 
 /** One Idempotency-Key per attempt: the same values sent again are the same create. */
@@ -219,30 +182,44 @@ function PrescriptionForm({ chart, encounterId }: { chart: Chart; encounterId: s
   const [success, setSuccess] = useState('')
   const [crossFacilityOrders, setCrossFacilityOrders] = useState(false)
   const rights = orderRights(chart, crossFacilityOrders)
-  useCrossFacility(chart, encounterId, 'pharmacy', setCrossFacilityOrders)
-  // The allergy warning (hid-system 0124): shown for one medicine; the prescriber ticks and gives a reason to go ahead.
-  const [warning, setWarning] = useState<AllergyWarning | null>(null)
-  const [acknowledged, setAcknowledged] = useState(false)
-  const [ackReason, setAckReason] = useState('')
-  const [ackError, setAckError] = useState('')
+  // The dispensing details (hid-system 0125): asked for and sent only once the prescriptions list says the EHR takes them.
+  const [details, setDetails] = useState(false)
+  const fields = withDetailFields(PRESCRIPTION_FIELDS, details)
+  useCrossFacility(chart, encounterId, 'pharmacy', setCrossFacilityOrders, setDetails)
+  // The allergy warning (hid-system 0117): shown for one medicine, with its token; the prescriber ticks and gives a
+  // reason to go ahead. Any edit of the medicine drops it at once (the warning, the tick, the reason and the token).
+  const ack = useAllergyAcknowledgement()
+  // The patient's allergies above the form, read again whenever a warning is shown (from the check or the EHR's 409):
+  // an allergy recorded since the form opened is then in the lines too, never only in the warning.
+  const allergies = useAllergies(chart)
+  // The medicine in the field now: an answer (the check, or the save's 409) for one since changed is never shown.
+  const medicineNow = useRef<WarnedMedicine>({ display: '' })
+  const stillIn = (medicine: WarnedMedicine) => () => sameMedicine(medicineNow.current, medicine)
 
   const { confirm, sheet } = usePatientCheck(chart)
 
-  const warn = (medication: string, messages: readonly string[]): SubmitOutcome => {
-    setWarning({ medication, messages: messages.length > 0 ? messages : ['This medicine may match one of the patient’s allergies.'] })
-    setAcknowledged(false)
-    setAckReason('')
-    setAckError('')
-    return { formError: ALLERGY_FORM_ERROR }
+  const medicineEdited = (key: string, next: FormValue) => {
+    if (key !== 'medicationDisplay') return
+    const medicine = { display: typeof next === 'string' ? next : '' }
+    medicineNow.current = medicine
+    ack.medicineChanged(medicine)
+  }
+
+  /** What saving does, said before anything is sent; over a warning, that the reason is saved with it (Ola, wording #8). */
+  const confirmSave = (values: FormValues) => {
+    const medicine = medicineOf(values)
+    const warned = ack.warning !== null && sameMedicine(ack.warning.medicine, medicine)
+    return confirm(`Save this prescription of ${medicine.display} for ${chart.facts.name}?${warned
+      ? ' It may match an allergy. Your reason for going ahead will be saved with it.' : ''}`, 'Save prescription')
   }
 
   const validate = (values: FormValues): FieldErrors => {
     const quantity = value(values, 'doseQuantity')
-    if (quantity && (!DOSE_NUMBER.test(quantity) || Number(quantity) <= 0)) return { doseQuantity: DOSE_NUMBER_TEXT }
-    if (!quantity === !doseUnitOf(values)) return {}
+    if (quantity && (!DOSE_NUMBER.test(quantity) || Number(quantity) <= 0)) return { doseQuantity: DOSE_NUMBER_TEXT, ...checkDetails(values, details) }
+    if (!quantity === !doseUnitOf(values)) return checkDetails(values, details)
     // The missing half is marked: the dose, the unit, or the unit typed for "Other…".
     const missing = quantity ? value(values, 'doseUnitChoice') === OTHER_UNIT ? 'doseUnit' : 'doseUnitChoice' : 'doseQuantity'
-    return { [missing]: DOSE_PAIR }
+    return { [missing]: DOSE_PAIR, ...checkDetails(values, details) }
   }
 
   const submit = async (values: FormValues): Promise<SubmitOutcome> => {
@@ -256,55 +233,79 @@ function PrescriptionForm({ chart, encounterId }: { chart: Chart; encounterId: s
       frequency: value(values, 'frequency'),
       instructions: value(values, 'instructions'),
       status: 'draft',
+      ...detailsBody(values, details),
     }
-    const medication = body.medicationDisplay
-    // A warning shown for this medicine must be acknowledged with a reason; a changed medicine is checked afresh.
-    const warned = warning !== null && warning.medication === medication
-    if (warned) {
-      const reason = ackReason.trim()
-      if (!acknowledged || reason.length < REASON_MIN) {
-        setAckError(ALLERGY_TICK_ERROR)
-        return { formError: ALLERGY_FORM_ERROR }
-      }
-      setAckError('')
-    } else if (warning) setWarning(null)
-    const key = attempt.key(JSON.stringify(['prescriptions', values, warned ? ackReason.trim() : null]))
+    const medicine = medicineOf(values)
+    const current = stillIn(medicine)
+    // A warning shown for this medicine is acknowledged with the tick and a reason, and its token; nothing is sent
+    // without both. One for another medicine is never sent (an edit drops it at once; this is the guard).
+    const shown = ack.warning !== null && sameMedicine(ack.warning.medicine, medicine)
+    if (ack.warning && !shown) ack.clear()
+    let acknowledgement: AllergyAcknowledgement | null = null
+    if (shown) {
+      acknowledgement = ack.acknowledgement()
+      if (!acknowledgement) return { formError: ALLERGY_GO_AHEAD_ERROR }
+    }
+    // The create's digest covers the acknowledgement: another reason or token is another create.
+    const key = attempt.key(JSON.stringify(['prescriptions', values, acknowledgement, ...details ? [true] : []]))
     try {
       if (!chart.canWrite) throw new PlainError(NO_CHANGES)
       await chart.verify()
-      if (!warned) {
-        // The EHR's allergy check before saving. A backend before 0124 answers 404 (no check: saved as before); any other
-        // failure leaves it to the save, which the EHR refuses itself when the medicine matches an allergy.
-        const check = await Promise.resolve().then(() => staffApi.allergyCheck(chart.facilityId, chart.patientId, { medicationDisplay: medication })).catch(() => null)
-        if (check && check.matches.length > 0) return warn(medication, check.matches.map(match => match.message))
+      if (!shown) {
+        // The EHR's allergy check before saving: for this medicine each time, so a changed medicine is checked afresh.
+        // A backend before 0117 answers 404 (no check: saved as before, with no acknowledgement); any other failure
+        // leaves it to the save, which the EHR refuses itself (409) when the medicine matches an allergy.
+        const check = await checkAllergies(chart, medicine)
+        if (!current()) return { formError: MEDICINE_CHANGED_ERROR }
+        // Only a match is a warning: every answer has a token, kept only when there is something to acknowledge.
+        const warning = check ? warningFromCheck(check, medicine) : null
+        if (warning) {
+          ack.show(warning)
+          allergies.reload()
+          return { formError: ALLERGY_GO_AHEAD_ERROR }
+        }
       }
       const saved = await staffApi.createRecord(chart.facilityId, chart.patientId, encounterId, 'prescriptions',
-        warned ? { ...body, allergyAcknowledgement: { reason: ackReason.trim() } } : body, key)
+        withAllergyAcknowledgement(body, acknowledgement), key)
       attempt.clear()
-      setWarning(null)
+      ack.clear()
       if (typeof saved?.id === 'string') {
         setFlash({ orderId: saved.id, success: SAVED })
         navigate(href(encounterId, 'orders', 'pharmacy', saved.id))
         return
       }
       setSuccess(SAVED)
+      medicineNow.current = { display: '' }
       setForm(count => count + 1)
     } catch (caught) {
-      if (isHidApiError(caught) && caught.code === ALLERGY_ACKNOWLEDGEMENT_REQUIRED) return warn(medication, warningMessages(caught.details))
-      return refused(caught, PRESCRIPTION_FIELDS)
+      // The EHR's own check refused the save (a draft is checked too): the warning it gives, "changed" when this save
+      // carried a reason for an older one.
+      const refusal = readAllergyRefusal(caught, acknowledgement !== null)
+      if (refusal) {
+        const formError = await warnAfterRefusal({ ack, refusal, medicine, chart, current })
+        allergies.reload()
+        return { formError }
+      }
+      if (acknowledgement && acknowledgementRefused(caught)) {
+        ack.refuseReason()
+        return { formError: ACK_REFUSED_ERROR }
+      }
+      const detailsRefused = details ? detailsRefusal(caught) : null
+      if (detailsRefused?.notTaken) setDetails(false)
+      return detailsRefused ?? refused(caught, fields)
     }
   }
 
   return (
     <EhrCard>
       <OrderContext />
-      <RecordedAllergies chart={chart} />
+      <RecordedAllergies allergies={allergies.state} />
       <div role="status">{success ? <p className="hid-ehr-clinical-status">{success}</p> : null}</div>
-      <RecordForm key={form} fields={PRESCRIPTION_FIELDS} validate={validate} onSubmit={submit} submitLabel="Save draft"
-        confirm={values => confirm(`Save this prescription of ${value(values, 'medicationDisplay')} for ${chart.facts.name}?`, 'Save prescription')}>
+      <RecordForm key={form} fields={fields} validate={validate} onSubmit={submit} submitLabel="Save draft"
+        confirm={confirmSave} onFieldChange={medicineEdited}>
         <p className="hid-ehr-clinical-note">{rights.canRoute('pharmacy') ? PRESCRIPTION_ROUTING_HINT : PRESCRIPTION_HINT}</p>
-        {warning ? <AllergyWarningPanel warning={warning} checked={acknowledged} reason={ackReason} error={ackError}
-          onChecked={value => { setAcknowledged(value); setAckError('') }} onReason={value => { setAckReason(value); setAckError('') }} /> : null}
+        {ack.warning ? <AllergyWarningPanel idPrefix="rx" headingLevel={2} warning={ack.warning} ticked={ack.ticked} reason={ack.reason}
+          errors={ack.errors} focus={ack.focus} onTickedChange={ack.setTicked} onReasonChange={ack.setReason} /> : null}
       </RecordForm>
       {sheet}
     </EhrCard>
@@ -315,18 +316,22 @@ function PrescriptionForm({ chart, encounterId }: { chart: Chart; encounterId: s
  * Whether this encounter's orders may be sent to another facility now: today's page learns it from the records list
  * (`crossFacilityOrders`), so it is read once, only when this build and member could send one.
  */
-function useCrossFacility(chart: Chart, encounterId: string, kind: OrderKind, set: (open: boolean) => void) {
+function useCrossFacility(chart: Chart, encounterId: string, kind: OrderKind, set: (open: boolean) => void, setDetails?: (takes: boolean) => void) {
   const could = orderRights(chart, true).canRoute(kind)
   const { facilityId, patientId } = chart
   useEffect(() => {
-    if (!could) return
+    // The prescriptions list also says whether the EHR takes the dispensing details, so the prescribe form reads it.
+    if (!could && !setDetails) return
     let active = true
     staffApi.records(facilityId, patientId, encounterId, KINDS[kind].record).then(
-      answer => { const open = learnFrom(answer); if (active) set(open) },
-      () => { if (active) set(false) },
+      answer => {
+        const open = could && learnFrom(answer)
+        if (active) { if (could) set(open); setDetails?.(takesDispensingDetails(answer)) }
+      },
+      () => { if (active) { if (could) set(false); setDetails?.(false) } },
     )
     return () => { active = false }
-  }, [could, facilityId, patientId, encounterId, kind, set])
+  }, [could, facilityId, patientId, encounterId, kind, set, setDetails])
 }
 
 function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: string }) {
@@ -338,7 +343,10 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
   const [form, setForm] = useState(0)
   const [success, setSuccess] = useState('')
   const [pageError, setPageError] = useState('')
-  const [handling, setHandling] = useState('draft')
+  // Sending to this facility's Lab is what a doctor means by a lab request: it is the first choice where the role may
+  // send (QA N-7); a draft stays one choice away. The send still asks to confirm the patient.
+  const firstHandling = orderRights(chart, false).canSendToLab ? 'active' : 'draft'
+  const [handling, setHandling] = useState(firstHandling)
   const [handlingError, setHandlingError] = useState('')
   const [priority, setPriority] = useState('routine')
   const [choice, setChoice] = useState<DestinationChoice>(NO_DESTINATION)
@@ -368,7 +376,7 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
 
   const reset = () => {
     setForm(count => count + 1)
-    setHandling('draft')
+    setHandling(firstHandling)
     setPriority('routine')
     setChoice(NO_DESTINATION)
   }
@@ -532,7 +540,7 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
             </EhrSelect>
           </EhrField>
           <EhrField label={<>Request handling<span aria-hidden="true"> *</span></>} error={handlingError || undefined}>
-            <EhrSelect ref={handlingRef} required value={handling} aria-describedby={warningId}
+            <EhrSelect ref={handlingRef} required value={handling} aria-describedby={handling === 'draft' || sendingElsewhere ? warningId : undefined}
               onChange={event => { setHandling(event.target.value); setHandlingError(''); setRouteErrors({}) }}>
               <option value="draft">Save as a draft</option>
               {canSendToLab ? <option value="active">{routable ? 'Create active request and send to this facility’s Lab' : 'Create active request and send to Lab'}</option> : null}
@@ -544,7 +552,9 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
           <DestinationFields context={context} kind="lab_request" priority={priority} value={choice} onChange={setChoice}
             errors={routeErrors} queryRef={queryRef} attestedRef={attestedRef} />
         ) : null}
-        <div id={warningId} className="hid-ehr-clinical-orders-notice hid-ehr-clinical-orders-danger">{labDraftWarning(sendingElsewhere, canSendToLab, routable)}</div>
+        {/* The draft warning only while a draft (or a send elsewhere) is chosen: once "send" is chosen it no longer applies (QA N-8). */}
+        {handling === 'draft' || sendingElsewhere
+          ? <div id={warningId} className="hid-ehr-clinical-orders-notice hid-ehr-clinical-orders-danger">{labDraftWarning(sendingElsewhere, canSendToLab, routable)}</div> : null}
         {canSendToLab && !sendingElsewhere ? <p className="hid-ehr-clinical-note">{LAB_ACTIVE_NOTE}</p> : null}
       </RecordForm>
     </EhrCard>

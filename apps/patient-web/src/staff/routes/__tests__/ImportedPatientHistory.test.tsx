@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { act, render, screen, waitFor } from '@testing-library/react'
+import { HidApiError } from '@hid/http'
 import { ImportedPatientHistory } from '../ImportedPatientHistory'
 import { historyFixture } from '../../../__tests__/importedHistoryFixture'
 
@@ -20,6 +21,14 @@ describe('hospital imported medical history', () => {
     render(<ImportedPatientHistory facilityId="facility-a" patientId="patient-a" purpose="direct-care" canDownload={true} verify={vi.fn()} />)
     expect(await screen.findByRole('alert')).toBeTruthy()
     expect(screen.queryByText('Preserved report')).toBeNull()
+  })
+  it('says in plain words that the patient has not given consent on 403 CONSENT_REQUIRED, with Retry', async () => {
+    api.importedRecords.mockRejectedValue(new HidApiError(403, 'Forbidden', { code: 'CONSENT_REQUIRED' }))
+    render(<ImportedPatientHistory facilityId="facility-a" patientId="patient-a" purpose="direct-care" canDownload={false} verify={vi.fn()} />)
+    expect((await screen.findByRole('alert')).textContent).toBe('The patient has not given consent for this facility to read their record.')
+    expect(screen.getByRole('heading', { name: 'Imported medical history' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Retry imported history' })).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/CONSENT_REQUIRED|403|\/api\//)
   })
   it('discards the previous patient’s late response after switching scope', async () => {
     let finish!: (value: unknown) => void

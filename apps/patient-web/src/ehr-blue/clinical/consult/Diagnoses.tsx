@@ -6,6 +6,7 @@ import { refusalText } from '../../../staff/fieldProblem'
 import type { Chart } from '../parts/chart'
 import { SubHeading } from '../parts/Detail'
 import { formatWhen, statusWords } from '../parts/format'
+import { codeText, MoreDetails } from '../parts/MoreDetails'
 import { ErrorBox, Loading } from '../parts/Notices'
 import { RecordForm, type FieldDef, type FieldErrors, type FormValues, type SubmitOutcome } from '../parts/RecordForm'
 import { StatusBadge } from '../parts/StatusBadge'
@@ -15,13 +16,17 @@ import {
 } from './encounters'
 import { ListPaging } from './Notes'
 import type { RecordList } from './records'
+import { codeOf, DIAGNOSES, namesOf } from '../parts/vocabulary'
 
 // Today's "Add diagnoses" fields, in its order and words (Clinical.tsx:566).
+// The diagnosis first, with suggestions as it is typed: picking one fills its ICD-10 code and code system (owner,
+// 18 Nov 2026). Today's "Display" (Clinical.tsx:568) is the record's field name; the form says what it is.
 const ADD_FIELDS: readonly FieldDef[] = [
+  { key: 'display', label: 'Diagnosis', required: true, maxLength: 500, suggestions: namesOf(DIAGNOSES),
+    hint: 'Start typing, then pick from the list to fill its ICD-10 code.',
+    fills: value => { const code = codeOf(DIAGNOSES, value); return code ? { code, codeSystem: 'ICD-10' } : null } },
   { key: 'codeSystem', label: 'Code system', required: true, placeholder: 'ICD-10', maxLength: 255, row: 'code' },
   { key: 'code', label: 'Code', required: true, maxLength: 100, row: 'code' },
-  // Today's "Display" (Clinical.tsx:568) is the record's field name; the form says what it is.
-  { key: 'display', label: 'Diagnosis', required: true, maxLength: 500 },
   { key: 'clinicalStatus', label: 'Clinical status', choices: DIAGNOSIS_CLINICAL_STATUSES },
   { key: 'verificationStatus', label: 'Verification', choices: DIAGNOSIS_VERIFICATION_STATUSES },
   { key: 'notes', label: 'Notes', type: 'textarea', maxLength: 4000 },
@@ -51,16 +56,15 @@ function choiceLabel(choices: readonly StatusOption[], value: string): string {
   return choices.find(choice => choice.value === value)?.label ?? (value ? statusWords(value) : '')
 }
 
-/** Its code, then its clinical status and verification in words: "ICD-10 B54 · Active · Provisional". */
+/** Its clinical status and verification in words: "Active · Provisional". Its code waits under More details (33.4). */
 function detail(record: ClinicalRecord) {
-  const code = [field(record, 'codeSystem'), field(record, 'code')].filter(Boolean).join(' ')
-  return [code, choiceLabel(DIAGNOSIS_CLINICAL_STATUSES, field(record, 'clinicalStatus')), choiceLabel(VERIFICATION_CHOICES, field(record, 'verificationStatus'))]
+  return [choiceLabel(DIAGNOSIS_CLINICAL_STATUSES, field(record, 'clinicalStatus')), choiceLabel(VERIFICATION_CHOICES, field(record, 'verificationStatus'))]
     .filter(Boolean).join(' · ')
 }
 
 /**
- * The encounter's diagnoses (today's Diagnoses tab), on today's record pages: each with its code and status, "Change
- * this diagnosis" while it is not entered in error, and "Add diagnoses". Every change re-checks access first and is
+ * The encounter's diagnoses (today's Diagnoses tab), on today's record pages: each with its status and its code under
+ * More details, "Change this diagnosis" while it is not entered in error, and "Add diagnoses". Every change re-checks access first and is
  * kept in the history; a new diagnosis shows the first page again, a change the page shown (today's reads).
  */
 export function DiagnosesCard({ chart, encounterId, list, canWrite, onSaved, onReloadFailed }: {
@@ -160,10 +164,16 @@ export function DiagnosesCard({ chart, encounterId, list, canWrite, onSaved, onR
               <li key={record.id} className="hid-ehr-clinical-consult-record">
                 <div className="hid-ehr-clinical-history-row">
                   <span>
-                    <strong>{field(record, 'display') || 'Diagnosis'}</strong>
+                    {/* The plain name first; a diagnosis recorded with no name shows its code (it is all there is). */}
+                    <strong>{field(record, 'display').trim() || codeText(field(record, 'codeSystem'), field(record, 'code')) || 'Diagnosis'}</strong>
                     <span className="hid-ehr-clinical-cell-sub">{detail(record)}</span>
                     {field(record, 'notes') ? <span className="hid-ehr-clinical-cell-sub">{field(record, 'notes')}</span> : null}
                     {recorded ? <span className="hid-ehr-clinical-cell-sub">Recorded: {recorded}</span> : null}
+                    {field(record, 'display').trim() && codeText(field(record, 'codeSystem'), field(record, 'code')) ? (
+                      <MoreDetails about={field(record, 'display')}>
+                        <span>Code: {codeText(field(record, 'codeSystem'), field(record, 'code'))}</span>
+                      </MoreDetails>
+                    ) : null}
                   </span>
                   {/* Today's warning badge for a diagnosis entered in error; the shared status map has no tone for it. */}
                   {retracted ? <Badge size="sm" tone="warn">Entered in error</Badge> : <StatusBadge status={diagnosisStatus(record)} />}
@@ -197,7 +207,8 @@ export function DiagnosesCard({ chart, encounterId, list, canWrite, onSaved, onR
       {canWrite ? (
         <>
           <SubHeading>Add diagnoses</SubHeading>
-          <RecordForm key={added} fields={ADD_FIELDS} initial={ADD_INITIAL} submitLabel="Save record" submitVariant="secondary" onSubmit={add} />
+          {/* Classic's submit for a diagnosis, and its required check left to the browser (Clinical.tsx RecordForm :579). */}
+          <RecordForm key={added} fields={ADD_FIELDS} initial={ADD_INITIAL} submitLabel="Save record" submitVariant="secondary" nativeRequired onSubmit={add} />
         </>
       ) : null}
     </EhrCard>

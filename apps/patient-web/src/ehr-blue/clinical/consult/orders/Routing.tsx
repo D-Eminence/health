@@ -11,8 +11,15 @@ import {
   withdrawRefusal, wrongPatientNotice,
 } from '../../../../staff/orderRoutes'
 import { choiceProblem, NO_DESTINATION, sendLabel, type DestinationChoice, type RouteContext } from '../../../../staff/routes/OrderRoutes'
+import type { AllergyAcknowledgement } from '../../../../staff/allergies'
 import { learnLateCorrectionFrom, useLateCorrectionServed, wrongPatientReportOf } from '../../../../lateCorrectionServed'
+import {
+  ALLERGY_GO_AHEAD_ERROR, acknowledgementRefused, readAllergyRefusal, useAllergyAcknowledgement,
+  type AllergyAcknowledgementState, type AllergyRefusal,
+} from '../../parts/allergyWarning'
+import { AllergyWarningPanel } from '../../parts/AllergyWarningPanel'
 import { ErrorBox } from '../../parts/Notices'
+import { ACK_REFUSED_ERROR } from './prescribingAllergies'
 import { attestationProblem, dispensingLines, resultLines, viewProblem, withdrawnResultLines, type WithdrawnLine } from './routeLines'
 
 /**
@@ -190,13 +197,21 @@ export function DestinationFields({ context, kind, priority, value, onChange, re
 /**
  * Today's SendToFacility, opened from its action button: the facility, the attestation, then "Send to {facility}".
  * `onSend` sends at the order's version; a refusal that means the wording changed reloads it, cleared.
+ *
+ * A prescription's send, a draft's or an active one's, is checked against the patient's allergies by the EHR (0117;
+ * `warnAboutAllergies`): it is sent first with no acknowledgement (never one without a warning shown), and on the
+ * EHR's 409 the allergy warning appears here with the tick and "Why is it safe to go ahead?". Sent again with both, it
+ * is the same send under the same key. Cancel leaves the order as it was, and drops the warning. A lab request is never
+ * checked.
  */
-export function SendElsewhere({ kind, context, priority, onSend, onCancel }: {
+export function SendElsewhere({ kind, context, priority, onSend, onCancel, warnAboutAllergies }: {
   kind: OrderRouteKind
   context: RouteContext
   priority?: string
-  onSend: (destination: OrderDestination, attestationTextVersion: string, key: string) => Promise<void>
+  onSend: (destination: OrderDestination, attestationTextVersion: string, key: string, allergyAcknowledgement: AllergyAcknowledgement | null) => Promise<void>
   onCancel: () => void
+  /** A prescription's send: after the EHR's allergy 409, shows its warning and answers what the form says. */
+  warnAboutAllergies?: (ack: AllergyAcknowledgementState, refusal: AllergyRefusal) => Promise<string>
 }) {
   const titleId = useId()
   const [choice, setChoice] = useState<DestinationChoice>(NO_DESTINATION)
@@ -207,6 +222,7 @@ export function SendElsewhere({ kind, context, priority, onSend, onCancel }: {
   const attempt = useRef<{ signature: string; key: string } | null>(null)
   const queryRef = useRef<HTMLInputElement>(null)
   const attestedRef = useRef<HTMLInputElement>(null)
+  const ack = useAllergyAcknowledgement()
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -219,15 +235,33 @@ export function SendElsewhere({ kind, context, priority, onSend, onCancel }: {
       ;(problem.field === 'destination' ? queryRef.current : attestedRef.current ?? queryRef.current)?.focus()
       return
     }
+    // A warning shown: the tick and the reason first, each with its own error; nothing is sent without both.
+    const shown = warnAboutAllergies !== undefined && ack.warning !== null
+    const acknowledgement = shown ? ack.acknowledgement() : null
+    if (shown && !acknowledgement) {
+      setError(ALLERGY_GO_AHEAD_ERROR)
+      return
+    }
     const destination = choice.destination!
     const version = choice.attestation!.version
     const signature = JSON.stringify([destination.facilityId, version])
     if (attempt.current?.signature !== signature) attempt.current = { signature, key: crypto.randomUUID() }
     setBusy(true)
     try {
-      await onSend(destination, version, attempt.current.key)
+      await onSend(destination, version, attempt.current.key, acknowledgement)
       attempt.current = null
     } catch (caught) {
+      // The EHR's allergy warning: shown here, and the key kept, so the send again with the reason is the same send.
+      const allergy = warnAboutAllergies ? readAllergyRefusal(caught, acknowledgement !== null) : null
+      if (allergy && warnAboutAllergies) {
+        setError(await warnAboutAllergies(ack, allergy))
+        return
+      }
+      if (acknowledgement && acknowledgementRefused(caught)) {
+        ack.refuseReason()
+        setError(ACK_REFUSED_ERROR)
+        return
+      }
       const refusal = sendRefusal(caught, kind, destination.facilityName, context.patient)
       // A refusal that settles the attempt frees its key; only an unanswered one keeps it for the same send.
       if (isHidApiError(caught) && caught.status < 500 && caught.status !== 0 && caught.status !== 408) attempt.current = null
@@ -243,6 +277,8 @@ export function SendElsewhere({ kind, context, priority, onSend, onCancel }: {
       <p className="hid-ehr-clinical-orders-lead"><strong id={titleId}>{sendLabel(kind)}</strong></p>
       <DestinationFields context={context} kind={kind} priority={priority} value={choice} onChange={setChoice}
         reloadAttestation={reload} errors={errors} queryRef={queryRef} attestedRef={attestedRef} />
+      {warnAboutAllergies && ack.warning ? <AllergyWarningPanel idPrefix="rx-send" headingLevel={3} warning={ack.warning} ticked={ack.ticked}
+        reason={ack.reason} errors={ack.errors} focus={ack.focus} onTickedChange={ack.setTicked} onReasonChange={ack.setReason} /> : null}
       {error ? <ErrorBox>{error}</ErrorBox> : null}
       <div className="hid-ehr-clinical-form-footer">
         <EhrButton variant="secondary" onClick={onCancel}>Cancel</EhrButton>
@@ -308,6 +344,34 @@ export function routeStatusClass(tone: keyof typeof TONES): string {
 }
 
 /**
+ * What today's OrderRoutePanel says under its status line (staff/routes/OrderRoutes.tsx:388-393), word for word: what to
+ * do next, why the receiving facility couldn't complete it, its wrong-patient and late reports, and why this page can't
+ * act on it. Shown on the order's page (RouteCard) and under the order's row in the visit's list, from the route
+ * summary the list already carries: it reads nothing.
+ */
+export function RouteNotices({ route, patient }: { route: OrderRouteSummary; patient: string }) {
+  const unavailable = unavailableText(route)
+  const report = wrongPatientReportOf(route)
+  const lateServed = useLateCorrectionServed() === true
+  const lateNotice = lateReportNotice(route, patient)
+  const guidance = routeGuidance(route, patient, lateServed)
+  const notCompleted = notCompletedText(route, patient)
+  return (
+    <>
+      {guidance ? <p className="hid-ehr-clinical-orders-muted">{guidance}</p> : null}
+      {notCompleted ? <p className="hid-ehr-clinical-orders-notice">{notCompleted}</p> : null}
+      {route.endedKind === 'wrong_patient' || report ? (
+        <div className="hid-ehr-clinical-orders-notice hid-ehr-clinical-orders-danger">
+          {wrongPatientNotice(route, patient).map((line, index) => <p key={index}>{line}</p>)}
+          {lateNotice ? <p>{lateNotice}</p> : null}
+        </div>
+      ) : null}
+      {unavailable ? <p className="hid-ehr-clinical-orders-notice">{unavailable}</p> : null}
+    </>
+  )
+}
+
+/**
  * Today's OrderRoutePanel as a card under the order: where its latest route went and what became of it (including
  * what the receiving facility reported: the wrong-patient report, a late report, that it couldn't complete it),
  * Withdraw while it waits, and, when asked (each read is audited), who confirmed and what came back.
@@ -322,12 +386,6 @@ export function RouteCard({ titleId, kind, route, context, canWithdraw, onWithdr
   loadViews: () => Promise<OrderRouteView[]>
 }) {
   const status = routeStatus(route, context.patient)
-  const unavailable = unavailableText(route)
-  const report = wrongPatientReportOf(route)
-  const lateServed = useLateCorrectionServed() === true
-  const lateNotice = lateReportNotice(route, context.patient)
-  const guidance = routeGuidance(route, context.patient, lateServed)
-  const notCompleted = notCompletedText(route, context.patient)
   const [open, setOpen] = useState(false)
   const [views, setViews] = useState<OrderRouteView[] | null>(null)
   const [loading, setLoading] = useState(false)
@@ -368,15 +426,7 @@ export function RouteCard({ titleId, kind, route, context, canWithdraw, onWithdr
     <EhrCard title={<span id={titleId} tabIndex={-1}>{lab ? 'Sent to another laboratory' : 'Sent to a pharmacy'}</span>}>
       {route.reference ? <p className="hid-ehr-clinical-orders-muted">Ref {route.reference}</p> : null}
       <p className={routeStatusClass(status.tone)}>{status.text}</p>
-      {guidance ? <p className="hid-ehr-clinical-orders-muted">{guidance}</p> : null}
-      {notCompleted ? <p className="hid-ehr-clinical-orders-notice">{notCompleted}</p> : null}
-      {route.endedKind === 'wrong_patient' || report ? (
-        <div className="hid-ehr-clinical-orders-notice hid-ehr-clinical-orders-danger">
-          {wrongPatientNotice(route, context.patient).map((line, index) => <p key={index}>{line}</p>)}
-          {lateNotice ? <p>{lateNotice}</p> : null}
-        </div>
-      ) : null}
-      {unavailable ? <p className="hid-ehr-clinical-orders-notice">{unavailable}</p> : null}
+      <RouteNotices route={route} patient={context.patient} />
       <p>
         <EhrButton variant="secondary" aria-expanded={open} onClick={() => setOpen(value => !value)}>
           {open ? 'Hide details' : lab ? 'Show details and results' : 'Show details and dispensing'}

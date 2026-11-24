@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "The services as deployed now on D-Eminence/hid-system staging-novu-ci-20261005: hid-system #229 (migration 0113, drafts) deployed ehr-api, gateway, identity-api, lab-api, notification-api, ocr-api, outreach-api, pharmacy-api, support-api at 2dc6ba7a; the others stay at 730a6845 (#226, migration 0112). Website release approved by the owner in chat on 2026-11-11 (\"Q46 release #226 and #225\").",
+  "review_reference": "Each service pinned to its live source_commit: production release backend-45470922218-1-2d646f0d4a7bd8f4 (backend release C, deployed 2026-11-24 about 19:47 UTC), built from d519e5d1 for every service; migrations 0147-0149 applied (signed by the owner 2026-11-24). Re-pin under standing approval Q94 4/5.",
   "backend_commits": {
-    "gateway": "2dc6ba7add632f321276ef31dcee693667ab7ba7",
-    "identity-api": "2dc6ba7add632f321276ef31dcee693667ab7ba7",
-    "ehr-api": "2dc6ba7add632f321276ef31dcee693667ab7ba7",
-    "lab-api": "2dc6ba7add632f321276ef31dcee693667ab7ba7",
-    "pharmacy-api": "2dc6ba7add632f321276ef31dcee693667ab7ba7",
-    "ocr-api": "2dc6ba7add632f321276ef31dcee693667ab7ba7",
-    "outreach-api": "2dc6ba7add632f321276ef31dcee693667ab7ba7",
-    "support-api": "2dc6ba7add632f321276ef31dcee693667ab7ba7",
-    "notification-api": "2dc6ba7add632f321276ef31dcee693667ab7ba7"
+    "gateway": "d519e5d1cb40fdae4598251387989879aff415bb",
+    "identity-api": "d519e5d1cb40fdae4598251387989879aff415bb",
+    "ehr-api": "d519e5d1cb40fdae4598251387989879aff415bb",
+    "lab-api": "d519e5d1cb40fdae4598251387989879aff415bb",
+    "pharmacy-api": "d519e5d1cb40fdae4598251387989879aff415bb",
+    "ocr-api": "d519e5d1cb40fdae4598251387989879aff415bb",
+    "outreach-api": "d519e5d1cb40fdae4598251387989879aff415bb",
+    "support-api": "d519e5d1cb40fdae4598251387989879aff415bb",
+    "notification-api": "d519e5d1cb40fdae4598251387989879aff415bb"
   }
 }

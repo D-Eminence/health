@@ -53,7 +53,36 @@ export interface StaffMock {
    * design's role mapping (frame/sampleAccess.ts: doctor works as the design's Doctor, receptionist as Receptionist…).
    */
   roles?: readonly string[]
+  /**
+   * The signed-in member's ids as Identity's session sends them, when a test needs them told apart (see SIGNED_IN).
+   * Unset: id 'staff-1', no account id, membership 'member-1'.
+   */
+  signedIn?: SignedIn
 }
+
+/**
+ * A signed-in member as Identity's staff session describes them (identity-api current-staff-context toActor): the actor's
+ * `id` is the sign-in subject, never the account id; `accountId` is what EHR writes as a record's createdBy; the
+ * membership at the working facility is what it writes as createdByMembershipId. `accountId` is left out to stand for
+ * a session without one.
+ */
+export interface SignedIn {
+  readonly subject: string
+  readonly accountId?: string
+  readonly sessionId: string
+  readonly membershipId: string
+}
+
+/** Fictional ids, every one different, shaped as production's (an invited member's subject is "staff-invitation:<account id>"). */
+export const SIGNED_IN: SignedIn = {
+  subject: 'staff-invitation:7c1e4a2b-3d5f-4e6a-8b9c-0d1e2f3a4b5c',
+  accountId: '7c1e4a2b-3d5f-4e6a-8b9c-0d1e2f3a4b5c',
+  sessionId: '0f6b2d8e-1a3c-4e5f-9a7b-8c9d0e1f2a3b',
+  membershipId: '5d2e8f1a-6b3c-4d7e-8f9a-1b2c3d4e5f60',
+}
+
+/** Another member of the same facility: wrote the record, is not the one signed in. */
+export const COLLEAGUE = { accountId: '3e9a7c5b-1d2f-4a6b-8c0d-9e8f7a6b5c4d', membershipId: '6a1b9c8d-7e6f-4a5b-9c3d-2e1f0a9b8c7d' }
 
 /** Demo Hospital, one of the sealed demo tenant's four facilities (ehr-blue/blueFacilities.ts). */
 export const DEMO_HOSPITAL_ID = '98d00002-0000-4000-8000-000000000001'
@@ -65,12 +94,17 @@ export function staffValue(staff: StaffMock) {
       status: 'ready' as const,
       session: {
         actor: {
-          id: 'staff-1',
+          id: staff.signedIn?.subject ?? 'staff-1',
+          ...(staff.signedIn ? { subject: staff.signedIn.subject, sessionId: staff.signedIn.sessionId } : {}),
+          ...(staff.signedIn?.accountId === undefined ? {} : { accountId: staff.signedIn.accountId }),
           displayName: 'Demo Clinician',
           roles,
           permissions: staff.permissions,
           facilities: [],
-          facility: { id: staff.facilityId ?? FACILITY_ID, membershipId: 'member-1', organizationId: 'org-1', name: FACILITY_NAME, roles, permissions: staff.permissions, isPrimary: true },
+          facility: {
+            id: staff.facilityId ?? FACILITY_ID, membershipId: staff.signedIn?.membershipId ?? 'member-1', organizationId: 'org-1', name: FACILITY_NAME,
+            roles, permissions: staff.permissions, isPrimary: true,
+          },
         },
       },
     },

@@ -5,7 +5,7 @@ import { ORGANIZATION_TYPE_NOTES } from '../../../staff/routes/ProviderEnrollmen
 import { focusWhenShown } from '../../focusWhenShown'
 import { security } from './signupFakes'
 import {
-  actAgain, answer, button, choosePassword, deferred, EMAIL, expectFocusOnStep, NAME, open, step, submitRegistration, SUPPORT,
+  actAgain, answer, button, choosePassword, COLLECTED, deferred, EMAIL, expectFocusOnStep, NAME, open, step, submitRegistration, SUPPORT,
   TabChannel, textbox, toCode, TOLD, toPassword, toReview, verifyWith,
 } from './signupHarness'
 
@@ -123,7 +123,7 @@ describe('Didn’t get the code?', () => {
     expect((await screen.findByText(`We’ve sent a new code to ${EMAIL}.`)).closest('[role="status"]')).toBeTruthy()
     expect(api.start).toHaveBeenCalledTimes(2)
     expect(api.start).toHaveBeenLastCalledWith({ productCode: 'ehr', organizationType: 'hospital',
-      cacRegistrationNumber: 'RC123456', administratorName: NAME, administratorEmail: EMAIL, turnstileToken: 'token-1' })
+      cacRegistrationNumber: 'RC123456', administratorName: NAME, administratorEmail: EMAIL, turnstileToken: 'token-1', ...COLLECTED })
     expect(code().value).toBe('')
     expect(screen.getByText(/^You can ask for a new code in (60|59) seconds\.$/)).toBeTruthy()
     expect(button('Resend code').disabled).toBe(true)
@@ -146,7 +146,7 @@ describe('Didn’t get the code?', () => {
     await toCode()
     security.auto = false
     // Back and forth, so the check is asked again and this time not answered.
-    fireEvent.click(button('Change unverified email'))
+    fireEvent.click(button('Change email'))
     await step('Your account')
     for (let index = 0; index < 4; index++) fireEvent.click(button('Continue'))
     await step('Check and send')
@@ -181,9 +181,9 @@ describe('Didn’t get the code?', () => {
     }
   })
 
-  it('“Change unverified email” goes back to Your account with every detail kept, its heading focused', async () => {
+  it('“Change email” goes back to Your account with every detail kept, its heading focused', async () => {
     await toCode()
-    fireEvent.click(button('Change unverified email'))
+    fireEvent.click(button('Change email'))
     const heading = await step('Your account')
     expect(document.activeElement).toBe(heading)
     expect(textbox('Full name').value.trim()).toBe(NAME)

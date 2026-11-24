@@ -2,12 +2,12 @@ import { stagingChatQuestion, parseStagingPatientChat, parseStagingChatHistory, 
   parsePatientChatAvailability, parsePatientChatHistory, parsePatientChatCleared } from '@hid/contracts'
 import { parseImportedHistory, type ImportedRecordsResponse, type ImportedAttachmentDownload, type ImportedHistoryPage } from '../importedRecords'
 import { parseReportedHealthProfile, type ReportedHealthProfile } from '../profileParity'
-import { parseAllergyCheck, parseAllergyList, parseRecordedAllergy, type AllergyCheck, type AllergyList, type AllergySeverity, type RecordedAllergy } from './allergies'
+import { parseAllergyCheck, parseAllergyList, parseRecordedAllergy, type AllergyAcknowledgement, type AllergyCheck, type AllergyList, type AllergySeverity, type RecordedAllergy } from './allergies'
 import {
   parseShareInvitationAccepted, parseSharedWithMe, parseStaffShareInvitations,
   type ShareInvitationAccepted, type SharedPatient, type StaffShareInvitationList,
 } from '../shareRecords'
-import { createApiClient, HidApiError, isHidApiError, NO_RETRY, PLAIN, PlainError, uploadPresignedObject, type ApiClient, type RequestSpec } from '@hid/http'
+import { createApiClient, HidApiError, isConnectionFailure, isHidApiError, NO_RETRY, PLAIN, PlainError, uploadPresignedObject, type ApiClient, type RequestSpec } from '@hid/http'
 import { createRegisteredBrowserClient } from '@hid/api'
 import { getEnvironment } from './env'
 import {
@@ -17,11 +17,16 @@ import {
 } from './session'
 import { inRefreshTurn, refreshInTurn, signOutInTurn } from '../sessionRefreshTurn'
 import { heldByOtherPortal } from '../sessionChange'
-import { staffLoginAction } from '../productHostname'
+import { staffLoginAction, type StaffProductKey } from '../productHostname'
+import { NIN_CHECK_TIMEOUT_MS } from '../ninCheck'
 import {
   DOCUMENT_TYPES_NOT_SERVED, DOCUMENT_TYPES_NOT_SERVED_MESSAGE, documentTypesServed, isDocumentType, type DocumentType,
 } from '../documentTypes'
 import { SOURCE_DELETED, isSourceDeletedRefusal, type DocumentDownload, type DocumentLink } from '../documentSource'
+import {
+  emergencySearchBody, parsePatientSearchAnswer, patientSearchBody,
+  type EmergencySearchKeys, type OwnFacilityAccess, type PatientSearchAnswer, type PatientSearchKeys,
+} from './patientSearch'
 
 export interface Facility {
   id: string
@@ -49,6 +54,15 @@ export interface Actor {
   permissions: string[]
   facilities: Facility[]
   facility?: Facility
+  /**
+   * The staff product sites this login can open (hid-system INTERFACE_CONTRACT section 53, owner decision Q97: each
+   * staff site for its own job), in the fixed order ehr, lab, pharmacy, migrate, outreach. Worked out by Identity with
+   * the sign-in's own rule over all the account's active memberships, so the same on every site: ['outreach'] for a
+   * login with no facility yet (Q88), [] for a platform administrator with no membership. Staff actors only; an
+   * Identity before Q97 sends none, and then every site is offered as before (productSites.ts sitesThisLoginOpens).
+   * Copy only: Identity decides every sign-in and request.
+   */
+  products?: readonly StaffProductKey[]
 }
 
 /**
@@ -123,8 +137,19 @@ export interface StaffMfaActivation extends StaffSession {
   recoveryCodes: string[]
 }
 
+/**
+ * Why the desk registers a patient without a NIN (hid-system 0130, owner Q106; identity-api
+ * dto/register-without-nin.dto.ts NO_NIN_REASONS). Identity lists the ones it takes in `withoutNin.reasons`.
+ */
+export type NoNinReason = 'nin_service_unavailable' | 'no_nin' | 'not_carried' | 'child' | 'foreign_national'
+
 export interface RegistrationCapabilities {
-  nin: { enabled: boolean; state: string }
+  nin: { enabled: boolean; state: string; available?: boolean }
+  /**
+   * hid-system 0130 (ID-2, owner Q106): whether the desk may register a patient without a NIN, and why it may. A
+   * backend before 0130 sends no `withoutNin`, and deferred staging sends `{ enabled: false }` alone.
+   */
+  withoutNin?: { enabled: boolean; phoneRequiredUnlessChild?: boolean; reasons?: string[] }
   newPatientRegistrationRequiresNin: boolean
 }
 
@@ -136,6 +161,42 @@ export interface RegistrationCase {
   candidateCount: number
   candidates?: Array<{ patientId: string; fullName: string; dateOfBirth: string | null }>
   patient?: { patientId: string; hid: string }
+  /** hid-system ID-0: shown as "NIN Verified" or "NIN Not Verified". */
+  ninStatus?: 'verified' | 'not_verified'
+  /** hid-system 0130: 'none' when the desk registered the patient without a NIN. */
+  identityEvidence?: 'nin' | 'none'
+}
+
+/**
+ * POST identity/registration-cases/without-nin (hid-system 0130, docs/INTERFACE_CONTRACT.md ID-2). The phone and address
+ * go together, and are left out only for a child; the existing Health ID only when the patient says they have one.
+ */
+export interface RegisterWithoutNinInput {
+  firstName: string
+  lastName: string
+  dateOfBirth: string
+  gender?: 'female' | 'male' | 'intersex' | 'other' | 'unknown'
+  noNinReason: NoNinReason
+  phone?: string
+  addressLine?: string
+  city?: string
+  stateCode?: string
+  lga?: string
+  hasExistingHealthId: boolean
+  existingHealthId?: string | null
+}
+
+/** Its answer (201): the outcome only, never who might be the same person. */
+export interface RegisteredWithoutNin {
+  caseId: string
+  status: 'approved_new_identity' | 'review_required'
+  version: number
+  outcome: 'registered' | 'sent_for_review'
+  message?: string
+  identityEvidence: 'none'
+  ninStatus: 'verified' | 'not_verified'
+  replayed: boolean
+  patient?: { patientId: string; hid: string }
 }
 
 export interface RegistrationEnrollment {
@@ -145,12 +206,90 @@ export interface RegistrationEnrollment {
   replayed: boolean
 }
 
+export type Ownership = 'public' | 'private' | 'faith_based' | 'ngo'
+export type CareLevel = 'primary' | 'secondary' | 'tertiary'
+export type DepartmentCode = 'general_outpatient' | 'emergency' | 'inpatient' | 'laboratory' | 'pharmacy' | 'maternity'
+  | 'pediatrics' | 'radiology' | 'dental' | 'physiotherapy' | 'dialysis' | 'oncology' | 'cardiology' | 'icu' | 'theatre'
+export type AdministratorRole = 'owner' | 'medical_director' | 'administrator' | 'other_authorised_representative'
+
+/**
+ * A facility's details as Health ID collects them (hid-system 0114, hid-system docs/INTERFACE_CONTRACT.md section 43.1): sent with
+ * facility sign-up as `facilityProfile`, and read and saved by Facility setup after activation (facilityProfile). Every field is
+ * required (owner: "allow trading name, all fields required"). The operating licence, CAC certificate, proof of address
+ * and logo are not collected until the document store and its virus scanner exist, and are not shown at all.
+ */
+export interface FacilityProfileValues {
+  tradingName: string
+  ownership: Ownership
+  careLevel: CareLevel
+  addressLine: string
+  city: string
+  stateCode: string
+  lga: string
+  gpsLatitude: number
+  gpsLongitude: number
+  phone: string
+  email: string
+  bedCount: number
+  operatingHours: string
+  emergency24h: boolean
+  departments: DepartmentCode[]
+  servicesOffered: string
+  smohLicenceNumber: string
+  hasRegistryId: boolean
+  registryId: string | null
+  hasNhiaAccreditation: boolean
+  nhiaAccreditationNumber: string | null
+  medicalDirectorName: string
+  medicalDirectorMdcn: string
+  expectedStaff: number
+  migratingRecords: boolean
+  needsInteroperability: boolean
+}
+
+/** GET /api/v1/identity/facility-profile (hid-system 0114): the facility's details, null until first given. */
+export interface FacilityProfileRead {
+  facility: { id: string; name: string; reviewState: string }
+  /** 0 while the facility has no profile; the If-Match of the next save. */
+  version: number
+  profile: (FacilityProfileValues & {
+    source: 'self_service_signup' | 'facility_administrator'
+    submitterRole: AdministratorRole | null
+    submitterPhoneOnRecord: boolean
+    /** Null when Identity has no time for it (FacilityProfileView.updatedAt). */
+    updatedAt: string | null
+    version: number
+  }) | null
+}
+
+/** POST /api/v1/identity/facility-profile: the new version and the fields that changed (names only, never values). */
+export interface FacilityProfileSaved {
+  facilityId: string
+  version: number
+  changedFields: string[]
+  replayed: boolean
+}
+
 export interface ResolveNinInput {
   nin: string
   firstName: string
   lastName: string
   dateOfBirth: string
   gender?: 'female' | 'male' | 'intersex' | 'other' | 'unknown'
+  /**
+   * hid-system 0114 (Novu): the desk's contact for the patient, kept by the facility, unverified, never used for sign-in
+   * or recovery, and the Health ID the patient says they already have (hid-system docs/INTERFACE_CONTRACT.md section 43.3). The 0114 backend
+   * takes them all or none (a partial set is refused) until a follow-up release makes them required; this website
+   * always sends every one.
+   */
+  phone: string
+  addressLine: string
+  city: string
+  stateCode: string
+  lga: string
+  hasExistingHealthId: boolean
+  /** Exactly when hasExistingHealthId: HID- and 6 to 32 of A-H, J-N, P-Z, 2-9. */
+  existingHealthId?: string | null
 }
 
 /**
@@ -342,6 +481,28 @@ export interface Encounter {
   rowVersion: number | string
 }
 
+/**
+ * EHR-C5, the one-call consultation (EHR_LIVE_CONTRACT.md "EHR-C5: one-call consultation", hid-system 4c843270
+ * CreateConsultationDto): each part is exactly the body of its own route. `vitals` is left out (New consultation takes
+ * none), and so is `reuseOpenVisit`: the call always saves on the open visit today (EHR-C1).
+ */
+export interface ConsultationInput {
+  visit: { encounterType: string; status: string; startedAt: string; chiefComplaint: string }
+  note?: { noteType: string; title: string; status: string; content: string }
+  diagnoses?: Array<{ codeSystem: string; code: string; display: string; clinicalStatus: string; verificationStatus: string }>
+}
+
+/**
+ * Its `201`: the visit with `reusedOpenVisit` (true when the open visit today was used, which keeps its own complaint),
+ * and each part as its own route answers it; `note` and `vitals` are null and `diagnoses` [] when not sent.
+ */
+export interface ConsultationSaved {
+  encounter: Encounter & { reusedOpenVisit: boolean }
+  note: ClinicalRecord | null
+  vitals: ClinicalRecord | null
+  diagnoses: ClinicalRecord[]
+}
+
 export type RecordKind = 'clinical-notes' | 'vitals' | 'diagnoses' | 'prescriptions' | 'lab-requests'
 
 export interface ClinicalRecord {
@@ -374,7 +535,19 @@ export type LabHandoff =
  * request also carries Lab's work item and `labHandoff`, both null unless the
  * request is active; an earlier EHR sends neither.
  */
-export type SavedRecord = ClinicalRecord & { labWorkItem?: unknown; labHandoff?: LabHandoff | null }
+export type SavedRecord = ClinicalRecord & { labWorkItem?: unknown; labHandoff?: LabHandoff | null; pharmacyHandoff?: unknown }
+
+/**
+ * What became of sending a prescription to this hospital's own pharmacy (hid-system 0133, INTERFACE_CONTRACT.md "EHR
+ * API: pharmacyHandoff"): on the answer to Activate, an edit or a resume, and to "Send to pharmacy" (own-pharmacy-send).
+ * `pending`, or `not_sent` with reason `unavailable`, may be sent again; every other answer may not until the
+ * prescription is read again. Read defensively (ehr-blue orders/ownPharmacySend.ts readPharmacyHandoff).
+ */
+export interface PharmacyHandoff {
+  readonly status: 'sent' | 'pending' | 'not_sent'
+  readonly reason?: 'no_pharmacy' | 'routed' | 'not_prescriber' | 'changed' | 'superseded' | 'not_allowed' | 'unavailable'
+  readonly message: string
+}
 
 export type VitalMeasurement = 'systolicMmhg' | 'diastolicMmhg' | 'pulseBpm' | 'temperatureC'
   | 'respiratoryRate' | 'oxygenSaturationPercent' | 'weightKg' | 'heightCm'
@@ -527,7 +700,7 @@ export interface DocumentRecord {
   sizeBytes: number | string
   /**
    * 'initiated' until the upload is completed; since hid-system 0110 'source_deleted' once Migrate's source page was
-   * deleted after 24 hours (documentSource.ts), when it offers no download. Other values pass through as they come.
+   * deleted after 7 days (documentSource.ts), when it offers no download. Other values pass through as they come.
    */
   status: 'initiated' | 'source_deleted' | (string & {})
   scanStatus: string
@@ -635,6 +808,30 @@ export interface WorkList<T> extends ReceivingAnswer {
    * such field.
    */
   cannotComplete?: boolean
+  /**
+   * Q123 A (hid-system #298): the Lagos calendar day ("YYYY-MM-DD") 90 days back. The lab and pharmacy lists hold open
+   * work of any age and done work received on or after it. Kept only when it is a real date (`keptSince`); an earlier
+   * backend sends no such field.
+   */
+  since?: string
+}
+
+/** A "YYYY-MM-DD" that names a real calendar day ("2026-02-30" does not). */
+function isCalendarDay(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const [year, month, day] = value.split('-').map(Number) as [number, number, number]
+  const date = new Date(Date.UTC(year, month - 1, day))
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+}
+
+/**
+ * A work list as answered, with `since` (Q123 A) dropped unless it is a real date: anything else is ignored rather than
+ * failing the list, as an earlier backend's answer without it is shown.
+ */
+function keptSince<T>(list: WorkList<T>): WorkList<T> {
+  if (list.since === undefined || isCalendarDay(list.since)) return list
+  const { since: _ignored, ...rest } = list
+  return rest
 }
 
 /**
@@ -804,6 +1001,106 @@ export interface PharmacyWorkItem {
    * work (proposed, hid-system 0106), on own work too.
    */
   patient?: OrderRoutePatient
+  /**
+   * Where the item is at Pharmacy, and whether a pharmacist accepted it (hid-system ORD-4, Release B). Kept together, and
+   * only for a step and an `acceptedWith` this page knows (pharmacyStepsOf); absent from today's backend, and then every
+   * screen shows what it does today. `status: "accepted"` and `acceptedAt` keep their meaning: the pharmacy has it.
+   */
+  pharmacyStep?: PharmacyStep
+  pharmacistAcceptance?: PharmacistAcceptance | null
+  /**
+   * Present (always true) only on this facility's own item withdrawn by the prescribing team before it was dispensed
+   * (hid-system 0133 and ORD-2, pharmacy-api at 06f98040): it changed or was sent elsewhere after Pharmacy got it, so
+   * it can be neither accepted nor dispensed (Dispense answers 409 PHARMACY_PRESCRIPTION_NOT_DISPENSABLE). Read only
+   * through pharmacyText.ts withdrawnReasonOf.
+   */
+  withdrawn?: boolean
+  /**
+   * Why, kept only with `withdrawn: true`: `changed` (the prescribing team put it on hold, cancelled, corrected, edited
+   * or resumed it after it was sent) or `sent_elsewhere` (sent to another facility's pharmacy before it was dispensed).
+   * A code a page branches on, never shown as sent; pharmacy-api leaves it out (or null) for any other value.
+   */
+  withdrawnReason?: string | null
+}
+
+/** hid-system ORD-4: a pharmacy work item's step. */
+export type PharmacyStep = 'received' | 'accepted' | 'dispensed' | 'dispensing_reversed'
+/** hid-system ORD-4: how the item came to be accepted (Accept, its first dispensing, an order route, a hand-off). */
+export type PharmacistAcceptedWith = 'accept' | 'dispensing' | 'order_route' | 'hand_off'
+export interface PharmacistAcceptance {
+  acceptedAt: string
+  acceptedByMembershipId: string
+  acceptedWith: PharmacistAcceptedWith
+}
+/** hid-system ORD-4: POST /pharmacy/work-items/:id/accept answers 201 (recorded) or 200 (`alreadyAccepted: true`). */
+export interface PharmacyAcceptance {
+  workItemId: string
+  pharmacyStep?: PharmacyStep
+  pharmacistAcceptance?: PharmacistAcceptance | null
+  alreadyAccepted: boolean
+}
+
+const PHARMACY_STEPS: ReadonlySet<string> = new Set<PharmacyStep>(['received', 'accepted', 'dispensed', 'dispensing_reversed'])
+const ACCEPTED_WITH: ReadonlySet<string> = new Set<PharmacistAcceptedWith>(['accept', 'dispensing', 'order_route', 'hand_off'])
+
+const stepsNotRead = () => new HidApiError(502, 'Prescriptions could not be read. Please try again.', { code: 'INVALID_RESPONSE', retryable: false })
+const filled = (value: unknown): value is string => typeof value === 'string' && value.length > 0
+
+/**
+ * An answer's `pharmacyStep` and `pharmacistAcceptance` by INTERFACE_CONTRACT ORD-4 "Screen change": both kept only for
+ * a step and an `acceptedWith` this page knows; both left out (the item reads as today) when the step is absent or
+ * either value is one it does not know (a newer pharmacy-api), so one such item never fails the whole list. Only a wrong
+ * type is refused, as an unreadable answer: a step that is not a string (null included); next to a known step, an
+ * acceptance missing or neither null nor an object; an `acceptedWith` that is not a string; with a known `acceptedWith`,
+ * an `acceptedAt` or `acceptedByMembershipId` that is not a non-empty string.
+ */
+export function pharmacyStepsOf<T extends object>(answer: T): T {
+  const { pharmacyStep: step, pharmacistAcceptance: acceptance, ...rest } = answer as T & { pharmacyStep?: unknown; pharmacistAcceptance?: unknown }
+  const bare = rest as T
+  if (step === undefined) return bare
+  if (typeof step !== 'string') throw stepsNotRead()
+  if (!PHARMACY_STEPS.has(step)) return bare
+  if (acceptance === null) return { ...bare, pharmacyStep: step as PharmacyStep, pharmacistAcceptance: null }
+  if (typeof acceptance !== 'object' || Array.isArray(acceptance)) throw stepsNotRead()
+  const { acceptedWith, acceptedAt, acceptedByMembershipId } = acceptance as Record<string, unknown>
+  if (typeof acceptedWith !== 'string') throw stepsNotRead()
+  if (!ACCEPTED_WITH.has(acceptedWith)) return bare
+  if (!filled(acceptedAt) || !filled(acceptedByMembershipId)) throw stepsNotRead()
+  return { ...bare, pharmacyStep: step as PharmacyStep,
+    pharmacistAcceptance: { acceptedAt, acceptedByMembershipId, acceptedWith: acceptedWith as PharmacistAcceptedWith } }
+}
+
+/**
+ * One member of the working facility, past or present, by membership (hid-system SX-9, GET
+ * /identity/facility-staff-names). `name` is null for a member whose login was deleted: the screen then says "Former
+ * staff member". Names only: no email, role, licence or account id is answered.
+ */
+export interface FacilityStaffName { membershipId: string; name: string | null; current: boolean }
+/** SX-9's answer: the facility's own members, current ones first; `complete` is false when more than 500 were left out. */
+export interface FacilityStaffNames { facilityId: string; staff: FacilityStaffName[]; complete: boolean }
+/** SX-9 refuses more than 100 ids in one read (400 VALIDATION_FAILED). */
+export const FACILITY_STAFF_NAMES_MAX_IDS = 100
+
+const namesNotRead = () => new HidApiError(502, 'Staff names could not be read. Please try again.', { code: 'INVALID_RESPONSE', retryable: false })
+
+/**
+ * SX-9's answer as INTERFACE_CONTRACT writes it, `{ facilityId, staff, complete }`. An answer that is not that shape is
+ * refused as unreadable; a row that is not `{ membershipId, name (a string or null), current }` is left out, so it is
+ * never shown as someone else's name.
+ */
+export function facilityStaffNamesOf(answer: unknown): FacilityStaffNames {
+  const record = answer && typeof answer === 'object' ? answer as Record<string, unknown> : null
+  if (!record || typeof record.facilityId !== 'string' || !Array.isArray(record.staff) || typeof record.complete !== 'boolean') throw namesNotRead()
+  const staff = record.staff.flatMap((row: unknown): FacilityStaffName[] => {
+    const { membershipId, name, current } = (row && typeof row === 'object' ? row : {}) as Record<string, unknown>
+    return filled(membershipId) && (name === null || filled(name)) && typeof current === 'boolean' ? [{ membershipId, name, current }] : []
+  })
+  return { facilityId: record.facilityId, staff, complete: record.complete }
+}
+
+/** A Pharmacy work list with each item's steps read (pharmacyStepsOf); a list in another shape is left as it came. */
+function pharmacyListOf(list: WorkList<PharmacyWorkItem>): WorkList<PharmacyWorkItem> {
+  return Array.isArray(list?.items) ? { ...list, items: list.items.map(item => item && typeof item === 'object' ? pharmacyStepsOf(item) : item) } : list
 }
 
 /**
@@ -1212,10 +1509,13 @@ export interface OcrPublication {
 /** Lab evidence imported from a document (GET /api/v1/lab/imports/:importId), such as an OCR publication made. */
 export interface LabImport {
   id: string
+  /** Sent on the patient's list (GET /api/v1/lab/imports?patientId=). */
+  patientId?: string
   /** accepted, entered_in_error or amended (hid-system lab migration 0017). */
   status: string
   externalLabName?: string | null
   reportedAt?: string | null
+  receivedAt?: string | null
   observations: Array<{
     id: string
     ordinal: number
@@ -1232,11 +1532,38 @@ export interface LabImport {
 /** Historical medication evidence imported from a document (GET /api/v1/pharmacy/imports/:importId). */
 export interface PharmacyImport {
   id: string
+  /** Sent on the patient's list (GET /api/v1/pharmacy/imports?patientId=). */
+  patientId?: string
   medicationText: string
   strengthText?: string | null
   doseText?: string | null
   frequencyText?: string | null
   historicalContext?: string | null
+  createdAt?: string | null
+}
+/** One page of a patient's imports, newest first; `nextCursor` reads the next page, null at the end. */
+export interface ImportsPage<T> { items: T[]; nextCursor: string | null }
+/** Imports shown a page at a time. */
+export const IMPORTS_PAGE_SIZE = 20
+
+/**
+ * A patient's imports list as Lab ({ records, nextCursor }) or Pharmacy ({ items, nextCursor }) answers it, as one page.
+ * Only the patient asked about is shown: a record naming anyone else makes the whole answer unreadable.
+ */
+function importsPage<T extends { id: string; patientId?: string }>(answer: unknown, patientId: string): ImportsPage<T> {
+  const value = answer as { items?: unknown; records?: unknown; nextCursor?: unknown } | null
+  const list = Array.isArray(value?.records) ? value.records : Array.isArray(value?.items) ? value.items : null
+  const cursor = value?.nextCursor
+  if (!list || (cursor !== undefined && cursor !== null && typeof cursor !== 'string')
+    || list.some(item => !item || typeof item !== 'object' || typeof (item as T).id !== 'string'
+      || ((item as T).patientId !== undefined && (item as T).patientId !== patientId))) {
+    throw new Error('The imported records answered in a shape this page does not read.')
+  }
+  return { items: list as T[], nextCursor: typeof cursor === 'string' && cursor ? cursor : null }
+}
+
+function importsQuery(patientId: string, cursor?: string) {
+  return { patientId, limit: String(IMPORTS_PAGE_SIZE), ...(cursor ? { cursor } : {}) }
 }
 export interface OcrValidationInput {
   extractionId: string
@@ -1291,6 +1618,179 @@ export interface OutreachCase {
   phone?: string | null
   operationalNotes?: string | null
   rowVersion: number
+  /**
+   * On the answer to a new registration in a campaign (open sign-up, outreach-api): true when another registration in
+   * the same campaign has the same phone number, or the same name and age. A hint only: the registration is saved.
+   */
+  possibleDuplicate?: boolean
+  /** Where the person lives ("Area, town or LGA"), null when none was given; absent from an Outreach before 0118. */
+  area?: string | null
+  /** Whether health checks are recorded for this registration (0118); absent from an earlier Outreach. */
+  hasScreening?: boolean
+  /**
+   * The Health ID made for this person at outreach (outreach-api 0119), null while none; absent from an earlier Outreach,
+   * which makes none. With `healthIdCreatedByOutreach`, whether outreach made it.
+   */
+  healthId?: string | null
+  healthIdCreatedByOutreach?: boolean
+}
+
+/** A page of registration cases (outreachCasesPage), with the cursor of the next page; null on the last. */
+export interface OutreachCasesPage {
+  readonly items: OutreachCase[]
+  readonly nextCursor: string | null
+}
+
+/** The languages the registration notice is given in; any but English means it was read aloud in that language. */
+export type OutreachConsentLanguage = 'en' | 'yo' | 'ha' | 'ig' | 'pcm'
+/** How the person agreed: read aloud to them, ticked by them, or agreed by their parent or guardian. */
+export type OutreachConsentMethod = 'verbal_read_aloud' | 'self_ticked' | 'guardian'
+
+/**
+ * The person's agreement to be registered, sent with a registration at an outreach group (open sign-up; outreach-api
+ * CreateRegistrationCaseDto.consent): which notice they were given, in which language, how they agreed, and the
+ * guardian's name for anyone under 18. Outreach and the database refuse a registration at an outreach group without it.
+ */
+export interface OutreachConsent {
+  textVersion: string
+  language: OutreachConsentLanguage
+  method: OutreachConsentMethod
+  guardianName?: string
+}
+
+/** What a new registration sends, with its consent at an outreach group. */
+export interface OutreachCaseInput {
+  campaignId?: string
+  fullName: string
+  sex: string
+  ageYears: number
+  phone?: string
+  operationalNotes?: string
+  /** "Area, town or LGA", up to 100 characters (0118). */
+  area?: string
+  consent?: OutreachConsent
+}
+
+/** A blood sugar reading's unit and when it was taken (outreach-api screening, 0118). */
+export type OutreachGlucoseUnit = 'mmol/L' | 'mg/dL'
+export type OutreachGlucoseTiming = 'fasting' | 'random'
+export type OutreachMalariaRdt = 'positive' | 'negative' | 'not_done'
+export type OutreachHearing = 'pass' | 'refer' | 'not_done'
+export interface OutreachMedicineGiven { name: string; dose?: string | null }
+
+/**
+ * A registration's health checks as outreach-api 0118 takes them: the whole screening each time, null for anything not
+ * recorded. Blood pressure takes both numbers or neither; a blood sugar value takes its unit and timing; referredTo only
+ * with referred true.
+ */
+export interface OutreachScreeningInput {
+  bpSystolic: number | null
+  bpDiastolic: number | null
+  pulseBpm: number | null
+  temperatureC: number | null
+  weightKg: number | null
+  heightCm: number | null
+  glucoseValue: number | null
+  glucoseUnit: OutreachGlucoseUnit | null
+  glucoseTiming: OutreachGlucoseTiming | null
+  malariaRdt: OutreachMalariaRdt | null
+  hearingLeft: OutreachHearing | null
+  hearingRight: OutreachHearing | null
+  mainComplaint: string | null
+  seenByClinician: boolean | null
+  clinicianName: string | null
+  outcome: string | null
+  medicinesGiven: OutreachMedicineGiven[] | null
+  referred: boolean | null
+  referredTo: string | null
+}
+
+/** A saved screening: what was sent, and who saved it when, at its version (the ETag the next save sends as If-Match). */
+export interface OutreachScreening extends OutreachScreeningInput {
+  caseId: string
+  version: number
+  recordedAt: string
+  recordedByMembershipId: string
+  updatedAt: string
+}
+
+/** How the code for an assisted Health ID is sent (0119): email, or a text message (not available yet). */
+export type OutreachHealthIdChannel = 'email' | 'sms'
+
+/** The code sent for an assisted Health ID (health-id/start): where it went, masked, and when another may be sent. */
+export interface OutreachHealthIdStart {
+  channel: OutreachHealthIdChannel
+  expiresAt: string
+  destinationHint: string
+  resendAfterSeconds: number
+}
+
+/** The Health ID made at outreach, and the registration, now linked to it (health-id/confirm). */
+export interface OutreachHealthIdCreated {
+  healthId: string
+  registration: OutreachCase
+}
+
+/** An unverified Health ID (health-id/create-unverified): with its claim code, answered this once only. */
+export interface OutreachUnverifiedHealthId extends OutreachHealthIdCreated {
+  claimCode: string
+}
+
+/**
+ * An outreach group's standing with Health ID, from the governance read (open sign-up, outreach-api): 'unverified' for
+ * any group that is not paused (Health ID never verifies one, and its campaigns can go live at once: owner decision Q38),
+ * 'suspended' (paused by Health ID), 'not_outreach_group' at a hospital's facility, or 'unknown' when it could not be read.
+ */
+export type OutreachOrganiserStatus = 'not_outreach_group' | 'unverified' | 'suspended' | 'unknown'
+
+/** One of an organiser's team invitations (GET identity/outreach-invitations), newest first. */
+export interface OutreachInvitation {
+  invitationId: string
+  name: string
+  email: string
+  status: string
+  expiresAt: string | null
+  createdAt: string | null
+  acceptedAt: string | null
+}
+
+/** Someone who has joined an organiser's team (GET identity/outreach-invitations `members`). */
+export interface OutreachTeamMember {
+  membershipId: string
+  name: string | null
+  email: string | null
+  roleCode: string
+  status: string
+  joinedAt: string | null
+}
+
+/**
+ * The answer to an invitation sent (201). Identity does not replay: the same person invited again while one waits is
+ * refused with 409 OUTREACH_INVITATION_ALREADY_SENT, so no second email goes.
+ */
+export interface OutreachInvitationCreated {
+  invitationId: string
+  expiresAt: string | null
+  deliveryOutcome: 'accepted' | 'definitive_failure' | 'unknown'
+  replayed: boolean
+}
+
+/** "Start an outreach group" for a signed-in account: the new group, whose campaigns can go live at once. */
+export interface OutreachGroupStarted {
+  started: true
+  organizationId: string
+  facilityId: string
+  membershipId: string
+  organiserStatus: 'active'
+  label: 'Unverified organiser' | string
+}
+
+/** The group details both ways of starting an outreach group send. */
+export interface OutreachGroupDetails {
+  groupName: string
+  kind: 'individual' | 'group'
+  registrationNumber?: string
+  phone: string
 }
 
 export interface OutreachCampaignMember {
@@ -1537,6 +2037,9 @@ async function stillThisAccount(actorId: string | null): Promise<boolean> {
  */
 export type StaffSessionCheck = 'ended' | 'alive' | 'unknown'
 
+/** A session check that may also say no answer came for want of a connection (checkStaffSessionReach). */
+export type StaffSessionReach = StaffSessionCheck | 'offline'
+
 /**
  * Whether the session `actorId` held in generation `sentIn` has really ended,
  * after a request found it refused. The server is asked directly, restoring the
@@ -1548,13 +2051,43 @@ export type StaffSessionCheck = 'ended' | 'alive' | 'unknown'
  * the next one.
  */
 async function checkStaffSession(actorId: string, sentIn: number): Promise<StaffSessionCheck> {
+  return await askStaffSession(actorId, sentIn, false) as StaffSessionCheck
+}
+
+/**
+ * The same question for an outreach workspace (staff/App.tsx), which also says when no answer came because there is no
+ * connection ('offline': no network, a timeout, or the browser knows it is offline), so the volunteer can keep
+ * working. A refusal (401, 403) or any other answer is never 'offline'. It waits at most 10 seconds and is not
+ * repeated: the workspace asks again by itself while there is no signal.
+ */
+async function checkStaffSessionReach(actorId: string, sentIn: number): Promise<StaffSessionReach> {
+  return askStaffSession(actorId, sentIn, true)
+}
+
+/** Whether a check got no answer because there is no connection: no network, a timeout, or the browser offline. */
+function noSignal(error: unknown): boolean {
+  if (isHidApiError(error)) {
+    if (error.code === 'REQUEST_CANCELLED') return false
+    if (error.code === 'NETWORK_ERROR' || error.code === 'REQUEST_TIMEOUT' || error.status === 0) return true
+  } else if (isConnectionFailure(error)) return true
+  return typeof navigator !== 'undefined' && navigator.onLine === false && !(isHidApiError(error) && error.status > 0)
+}
+
+const REACH_CHECK_TIMEOUT_MS = 10_000
+
+async function askStaffSession(actorId: string, sentIn: number, reach: boolean): Promise<StaffSessionReach> {
   let session: StaffSession
+  const offline = (error: unknown) => reach && noSignal(error)
   // A read of its own: one already in flight may have reached the server before the refusal.
-  try { session = await client.get<StaffSession>('/api/v1/auth/session', { auth: 'optional', dedupe: false }) }
+  try {
+    session = await client.get<StaffSession>('/api/v1/auth/session', reach
+      ? { auth: 'optional', dedupe: false, timeoutMs: REACH_CHECK_TIMEOUT_MS, retry: NO_RETRY }
+      : { auth: 'optional', dedupe: false })
+  }
   catch (error) {
-    if (!endsStaffSession(error) || staffSessionGeneration() !== sentIn) return 'unknown'
+    if (!endsStaffSession(error) || staffSessionGeneration() !== sentIn) return offline(error) && staffSessionGeneration() === sentIn ? 'offline' : 'unknown'
     try { session = await refreshStaffSession() }
-    catch (refused) { return endsStaffSession(refused) ? 'ended' : 'unknown' }
+    catch (refused) { return endsStaffSession(refused) ? 'ended' : offline(refused) ? 'offline' : 'unknown' }
   }
   if (typeof session?.actor?.id !== 'string') return 'unknown'
   if (!isSessionOf(session, actorId)) return 'ended'
@@ -1652,6 +2185,14 @@ export interface ProviderEnrollmentProfile {
  * answers 503 UPSTREAM_UNAVAILABLE, so this only bounds a hung connection.
  */
 export const PROVIDER_ENROLLMENT_START_TIMEOUT_MS = 35_000
+/**
+ * How long outreach waits (health #243 review): the gateway allows 60 s on the Health ID routes and outreach-api answers
+ * within about 35 s, so a code sent or confirmed (safe to send again with its key) waits 40 s, and an unverified Health
+ * ID, whose claim code is answered once only, 45 s. The health-checks read gives up after 10 s.
+ */
+const OUTREACH_HEALTH_ID_TIMEOUT_MS = 40_000
+const OUTREACH_UNVERIFIED_HEALTH_ID_TIMEOUT_MS = 45_000
+const OUTREACH_SCREENING_READ_TIMEOUT_MS = 10_000
 
 export const providerEnrollmentApi = {
   /**
@@ -1670,6 +2211,15 @@ export const providerEnrollmentApi = {
     administratorName: string
     administratorEmail: string
     turnstileToken: string
+    /**
+     * hid-system 0114 (Novu): the applicant's role and phone and the facility's details (hid-system
+     * docs/INTERFACE_CONTRACT.md section 43.2), taken all or none there until a follow-up release makes them required;
+     * the sign-up page always sends all
+     * three. hid-system main refuses them as unknown fields.
+     */
+    administratorRole?: string
+    administratorPhone?: string
+    facilityProfile?: FacilityProfileValues
   }) => client.post<ProviderEnrollmentStart>('/api/v1/identity/provider-enrollments',
     { ...input, turnstileAction: 'provider-enrollment' }, { auth: 'none', timeoutMs: PROVIDER_ENROLLMENT_START_TIMEOUT_MS }),
 
@@ -1704,6 +2254,70 @@ export const providerEnrollmentApi = {
    */
   withdraw: () => client.post<{ withdrawn: true }>('/api/v1/identity/provider-enrollments/withdraw', undefined,
     { auth: 'none', retry: NO_RETRY }),
+}
+
+/**
+ * Whether open sign-up on outreach. is on (identity-api, the control outreach_organiser_signup_enabled, seeded off), and
+ * the organiser terms' version the sign-up accepts. Never an error: anything but `{ open: true }` means not open.
+ */
+export interface OutreachOrganiserAvailability {
+  open: boolean
+  termsVersion?: string
+}
+
+/** The start's answer: the 6-digit code was emailed. Start also sets the sign-up's own cookie, which verify and activate read. */
+export interface OutreachOrganiserStart {
+  accepted: true
+  challengeId: string
+  expiresInSeconds?: number
+  resendAfterSeconds?: number
+}
+
+/** Activation creates the organiser's account and outreach group, and signs them in as a staff sign-in does. */
+export interface OutreachOrganiserActivation {
+  activated: true
+  organizationId: string
+  facilityId: string
+  accountId: string
+  organiserStatus: 'active'
+  label: 'Unverified organiser' | string
+  actor?: StaffSession['actor']
+  expiresAt: string
+}
+
+/** A helper accepted an outreach invitation: the group, and, for a new helper, the session they are signed in with. */
+export interface OutreachInvitationAccepted {
+  accepted: true
+  facilityId: string
+  membershipId?: string
+  roleCode: string
+  actor?: StaffSession['actor']
+  expiresAt?: string
+}
+
+/**
+ * Open sign-up to run outreach on outreach. (identity-api, owner decisions of 11 November 2026): the organiser's
+ * details and phone, a 6-digit code by email, the organiser terms, then a password. Every route answers 423
+ * OUTREACH_ORGANISER_SIGNUP_UNAVAILABLE while the control is off, and an Identity without them 404: the page then
+ * says sign-up is not open, and offers nothing else. No retries: a lost answer is not sent again by itself.
+ */
+export const outreachOrganiserApi = {
+  availability: (signal?: AbortSignal) => client.get<OutreachOrganiserAvailability>('/api/v1/identity/outreach-organisers/availability',
+    { auth: 'none', retry: NO_RETRY, timeoutMs: 10_000, ...(signal ? { signal } : {}) }),
+  start: (input: OutreachGroupDetails & { organiserName: string; email: string; turnstileToken?: string }) =>
+    client.post<OutreachOrganiserStart>('/api/v1/identity/outreach-organisers',
+      { ...input, turnstileAction: 'outreach-organiser-signup' }, { auth: 'none', retry: NO_RETRY, timeoutMs: PROVIDER_ENROLLMENT_START_TIMEOUT_MS }),
+  verify: (challengeId: string, code: string) => client.post<{ verified: true }>('/api/v1/identity/outreach-organisers/verify-email',
+    { challengeId, code }, { auth: 'none', retry: NO_RETRY }),
+  // Activation signs the new organiser in, so it takes the session turn as sign-ins do.
+  activate: (input: { termsVersion: string; password: string }) => inRefreshTurn(() =>
+    client.post<OutreachOrganiserActivation>('/api/v1/identity/outreach-organisers/activate',
+      { termsVersion: input.termsVersion, acceptTerms: true, password: input.password }, { auth: 'none', retry: NO_RETRY })),
+  /** A helper without a Health ID login accepts an outreach invitation with its link, sets a password and is signed in. */
+  acceptInvitation: (proof: { invitationId: string; token: string }, password: string,
+    turnstileToken?: string) => inRefreshTurn(() => client.post<OutreachInvitationAccepted>('/api/v1/identity/outreach-invitations/accept',
+    { ...proof, password, turnstileAction: 'outreach-invitation', ...(turnstileToken ? { turnstileToken } : {}) },
+    { auth: 'none', retry: NO_RETRY })),
 }
 
 /** What an invitation email's delivery came to: sent, refused by the address, or not confirmed (P4b). */
@@ -1907,6 +2521,7 @@ export const staffApi = {
   refresh: () => refreshStaffSession(),
   logout: signOut,
   checkSession: checkStaffSession,
+  checkSessionReach: checkStaffSessionReach,
   // The second steps of staff sign-in need no Turnstile token, CSRF token or session: the challenge
   // cookie is their credential. Under /api/v1/auth/ with auth 'none', a 401 there (a wrong code, a
   // spent challenge) is never refreshed and never taken for the end of a session.
@@ -1935,6 +2550,22 @@ export const staffApi = {
   facilitySettings: (facilityId: string) =>
     client.get<FacilitySettings>('/api/v1/identity/facility-settings',
       { headers: facilityHeaders(facilityId, 'healthcare-operations'), dedupe: false }),
+  // The facility's details (hid-system 0114): its administrator (workforce.manage) at a self-signed-up facility only.
+  facilityProfile: (facilityId: string) =>
+    client.get<FacilityProfileRead>('/api/v1/identity/facility-profile',
+      { headers: facilityHeaders(facilityId, 'healthcare-operations'), dedupe: false, retry: NO_RETRY }),
+  saveFacilityProfile: (facilityId: string, profile: FacilityProfileValues, version: number, idempotencyKey: string) =>
+    client.post<FacilityProfileSaved>('/api/v1/identity/facility-profile', profile,
+      { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), 'If-Match': `"${version}"`, ...keyHeaders(idempotencyKey) } }),
+  // The names of the working facility's members by membership (hid-system SX-9): any member active there, no permission
+  // beyond membership, read under healthcare operations whatever is sent. Only the ids asked for, 1 to 100 of them.
+  facilityStaffNames: (facilityId: string, membershipIds: readonly string[]) => {
+    if (membershipIds.length < 1 || membershipIds.length > FACILITY_STAFF_NAMES_MAX_IDS) {
+      return Promise.reject(new RangeError(`Ask for 1 to ${FACILITY_STAFF_NAMES_MAX_IDS} staff names at a time.`))
+    }
+    return client.get<unknown>('/api/v1/identity/facility-staff-names', { query: { membershipIds: membershipIds.join(',') },
+      headers: facilityHeaders(facilityId, 'healthcare-operations'), dedupe: false, retry: NO_RETRY }).then(facilityStaffNamesOf)
+  },
   setOnePersonLab: (facilityId: string, enabled: boolean, reason: string) =>
     client.post<OnePersonLabChange>('/api/v1/identity/facility-settings/one-person-lab', { enabled, reason },
       { headers: facilityHeaders(facilityId, 'healthcare-operations') }),
@@ -1950,8 +2581,14 @@ export const staffApi = {
   registrationCapabilities: (facilityId: string) =>
     client.get<RegistrationCapabilities>('/api/v1/identity/registration-capabilities',
       { headers: facilityHeaders(facilityId, 'healthcare-operations') }),
+  // A QoreID check where it is switched on (hid-system Q108), which can take longer than the usual 15 s (ninCheck.ts).
   resolveNin: (facilityId: string, input: ResolveNinInput, idempotencyKey: string) =>
     client.post<RegistrationCase>('/api/v1/identity/nin/resolve',
+      { ...input, purpose: 'healthcare-operations' },
+      { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders(idempotencyKey) }, timeoutMs: NIN_CHECK_TIMEOUT_MS }),
+  // hid-system 0130: a patient registered at the desk without a NIN (healthcare operations, one key per request).
+  registerWithoutNin: (facilityId: string, input: RegisterWithoutNinInput, idempotencyKey: string) =>
+    client.post<RegisteredWithoutNin>('/api/v1/identity/registration-cases/without-nin',
       { ...input, purpose: 'healthcare-operations' },
       { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders(idempotencyKey) } }),
   registrationCase: (facilityId: string, caseId: string) =>
@@ -1989,12 +2626,35 @@ export const staffApi = {
   requestAccess: (facilityId: string, hid: string, scope: 'read_records' | 'write_records', reason: string, durationMinutes: number) =>
     client.post<AccessRequest>('/api/v1/identity/access-requests', { hid: hid.trim().toUpperCase(), scope, reason, durationMinutes },
       { headers: facilityHeaders(facilityId) }),
+  // A patient's Access PIN opens their records for 24 hours, to see and add to (owner, 10 Nov 2026): hid-system's
+  // database (0122, live since 17 Nov 2026) gives 1440 minutes whatever is asked. The call asks for 60, which Identity
+  // accepts (5 to 1440). The website ships only with that backend (config/production-release-dependencies.json pins it),
+  // since before 0122 a PIN gave 60 minutes of reading only and the wording here would not be true.
   verifyPin: (facilityId: string, hid: string, pin: string) =>
     client.post<GrantResult>('/api/v1/identity/standard-access/pin', { hid: hid.trim().toUpperCase(), pin, durationMinutes: 60 },
       { headers: facilityHeaders(facilityId) }),
   breakGlass: (facilityId: string, hid: string, reason: string) =>
     client.post<GrantResult>('/api/v1/identity/break-glass', { hid: hid.trim().toUpperCase(), reason, durationMinutes: 30 },
       { headers: facilityHeaders(facilityId, 'emergency') }),
+  // Break-glass for a card of this member's own emergency search (ID-5, 0132): the card's matchRef stands for the patient,
+  // never with a Health ID. The rest of the request, and the answer, are today's.
+  breakGlassByMatchRef: (facilityId: string, matchRef: string, reason: string) =>
+    client.post<GrantResult>('/api/v1/identity/break-glass', { matchRef, reason, durationMinutes: 30 },
+      { headers: facilityHeaders(facilityId, 'emergency') }),
+  // Staff patient search (0132): the keys in the body, never in an address; cards carry a matchRef, never a Health ID.
+  searchPatients: async (facilityId: string, keys: PatientSearchKeys): Promise<PatientSearchAnswer> =>
+    parsePatientSearchAnswer(await client.post<unknown>('/api/v1/identity/patient-search', patientSearchBody(keys),
+      { headers: facilityHeaders(facilityId, 'direct-care') })),
+  // Emergency search (0132, ID-3b): exact name and date of birth, with the reason typed first; at most 5 cards.
+  emergencySearchPatients: async (facilityId: string, keys: EmergencySearchKeys): Promise<PatientSearchAnswer> =>
+    parsePatientSearchAnswer(await client.post<unknown>('/api/v1/identity/patient-search/emergency', emergencySearchBody(keys),
+      { headers: facilityHeaders(facilityId, 'emergency') })),
+  // Open this facility's own patient for 24 hours without a PIN (0131): doctors, nurses and clinicians. Exactly one of the
+  // Health ID (in the body) or the patient id.
+  openOwnFacilityPatient: (facilityId: string, patient: { hid: string } | { patientId: string }) =>
+    client.post<OwnFacilityAccess>('/api/v1/identity/own-facility-access',
+      'hid' in patient ? { hid: patient.hid.trim().toUpperCase() } : { patientId: patient.patientId },
+      { headers: facilityHeaders(facilityId, 'direct-care') }),
   closeGrant: (facilityId: string, grantId: string, reason: string) =>
     client.post<GrantResult>(`/api/v1/identity/consent-grants/${encodeURIComponent(grantId)}/close`, { reason },
       { headers: facilityHeaders(facilityId) }),
@@ -2017,6 +2677,12 @@ export const staffApi = {
   // One encounter, read afresh: the documented one may be on a page not shown.
   encounter: (facilityId: string, patientId: string, encounterId: string) =>
     client.get<Encounter>(encounterPath(patientId, encounterId), { headers: facilityHeaders(facilityId), dedupe: false }),
+  // The chart summary (EHR-C4, hid-system 4c843270): one call for what the chart opens with, direct care at the selected
+  // facility, never cached (the EHR answers no-store). Passed through unparsed: the patient page reads it
+  // (ehr-blue/clinical/patients/chartSummary.ts). An EHR before EHR-C4 answers 404, and the page reads today's lists.
+  chartSummary: (facilityId: string, patientId: string, signal?: AbortSignal) =>
+    client.get<unknown>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/chart-summary`,
+      { headers: facilityHeaders(facilityId, 'direct-care'), signal, dedupe: false }),
   patientChat: async (facilityId:string,patientId:string,question:string,signal?:AbortSignal) =>
     parseStagingPatientChat(await client.post<unknown>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/chat`,
       {question:stagingChatQuestion(question)},{headers:facilityHeaders(facilityId),signal,timeoutMs:65_000})),
@@ -2088,6 +2754,12 @@ export const staffApi = {
   createEncounter: (facilityId: string, patientId: string, input: { encounterType: string; status: string; startedAt: string; chiefComplaint: string }, idempotencyKey?: string) =>
     client.post<Encounter>(patientPath(patientId), input,
       { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),
+  // EHR-C5: the visit, its note and its diagnoses in one call, all or nothing (403 CONSENT_REQUIRED, 409
+  // IDEMPOTENCY_KEY_REUSED and the parts' own refusals; nothing is saved on any of them). A backend before it answers 404.
+  // The caller keeps one key per consultation, so pressing again after no answer replays the same save.
+  createConsultation: (facilityId: string, patientId: string, input: ConsultationInput, idempotencyKey: string) =>
+    client.post<ConsultationSaved>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/consultations`, input,
+      { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),
   updateEncounter: (facilityId: string, patientId: string, encounterId: string,
     input: { expectedRowVersion: number; changeReason: string; status: string; endedAt?: string }) =>
     client.request<Encounter>({ method: 'PATCH', path: encounterPath(patientId, encounterId), body: input,
@@ -2100,9 +2772,10 @@ export const staffApi = {
   createRecord: (facilityId: string, patientId: string, encounterId: string, kind: RecordKind, input: object, idempotencyKey?: string) =>
     client.post<SavedRecord>(`${encounterPath(patientId, encounterId)}/${kind}`, input,
       { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),
-  // A status PATCH: diagnoses have no status field and vitals are corrected, never patched.
+  // A status PATCH: diagnoses have no status field and vitals are corrected, never patched. A prescription's Activate or
+  // Resume after an allergy warning (0124) also carries allergyAcknowledgement; leave it out otherwise.
   updateRecord: (facilityId: string, patientId: string, encounterId: string, kind: StatusRecordKind,
-    recordId: string, input: { expectedRowVersion: number; changeReason: string; status: string }) =>
+    recordId: string, input: { expectedRowVersion: number; changeReason: string; status: string; allergyAcknowledgement?: AllergyAcknowledgement }) =>
     client.request<SavedRecord>({ method: 'PATCH',
       path: `${encounterPath(patientId, encounterId)}/${kind}/${encodeURIComponent(recordId)}`,
       body: input, headers: facilityHeaders(facilityId) }),
@@ -2124,9 +2797,20 @@ export const staffApi = {
   // or PRESCRIPTION_SOURCE_VERSION_MISMATCH, 422 PRESCRIPTION_SOURCE_MISMATCH. Both callers (Clinical.tsx and the blue
   // OrderPage.tsx, through words.ts prescriptionChanged) read the prescription again and say these in words.
   acceptPrescription: (facilityId: string, patientId: string, encounterId: string,
-    prescriptionId: string, expectedRowVersion: number, reason: string, idempotencyKey?: string) =>
+    prescriptionId: string, expectedRowVersion: number, reason: string, idempotencyKey?: string, allergyAcknowledgement?: AllergyAcknowledgement) =>
     client.post<unknown>(`${encounterPath(patientId, encounterId)}/prescriptions/${encodeURIComponent(prescriptionId)}/pharmacy-work-item`,
-      { expectedRowVersion, reason }, { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),
+      { expectedRowVersion, reason, ...(allergyAcknowledgement
+        ? { allergyAcknowledgement: { reason: allergyAcknowledgement.reason, warningToken: allergyAcknowledgement.warningToken } } : {}) },
+      { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),
+  // "Send to pharmacy" for the prescriber (hid-system 0133): sends their active prescription to this hospital's own
+  // pharmacy at the version read, or tries a pending send again. No Idempotency-Key: sending twice sends once. The
+  // allergy acknowledgement goes only after the EHR's allergy warning (0117). Answers `{ pharmacyHandoff }`.
+  ownPharmacySend: (facilityId: string, patientId: string, encounterId: string, prescriptionId: string,
+    expectedRowVersion: number, allergyAcknowledgement?: AllergyAcknowledgement | null) =>
+    client.post<{ pharmacyHandoff?: unknown }>(`${encounterPath(patientId, encounterId)}/prescriptions/${encodeURIComponent(prescriptionId)}/own-pharmacy-send`,
+      { expectedRowVersion, ...(allergyAcknowledgement
+        ? { allergyAcknowledgement: { reason: allergyAcknowledgement.reason, warningToken: allergyAcknowledgement.warningToken } } : {}) },
+      { headers: facilityHeaders(facilityId) }),
   // Sends (or sends again) a saved active lab request to Lab at the version read
   // (hid-system #56). The body is exactly SendLabRequestToLabDto; the caller keeps
   // one key per attempt, so pressing again after no answer is the same send.
@@ -2155,7 +2839,7 @@ export const staffApi = {
     })
   },
   // A signed storage link valid for expiresInSeconds (s3-storage.provider.ts createDownload). Since hid-system 0110 a
-  // document whose source page was deleted after 24 hours answers 410 DOCUMENT_SOURCE_DELETED: that is no failure but
+  // document whose source page was deleted after 7 days answers 410 DOCUMENT_SOURCE_DELETED: that is no failure but
   // an outcome of its own (documentSource.ts), which every caller says in its own sentence. Any other refusal is thrown.
   async documentDownload(facilityId: string, documentId: string): Promise<DocumentDownload> {
     try {
@@ -2182,7 +2866,7 @@ export const staffApi = {
   },
 
   labWorkItems: (facilityId: string) =>
-    client.get<WorkList<LabWorkItem>>('/api/v1/lab/work-items', { headers: facilityHeaders(facilityId) }),
+    client.get<WorkList<LabWorkItem>>('/api/v1/lab/work-items', { headers: facilityHeaders(facilityId) }).then(keptSince),
   createLabAccession: (facilityId: string, workItemId: string, specimenType: string, reason: string) =>
     client.post<LabAccession>(`/api/v1/lab/work-items/${encodeURIComponent(workItemId)}/accession`,
       { requirements: [{ specimenType }], reason },
@@ -2243,7 +2927,13 @@ export const staffApi = {
     client.get<LabOrderReleasedResults>(`/api/v1/lab/ehr-orders/${encodeURIComponent(labRequestId)}/released-results`,
       { headers: facilityHeaders(facilityId, purpose), dedupe: false }),
   pharmacyWorkItems: (facilityId: string) =>
-    client.get<WorkList<PharmacyWorkItem>>('/api/v1/pharmacy/work-items', { headers: facilityHeaders(facilityId) }),
+    client.get<WorkList<PharmacyWorkItem>>('/api/v1/pharmacy/work-items', { headers: facilityHeaders(facilityId) }).then(keptSince).then(pharmacyListOf),
+  // A pharmacist takes the item on (hid-system ORD-4): the body is exactly the item's version, with no reason. The key is
+  // the caller's, so a retry of the same press sends the same one and records nothing twice.
+  acceptPharmacyWorkItem: (facilityId: string, item: Pick<PharmacyWorkItem, 'id' | 'version'>, idempotencyKey: string) =>
+    client.post<PharmacyAcceptance>(`/api/v1/pharmacy/work-items/${encodeURIComponent(item.id)}/accept`,
+      { expectedWorkItemVersion: item.version },
+      { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }).then(pharmacyStepsOf),
   dispense: (facilityId: string, item: PharmacyWorkItem, quantityDispensed: number, quantityUnit: string, reason: string) =>
     client.post<unknown>(`/api/v1/pharmacy/work-items/${encodeURIComponent(item.id)}/dispensings`,
       { expectedWorkItemVersion: item.version, quantityDispensed, quantityUnit, reason },
@@ -2300,6 +2990,14 @@ export const staffApi = {
     client.get<LabImport>(`/api/v1/lab/imports/${encodeURIComponent(importId)}`, { headers: facilityHeaders(facilityId) }),
   pharmacyImport: (facilityId: string, importId: string) =>
     client.get<PharmacyImport>(`/api/v1/pharmacy/imports/${encodeURIComponent(importId)}`, { headers: facilityHeaders(facilityId) }),
+  // A patient's imports from paper, newest first, a page at a time (lab.import.read, pharmacy.import.read). Each page
+  // read is audited by its service, so a read is never merged with one in flight.
+  labImports: (facilityId: string, patientId: string, cursor?: string, signal?: AbortSignal) =>
+    client.get<unknown>('/api/v1/lab/imports', { query: importsQuery(patientId, cursor), headers: facilityHeaders(facilityId), signal, dedupe: false })
+      .then(answer => importsPage<LabImport>(answer, patientId)),
+  pharmacyImports: (facilityId: string, patientId: string, cursor?: string, signal?: AbortSignal) =>
+    client.get<unknown>('/api/v1/pharmacy/imports', { query: importsQuery(patientId, cursor), headers: facilityHeaders(facilityId), signal, dedupe: false })
+      .then(answer => importsPage<PharmacyImport>(answer, patientId)),
 
   outreachCampaigns: (facilityId: string) =>
     client.get<OutreachCampaign[]>('/api/v1/outreach/registration-cases/campaigns', { headers: facilityHeaders(facilityId) }),
@@ -2308,10 +3006,11 @@ export const staffApi = {
       { headers: facilityHeaders(facilityId) }),
   /**
    * How campaigns are managed: from 0111 (hid-system#222) `{ rule: 'campaign_admins' }`, a campaign's own admins open,
-   * close and staff it. An older Outreach answers 404, and the page then offers no campaign management.
+   * close and staff it. An older Outreach answers 404, and the page then offers no campaign management. With open
+   * sign-up it also says where an outreach group stands with Health ID (`organiserStatus`); an earlier one says nothing.
    */
   outreachCampaignGovernance: (facilityId: string) =>
-    client.get<{ rule: string }>('/api/v1/outreach/registration-cases/campaigns/governance', { headers: facilityHeaders(facilityId) }),
+    client.get<{ rule: string; organiserStatus?: OutreachOrganiserStatus }>('/api/v1/outreach/registration-cases/campaigns/governance', { headers: facilityHeaders(facilityId) }),
   outreachCampaignStaff: (facilityId: string, campaignId: string) =>
     client.get<OutreachCampaignStaff>(`/api/v1/outreach/registration-cases/campaigns/${encodeURIComponent(campaignId)}/staff`,
       { headers: facilityHeaders(facilityId) }),
@@ -2328,16 +3027,106 @@ export const staffApi = {
       { headers: facilityHeaders(facilityId) }),
   outreachCases: (facilityId: string) =>
     client.get<OutreachCase[]>('/api/v1/outreach/registration-cases', { headers: facilityHeaders(facilityId) }),
+  /**
+   * One page of registration cases, for an export (hid-system#247): up to `limit` (1 to 500), older than the cursor
+   * `before`, of one campaign when `campaignId` is given. The answer is the list's own array; X-Next-Cursor, when sent,
+   * names the next page. An Outreach before paging ignores the query and sends its newest 100 with no cursor. Without
+   * `limit` (the Outreach list's first read) nothing but `campaignId` is asked: the request is the list's own, the newest
+   * 100, and a paging Outreach still says whether more are left.
+   */
+  outreachCasesPage: async (facilityId: string, query: { campaignId?: string; limit?: number; before?: string }): Promise<OutreachCasesPage> => {
+    let cursor: string | null = null
+    const items = await client.get<unknown>('/api/v1/outreach/registration-cases', {
+      headers: facilityHeaders(facilityId), query: { limit: query.limit, campaignId: query.campaignId, before: query.before }, dedupe: false,
+      onResponseHeaders: headers => { cursor = headers.get('X-Next-Cursor')?.trim() || null },
+    })
+    if (!Array.isArray(items) || items.some(item => !item || typeof item !== 'object' || typeof (item as OutreachCase).id !== 'string')) {
+      throw new Error('The registrations answered in a shape this page does not read.')
+    }
+    return { items: items as OutreachCase[], nextCursor: cursor }
+  },
+  /**
+   * Records that registrations were exported (an audit row; Outreach answers 204). Sent after the file is saved, and never
+   * waited on: an Outreach without the route answers 404 or 405.
+   */
+  recordOutreachExport: (facilityId: string, input: { format: 'csv' | 'xlsx' | 'docx' | 'pdf'; count: number; campaignId?: string }) =>
+    client.post<void>('/api/v1/outreach/registration-cases/exports', input, { headers: facilityHeaders(facilityId) }),
   linkExistingOutreachCase: (facilityId: string, registrationCase: OutreachCase, canonicalPatientId: string, reason: string) =>
     client.post<OutreachCase>(`/api/v1/outreach/registration-cases/${encodeURIComponent(registrationCase.id)}/link-existing`,
       { canonicalPatientId, expectedVersion: registrationCase.rowVersion, reason },
       { headers: { ...facilityHeaders(facilityId), ...keyHeaders() } }),
   // Outreach answers a command sent again (its localCommandId is also its Idempotency-Key)
   // with the case it made, so the caller names the command and resends it for the same case.
-  createOutreachCase: (facilityId: string, input: { campaignId?: string; fullName: string; sex: string; ageYears: number; phone?: string; operationalNotes?: string },
+  createOutreachCase: (facilityId: string, input: OutreachCaseInput,
     command: { localCommandId: string; temporaryPatientId: string }) =>
     client.post<OutreachCase>('/api/v1/outreach/registration-cases', { ...input, ...command },
       { headers: { ...facilityHeaders(facilityId), 'Idempotency-Key': command.localCommandId } }),
+
+  /**
+   * A registration's health checks (outreach-api 0118, proposed): `{ screening: null }` until any are saved. An Outreach
+   * without the route answers 404 NOT_FOUND or API_ROUTE_NOT_FOUND, and the page then shows no Health checks section.
+   */
+  outreachScreening: (facilityId: string, caseId: string, signal?: AbortSignal) =>
+    client.get<{ screening: OutreachScreening | null }>(`/api/v1/outreach/registration-cases/${encodeURIComponent(caseId)}/screening`,
+      // Tried once for 10 s: a case opened with no signal says so quickly, and Try again is on the page.
+      { headers: facilityHeaders(facilityId), signal, dedupe: false, retry: NO_RETRY, timeoutMs: OUTREACH_SCREENING_READ_TIMEOUT_MS }),
+  /**
+   * Saves the whole screening: 201 the first time (no If-Match), 200 after, against the version read (If-Match, 412
+   * VERSION_CONFLICT when it changed since). The caller holds the Idempotency-Key, one per save attempt and the same on a
+   * retry of that attempt.
+   */
+  saveOutreachScreening: (facilityId: string, caseId: string, input: OutreachScreeningInput,
+    write: { idempotencyKey: string; version?: number }) =>
+    client.request<{ screening: OutreachScreening }>({ method: 'PUT',
+      path: `/api/v1/outreach/registration-cases/${encodeURIComponent(caseId)}/screening`, body: input,
+      headers: { ...facilityHeaders(facilityId), 'Idempotency-Key': write.idempotencyKey,
+        ...(write.version !== undefined ? { 'If-Match': `"${write.version}"` } : {}) } }),
+
+  /**
+   * Assisted Health ID (outreach-api 0119, proposed; each way ships on its own): a code sent to the email the person gives
+   * (or by text message, not available yet), then confirmed; or, with no email or phone, an unverified Health ID with a
+   * claim code. Never sent again by itself: the caller holds the key, a new one for each code sent, each confirmation and
+   * each unverified Health ID, and the same on a retry of that attempt.
+   */
+  startOutreachHealthId: (facilityId: string, caseId: string, body: { channel: 'email'; email: string } | { channel: 'sms' }, idempotencyKey: string) =>
+    client.post<OutreachHealthIdStart>(`/api/v1/outreach/registration-cases/${encodeURIComponent(caseId)}/health-id/start`, body,
+      { headers: { ...facilityHeaders(facilityId), 'Idempotency-Key': idempotencyKey }, retry: NO_RETRY, timeoutMs: OUTREACH_HEALTH_ID_TIMEOUT_MS }),
+  confirmOutreachHealthId: (facilityId: string, caseId: string, code: string, idempotencyKey: string) =>
+    client.post<OutreachHealthIdCreated>(`/api/v1/outreach/registration-cases/${encodeURIComponent(caseId)}/health-id/confirm`, { code },
+      { headers: { ...facilityHeaders(facilityId), 'Idempotency-Key': idempotencyKey }, retry: NO_RETRY, timeoutMs: OUTREACH_HEALTH_ID_TIMEOUT_MS }),
+  createUnverifiedOutreachHealthId: (facilityId: string, caseId: string, idempotencyKey: string) =>
+    client.post<OutreachUnverifiedHealthId>(`/api/v1/outreach/registration-cases/${encodeURIComponent(caseId)}/health-id/create-unverified`, {},
+      // Its claim code is answered this once only, so the website waits longer than outreach-api does (about 35 s).
+      { headers: { ...facilityHeaders(facilityId), 'Idempotency-Key': idempotencyKey }, retry: NO_RETRY, timeoutMs: OUTREACH_UNVERIFIED_HEALTH_ID_TIMEOUT_MS }),
+
+  /*
+   * An outreach group's team (open sign-up, identity-api): the organiser invites helpers by email, each as an outreach
+   * volunteer. Identity answers only the organiser at the group (403
+   * OUTREACH_ORGANISER_REQUIRED otherwise); an Identity without the routes answers 404.
+   */
+  outreachInvitations: (facilityId: string) =>
+    client.get<{ members?: OutreachTeamMember[]; invitations: OutreachInvitation[] }>('/api/v1/identity/outreach-invitations', { headers: facilityHeaders(facilityId) }),
+  /**
+   * Never sent again by itself (NO_RETRY). Identity does not replay an invitation: the same person sent again while one
+   * waits (say, after a lost answer) is refused with 409 OUTREACH_INVITATION_ALREADY_SENT and no second email goes.
+   * Identity ignores the Idempotency-Key header this sends on this route.
+   */
+  createOutreachInvitation: (facilityId: string, input: { name: string; email: string }, idempotencyKey: string) =>
+    client.post<OutreachInvitationCreated>('/api/v1/identity/outreach-invitations', input,
+      { headers: { ...facilityHeaders(facilityId), 'Idempotency-Key': idempotencyKey }, retry: NO_RETRY }),
+
+  /**
+   * "Start an outreach group" (owner decision 5 of 11 November 2026): the signed-in account starts its own outreach group
+   * with the same login and becomes its organiser, keeping every role it has at a hospital. No facility: the account
+   * does not belong to the new group yet. Whether it is open: `{ open, termsVersion }`, never an error.
+   */
+  outreachGroupAvailability: () =>
+    client.get<OutreachOrganiserAvailability>('/api/v1/identity/outreach-organisers/for-my-account/availability', { retry: NO_RETRY, timeoutMs: 10_000 }),
+  startOutreachGroup: (input: OutreachGroupDetails & { termsVersion: string; acceptTerms: true }) =>
+    client.post<OutreachGroupStarted>('/api/v1/identity/outreach-organisers/for-my-account', input, { retry: NO_RETRY }),
+  /** A signed-in account accepts an outreach invitation with its link (the email carries no code). */
+  acceptOutreachInvitationSignedIn: (proof: { invitationId: string; token: string }) =>
+    client.post<OutreachInvitationAccepted>('/api/v1/identity/outreach-invitations/signed-in/accept', proof, { retry: NO_RETRY }),
 }
 
 /** The EHR path of an order's routes. */
@@ -2363,11 +3152,14 @@ export const orderRoutesApi = {
   attestation: (facilityId: string, kind: OrderRouteKind) =>
     client.get<OrderRouteAttestation>('/api/v1/ehr/order-route-attestation',
       { query: { kind }, headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false }),
+  // A draft prescription sent after an allergy warning (0124) also carries allergyAcknowledgement; a lab request never does.
   send: (facilityId: string, patientId: string, encounterId: string, kind: OrderRouteKind, orderId: string,
-    input: { expectedRowVersion: number; receivingFacilityId: string; attestationTextVersion: string }, idempotencyKey: string) =>
+    input: { expectedRowVersion: number; receivingFacilityId: string; attestationTextVersion: string; allergyAcknowledgement?: AllergyAcknowledgement }, idempotencyKey: string) =>
     client.post<OrderRouteSent>(orderRoutesPath(patientId, encounterId, kind, orderId),
       { expectedRowVersion: input.expectedRowVersion, receivingFacilityId: input.receivingFacilityId, patientAgreed: true,
-        attestationTextVersion: input.attestationTextVersion },
+        attestationTextVersion: input.attestationTextVersion,
+        ...(kind === 'prescription' && input.allergyAcknowledgement
+          ? { allergyAcknowledgement: { reason: input.allergyAcknowledgement.reason, warningToken: input.allergyAcknowledgement.warningToken } } : {}) },
       { headers: { ...facilityHeaders(facilityId, 'direct-care'), ...keyHeaders(idempotencyKey) } }),
   /** An order's routes, newest first, with the attestation and what came back. Audited: read only when asked. */
   routes: (facilityId: string, patientId: string, encounterId: string, kind: OrderRouteKind, orderId: string) =>
@@ -2468,4 +3260,60 @@ export const orderRoutesApi = {
   sentWrongPatient: (facilityId: string) =>
     client.get<SentWrongPatientOrderRoutes>('/api/v1/ehr/order-routes/wrong-patient',
       { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false }),
+}
+
+/**
+ * The waiting list (hid-system 0135, EHR-C7, INTERFACE_CONTRACT.md): this facility's patients checked in today and
+ * where each is. Front desk, nurses, clinicians and doctors (ehr.encounter.read and ehr.encounter.write); direct care
+ * only. No Health ID in any address, query, body or answer: a patient is checked in by a search card's `matchRef`, or by
+ * the id of a patient already this facility's own, in the body.
+ */
+export const VISIT_QUEUE_STAGES = ['waiting', 'triage', 'ready', 'with_clinician', 'finished', 'left', 'cancelled'] as const
+export type VisitQueueStage = (typeof VISIT_QUEUE_STAGES)[number]
+
+export interface VisitQueueCard {
+  entryId: string
+  patientId: string
+  fullName: string
+  sex: string | null
+  dateOfBirth: string | null
+  healthIdLast4: string
+  stage: VisitQueueStage
+  triageLevel: number | null
+  assignedMembershipId: string | null
+  checkInBasis: 'search' | 'own-facility'
+  checkedInAt: string
+  checkInDay: string
+  stageChangedAt: string
+  closedAt: string | null
+  rowVersion: number
+  chartBlocked: boolean
+  /** hid-system 0145 (ID-7): an unknown patient's record ("Unknown patient U-0007" as fullName). Absent before 0145. */
+  recordKind?: 'standard' | 'unknown'
+  /** hid-system 0145 (ID-7): the date of birth is an estimate (an unknown patient's age). Absent before 0145. */
+  dateOfBirthEstimated?: boolean
+}
+
+export interface VisitQueueList { items: VisitQueueCard[]; hasMore: boolean; limit: number }
+export interface VisitQueueCheckIn { outcome: 'checked_in' | 'already_on_list'; entry: VisitQueueCard }
+export type VisitQueueCheckInBy = { matchRef: string } | { patientId: string }
+/** At least one change; null clears the triage level or the person who will see the patient. */
+export interface VisitQueueChange {
+  stage?: VisitQueueStage
+  triageLevel?: number | null
+  assignedMembershipId?: string | null
+}
+
+export const visitQueueApi = {
+  list: (facilityId: string, includeClosedToday = false) =>
+    client.get<VisitQueueList>('/api/v1/ehr/visit-queue',
+      { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false,
+        ...(includeClosedToday ? { query: { includeClosedToday: true } } : {}) }),
+  checkIn: (facilityId: string, patient: VisitQueueCheckInBy) =>
+    client.post<VisitQueueCheckIn>('/api/v1/ehr/visit-queue/check-in',
+      'matchRef' in patient ? { matchRef: patient.matchRef } : { patientId: patient.patientId },
+      { headers: facilityHeaders(facilityId, 'direct-care') }),
+  update: (facilityId: string, entry: Pick<VisitQueueCard, 'entryId' | 'rowVersion'>, change: VisitQueueChange) =>
+    client.request<VisitQueueCard>({ method: 'PATCH', path: `/api/v1/ehr/visit-queue/${encodeURIComponent(entry.entryId)}`,
+      body: { expectedRowVersion: entry.rowVersion, ...change }, headers: facilityHeaders(facilityId, 'direct-care') }),
 }

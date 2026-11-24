@@ -20,6 +20,11 @@ export interface FieldDef {
    */
   readonly blank?: boolean
   readonly suggestions?: readonly string[]
+  /**
+   * Other fields filled when this one's value is one of its suggestions with a known code (picking "Malaria,
+   * unspecified" fills its ICD-10 code): the clinician sees them filled, and can still change them.
+   */
+  readonly fills?: (value: string) => Readonly<Record<string, string>> | null
   readonly hint?: string
   readonly placeholder?: string
   readonly maxLength?: number
@@ -81,8 +86,15 @@ export function checkFields(fields: readonly FieldDef[], values: FormValues): Fi
  * the submit button. Checks run on submit; the first problem gets focus; a field's problem clears as it changes.
  * `onSubmit` may answer a form error or field errors from the server, shown in the same places.
  */
-export function RecordForm({ fields, initial, submitLabel = 'Save', busyLabel = 'Saving…', onSubmit, validate, confirm, disabled = false, footer, children, className, submitVariant = 'primary', describedBy }: {
+export function RecordForm({ fields, initial, submitLabel = 'Save', busyLabel = 'Saving…', onSubmit, validate, confirm, disabled = false, footer, children, className, submitVariant = 'primary', describedBy, onFieldChange, nativeRequired = false }: {
   fields: readonly FieldDef[]
+  /**
+   * A required field left empty says what the browser itself says of it (its `validationMessage`), as classic's forms
+   * do: they leave the required check to the browser (staff/routes/Clinical.tsx RecordForm :558, :579). A value the
+   * browser accepts but the page refuses (only spaces) keeps "Complete this field.", classic's words when EHR refuses
+   * an empty field (staff/fieldProblem.ts:75-80).
+   */
+  nativeRequired?: boolean
   /** A page with another primary action makes this form's submit secondary (one focal point per screen). */
   submitVariant?: 'primary' | 'secondary'
   /**
@@ -104,6 +116,11 @@ export function RecordForm({ fields, initial, submitLabel = 'Save', busyLabel = 
   className?: string
   /** The id of what the submit button is described by (a warning about what the change does, as today's status form). */
   describedBy?: string
+  /**
+   * Told of each change as it is made, with the value as kept: a page drops at once what it showed for an earlier value
+   * (an allergy warning for another medicine).
+   */
+  onFieldChange?: (key: string, value: FormValue) => void
 }) {
   const id = useId()
   const [values, setValues] = useState<FormValues>(() => {
@@ -125,6 +142,7 @@ export function RecordForm({ fields, initial, submitLabel = 'Save', busyLabel = 
       delete next[key]
       return next
     })
+    onFieldChange?.(key, value)
   }
 
   const focusFirst = (problems: FieldErrors) => {
@@ -135,7 +153,15 @@ export function RecordForm({ fields, initial, submitLabel = 'Save', busyLabel = 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (sending.current || disabled) return
-    const problems = { ...checkFields(fields, values), ...(validate?.(values) ?? {}) }
+    const problems: Record<string, string> = { ...checkFields(fields, values), ...(validate?.(values) ?? {}) }
+    if (nativeRequired) {
+      for (const [key, problem] of Object.entries(problems)) {
+        const control = controls.current.get(key)
+        const native = problem === COMPLETE_FIELD && control && 'validity' in control && (control as HTMLInputElement).validity.valueMissing
+          ? (control as HTMLInputElement).validationMessage : ''
+        if (native) problems[key] = native
+      }
+    }
     setErrors(problems)
     setFormError(null)
     if (Object.keys(problems).length > 0) {
@@ -183,7 +209,11 @@ export function RecordForm({ fields, initial, submitLabel = 'Save', busyLabel = 
               error={errors[field.key]}
               disabled={disabled}
               register={register(field.key)}
-              onChange={value => change(field.key, typeof value === 'string' && field.normalise ? field.normalise(value) : value)}
+              onChange={value => {
+                change(field.key, typeof value === 'string' && field.normalise ? field.normalise(value) : value)
+                const filled = typeof value === 'string' ? field.fills?.(value) : null
+                if (filled) for (const [key, fill] of Object.entries(filled)) change(key, fill)
+              }}
             />
           ))
           return group.length > 1 ? <div key={group[0]!.key} className="hid-ehr-clinical-form-row">{controls}</div> : controls
@@ -271,15 +301,29 @@ function FieldControl({ id, field, value, error, disabled, register, onChange }:
       </EhrSelect>
     )
   } else if (kind === 'textarea') {
+    const typed = typeof value === 'string' ? value : ''
     control = (
-      <EhrTextarea
-        {...common}
-        rows={3}
-        maxLength={field.maxLength}
-        placeholder={field.placeholder}
-        value={typeof value === 'string' ? value : ''}
-        onChange={event => onChange(event.target.value)}
-      />
+      <>
+        <EhrTextarea
+          {...common}
+          rows={3}
+          maxLength={field.maxLength}
+          placeholder={field.placeholder}
+          value={typed}
+          onChange={event => onChange(event.target.value)}
+        />
+        {/* Common words one tap away (owner, 18 Nov 2026): each adds itself to what is typed, and can be edited. */}
+        {field.suggestions?.length && !disabled ? (
+          <div className="hid-ehr-clinical-quick-words" role="group" aria-label={`Quick add to ${field.label}`}>
+            {field.suggestions.map(word => (
+              <button key={word} type="button" className="hid-ehr-clinical-quick-word"
+                onClick={() => onChange(typed.trim() ? `${typed.trimEnd().replace(/[,.]$/, '')}, ${word.toLowerCase()}` : word)}>
+                {word}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </>
     )
   } else {
     const listId = field.suggestions?.length ? `${id}-suggestions` : undefined

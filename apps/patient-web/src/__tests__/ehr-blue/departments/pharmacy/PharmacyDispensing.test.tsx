@@ -4,6 +4,7 @@ import { fallbackMessageForStatus, HidApiError, PLAIN } from '@hid/http'
 import type { PharmacyWorkItem } from '../../../../staff/api'
 import { Pharmacy } from '../../../../ehr-blue/departments/pharmacy/Pharmacy'
 import { MODULE_NOT_IN_SERVICE } from '../../../../ehr-blue/departments/parts/errors'
+import { FIELDS_REFUSED } from '../../../../staff/fieldProblem'
 import { pharmacyPage } from '../../../../ehr-blue/departments/pharmacy/page'
 import { DEMO_PHARMACY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
 import { SAID_TRY_SHORTLY, SAID_UNAVAILABLE } from '../../../said'
@@ -48,15 +49,15 @@ const DISPENSING_VERSION_CONFLICT = 'Reversal must bind to the exact dispensing 
 const REASON = 'Full course dispensed at counter'
 /** What a failed dispensing or reversal says, as today's portal does: never the server's words. */
 const ACTION_FAILED = 'Pharmacy action could not be recorded.'
-/** The design's line under a failure that pressing the same button again can mend. */
+/** The blue design's line under a failure, dropped for classic's words (parity row 11b): never shown. */
 const RETRY_LINE = 'Fix what’s marked, or try again with the same button. Nothing is saved until it says so.'
+/** Classic's words for a prescription changed meanwhile (errorText: the words every page shares for a conflict). */
+const CHANGED = PLAIN.changed
 /** The refusals pressing again can't mend, each said in the page's own words with what to do instead. */
 const ROLE_CANNOT_DISPENSE = 'Your role at this facility doesn’t include dispensing medicines. Ask your facility administrator.'
 const ROLE_CANNOT_REVERSE = 'Your role at this facility doesn’t include reversing a dispensing. Ask your facility administrator.'
 const ALREADY_DISPENSED = 'This prescription is already recorded as dispensed. Go back to Prescriptions and refresh the list before you '
   + 'hand anything over.'
-const CHANGED_SINCE_OPENED = 'This prescription changed after you opened it, and it may already be dispensed. Go back to Prescriptions, '
-  + 'refresh the list and open it again before you hand anything over.'
 /** A cream prescribed with no dose and no unit, as classic and the EHR allow; accepted after Amoxicillin. */
 const CREAM: PharmacyWorkItem = { ...accepted, id: 'f6a7b8c9-work-item-6', acceptedAt: '2026-10-08T10:00:00.000Z',
   medication: { display: 'Hydrocortisone 1% cream' }, doseQuantity: null, doseUnit: null, routeCode: 'topical',
@@ -202,21 +203,24 @@ describe('the dispensing reason', () => {
     await waitFor(() => expect(recorded()).toBe('Dispensing recorded.'))
   })
 
+  // Classic's words (Operations.tsx PharmacyAction, errorText): the words every page shares for the status, else
+  // "Pharmacy action could not be recorded.", with no retry line (parity row 11b).
   it.each([
     ['the server’s own words', serverError(500, 'INTERNAL_ERROR', 'Dispensing store write failed on replica 3'),
-      ['Dispensing store write failed', 'INTERNAL_ERROR']],
+      ['Dispensing store write failed', 'INTERNAL_ERROR'], PLAIN.unavailable],
     ['the fields a 400 refused', serverError(400, 'VALIDATION_FAILED', 'Request validation failed',
       [{ field: 'quantityUnit', messages: ['quantityUnit must be shorter than or equal to 80 characters'] }]),
-    ['Request validation failed', 'VALIDATION_FAILED', 'Quantity unit', 'quantityUnit']],
-    ['a raw error’s words', new Error('Failed to fetch'), ['Failed to fetch']],
-    ['no message at all', { status: 0 }, []],
-  ])('says “Pharmacy action could not be recorded.” for a failure with %s, never the server’s words', async (_case, caught, unsaid) => {
+    ['Request validation failed', 'VALIDATION_FAILED', 'Quantity unit', 'quantityUnit'], FIELDS_REFUSED],
+    ['too many tries', serverError(429, 'RATE_LIMITED', 'Rate limit exceeded for bucket pharmacy'), ['Rate limit exceeded', 'RATE_LIMITED'], PLAIN.tooMany],
+    ['a raw error’s words', new Error('Failed to fetch'), ['Failed to fetch'], ACTION_FAILED],
+    ['no message at all', { status: 0 }, [], ACTION_FAILED],
+  ])('says classic’s words for a failure with %s, never the server’s words', async (_case, caught, unsaid, text) => {
     api.dispense.mockRejectedValueOnce(caught)
     await openRecord(AMOXICILLIN)
     const form = dispenseWith({ quantity: '21', reason: REASON })
     await confirmPatient('Dispense')
-    expect((await within(form).findByRole('alert')).textContent).toBe(ACTION_FAILED)
-    expect(within(form).getByText(RETRY_LINE)).toBeTruthy()
+    expect((await within(form).findByRole('alert')).textContent).toBe(text)
+    expect(within(form).queryByText(RETRY_LINE)).toBeNull()
     for (const words of unsaid) expect(document.body.textContent).not.toContain(words)
   })
 })
@@ -231,8 +235,8 @@ describe('Dispense', () => {
     // Nothing is sent before the patient is confirmed.
     const sheet = await screen.findByRole('dialog', { name: 'Confirm the patient' })
     expect(api.dispense).not.toHaveBeenCalled()
-    expect(within(sheet).getByRole('region', { name: 'Patient: Patient ••••6f8a10' })).toBeTruthy()
-    expect(within(sheet).getByText(`Dispense 21 capsule of ${AMOXICILLIN} to Patient ••••6f8a10?`)).toBeTruthy()
+    expect(within(sheet).getByRole('region', { name: 'Patient: Patient (name not shown)' })).toBeTruthy()
+    expect(within(sheet).getByText(`Dispense 21 capsule of ${AMOXICILLIN} to Patient (name not shown)?`)).toBeTruthy()
     expect(within(sheet).getByText('If this was a mistake, you can reverse the dispensing afterwards.')).toBeTruthy()
     await confirmPatient('Dispense')
     expect(api.dispense).toHaveBeenCalledTimes(1)
@@ -253,7 +257,7 @@ describe('Dispense', () => {
     const handed = done.nextElementSibling as HTMLElement
     // The quantity and its unit are drawn apart (kasuwa Value), then what and to whom.
     expect([within(handed).getByText('21').textContent, within(handed).getByText('capsule').textContent]).toEqual(['21', 'capsule'])
-    expect(handed.textContent).toMatch(new RegExp(`of ${AMOXICILLIN} handed to Patient ••••6f8a10\\.$`))
+    expect(handed.textContent).toMatch(new RegExp(`of ${AMOXICILLIN} handed to Patient \\(name not shown\\)\\.$`))
     expect(screen.queryByRole('form')).toBeNull()
     expect(screen.queryByRole('alert')).toBeNull()
     await waitFor(() => expect(document.activeElement).toBe(done))
@@ -365,8 +369,8 @@ describe('Dispense', () => {
     [403, 'PHARMACY_ACCESS_DENIED', ACCESS_DENIED, ROLE_CANNOT_DISPENSE],
     [409, 'PHARMACY_WORK_ITEM_ALREADY_DISPENSED', 'A full dispensing is already recorded for this work item; partial dispensing is not supported',
       ALREADY_DISPENSED],
-    [412, 'PHARMACY_WORK_ITEM_VERSION_CONFLICT', WORK_ITEM_VERSION_CONFLICT, CHANGED_SINCE_OPENED],
-  ])('says a %i refusal in plain words with what to do instead, never “try again with the same button”, and keeps the form', async (status, code, detail, text) => {
+    [412, 'PHARMACY_WORK_ITEM_VERSION_CONFLICT', WORK_ITEM_VERSION_CONFLICT, CHANGED],
+  ])('says a %i refusal in plain words, with no retry line, and keeps the form', async (status, code, detail, text) => {
     api.dispense.mockRejectedValueOnce(serverError(status, code, detail))
     await openRecord(AMOXICILLIN)
     const form = dispenseWith({ quantity: '21', reason: REASON })
@@ -374,7 +378,6 @@ describe('Dispense', () => {
     expect((await within(form).findByRole('alert')).textContent).toBe(text)
     expect(document.body.textContent).not.toContain(detail)
     expect(document.body.textContent).not.toContain(code)
-    // Pressing again can't mend these, so the retry line would mislead.
     expect(within(form).queryByText(RETRY_LINE)).toBeNull()
     expect(recorded()).toBe('')
     expect(recordStatus()).toBe('To dispense')
@@ -385,25 +388,23 @@ describe('Dispense', () => {
 
   it.each([
     ['work paused between facilities', serverError(423, 'CROSS_FACILITY_ORDERS_UNAVAILABLE', 'Paused'),
-      'Health ID has paused work on orders from other facilities. Try again later.', true],
+      'Health ID has paused work on orders from other facilities. Try again later.'],
     ['a closed order', serverError(409, 'ORDER_ROUTE_CLOSED', 'Closed'),
-      'This order from another facility is closed: it was cancelled, or its time for work has ended, so nothing more can be recorded on it. Refresh the list.', false],
-    ['a workspace not in service', serverError(404, 'API_ROUTE_NOT_FOUND', 'Route not found'), MODULE_NOT_IN_SERVICE, false],
-    ['a fault between services', serverError(503, 'PHARMACY_SERVICE_AUTH_UNAVAILABLE', 'Upstream workload identity refused'), SAID_TRY_SHORTLY, true],
-    // The HTTP client's own failures, built as it builds them, said in the page's words.
-    ['no connection', new HidApiError(0, PLAIN.network, { code: 'NETWORK_ERROR' }),
-      'We couldn’t reach Health ID. Check your internet connection and try again.', true],
+      'This order from another facility is closed: it was cancelled, or its time for work has ended, so nothing more can be recorded on it. Refresh the list.'],
+    ['a workspace not in service', serverError(404, 'API_ROUTE_NOT_FOUND', 'Route not found'), MODULE_NOT_IN_SERVICE],
+    ['a fault between services', serverError(503, 'PHARMACY_SERVICE_AUTH_UNAVAILABLE', 'Upstream workload identity refused'), SAID_TRY_SHORTLY],
+    // The HTTP client's own failures, built as it builds them: classic's words for no connection.
+    ['no connection', new HidApiError(0, PLAIN.network, { code: 'NETWORK_ERROR' }), PLAIN.network],
     ['no answer in time', new HidApiError(408, fallbackMessageForStatus(408), { code: 'REQUEST_TIMEOUT' }),
-      'Health ID took too long to answer, so this may already be recorded. Go back to Prescriptions and refresh the list to check before you try again.', false],
-    ['an ended session', serverError(401, 'AUTHENTICATION_REQUIRED', 'Session revoked by policy'),
-      'Your session has ended. Sign in again to continue.', false],
-  ])('says a failure with %s plainly, with the retry line only where pressing again can help', async (_case, caught, text, retry) => {
+      'Health ID took too long to answer, so this may already be recorded. Go back to Prescriptions and refresh the list to check before you try again.'],
+    ['an ended session', serverError(401, 'AUTHENTICATION_REQUIRED', 'Session revoked by policy'), PLAIN.signedOut],
+  ])('says a failure with %s plainly, with no retry line', async (_case, caught, text) => {
     api.dispense.mockRejectedValueOnce(caught)
     await openRecord(AMOXICILLIN)
     const form = dispenseWith({ quantity: '21', reason: REASON })
     await confirmPatient('Dispense')
     expect((await within(form).findByRole('alert')).textContent).toBe(text)
-    expect(within(form).queryByText(RETRY_LINE) !== null).toBe(retry)
+    expect(within(form).queryByText(RETRY_LINE)).toBeNull()
     // Never the server's words or the code, nor the client's sentence for the status where the page has its own.
     if (caught.detail !== null) expect(document.body.textContent).not.toContain(caught.detail)
     if (caught.message !== text) expect(document.body.textContent).not.toContain(caught.message)
@@ -417,7 +418,7 @@ describe('Dispense', () => {
     dispenseWith({ quantity: '21', reason: REASON })
     await confirmPatient('Dispense')
     const said = await screen.findByRole('alert')
-    expect(said.textContent).toBe('Not dispensableThis prescription is no longer active as Pharmacy accepted it, or it could not be checked. '
+    expect(said.textContent).toBe('Not dispensableThis prescription is no longer active as Pharmacy received it, or it could not be checked. '
       + 'A new prescription and handoff are needed.')
     expect(recordStatus()).toBe('Not dispensable')
     expect(screen.queryByRole('form')).toBeNull()
@@ -443,10 +444,10 @@ describe('Dispense', () => {
     await confirmPatient('Dispense')
     await screen.findByRole('alert')
     fireEvent.click(back())
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh work' }))
     await waitFor(() => expect(screen.queryByRole('button', { name: AMOXICILLIN })).toBeNull())
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' }).getAttribute('aria-busy')).toBeNull())
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh work' }).getAttribute('aria-busy')).toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh work' }))
     await screen.findByRole('button', { name: AMOXICILLIN })
     expect(within(row(AMOXICILLIN)).getByText('To dispense')).toBeTruthy()
   })
@@ -460,11 +461,11 @@ describe('Dispense', () => {
     await openRecord(AMOXICILLIN)
     const form = dispenseWith({ quantity: '21', reason: REASON })
     await confirmPatient('Dispense')
-    expect((await within(form).findByRole('alert')).textContent).toBe(CHANGED_SINCE_OPENED)
+    expect((await within(form).findByRole('alert')).textContent).toBe(CHANGED)
     expect(within(form).queryByText(RETRY_LINE)).toBeNull()
     // The picking view has no refresh of its own: back to the queue, read it again, and open the prescription again.
     fireEvent.click(back())
-    const refresh = screen.getByRole('button', { name: 'Refresh' })
+    const refresh = screen.getByRole('button', { name: 'Refresh work' })
     fireEvent.click(refresh)
     await waitFor(() => expect(refresh.getAttribute('aria-busy')).toBeNull())
     expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(2)
@@ -498,7 +499,7 @@ describe('Dispense', () => {
       .mockResolvedValueOnce({ items: [nowDispensed] })
     renderDept(<><Pharmacy /><Where /></>, { route: PRESCRIPTIONS })
     await screen.findByRole('button', { name: AMOXICILLIN })
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh work' }))
     fireEvent.click(screen.getByRole('button', { name: AMOXICILLIN }))
     dispenseWith({ quantity: '21', reason: REASON })
     await confirmPatient('Dispense')
@@ -545,7 +546,7 @@ describe('Reverse dispensing', () => {
     await openRecord(METFORMIN)
     const form = reverse('  Medication returned unopened by the patient  ')
     const sheet = await screen.findByRole('dialog', { name: 'Confirm the patient' })
-    expect(within(sheet).getByText(`Reverse the dispensing of ${METFORMIN} for Patient ••••a9b3c4?`)).toBeTruthy()
+    expect(within(sheet).getByText(`Reverse the dispensing of ${METFORMIN} for Patient (name not shown)?`)).toBeTruthy()
     expect(api.dispensing).not.toHaveBeenCalled()
     await confirmPatient('Reverse dispensing')
     await waitFor(() => expect(api.reverseDispensing).toHaveBeenCalledTimes(1))
@@ -578,11 +579,10 @@ describe('Reverse dispensing', () => {
     await openRecord(METFORMIN)
     const form = reverse(reason)
     await confirmPatient('Reverse dispensing')
-    expect((await within(form).findByRole('alert')).textContent).toBe(ACTION_FAILED)
+    expect((await within(form).findByRole('alert')).textContent).toBe(CHANGED)
     expect(document.body.textContent).not.toContain(DISPENSING_VERSION_CONFLICT)
     expect(document.body.textContent).not.toContain('PHARMACY_DISPENSING_VERSION_CONFLICT')
-    // Here the same button does mend it, so the retry line stays.
-    expect(within(form).getByText(RETRY_LINE)).toBeTruthy()
+    expect(within(form).queryByText(RETRY_LINE)).toBeNull()
     fireEvent.click(within(form).getByRole('button', { name: 'Reverse dispensing' }))
     await confirmPatient('Reverse dispensing')
     await waitFor(() => expect(recorded()).toBe('Dispensing reversal recorded.'))
@@ -601,7 +601,7 @@ describe('Reverse dispensing', () => {
 
   it.each([
     [403, 'PHARMACY_ACCESS_DENIED', ACCESS_DENIED, ROLE_CANNOT_REVERSE],
-    [404, 'PHARMACY_DISPENSING_NOT_FOUND', 'Dispensing was not found', ACTION_FAILED],
+    [404, 'PHARMACY_DISPENSING_NOT_FOUND', 'Dispensing was not found', PLAIN.notFound],
   ])('does not reverse when the dispensing can’t be read (%i)', async (status, code, detail, text) => {
     api.dispensing.mockRejectedValueOnce(serverError(status, code, detail))
     await openRecord(METFORMIN)

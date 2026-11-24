@@ -18,7 +18,10 @@ import { PrincipalRecovery } from './routes/PrincipalRecovery'
 import { AccessPage, NotificationsPage, PortalShell, ProfilePage, RecordsPage, SettingsRedirect } from './routes/Portal'
 import { resolveStaffProductHostname, isPlatformAdminHostname, PLATFORM_ADMIN_ROUTE, STAFF_RECOVERY_PATH, staffPageElsewhere } from './productHostname'
 import { isStaffPath, OpenStaffPage } from './staffSignIn'
-import { CLINICIAN_SIGNUP_PATH, CLINICIAN_STATUS_PATH, STAFF_INVITATION_PATH } from './productHostname'
+import {
+  CLINICIAN_SIGNUP_PATH, CLINICIAN_STATUS_PATH, OUTREACH_INVITATION_PATH, OUTREACH_SIGNUP_PATH, OUTREACH_TERMS_PATH, outreachSignUpHere,
+  STAFF_INVITATION_PATH,
+} from './productHostname'
 import { rightSiteHref, siteNameOf } from './productSites'
 import { openSite } from './openSite'
 import { usesNovuBackend } from './backendContract'
@@ -36,6 +39,10 @@ const StaffApp = lazy(async () => ({ default: (await import('./staff/App')).App 
 const ProviderEnrollment = lazy(async () => BLUE_FOR_ALL
   ? { default: (await import('./ehr-blue/signup/BlueProviderEnrollment')).BlueProviderEnrollment }
   : { default: (await import('./staff/routes/ProviderEnrollment')).ProviderEnrollment })
+// Open sign-up on outreach. (owner decisions of 11 November 2026): the organiser sign-up, its terms, and an invitation to help.
+const OutreachOrganiserSignUp = lazy(async () => ({ default: (await import('./ehr-blue/signup/OutreachOrganiserSignUp')).OutreachOrganiserSignUp }))
+const OutreachTerms = lazy(async () => ({ default: (await import('./ehr-blue/signup/OutreachTerms')).OutreachTerms }))
+const OutreachInvitation = lazy(async () => ({ default: (await import('./ehr-blue/signup/OutreachInvitation')).OutreachInvitation }))
 const ClinicianSignUp = lazy(async () => ({ default: (await import('./staff/routes/ClinicianSignUp')).ClinicianSignUp }))
 const ClinicianApplicationStatus = lazy(async () => ({
   default: (await import('./staff/routes/ClinicianApplicationStatus')).ClinicianApplicationStatus }))
@@ -147,7 +154,13 @@ export function App() {
     <Route path={STAFF_RECOVERY_PATH} element={BLUE_FOR_ALL
       ? <Suspense fallback={<main><p role="status">Opening account recovery…</p></main>}><BlueRecovery /></Suspense>
       : <PrincipalRecovery audience="staff" />} />
-    <Route path="/provider/enroll" element={<Suspense fallback={<main><p role="status">Opening provider enrollment…</p></main>}><ProviderEnrollment /></Suspense>} />
+    {/* On outreach. the sign-up address is "Start running outreach", the organiser sign-up; elsewhere facility sign-up. */}
+    <Route path="/provider/enroll" element={outreachSignUpHere(window.location.hostname)
+      ? <Suspense fallback={<main><p role="status">Opening outreach sign-up…</p></main>}><OutreachOrganiserSignUp /></Suspense>
+      : <Suspense fallback={<main><p role="status">Opening provider enrollment…</p></main>}><ProviderEnrollment /></Suspense>} />
+    <Route path={OUTREACH_SIGNUP_PATH} element={<Suspense fallback={<main><p role="status">Opening outreach sign-up…</p></main>}><OutreachOrganiserSignUp /></Suspense>} />
+    <Route path={OUTREACH_TERMS_PATH} element={<Suspense fallback={<main><p role="status">Opening the organiser terms…</p></main>}><OutreachTerms /></Suspense>} />
+    <Route path={OUTREACH_INVITATION_PATH} element={<Suspense fallback={<main><p role="status">Opening your invitation…</p></main>}><OutreachInvitation /></Suspense>} />
     {/* A facility's staff invitation (Novu, P4b): public, outside the provider workspace and its session. */}
     {usesNovuBackend() && <Route path={STAFF_INVITATION_PATH} element={<Suspense fallback={<main><p role="status">Opening your invitation…</p></main>}>
       {BLUE_FOR_ALL ? <BlueStaffInvitation /> : <StaffInvitation />}</Suspense>} />}

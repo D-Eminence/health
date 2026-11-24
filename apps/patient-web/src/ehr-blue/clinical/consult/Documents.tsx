@@ -13,12 +13,12 @@ import { staffSessionGeneration, untilStaffSessionReady } from '../../../staff/s
 import type { Chart } from '../parts/chart'
 import { SubHeading } from '../parts/Detail'
 import { ErrorBox, Loading } from '../parts/Notices'
-import { StatusBadge } from '../parts/StatusBadge'
 import { useClinical } from '../parts/Workspace'
 import { fileTypeLabel, scanStatusLabel } from '../../../plainLabels'
 import { RELOAD_FAILED, fileSize } from './encounters'
 import { ListPaging } from './Notes'
 import type { RecordList } from './records'
+import { OWN_DOCUMENTS_ONLY, STARTS_WITH_OTHERS, scanAccess } from '../../../scanAccess'
 
 const ACCEPTED = ['application/pdf', 'image/jpeg', 'image/png', 'image/tiff']
 /** 50 MiB, today's limit (staff/routes/Clinical.tsx Documents). */
@@ -29,20 +29,36 @@ const MAX_BYTES = 52_428_800
  */
 const OCR_PATH = '/provider/ocr'
 const OCR_LABEL = 'Extract with OCR'
+/**
+ * The same hand-off for someone who follows readings but does not start them (a doctor since hid-system 0136): Migrate
+ * holds the document in Find document job and looks its reading up at once, opening it when there is one; it never
+ * starts one.
+ */
+const OCR_FIND_LABEL = 'Find its reading'
 /** Said when EHR holds more documents than today's read answers (it takes no cursor). */
 const DOCUMENTS_TRUNCATED = 'Not every document of this encounter is listed here.'
 /** Said in place of the upload, once the types are served, on a host that uploads none (as blue Migrate says it). */
 const NO_UPLOAD_HERE = 'Documents can be uploaded only in the EHR, Lab, Pharmacy or Migrate.'
 
 /**
- * A listed document's line: its file type, size and scan result, as today; once the types are served, its document
- * type first. A document without one is a clinical document; a type this page does not know is not named.
+ * A listed document's line: its file type, size and scan result, as classic's line (staff/routes/Clinical.tsx Documents,
+ * :950-961) gives them, in plain words, by the house rule that facility screens show no codes: classic prints the media
+ * type ("application/pdf"), sizes in KiB and "scan: <code>" (commit 1122e8a2, 2 Nov 2026). Once the types are served,
+ * its document type first. A document without one is a clinical document; a type this page does not know is not named.
+ * As classic, the row has no status badge: an upload not completed says so in classic's sentence.
  */
 function documentLine(document: DocumentRecord, served: boolean): string {
   const type = served ? documentTypeOf(document) : null
   return [type ? documentTypeLabel(type) : '', fileTypeLabel(document.mediaType), fileSize(document.sizeBytes),
     document.status === 'initiated' ? '' : scanStatusLabel(document.scanStatus)].filter(Boolean).join(' · ')
 }
+
+/** Classic's upload words (Clinical.tsx Documents, :962-978), word for word: the refusal, the success and the note. */
+export const UPLOAD_REFUSED = 'Use PDF, JPEG, PNG, or TIFF, up to 50 MiB.'
+export const UPLOADED = 'Document uploaded. It can be opened once its virus scan is clean.'
+export const UPLOAD_NOTE = 'Files are scanned before download becomes available.'
+/** Classic's empty list (Clinical.tsx Documents). */
+export const NO_DOCUMENTS = 'No documents for this encounter.'
 
 /**
  * The card's error. After an upload whose list could not be read again it has "Try again" beside it (`again`), and
@@ -57,9 +73,12 @@ function reloadFailed(failure: string): CardError {
 
 /**
  * The encounter's documents (today's Documents tab), 50 to a page: each with its type, size and scan result, "Open
- * file" only once the virus scan is clean, today's "Extract with OCR" for a clean one when the role may read OCR jobs
- * (the ids go in router state, never in the address, as today), and "Upload a document". Opening and uploading
- * re-check access first, as today.
+ * file" only once the virus scan is clean, today's "Extract with OCR" for a clean one when the role may start a reading
+ * (OCR job write and start, and OCR job read or its own uploads' read: hid-system 0136, Q112 A), and "Find its reading"
+ * with a sentence saying who starts them when it follows readings but may not start one (a doctor), never a link that
+ * would only be refused (the ids go in router state, never in the address, as today), and "Upload a document".
+ * Opening and uploading re-check access first, as today. The front desk lists only the documents it uploaded, and the
+ * card says so.
  *
  * Document types (documentTypes.ts, the owner's rule of 31 Oct), as blue Migrate asks them: once the document list has
  * answered `documentTypes: true`, the upload asks for the document's type among those this host may upload (the
@@ -76,7 +95,8 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
   const { state } = useClinical()
   // Today's OCR handoff names who made it and where, since the history entry holding it outlives both.
   const actorId = state.status === 'ready' ? state.session.actor.id : undefined
-  const canOcr = chart.can('ocr.job.read')
+  const access = scanAccess(code => chart.can(code))
+  const ocrLabel = access.startsReadings ? OCR_LABEL : access.followsReadings ? OCR_FIND_LABEL : null
   const [error, showError] = useState<CardError>(NO_ERROR)
   const setError = (text: string) => showError(text ? { text, again: false } : NO_ERROR)
   const [notice, setNotice] = useState('')
@@ -123,7 +143,7 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
     setNotice('')
     const refuse = (message: string) => { setFileError(message); input.current?.focus() }
     if (!file || file.size === 0) return refuse('Select a file first.')
-    if (!ACCEPTED.includes(file.type) || file.size > MAX_BYTES) return refuse('Use a PDF, JPEG, PNG or TIFF file of up to 50 MB.')
+    if (!ACCEPTED.includes(file.type) || file.size > MAX_BYTES) return refuse(UPLOAD_REFUSED)
     setFileError(undefined)
     sending.current = true
     setUploading(true)
@@ -135,7 +155,7 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
       const failure = await list.reload(true)
       form.reset()
       setDocumentType(DEFAULT_DOCUMENT_TYPE)
-      setNotice('Uploaded. It can be opened once the virus check is done.')
+      setNotice(UPLOADED)
       if (failure !== null) showError(reloadFailed(failure))
     } catch (caught) {
       // A lab result from a host other than the EHR, Lab or Migrate is refused (403 DOCUMENT_TYPE_NOT_ALLOWED_HERE).
@@ -166,8 +186,9 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
       {list.error ? <ErrorBox>{list.error}</ErrorBox> : null}
       <ListPaging list={list} />
       {list.truncated ? <p className="hid-ehr-clinical-note">{DOCUMENTS_TRUNCATED}</p> : null}
+      {access.ownDocumentsOnly ? <p className="hid-ehr-clinical-note">{OWN_DOCUMENTS_ONLY}</p> : null}
       {list.items === null ? (list.loading ? <Loading label="Loading documents…" /> : null) : list.items.length === 0 ? (
-        <p>No documents for this consultation.</p>
+        <p>{NO_DOCUMENTS}</p>
       ) : (
         <ul className="hid-ehr-clinical-history-list">
           {list.items.map(document => {
@@ -183,14 +204,13 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
                 {deleted ? <span className="hid-ehr-clinical-cell-sub">{SOURCE_DELETED_WORDS}</span> : null}
               </span>
               <span className="hid-ehr-clinical-consult-document-actions">
-                {document.status && !deleted ? <StatusBadge status={document.status} /> : null}
                 {deleted ? null : <EhrButton variant="secondary" size="sm" disabled={document.scanStatus !== 'clean'} busy={opening === document.id}
                   aria-label={`Open file ${document.fileName}`} onClick={() => open(document)}>
                   Open file
                 </EhrButton>}
-                {canOcr && !deleted && document.scanStatus === 'clean' ? (
+                {ocrLabel && !deleted && document.scanStatus === 'clean' ? (
                   <Link className="hid-ehr-clinical-link" to={OCR_PATH} state={{ ocrDocumentId: document.id, ocrPatientId: patientId, actorId, facilityId }}>
-                    {OCR_LABEL}
+                    {ocrLabel}
                   </Link>
                 ) : null}
               </span>
@@ -198,11 +218,13 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
           })}
         </ul>
       )}
+      {ocrLabel === OCR_FIND_LABEL && list.items?.some(item => item.scanStatus === 'clean' && !sourceDeleted(item))
+        ? <p className="hid-ehr-clinical-note">{STARTS_WITH_OTHERS}</p> : null}
       {canWrite && !uploadsHere ? <p className="hid-ehr-clinical-note" role="status">{NO_UPLOAD_HERE}</p> : null}
       {canWrite && uploadsHere ? (
         <form className="hid-ehr-clinical-form" noValidate onSubmit={event => void upload(event)}>
           <SubHeading>Upload a document</SubHeading>
-          <p className="hid-ehr-clinical-note">Files are checked for viruses before anyone can open them.</p>
+          <p className="hid-ehr-clinical-note">{UPLOAD_NOTE}</p>
           {offersChoice ? (
             <EhrField label="Document type">
               <EhrSelect value={sentType} onChange={event => { if (isDocumentType(event.target.value)) setDocumentType(event.target.value) }}>

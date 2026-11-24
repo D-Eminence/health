@@ -1,3 +1,4 @@
+import { actionVariant } from '../../frame/actionVariant'
 import { EhrButton, EhrCard, EhrField, EhrInput } from '@hid/ui/ehr'
 import { useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
@@ -88,8 +89,8 @@ function RecordPage({ definition, record, current }: { definition: SampleDefinit
           <div ref={actionsRef} tabIndex={-1} className="hid-ehr-clinical-sample-actions">
             {available.length > 0 ? (
               <ActionList>
-                {available.map(item => (
-                  <EhrButton key={item.id} variant="secondary" aria-expanded={item.id === selected} onClick={() => setSelected(item.id)}>{item.label}</EhrButton>
+                {available.map((item, index) => (
+                  <EhrButton key={item.id} variant={actionVariant(item.label, index, available.map(other => other.label))} aria-expanded={item.id === selected} onClick={() => setSelected(item.id)}>{item.label}</EhrButton>
                 ))}
               </ActionList>
             ) : <NoActions />}
@@ -104,8 +105,8 @@ function RecordPage({ definition, record, current }: { definition: SampleDefinit
                 onDone={() => { setSelected(null); setSettled(count => count + 1) }}
               />
             ) : null}
-            {/* The design draws the heading on every visit and admission, with or without a hand-off the role may create. */}
-            {definition.continueCare ? (
+                        {/* Only when there is a next step to take: a heading over nothing is noise (a section shows only with content). */}
+            {definition.continueCare && handoffs.length > 0 ? (
               <>
                 <SubHeading>Continue care</SubHeading>
                 {handoffs.length > 0 ? (

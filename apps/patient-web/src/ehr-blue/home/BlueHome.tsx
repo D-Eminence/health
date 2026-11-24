@@ -1,6 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { useStaff } from '../../staff/App'
-import { holdsClinicalModule } from '../../staff/routes/Dashboard'
 import { FacilityCheckCard } from '../../staff/routes/ReviewBanner'
 import { usesNovuBackend } from '../../backendContract'
 import { isDemoFacility } from '../blueFacilities'
@@ -8,35 +7,75 @@ import { useReloadAccessRequests } from '../frame/attention'
 import { useBluePages } from '../frame/pageContext'
 import { pageHrefOf } from '../frame/pageHref'
 import { pageAllowed } from '../frame/pageAccess'
-import { inProduct, opensInProduct, productHere } from '../frame/product'
+import { inProduct, opensInProduct, pageListedInProduct, pageOpensInProduct, productHere } from '../frame/product'
+import { useListedChanges } from '../frame/listedChanges'
+import { servedHere } from '../../productSites'
 import { useRoleView } from '../frame/roleView'
 import { sampleModule, sampleRecords, sampleVersion, subscribeSamples } from '../frame/sample/store'
-import { IncomingOrdersCard, loadLab, loadPharmacy, useIncomingServices, useWork, WrongPatientOrdersCard } from './liveCards'
+import { ActiveFacilityCard, IncomingOrdersCard, loadLab, loadPharmacy, MigrateCard, useIncomingServices, useWork, WorkspacesCard, WrongPatientOrdersCard } from './liveCards'
 import { useAccessRequests } from '../frame/attention'
 import { basePath } from '../frame/pageHref'
 import type { LabWorkItem, PharmacyWorkItem, ReceivingService } from '../../staff/api'
 import { STAGE_LABEL, stageOf } from '../departments/laboratory/stage'
+import { withdrawnReasonOf } from '../departments/pharmacy/pharmacyText'
 import { Activity, ChevronRight, ClipboardList, FlaskConical, Pill, RotateCcw, Search, ShieldAlert, ShieldCheck, Stethoscope, Users } from 'lucide-react'
-import { Alert, Badge, Button, Card, CardHeader, EmptyState, IconChip, ListRow, PageHeader, SectionHeader, Select, StatCard, StatGroup, greeting } from '../../kasuwa/ui'
+import { Alert, Badge, Button, Card, CardHeader, EmptyState, IconChip, ListRow, PageHeader, SectionHeader, Select, StatCard, StatGroup } from '../../kasuwa/ui'
 import { Drawer } from '../../kasuwa/interactive'
 import { LoadingRows } from '../../kasuwa/parts'
 import { RoleDashboard } from './RoleDashboard'
+import { scanAccess } from '../../scanAccess'
+import { fromHere } from '../clinical/parts/cameFrom'
 import { HomeBillingCard, HomePeopleCard } from './adminCards'
 
 const ACTIVITY = ['patients', 'appointments', 'journey', 'triage'] as const
 const MAX_SHORTCUTS = 6
 
 /**
+ * The shortcuts each person picked at each facility, for as long as this tab is open: Home leaving and coming back
+ * (any page change) keeps them. Nothing is stored on the device; keeping them across a reload or another device needs
+ * a saved preference on the account (backend).
+ */
+const pickedShortcuts = new Map<string, readonly string[]>()
+
+/**
+ * One colour per area of work, the same as the area's place in the sidebar, so a shortcut says at a glance where it
+ * leads (the label still says it: never colour alone).
+ */
+type AreaTone = 'brand' | 'success' | 'violet' | 'warn' | 'info' | 'danger' | 'neutral'
+const FRONT_DESK = new Set(['patients', 'registration', 'in-person-check', 'waiting-list', 'appointments', 'journey'])
+const AREA_CHIP: Readonly<Record<AreaTone, string>> = {
+  brand: 'bg-brand-soft text-brand', success: 'bg-success-soft text-success', violet: 'bg-violet-soft text-violet',
+  warn: 'bg-warn-soft text-warn', info: 'bg-info-soft text-info', danger: 'bg-danger-soft text-danger', neutral: 'bg-subtle text-ink-2',
+}
+/** The sidebar's name for the area a page sits in: the clinical pages split into Front desk and Care, as the menu does. */
+export function areaName(page: { readonly path: string; readonly group: string }): string {
+  if (page.group !== 'Clinical') return page.group
+  return FRONT_DESK.has(basePath(page.path)) ? 'Front desk' : 'Care'
+}
+
+export function areaTone(page: { readonly path: string; readonly group: string }): AreaTone {
+  const base = basePath(page.path)
+  if (base === 'emergency') return 'danger'
+  if (page.group === 'Clinical') return FRONT_DESK.has(base) ? 'brand' : base === 'requests' ? 'brand' : 'success'
+  if (page.group === 'Diagnostics') return 'violet'
+  if (page.group === 'Pharmacy') return 'info'
+  if (page.group === 'Finance') return 'warn'
+  if (page.group === 'Network & Services') return 'brand'
+  return 'neutral'
+}
+
+/**
  * Home: the welcome heading with one primary action (Find a patient), Needs attention (each waiting thing once),
  * Today's work and the person's own shortcuts (edited from Shortcuts only; none pinned by default).
- * - Live: Needs attention (access requests, the current patient; incoming orders and orders accepted for the wrong
- *   person as their own cards, in today's words) and Today (laboratory and pharmacy work), each under today's
- *   permission and read as today's Overview and work pages read them.
+ * - Live: Needs attention (access requests; incoming orders and orders accepted for the wrong person as their own
+ *   cards, in today's words) and Today (laboratory and pharmacy work), each under today's permission and read as
+ *   today's Overview and work pages read them; and the classic Overview's own cards in its words: Active facility,
+ *   Current patient, Workspaces and Health ID Migrate (staff/routes/Dashboard.tsx; parity report 3.3-53 to 3.3-57).
  * - Sample (demo facilities only): the reporting period and its activity counts (Health ID serves no such counts yet);
  *   on a facility administrator's Home, Patient billing in their place.
  * - People, for whoever manages the facility's staff: the staff read live at a demo facility where Staff is listed, a
  *   sample figure at the other demo facilities, and the way to Staff & access.
- * - The shortcuts a person picks are kept in memory only.
+ * - The shortcuts a person picks are kept in memory for the tab (pickedShortcuts), so leaving Home keeps them.
  * Each demo role's dashboard replaces it from the account menu ("View Home as").
  */
 export function BlueHome() {
@@ -49,13 +88,18 @@ export function BlueHome() {
   const incoming = useIncomingServices(facility)
   const [period, setPeriod] = useState('7')
   const [customizing, setCustomizing] = useState(false)
-  const [chosen, setChosen] = useState<readonly string[] | null>(null)
+  const shortcutKey = state.status === 'ready' ? `${state.session.actor.id}|${state.session.actor.facility?.id ?? ''}` : ''
+  const [chosen, setChosenState] = useState<readonly string[] | null>(() => pickedShortcuts.get(shortcutKey) ?? null)
+  const setChosen = (next: readonly string[]) => { pickedShortcuts.set(shortcutKey, next); setChosenState(next) }
   useSyncExternalStore(subscribeSamples, sampleVersion, sampleVersion)
   // Home reads the access requests each time it opens, as today's Overview does.
   const reloadRequests = useReloadAccessRequests()
   useEffect(() => { reloadRequests() }, [reloadRequests])
   // Read once here (each read is audited) and shared by the stat tray and Today's work; before any early return.
   const access = useAccessRequests()
+  // Home draws again when a page that can say so says its `listed` changed (EhrBluePage.listedChanges), as the frame's
+  // sidebar does, so a shortcut leaves Home when its page stops being listed and comes back when it is listed again.
+  useListedChanges(pages, session)
   const demo = isDemoFacility(facility?.id)
   // Home offers this workspace's pages only, as the frame's menu and search do (product.ts). In a single product (a lab
   // or an outreach team on its own) Home opens when the product's own page is not open to this session, and it offers
@@ -68,50 +112,60 @@ export function BlueHome() {
   // A sample dashboard is the demo's alone, even when chosen there before a switch to a clinic.
   if (role.viewing && demo) return <RoleDashboard key={role.viewing} role={role.viewing} />
   if (!session) return null
-  const name = session.actor.displayName ?? 'colleague'
+  // The pages the sidebar lists here (BlueFrame.tsx): a page on every product's site (EhrBluePage.everyProduct) is a
+  // shortcut wherever this host serves its address, and each still under its own permission, `visible` and `listed`.
   const candidates = pages.filter(page => page.path !== '' && !page.group.startsWith('Design') && pageAllowed(page, session)
-    && inProduct(product, page.path) && (page.listed?.(session) ?? true))
+    && pageListedInProduct(product, page, servedHere) && pageOpensInProduct(product, page, servedHere)
+    && (page.listed?.(session) ?? true))
+  // A chosen shortcut whose page is not listed now is left out, and kept in memory: it comes back when listed again.
+  // Editing the shortcuts while it is out keeps only those shown.
   const shortcuts = candidates.filter(page => (chosen ?? []).includes(page.path))
 
   const pending = access.state === 'ready' ? access.pending : 0
   const labItems = labRead.state === 'ready' ? labRead.items : []
-  const rxItems = rxRead.state === 'ready' ? rxRead.items.filter(item => !item.dispensing || item.dispensing.reversed) : []
+  // To dispense: not dispensed (or reversed), and not withdrawn by the prescribing team (0133), which can never be dispensed.
+  const rxItems = rxRead.state === 'ready' ? rxRead.items.filter(item => (!item.dispensing || item.dispensing.reversed) && !withdrawnReasonOf(item)) : []
   const urgentLab = labItems.filter(item => (item as { priority?: string }).priority === 'urgent' || (item as { priority?: string }).priority === 'stat').length
   const canFind = candidates.some(page => basePath(page.path) === 'patients')
-  // A link from Home leads only to a page this site opens: the frame sends any other back here (product.ts). So on a
-  // single product, which has no Consultation, the open patient leads to their page under Patients, where this role may
-  // open it, and Incoming orders offers only this product's own work. In a hospital's EHR every page opens.
+  // A link from Home leads only to a page this site opens: the frame sends any other back here (product.ts). So
+  // Incoming orders offers only this product's own work. In a hospital's EHR every page opens.
   const opens = (path: string) => opensInProduct(product, path)
-  const patientTo = opens('clinical') ? '/provider/clinical' : canFind ? '/provider/patients/open' : null
+  // The open patient is classic's "Current patient" card (Dashboard.tsx), only where this site opens the clinical
+  // record, as classic showed it only where the site offered it (parity report 3.3-55): a single product, which has no
+  // Consultation, shows no card.
+  const patientCard = activePatient !== null && opens('clinical')
   const receivedHere = (service: ReceivingService) => opens(service === 'lab' ? 'laboratory' : 'pharmacy')
   const incomingHere = { services: incoming.services.filter(receivedHere), unsure: incoming.unsure.filter(receivedHere),
     sure: incoming.sure.filter(receivedHere) }
   const work = [
     ...labItems.slice(0, 5).map(item => ({ key: `lab-${item.id}`, title: item.testName ?? 'Lab test', meta: `Laboratory · ${STAGE_LABEL[stageOf(item)]}`,
-      to: '/provider/laboratory', icon: FlaskConical, urgent: (item as { priority?: string }).priority === 'urgent' })),
+      // Each row opens its own test, not the whole list, and its Back comes Home (flow review, 18 Nov 2026).
+      to: `/provider/laboratory/work/${encodeURIComponent(item.id)}`, icon: FlaskConical, urgent: (item as { priority?: string }).priority === 'urgent' })),
     ...rxItems.slice(0, 5).map(item => ({ key: `rx-${item.id}`, title: item.medication?.display ?? 'Medicine', meta: 'Pharmacy · to dispense',
-      to: '/provider/pharmacy', icon: Pill, urgent: false })),
-  ]
-  const attention = [
-    ...(pending > 0 ? [{ key: 'requests', to: '/provider/requests', icon: ShieldAlert, tone: 'warn' as const,
-      title: `${pending} access request${pending === 1 ? '' : 's'} waiting`, subtitle: 'Waiting for the patient to answer' }] : []),
-    ...(activePatient && patientTo ? [{ key: 'patient', to: patientTo, icon: Stethoscope, tone: 'brand' as const,
-      title: activePatient.lookup.patient.fullName ?? activePatient.hid,
-      subtitle: activePatient.purpose === 'emergency' ? 'Open now · emergency access, view only' : 'Open now · continue where you left off' }] : []),
-    ...(urgentLab > 0 ? [{ key: 'urgent-lab', to: '/provider/laboratory', icon: FlaskConical, tone: 'danger' as const,
-      title: `${urgentLab} urgent lab test${urgentLab === 1 ? '' : 's'}`, subtitle: 'Accepted and waiting to be run' }] : []),
+      to: `/provider/pharmacy/prescriptions/${encodeURIComponent(item.id)}`, icon: Pill, urgent: false })),
   ]
   // "All clear" only for what was read: the access requests (when this role reads them) and, at a demo facility, the
   // laboratory work. While a read is still on its way Home says it is loading; after one fails it does not say all clear.
   const readsRequests = permissions.includes('identity.consent.write')
-  const requestsRead = readsRequests ? access.state : 'ready'
+  // The Access requests card below says the count, its loading and its read error, so Needs attention leaves the
+  // requests out when the card is there (no row, no "No requests waiting", no wait on their read): each said once.
+  const requestsCard = Boolean(facility && readsRequests && opens('requests'))
+  const requestsHere = readsRequests && !requestsCard
+  const attention = [
+    ...(requestsHere && pending > 0 ? [{ key: 'requests', to: '/provider/requests', icon: ShieldAlert, tone: 'warn' as const,
+      title: `${pending} access request${pending === 1 ? '' : 's'} waiting`, subtitle: 'Waiting for the patient to answer' }] : []),
+    ...(urgentLab > 0 ? [{ key: 'urgent-lab', to: '/provider/laboratory', icon: FlaskConical, tone: 'danger' as const,
+      title: `${urgentLab} urgent lab test${urgentLab === 1 ? '' : 's'}`, subtitle: 'Accepted and waiting to be run' }] : []),
+  ]
+  const requestsRead = requestsHere ? access.state : 'ready'
   const labState = demo && lab ? labRead.state : 'ready'
   const checking = requestsRead === 'loading' || requestsRead === 'none' || labState === 'loading'
   const allClear = !checking && requestsRead === 'ready' && labState === 'ready'
-  const clearWords = [readsRequests ? 'No requests waiting' : null, 'no patient open', demo && lab ? 'nothing urgent' : null]
+  const clearWords = [requestsHere ? 'No requests waiting' : null, demo && lab ? 'nothing urgent' : null]
     .filter(Boolean).join(', ')
-  const clearDescription = `${clearWords.charAt(0).toUpperCase()}${clearWords.slice(1)}.`
-  const firstName = name.replace(/^(dr|mr|mrs|ms|nurse)\.?\s+/i, match => match).split(' ').slice(0, 2).join(' ')
+  const clearDescription = clearWords ? `${clearWords.charAt(0).toUpperCase()}${clearWords.slice(1)}.` : 'Nothing is waiting for you.'
+  // Classic's greeting, word for word (Dashboard.tsx): the first word of the display name, else "colleague".
+  const firstName = session.actor.displayName?.split(' ')[0] ?? 'colleague'
 
   const stats = [
     demo && lab ? <StatCard key="lab" icon={FlaskConical} tone="info" label="Lab tests" to="/provider/laboratory"
@@ -124,7 +178,8 @@ export function BlueHome() {
   ].filter(Boolean)
 
   return <div className="flex flex-col gap-8">
-    <PageHeader title={`${greeting()}, ${firstName}`} description={`What needs you at ${facility?.name ?? 'your facility'} today.`}
+    <PageHeader eyebrow="Provider workspace" title={`Good to see you, ${firstName}.`}
+      description={`Working at ${facility?.name ?? 'no selected facility'}. All clinical activity uses your current membership and is checked by Health ID.`}
       actions={canFind ? <Button to="/provider/patients" variant="primary" icon={Search}>Find a patient</Button> : undefined} />
 
     {stats.length > 0 ? <StatGroup label="Today at a glance" cols={stats.length >= 3 ? 3 : 2}>{stats}</StatGroup> : null}
@@ -134,7 +189,7 @@ export function BlueHome() {
         {/* The three-second rule: what waits for a decision is the first section, each thing in it once. */}
         <section className="flex flex-col gap-3" aria-labelledby="ehr-home-attention">
           <SectionHeader id="ehr-home-attention" title="Needs attention" count={attention.length} />
-          {access.state === 'failed' && <Alert intent="error" title="Couldn’t load access requests"
+          {requestsHere && access.state === 'failed' && <Alert intent="error" title="Couldn’t load access requests"
             action={<Button size="sm" icon={RotateCcw} onClick={reloadRequests}>Try again</Button>}>{access.message}</Alert>}
           {attention.length === 0
             ? checking ? <Card><LoadingRows rows={1} label="Loading what needs attention" /></Card>
@@ -154,7 +209,7 @@ export function BlueHome() {
             ? (labRead.state === 'loading' || rxRead.state === 'loading') && work.length === 0 ? <LoadingRows rows={2} label="Loading today's work" />
               : work.length > 0
                 ? <ul className="m-0 list-none divide-y divide-line p-0">{work.map(w => <li key={w.key}>
-                    <ListRow to={w.to} leading={<IconChip size="sm" icon={w.icon} tone={w.urgent ? 'danger' : 'neutral'} />} title={w.title} subtitle={w.meta}
+                    <ListRow to={w.to} state={fromHere('/provider', 'Back to Home')} leading={<IconChip size="sm" icon={w.icon} tone={w.urgent ? 'danger' : 'neutral'} />} title={w.title} subtitle={w.meta}
                       trailing={w.urgent ? <Badge tone="danger" size="sm" solid>Urgent</Badge> : <ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li>)}</ul>
                 : <p className="m-0 px-5 py-6 text-[13px] text-ink-3">Tests and prescriptions show here once they are accepted.</p>
             : <ul className="m-0 list-none divide-y divide-line p-0">
@@ -163,12 +218,35 @@ export function BlueHome() {
               </ul>}
         </Card> : null}
 
+        {/* Classic's "Active facility" card, with the roles as a badge (Dashboard.tsx; parity report 3.3-54). */}
+        {facility ? <ActiveFacilityCard facility={facility} /> : null}
         {/* Today's card and its once-only "Done" rule, at a self-signed-up facility (Novu). */}
         {facility ? <FacilityCheckCard facility={facility} /> : null}
+        {/* Today's Overview card, always there for a session that reads access requests, 0 pending included, with its
+            loading and read-error words (classic Dashboard.tsx:272) and Try again. */}
+        {requestsCard ? <Card aria-label="Access requests">
+          <CardHeader as="h2" title="Access requests" icon={ShieldAlert} />
+          {access.state === 'failed'
+            ? <div className="px-5 pb-2"><Alert intent="error" title="Couldn’t load access requests"
+                action={<Button size="sm" icon={RotateCcw} onClick={reloadRequests}>Try again</Button>}>{access.message}</Alert></div>
+            : <p className="m-0 px-5 pb-2 text-sm text-ink-2">{access.state === 'ready' ? `${access.pending} pending request${access.pending === 1 ? '' : 's'}`
+              : 'Loading requests…'}</p>}
+          <div className="px-5 pb-4"><Button to="/provider/requests" variant="link" size="sm" iconRight={ChevronRight}>Review requests</Button></div>
+        </Card> : null}
         {facility && usesNovuBackend() && incomingHere.services.length > 0
           ? <IncomingOrdersCard facility={facility} services={incomingHere.services} unsure={incomingHere.unsure} sure={incomingHere.sure} /> : null}
         {facility && usesNovuBackend() && permissions.includes('ehr.order-route.send')
           ? <WrongPatientOrdersCard key={facility.id} facilityId={facility.id} facilityName={facility.name} consultation={opens('clinical')} /> : null}
+        {facility && activePatient && patientCard ? <Card aria-labelledby="hid-ehr-blue-current-patient">
+          <CardHeader as="h2" titleId="hid-ehr-blue-current-patient" title="Current patient" icon={Stethoscope} />
+          <p className="m-0 px-5 pt-4 text-sm text-ink">{activePatient.lookup.patient.fullName ?? activePatient.hid}</p>
+          <div className="px-5 pb-4 pt-2"><Button to="/provider/clinical" variant="link" size="sm" iconRight={ChevronRight}>Open clinical record</Button></div>
+        </Card> : null}
+        {/* Classic's Workspaces grid and its notes, then its Health ID Migrate card (Dashboard.tsx; parity report 3.3-56,
+            3.3-57). */}
+        <WorkspacesCard permissions={permissions} products={session.actor.products} opens={opens} />
+        {/* For everyone who follows readings, the front desk's own (ocr.job.read-own) included, as Scan paper records opens. */}
+        {scanAccess(permissions).followsReadings && opens('ocr') ? <MigrateCard /> : null}
       </div>
 
       <div className="flex flex-col gap-6">
@@ -177,14 +255,10 @@ export function BlueHome() {
           <SectionHeader id="hid-ehr-blue-shortcuts" title="Shortcuts" action={<Button variant="link" size="sm" onClick={() => setCustomizing(true)}>Edit</Button>} />
           {shortcuts.length > 0
             ? <Card><ul className="m-0 list-none divide-y divide-line p-0">
-                {shortcuts.map(page => <li key={page.path}><ListRow to={pageHrefOf(page)} leading={<span className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-subtle text-ink-2 [&_svg]:size-[18px]">{page.icon}</span>}
-                  title={page.label} subtitle={page.status === 'sample' ? 'Sample' : page.group} trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li>)}
+                {shortcuts.map(page => <li key={page.path}><ListRow to={pageHrefOf(page)} leading={<span className={`inline-flex size-8 shrink-0 items-center justify-center rounded-lg [&_svg]:size-[18px] ${AREA_CHIP[areaTone(page)]}`}>{page.icon}</span>}
+                  title={page.label} subtitle={page.status === 'sample' ? 'Sample' : areaName(page)} trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li>)}
               </ul></Card>
             : <p className="m-0 px-1 text-[13px] text-ink-3">Pin the pages you use most. Choose Edit to add them.</p>}
-          {/* Today's Overview rule: none of the six clinical modules' permissions held (an administrator's audit and billing are not). */}
-          {facility && !holdsClinicalModule(permissions) ? (
-            <Alert intent="info" size="sm">You have no clinical work at this facility yet. Ask an administrator to check your role.</Alert>
-          ) : null}
         </section>
 
         {facility && permissions.includes('workforce.manage') ? <HomePeopleCard facility={facility} /> : null}
@@ -203,7 +277,7 @@ export function BlueHome() {
         </Card> : null}
       </div>
     </div>
-    <Drawer open={customizing} title="Edit shortcuts" description={`Choose up to ${MAX_SHORTCUTS}. They stay until you sign out or reload.`} onClose={() => setCustomizing(false)}
+    <Drawer open={customizing} title="Edit shortcuts" description={`Choose up to ${MAX_SHORTCUTS}. They stay while this tab is open.`} onClose={() => setCustomizing(false)}
       footer={<Button variant="primary" onClick={() => setCustomizing(false)}>Done</Button>}>
       <fieldset className="m-0 flex flex-col gap-1 border-0 p-0">
         <legend className="sr-only">Shortcuts for Home</legend>

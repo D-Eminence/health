@@ -94,15 +94,26 @@ export interface StaffNotice {
 }
 
 /**
- * What became of an invitation email just sent, when the administrator must act on it: null when it was sent (a
- * generic toast says so), otherwise today's words in a caution banner, naming the address.
+ * What became of an invitation email just sent, in the classic Staff page's sentence (staff/routes/Staff.tsx
+ * deliverySentence, parity report 3.3-73), naming the address: in the page's banner, plain when it was sent and a
+ * caution when the administrator must act on it.
  */
-export function deliveryNotice(outcome: StaffDeliveryOutcome | string, email: string, again: boolean): StaffNotice | null {
-  if (outcome === 'accepted') return null
+export function deliverySentence(outcome: StaffDeliveryOutcome | string, email: string, again: boolean): StaffNotice {
+  if (outcome === 'accepted') return { tone: 'info', text: again ? `Invitation sent again to ${email}.` : `Invitation sent to ${email}.` }
   if (outcome === 'definitive_failure') return { tone: 'caution', text: `The invitation to ${email} couldn’t be delivered. `
     + 'Check the address: if it’s wrong, revoke this invitation and invite the right one.' }
   return { tone: 'caution', text: `${again ? 'The invitation was renewed' : 'The invitation was created'}, but we couldn’t `
-    + `confirm that the email to ${email} was delivered. If it doesn’t arrive, resend it in a minute.` }
+    + `confirm that the email to ${email} was delivered. If it doesn’t arrive, send it again in a minute.` }
+}
+
+/** The same, only when the administrator must act on it (null when it was sent): for sending several again at once. */
+export function deliveryNotice(outcome: StaffDeliveryOutcome | string, email: string, again: boolean): StaffNotice | null {
+  return outcome === 'accepted' ? null : deliverySentence(outcome, email, again)
+}
+
+/** The classic Staff page's sentence once the administrator's own licence is saved: what was saved, and who checks it. */
+export function licenceSavedSentence(body: string, numberHint: string | null | undefined, facilityName: string): string {
+  return `Saved: ${body}${numberHint ? ` ending ${numberHint}` : ''}. Health ID support checks it when it reviews ${facilityName}.`
 }
 
 /** Why "Invite staff" is not available now, in the order Identity would refuse. */

@@ -51,6 +51,7 @@ describe(SITE, () => {
     expect(opened).not.toHaveBeenCalled()
   })
 
+  // As before website release C (owner's decision of 24 November 2026): the product's own page, not Home.
   it('opens Outreach’s Home in place of Patient registration, signed in, on this site', async () => {
     await openPortalSignedInOn(SITE, '/provider/registration', { id: OUTREACH_DEMO, name: 'Demo Outreach' }, EVERY_PERMISSION)
     await waitFor(() => expect(address()).toBe('/provider/outreach'))
@@ -111,6 +112,14 @@ describe(SITE, () => {
       ['Pharmacy', 'https://pharmacy.healthidentitydirectory.com/'],
       ['Migrate', 'https://migrate.healthidentitydirectory.com/'],
     ])
+  })
+
+  // "Start an outreach group" opens here, unlisted (owner's answer to Q88): Switch facility links to it, and it is the
+  // one page a login with no facility yet opens on this site. It used to send the person to /provider.
+  it('opens "Start an outreach group" at its address, signed in, on this site', async () => {
+    await openBlueOn(SITE, { id: OUTREACH_DEMO, name: 'Demo Outreach' }, EVERY_PERMISSION, [], '/provider/start-outreach-group')
+    expect(await screen.findByRole('heading', { level: 1, name: 'Start an outreach group' })).toBeTruthy()
+    expect(offeredHere('/provider/start-outreach-group', SITE)).toBe(true)
   })
 
   it('opens nothing of Demo Pharmacy here: it works on its own site', async () => {

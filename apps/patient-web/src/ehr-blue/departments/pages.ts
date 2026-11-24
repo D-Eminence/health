@@ -1,8 +1,8 @@
 import type { EhrBluePage } from './types'
 import { labPages, laboratoryPage } from './laboratory/page'
 import { pharmacyPages } from './pharmacy/page'
-import { migratePage } from './migrate/page'
-import { outreachPage } from './outreach/page'
+import { migratePage, readingQualityPage } from './migrate/page'
+import { outreachPage, startOutreachGroupPage } from './outreach/page'
 import { staffAccessPage } from './staff/page'
 import { auditPage } from './audit/page'
 import { facilityPage } from './facility/page'
@@ -10,6 +10,7 @@ import { hrPage } from './hr/page'
 import { commercePages } from './commerce/page'
 import { registrationPage } from './registration/page'
 import { inPersonCheckPage } from './inperson/page'
+import { waitingListPage } from './waiting/page'
 import { samplePages } from './sample/pages'
 import './departments.css'
 
@@ -19,11 +20,14 @@ import './departments.css'
 export const pages: EhrBluePage[] = [
   registrationPage,
   inPersonCheckPage,
+  waitingListPage,
   laboratoryPage,
   ...labPages,
   ...pharmacyPages,
   migratePage,
+  readingQualityPage,
   outreachPage,
+  startOutreachGroupPage,
   staffAccessPage,
   auditPage,
   facilityPage,

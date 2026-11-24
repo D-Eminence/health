@@ -98,6 +98,13 @@
   grid-column: 1 / -1;
 }
 
+/* Try again and Continue without saving, side by side, wrapping on a phone. */
+.hid-ehr .hid-ehr-onboarding-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .hid-ehr .hid-ehr-onboarding-half {
   max-width: calc(50% - 9px);
 }
@@ -233,6 +240,10 @@
 
 .hid-ehr .hid-ehr-onboarding-blocker p {
   margin: 0;
+}
+
+.hid-ehr .hid-ehr-onboarding-blocker p + p {
+  margin-top: 4px;
 }
 
 @media (max-width: 1000px) {

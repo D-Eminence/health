@@ -1,6 +1,6 @@
 import type { ReactNode, Ref } from 'react'
 import { Link } from 'react-router-dom'
-import { AuthLayout } from '../../../AuthLayout'
+import { AuthLayout, type AuthStep } from '../../../AuthLayout'
 import { PRODUCTS, productOf, type Product } from '../product'
 import {
   providerEnrollmentHref, resolveStaffProductHostname, STAFF_SIGN_IN_PATH, staffInvitationHref, staffRecoveryHref, staffSignInHref,
@@ -20,14 +20,20 @@ export interface BlueAuthLayoutProps {
   readonly titleRef?: Ref<HTMLHeadingElement & HTMLParagraphElement>
   /** The row of other ways in under the form. */
   readonly links?: boolean
+  /** The steps above the title, as app.'s password reset shows them (AuthLayout). */
+  readonly steps?: readonly AuthStep[]
+  readonly stepsLabel?: string
+  /** The one link in the top bar (AuthLayout): the sign-in's "Set up your facility", as on the classic page. */
+  readonly headerLink?: { readonly href: string; readonly label: string }
   readonly children: ReactNode
 }
 
-export function BlueAuthLayout({ title, titleId, lede, titleAs = 'h1', titleRef, links = true, children }: BlueAuthLayoutProps) {
+export function BlueAuthLayout({ title, titleId, lede, titleAs = 'h1', titleRef, links = true, steps, stepsLabel, headerLink, children }: BlueAuthLayoutProps) {
   return (
     <div className="hid-ehr-blue-auth contents">
       <AuthLayout brandTo={authHrefs().signIn} brandLabel="Health ID provider sign in" title={title} titleId={titleId}
-        titleAs={titleAs} titleRef={titleRef} titleFocusable={titleAs === 'h1'} lede={lede}>
+        titleAs={titleAs} titleRef={titleRef} titleFocusable={titleAs === 'h1'} lede={lede} steps={steps} stepsLabel={stepsLabel}
+        headerLink={headerLink && (/^https?:\/\//.test(headerLink.href) ? headerLink : { to: headerLink.href, label: headerLink.label })}>
         {children}
         {links ? <BlueAuthLinks /> : null}
       </AuthLayout>
@@ -70,7 +76,8 @@ export function authHrefs(hostname = window.location.hostname) {
 /** What registering is called on this site: the laboratory's or the pharmacy's on its own site, a hospital's elsewhere. */
 export function registerLabel(hostname = window.location.hostname): string {
   const product = resolveStaffProductHostname(hostname)?.key
-  return product === 'lab' ? 'Register a laboratory' : product === 'pharmacy' ? 'Register a pharmacy' : 'Register a hospital'
+  return product === 'lab' ? 'Register a laboratory' : product === 'pharmacy' ? 'Register a pharmacy'
+    : product === 'outreach' ? 'Start running outreach' : 'Register a hospital'
 }
 
 /** The other ways in: Register a hospital (a laboratory, a pharmacy) · Sign in · Recover access · Accept invitation. */

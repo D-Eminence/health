@@ -3,9 +3,12 @@ import { isHidApiError, PlainError, plainErrorText } from '@hid/http'
 import { useCallback } from 'react'
 import { usesNovuBackend } from '../../../backendContract'
 import { isAllowedPatientLookup, staffApi, type Facility } from '../../../staff/api'
+import type { ActivePatient } from '../../../staff/App'
 import { staffSessionGeneration, staffSessionSignal } from '../../../staff/session'
 import { selfServiceReview } from '../../../staff/staffAccess'
-import { useClinical } from '../parts/Workspace'
+import { opensInProduct, productOf } from '../../frame/product'
+import { segmentOf } from '../parts/segments'
+import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 
 /**
  * Today's governed access rules for the blue EHR (staff/routes/Patients.tsx and AccessRequests.tsx), shared by the
@@ -18,24 +21,38 @@ export const HID_FORMAT = 'Starts with HID-, then 6 to 32 letters and digits. He
 /** Patients.tsx:142, a lookup answered with anything but an allowed patient. */
 export const NOT_GRANTED = 'Health ID has not granted access to this patient. Request approval, verify their PIN, or use documented emergency access when justified.'
 export const CLOSE_REASON = 'Clinician closed completed patient access'
-/** AccessRequests.tsx:96 and Patients.tsx:226, once a grant is closed. */
+/** AccessRequests.tsx:100 and Patients.tsx:243, once a grant is closed. */
 export const ACCESS_CLOSED = 'Access was closed.'
+/** Patients.tsx:246, a close of the open record's grant that failed, whatever the reason (classic maps no code here). */
+export const CLOSE_FAILED = 'Grant could not be closed.'
+/**
+ * An access step (a request, a PIN) that failed for a reason the page has no words of its own for. Not classic's
+ * Patients.tsx:226 sentence: the coordinator's 2 Nov review reverted that wording (db9967ae, reverting d8379e1d) as
+ * showing internal names on facility screens, and parity row 17g records this as the coordinator's choice. With it,
+ * rows 9c and 22a count as done for their fallback.
+ */
+export const COMMAND_FAILED = 'Something went wrong. Please try again.'
 
 export type AccessMethod = 'request' | 'pin' | 'emergency'
 
 interface MethodRoute { readonly route: string; readonly method: EndpointMethod; readonly purpose?: string }
 export interface Action { readonly routes: readonly MethodRoute[]; readonly action: string }
 
-/** Each backend route a method calls, whose every listed permission the role must hold (today's METHOD_ROUTES). */
+/**
+ * Each backend route a method calls, whose every listed permission the role must hold (today's METHOD_ROUTES,
+ * Patients.tsx:37-44), with today's action words for the request and the PIN. Emergency access keeps the plain words
+ * the coordinator chose on 2 Nov.
+ */
 export const METHOD_ROUTES: Readonly<Record<AccessMethod, Action>> = {
-  request: { routes: [{ route: 'access.staffRequests', method: 'POST' }], action: 'ask patients for access' },
+  request: { routes: [{ route: 'access.staffRequests', method: 'POST' }], action: 'send access requests' },
   pin: { routes: [{ route: 'access.verifyPin', method: 'POST' },
-    { route: 'identity.patientLookup', method: 'POST', purpose: 'to open the record' }], action: 'use a patient’s Access PIN' },
+    { route: 'identity.patientLookup', method: 'POST', purpose: 'to open the record' }], action: 'verify a patient’s PIN' },
   emergency: { routes: [{ route: 'access.breakGlass', method: 'POST' },
     { route: 'identity.patientLookup', method: 'POST', purpose: 'to open the record' },
     { route: 'ehr.emergencyRecords', method: 'GET', purpose: 'to read the emergency summary' }], action: 'open emergency access' },
 }
-export const CLOSE_GRANT: Action = { routes: [{ route: 'access.closeOwnGrant', method: 'POST' }], action: 'end this access' }
+/** Patients.tsx:53, closing the grant that opened the record. */
+export const CLOSE_GRANT: Action = { routes: [{ route: 'access.closeOwnGrant', method: 'POST' }], action: 'close this grant' }
 export const OPEN_SHARED: Action = { routes: [{ route: 'identity.patientLookup', method: 'POST' }], action: 'open a patient’s record' }
 
 export type Administrator = 'pending' | 'reviewed' | null
@@ -98,8 +115,8 @@ export const NOT_OPEN_TO_ROLE = 'This patient’s record isn’t open to your ro
 const DEPARTMENT_ROLES: ReadonlySet<string> = new Set(['lab', 'pharmacist'])
 
 /**
- * What a refused lookup says: NOT_GRANTED (shown as "Choose how to get it.", beside Ask the patient and the Access PIN)
- * when Health ID holds no grant; NOT_OPEN_TO_ROLE for a lab or pharmacy role's 404; otherwise today's words, so "ask
+ * What a refused lookup says: NOT_GRANTED (classic's sentence, which the refused-lookup panel shows word for word, parity
+ * 13a) when Health ID holds no grant; NOT_OPEN_TO_ROLE for a lab or pharmacy role's 404; otherwise today's words, so "ask
  * your facility administrator" is said only for a refusal that is about the role, not the patient.
  */
 export function lookupRefusal(caught: unknown, roles: readonly string[]): string {
@@ -121,15 +138,62 @@ export function isRefusedLookup(caught: unknown): boolean {
  */
 export function useOpenPatient() {
   const { facility, setActivePatient } = useClinical()
-  return useCallback(async (hid: string, purpose: 'direct-care' | 'emergency' = 'direct-care') => {
+  return useCallback(async (hid: string, purpose: 'direct-care' | 'emergency' = 'direct-care', basis?: 'own-facility') => {
     if (!facility) throw new PlainError('Select an active facility first.')
     const lookup = await staffApi.lookupPatient(facility.id, hid, purpose)
     if (!isAllowedPatientLookup(lookup)) {
       setActivePatient(null)
       throw new PlainError(NOT_GRANTED)
     }
-    return setActivePatient({ hid, lookup, purpose })
+    return setActivePatient(basis ? { hid, lookup, purpose, basis } : { hid, lookup, purpose })
   }, [facility, setActivePatient])
+}
+
+/**
+ * Where an opened patient lands. Direct care (Find, PIN success, a shared record's Open, the open record's Open) lands
+ * on the patient's page for every role, never straight on the chart: owner decision Q139 B (23 Nov 2026), "Find lands
+ * on the patient page with the chart summary". That page shows the chart summary (EHR-C4) and keeps Start consultation
+ * and Open chart one click away. This differs from today's openPatient, which sends an allowed lookup to
+ * /provider/clinical (Patients.tsx:149); parity rows 9d, 13c and 13d follow the decision. Emergency access opens the
+ * read-only emergency summary where this site opens Emergency, and the patient's page anywhere else.
+ */
+export function useOpenedPatientHref() {
+  const { permissions, can } = useClinical()
+  const href = useWorkspaceHref()
+  return useCallback((purpose: ActivePatient['purpose']) => {
+    if (purpose === 'emergency') {
+      const product = productOf(window.location.hostname, permissions)
+      return opensInProduct(product, segmentOf('emergency')) && can('identity.break-glass.write') ? href.to('emergency', 'summary') : href.to('patients', 'open')
+    }
+    return href.to('patients', 'open')
+  }, [can, href, permissions])
+}
+
+/**
+ * "Open as this facility’s patient" (hid-system 0131, ID-4): what it says, and its refusals in plain words. Doctors,
+ * nurses and clinicians open a patient registered at this facility, or seen here with their consent in the last 24
+ * months, for 24 hours without a PIN; the patient sees each opening in their access history.
+ */
+export const OWN_FACILITY_TITLE = 'Open as this facility’s patient'
+export const OWN_FACILITY_HINT = 'If they registered here, or were seen here with their consent in the last 24 months. Opens for 24 hours.'
+export const OWN_FACILITY_REFUSED = 'This patient can’t be opened as this facility’s patient. Use their Access PIN or ask the patient.'
+export const OWN_FACILITY_ROLE = 'Your role at this facility can’t open patients this way. Use their Access PIN or ask the patient.'
+/**
+ * identity-api answers 404 PATIENT_NOT_FOUND here for no ACTIVE patient with the Health ID that this facility's seal
+ * allows (0131 open_own_facility_patient: an inactive or merged patient, or a sealed demo or QA one), and the lookup just
+ * before it found the patient: it never means the Health ID is unknown, so it offers no registration.
+ */
+export const OWN_FACILITY_NOT_FOUND = 'This patient can’t be opened here. Check the Health ID with the patient.'
+
+/** The permission POST identity/own-facility-access needs, from the contracts registry; doctors, nurses and clinicians hold it. */
+export function opensOwnFacility(permissions: readonly string[]): boolean {
+  return roleMay('identity.ownFacilityAccess', 'POST', permissions)
+}
+
+/** What a refused "Open as this facility’s patient" says, or null for a failure that is not a refusal. */
+export function ownFacilityRefusal(caught: unknown): string | null {
+  if (!isHidApiError(caught) || caught.status !== 403) return null
+  return caught.code === 'OWN_FACILITY_ACCESS_REFUSED' ? OWN_FACILITY_REFUSED : OWN_FACILITY_ROLE
 }
 
 /**

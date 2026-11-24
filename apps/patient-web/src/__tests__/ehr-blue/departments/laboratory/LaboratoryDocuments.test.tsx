@@ -58,7 +58,7 @@ vi.mock('../../../../staff/session', () => ({ staffSessionGeneration: () => 1, u
 vi.mock('../../../../staff/env', () => ({ getEnvironment: () => ({ name: 'test', apiBaseUrl: 'https://gateway.example.test' }) }))
 
 const PATIENT = 'a0000000-0000-4000-8000-0000004f9c2e'
-const MASKED = 'Patient ••••4f9c2e'
+const MASKED = 'Patient (name not shown)'
 const WORK = ['lab.work-item.read']
 const READ = 'lab.document.read'
 const WRITE = 'lab.document.write'
@@ -278,9 +278,9 @@ describe('served, for a member who reads and attaches lab documents', () => {
     // Registering its sample reads the work list again and renders the request with the work as now listed.
     api.labWorkItems.mockResolvedValue(served([workItem({ accessionId: 'accession-1', accessionNumber: 'ACC-2026-000123',
       specimenStatuses: ['required'] })]))
-    fireEvent.change(screen.getByRole('textbox', { name: 'Sample' }), { target: { value: 'Venous blood' } })
-    fireEvent.change(screen.getByRole('textbox', { name: 'Why the test' }), { target: { value: 'Routine check' } })
-    const register = screen.getByRole('button', { name: 'Register sample' })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Specimen type' }), { target: { value: 'Venous blood' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Reason' }), { target: { value: 'Routine check' } })
+    const register = screen.getByRole('button', { name: 'Create accession' })
     register.focus()
     fireEvent.click(register)
     const sample = await screen.findByRole('group', { name: 'Venous blood, SPC-000123' })
@@ -290,10 +290,10 @@ describe('served, for a member who reads and attaches lab documents', () => {
     api.labAccession.mockResolvedValue({ ...made, specimens: [{ ...specimen, status: 'collected', version: 3 }] })
     api.labWorkItems.mockResolvedValue(served([workItem({ accessionId: 'accession-1', accessionNumber: 'ACC-2026-000123',
       specimenStatuses: ['collected'] })]))
-    fireEvent.click(within(sample).getByRole('button', { name: 'Collect sample' }))
+    fireEvent.click(within(sample).getByRole('button', { name: 'Mark collected' }))
     const sheet = await screen.findByRole('dialog', { name: 'Collect the sample' })
-    await act(async () => { fireEvent.click(within(sheet).getByRole('button', { name: 'Collect sample' })) })
-    expect(await screen.findByText('Sample collected. Print the label.')).toBeTruthy()
+    await act(async () => { fireEvent.click(within(sheet).getByRole('button', { name: 'Mark collected' })) })
+    expect(await screen.findByText('Specimen marked collected.')).toBeTruthy()
     await waitFor(() => expect(api.labWorkItems).toHaveBeenCalledTimes(3))
     await act(async () => { await Promise.resolve() })
     expect(window.document.getElementById('lab-stage-title')?.textContent).toBe('Testing')
@@ -368,14 +368,14 @@ describe('served, for a member who reads and attaches lab documents', () => {
     expect(open).not.toHaveBeenCalled()
   })
 
-  it('says a source page deleted after 24 hours in its own sentence, and opens nothing (hid-system 0110)', async () => {
+  it('says a source page deleted after 7 days in its own sentence, and opens nothing (hid-system 0110)', async () => {
     const open = vi.spyOn(window, 'open').mockReturnValue(null)
     api.documentDownload.mockResolvedValue({ outcome: 'source_deleted' })
     renderPage()
     await openRecord()
     await within(card()).findByText('full-blood-count.jpg')
     fireEvent.click(within(card()).getByRole('button', { name: 'Open file' }))
-    expect((await within(card()).findByRole('alert')).textContent).toBe('Source page deleted after 24 hours')
+    expect((await within(card()).findByRole('alert')).textContent).toBe('Source page deleted after 7 days')
     expect(open).not.toHaveBeenCalled()
   })
 
@@ -384,8 +384,19 @@ describe('served, for a member who reads and attaches lab documents', () => {
     renderPage()
     await openRecord()
     const row = (await within(card()).findByText('full-blood-count.jpg')).closest('li') as HTMLElement
-    expect(within(row).getByText('Source page deleted after 24 hours')).toBeTruthy()
+    expect(within(row).getByText('Source page deleted after 7 days')).toBeTruthy()
     expect(within(row).queryByRole('button', { name: 'Open file' })).toBeNull()
+    expect(api.documentDownload).not.toHaveBeenCalled()
+  })
+
+  it('lists a document whose source page is being deleted the same way: that sentence, no download (hid-system#226)', async () => {
+    api.workItemDocuments.mockResolvedValue(page([{ ...document(), status: 'source_deleting' }]))
+    renderPage()
+    await openRecord()
+    const row = (await within(card()).findByText('full-blood-count.jpg')).closest('li') as HTMLElement
+    expect(within(row).getByText('Source page deleted after 7 days')).toBeTruthy()
+    expect(within(row).queryByRole('button', { name: 'Open file' })).toBeNull()
+    expect(row.textContent).not.toMatch(/source[ _]deleting/i)
     expect(api.documentDownload).not.toHaveBeenCalled()
   })
 

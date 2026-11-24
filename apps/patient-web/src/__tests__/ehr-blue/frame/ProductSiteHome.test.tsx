@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as ProductHostname from '../../../productHostname'
@@ -125,8 +125,17 @@ const NO_PHARMACY_WORK = 'Your role at this facility doesn’t include pharmacy 
 const AWAITING_REVIEW = ['workforce.manage', 'audit.read', 'outreach.registration.read', 'outreach.registration.write', 'outreach.campaign.read', 'outreach.campaign.write']
 
 describe('the pharmacy. site settles on a page whatever the role holds', () => {
-  it('neither permission (a non-pharmacist on that site): Prescriptions, which says plainly why it is closed', async () => {
-    const landed = await settle(PHARMACY, ['workforce.manage'])
+  // Parity report 15a: Pharmacy's own address opens for everyone but only sends on to its pages, so a role that can use
+  // none of them lands on Home, as classic's sign-in landed on the Overview (staff/navigation.ts staffLandingPath).
+  it.each([[['workforce.manage']], [[WALK_IN]], [['pharmacy.stock.read', 'billing.bill.read']]])('without prescriptions (%j) at a real facility, /provider stays on Home, not on Prescriptions\' refusal', async permissions => {
+    const landed = await settle(PHARMACY, permissions)
+    expect(landed).toEqual({ where: '/provider', heading: 'Good to see you, Demo.' })
+    expect(trail).toEqual(['/provider'])
+    expect(screen.queryByRole('heading', { name: 'Pharmacy unavailable' })).toBeNull()
+  })
+
+  it('neither permission (a non-pharmacist on that site): Prescriptions, opened by its address, says plainly why it is closed', async () => {
+    const landed = await settle(PHARMACY, ['workforce.manage'], '/provider/pharmacy/prescriptions')
     expect(landed).toEqual({ where: '/provider/pharmacy/prescriptions', heading: 'Pharmacy unavailable' })
     expect(screen.getByText(NO_PHARMACY_WORK)).toBeTruthy()
     // No permission name, code or dotted id on the page.
@@ -136,7 +145,7 @@ describe('the pharmacy. site settles on a page whatever the role holds', () => {
   it('a pharmacy\'s administrator while Health ID checks the facility: Prescriptions, which says it opens after the check', async () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
     staff.selfService = { review: 'pending', organizationType: 'pharmacy' }
-    const landed = await settle(PHARMACY, ['workforce.manage', 'audit.read'])
+    const landed = await settle(PHARMACY, ['workforce.manage', 'audit.read'], '/provider/pharmacy/prescriptions')
     expect(landed).toEqual({ where: '/provider/pharmacy/prescriptions', heading: 'Pharmacy unavailable' })
     expect(screen.getByText('Pharmacy opens once Health ID support has checked your facility.')).toBeTruthy()
     // Not told to ask the facility administrator, which they are.
@@ -148,10 +157,11 @@ describe('the pharmacy. site settles on a page whatever the role holds', () => {
   it.each([['a laboratory', 'laboratory'], ['another kind of', 'other']])('%s facility\'s administrator while Health ID checks it: never promised Pharmacy, which it will not get', async (_kind, organizationType) => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
     staff.selfService = { review: 'pending', organizationType }
-    const landed = await settle(PHARMACY, AWAITING_REVIEW)
+    const landed = await settle(PHARMACY, AWAITING_REVIEW, '/provider/pharmacy/prescriptions')
     expect(landed).toEqual({ where: '/provider/pharmacy/prescriptions', heading: 'Pharmacy unavailable' })
     // The banner names no Pharmacy for this kind of facility, so the page below it promises none.
-    expect(screen.getByText(/^Health ID support is checking/).textContent).not.toMatch(/Pharmacy (work|workspace)/)
+    // (The pending Facility check card says the same check in its own words: parity report 3.3-27.)
+    for (const said of screen.getAllByText(/^Health ID support is checking/)) expect(said.textContent).not.toMatch(/Pharmacy (work|workspace)/)
     expect(document.body.textContent).not.toMatch(/Pharmacy opens/)
     // Nor told to ask the facility administrator, which they are: there is no pharmacy step to give them.
     expect(screen.getByText('Your role at this facility doesn’t include pharmacy work.')).toBeTruthy()
@@ -162,7 +172,7 @@ describe('the pharmacy. site settles on a page whatever the role holds', () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
     staff.selfService = { review: 'reviewed', organizationType: 'pharmacy' }
     const landed = await settle(PHARMACY, ['organization.manage', 'workforce.manage', 'audit.read', 'identity.registration.read',
-      'outreach.registration.read', 'outreach.campaign.read'])
+      'outreach.registration.read', 'outreach.campaign.read'], '/provider/pharmacy/prescriptions')
     expect(landed).toEqual({ where: '/provider/pharmacy/prescriptions', heading: 'Pharmacy unavailable' })
     expect(screen.getByText('Your role at this facility doesn’t include pharmacy work. Add a pharmacist on the Staff page.')).toBeTruthy()
     expect(document.body.textContent).not.toMatch(/Ask your facility administrator/)
@@ -172,7 +182,7 @@ describe('the pharmacy. site settles on a page whatever the role holds', () => {
   it('anyone else at that checked facility is still told to ask its administrator', async () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
     staff.selfService = { review: 'reviewed', organizationType: 'pharmacy' }
-    await settle(PHARMACY, ['outreach.registration.read'])
+    await settle(PHARMACY, ['outreach.registration.read'], '/provider/pharmacy/prescriptions')
     expect(screen.getByText(NO_PHARMACY_WORK)).toBeTruthy()
   })
 
@@ -206,16 +216,18 @@ describe('the pharmacy. site settles on a page whatever the role holds', () => {
     expect(await settle(PHARMACY, [WALK_IN, READ])).toEqual({ where: '/provider/pharmacy/sell', heading: 'Sell (stand-in)' })
   })
 
-  it('a Sell address the role cannot open at a demo facility comes back to a page that settles', async () => {
+  it('a Sell address the role cannot open at a demo facility refuses in its place and settles there (parity report 3.3-50)', async () => {
     staff.facility = DEMO
     const landed = await settle(PHARMACY, [], '/provider/pharmacy/sell')
-    expect(landed).toEqual({ where: '/provider/pharmacy/prescriptions', heading: 'Pharmacy unavailable' })
+    expect(landed).toEqual({ where: '/provider/pharmacy/sell', heading: 'Sell unavailable' })
+    expect(screen.getByText('Your role at this facility doesn’t include this page. Ask your facility administrator.')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/permission/i)
   })
 })
 
 describe('at a real facility, where Health ID does not serve Sell yet, the pharmacy. site settles on Prescriptions', () => {
-  it('walk-in sales only: Prescriptions, which says plainly why it is closed', async () => {
-    const landed = await settle(PHARMACY, [WALK_IN])
+  it('walk-in sales only: Prescriptions, opened by its address, says plainly why it is closed', async () => {
+    const landed = await settle(PHARMACY, [WALK_IN], '/provider/pharmacy/prescriptions')
     expect(landed).toEqual({ where: '/provider/pharmacy/prescriptions', heading: 'Pharmacy unavailable' })
     // Sell does not open here, so no pharmacy page is in the role: "only prescriptions are not in it" would be wrong.
     expect(screen.getByText(NO_PHARMACY_WORK)).toBeTruthy()
@@ -229,7 +241,7 @@ describe('at a real facility, where Health ID does not serve Sell yet, the pharm
   })
 
   it('other pharmacy pages but neither (Stock, Sales & receipts): Prescriptions, with none of those pages in the menu', async () => {
-    const landed = await settle(PHARMACY, ['pharmacy.stock.read', 'billing.bill.read'])
+    const landed = await settle(PHARMACY, ['pharmacy.stock.read', 'billing.bill.read'], '/provider/pharmacy/prescriptions')
     expect(landed).toEqual({ where: '/provider/pharmacy/prescriptions', heading: 'Pharmacy unavailable' })
     expect(screen.getByText(NO_PHARMACY_WORK)).toBeTruthy()
     expect(screen.queryByRole('link', { name: 'Stock' })).toBeNull()
@@ -296,7 +308,7 @@ describe('the lab., outreach. and migrate. sites settle too', () => {
     try {
       const landed = await settle(site, [])
       expect(landed.where).toBe('/provider')
-      expect(landed.heading).toMatch(/^Good (morning|afternoon|evening), Demo Admin$/)
+      expect(landed.heading).toBe('Good to see you, Demo.')
       expect(trail).toEqual(['/provider'])
       expect(screen.queryByRole('heading', { name: refusal })).toBeNull()
       // Home reads none of the product's work (nor anything else, for a role with none).
@@ -353,17 +365,15 @@ describe('Home on a product site links only to pages that site opens', () => {
 
   afterEach(() => { vi.unstubAllGlobals(); forgetReceiving() })
 
-  it('the open patient leads to their page under Patients, not to Consultation, and it stays there', async () => {
+  // Parity report 3.3-55: classic's "Current patient" card shows only where the site offers the clinical record.
+  it('the open patient has no card there, where the clinical record is not offered, and nothing leads to Consultation', async () => {
     answer({})
     staff.activePatient = openPatient
     const landed = await settle(LAB, ['audit.read', 'identity.patient.read'])
     expect(landed.where).toBe('/provider')
-    const row = screen.getByRole('link', { name: new RegExp(PATIENT.replace(/[()]/g, '\\$&')) })
-    expect(row.getAttribute('href')).toBe('/provider/patients/open')
-    fireEvent.click(row)
-    await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/provider/patients/open'))
-    await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)) })
-    expect(screen.getByTestId('where').textContent).toBe('/provider/patients/open')
+    expect(screen.queryByRole('heading', { name: 'Current patient' })).toBeNull()
+    expect(screen.queryByText(PATIENT)).toBeNull()
+    expect(document.querySelector('a[href="/provider/clinical"]')).toBeNull()
   })
 
   it('without Patients, the open patient is not offered there at all', async () => {
@@ -375,11 +385,14 @@ describe('Home on a product site links only to pages that site opens', () => {
     expect(document.querySelector('a[href="/provider/clinical"]')).toBeNull()
   })
 
-  it('in the EHR, the open patient still leads to Consultation', async () => {
+  it('in the EHR, the open patient is classic\'s "Current patient" card, which opens the clinical record', async () => {
     answer({})
     staff.activePatient = openPatient
     await settle(EHR, ['identity.patient.read', 'ehr.encounter.read'])
-    expect(screen.getByRole('link', { name: new RegExp(PATIENT.replace(/[()]/g, '\\$&')) }).getAttribute('href')).toBe('/provider/clinical')
+    const card = screen.getByRole('region', { name: 'Current patient' })
+    expect(card.textContent).toContain(PATIENT)
+    const link = screen.getByRole('link', { name: 'Open clinical record' })
+    expect(link.getAttribute('href')).toBe('/provider/clinical')
   })
 
   it('incoming orders offer the laboratory only, and read no prescriptions', async () => {

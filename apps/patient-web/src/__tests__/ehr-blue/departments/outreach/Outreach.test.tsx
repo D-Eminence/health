@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import { DEMO_HOSPITAL_ID, renderDept } from '../harness'
 import { Outreach } from '../../../../ehr-blue/departments/outreach/Outreach'
+import { forgetOutreachServed } from '../../../../ehr-blue/departments/outreach/outreachServed'
 import { outreachPage } from '../../../../ehr-blue/departments/outreach/page'
 import { SAID_CHANGED, SAID_FIELDS_REFUSED, SAID_NETWORK, SAID_NOT_TURNED_ON, SAID_REFUSED, SAID_TRY_SHORTLY, SAID_UNAVAILABLE } from '../../../said'
 
@@ -27,7 +28,7 @@ vi.mock('../../../../staff/App', async () => {
 })
 
 const api = vi.hoisted(() => ({
-  outreachCampaigns: vi.fn(), outreachCampaignMembers: vi.fn(), outreachCases: vi.fn(), createOutreachCase: vi.fn(),
+  outreachCampaigns: vi.fn(), outreachCampaignMembers: vi.fn(), outreachCases: vi.fn(), outreachCasesPage: vi.fn(), outreachScreening: vi.fn(), createOutreachCase: vi.fn(),
   linkExistingOutreachCase: vi.fn(), lookupPatient: vi.fn(),
   // Campaign management (hid-system#222): asked of a membership that may write campaigns. Today's Outreach answers 404,
   // so these tests keep campaigns read only (OutreachCampaignAdmins.test.tsx has it served).
@@ -79,7 +80,13 @@ const LOOKED_UP = { authorization: { decision: 'allow', scope: 'read_records' },
 let setItem: ReturnType<typeof vi.spyOn>
 
 beforeEach(() => {
+  // What Outreach serves is remembered for the session (outreachServed.ts): each test starts knowing nothing.
+  forgetOutreachServed()
+  // The list's first read (hid-system#247) is today's request; an Outreach before paging answers it with no cursor.
+  api.outreachCasesPage.mockImplementation(async (facilityId: string) => ({ items: await api.outreachCases(facilityId), nextCursor: null }))
   vi.clearAllMocks()
+  // Today's Outreach serves no health checks (0118): the section is not shown.
+  api.outreachScreening.mockRejectedValue(new HidApiError(404, 'Not found', { code: 'API_ROUTE_NOT_FOUND' }))
   unprovided.clear()
   session.permissions = ALL
   session.facility = 'hospital'
@@ -230,7 +237,7 @@ describe('the list', () => {
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
     expect(heading().textContent).toBe('Outreach')
     expect(screen.getByRole('button', { name: 'New registration' })).toBeTruthy()
-    expect(screen.getByRole('searchbox', { name: 'Search Outreach' }).getAttribute('placeholder')).toBe('Search by name')
+    expect(screen.getByRole('searchbox', { name: 'Search Outreach' }).getAttribute('placeholder')).toBe('Search by name or Health ID')
     // The list opens on who still needs linking.
     const tabs = screen.getByRole('navigation', { name: 'Show registrations' })
     expect(within(tabs).getAllByRole('button').map(tab => [tab.textContent, tab.getAttribute('aria-pressed')]))
@@ -245,8 +252,8 @@ describe('the list', () => {
     const two = card(await casesList(), 'Patient Two')
     expect(within(two).getByText('Linked')).toBeTruthy()
     expect(within(two).getByText('Done: nothing more to do')).toBeTruthy()
-    // No export: today's API has none, and a download would keep identifying data on the device.
-    expect(screen.queryByRole('button', { name: /export/i })).toBeNull()
+    // Export (owner, 13 Nov 2026): made on this device from the list as read, after a privacy note (OutreachExport.test.tsx).
+    expect(screen.getByRole('button', { name: 'Export' }).getAttribute('aria-disabled')).toBeNull()
   })
 
   it('says the list is loading', async () => {
@@ -259,7 +266,8 @@ describe('the list', () => {
   it('says when there are no cases yet, and offers the first registration', async () => {
     api.outreachCases.mockResolvedValue([])
     renderPage()
-    expect(await screen.findByText('No registrations yet')).toBeTruthy()
+    // The classic Outreach section's words (parity report 3.3-72).
+    expect(await screen.findByText('No registration cases')).toBeTruthy()
     expect(screen.getByText('People you register in the field show here, with what each needs next.')).toBeTruthy()
     expect(screen.getAllByRole('button', { name: 'New registration' })).toHaveLength(2)
   })
@@ -275,7 +283,14 @@ describe('the list', () => {
     await waitFor(() => expect(alertTexts().some(text => text.includes(message))).toBe(true))
     expect(alertTexts().find(text => text.includes(message))).toContain('Couldn’t load registrations')
     if (error instanceof HidApiError) expect(document.body.textContent).not.toContain(error.message)
-    expect(screen.queryByText('No registrations yet')).toBeNull()
+    expect(screen.queryByText('No registration cases')).toBeNull()
+  })
+
+  it('says when there are no campaigns, in the classic Outreach section\'s words', async () => {
+    api.outreachCampaigns.mockResolvedValue([])
+    renderPage()
+    expect(await screen.findByText('No campaigns')).toBeTruthy()
+    expect(screen.queryByText('No campaigns yet')).toBeNull()
   })
 
   it('says when campaigns cannot be read', async () => {
@@ -352,7 +367,7 @@ describe('the list', () => {
     const saved = cardOf(screen.getByRole('heading', { name: 'Registration' }))
     // Its temporary patient ID (tmp_ and a UUID) is no number anyone uses, so no screen shows it (owner's answer on IDs).
     expect(within(saved).queryByText('Temporary patient ID')).toBeNull()
-    expect(document.body.textContent).not.toContain('c0000000-0000-4000-8000-000000000001')
+    expect(document.body.textContent).not.toMatch(/tmp_|c0000000-0000-4000-8000-000000000001/)
     // The campaign the case was registered under, by name.
     expect(within(saved).getByText('Demo screening week')).toBeTruthy()
   })
@@ -411,7 +426,11 @@ describe('campaigns, read only', () => {
     expect(within(members).queryByText(/Reference|membersh/)).toBeNull()
     expect(within(members).queryByText(/^Membership /)).toBeNull()
     expect(within(members).getByText('Health worker')).toBeTruthy()
-    expect(screen.getAllByRole('button')).toEqual([screen.getByRole('button', { name: 'Back to list' })])
+    // Nothing to change; only Export, of this campaign's registrations (OutreachExport.test.tsx), and its registrations to open.
+    const registrations = await screen.findByRole('list', { name: 'Registrations in Demo screening week' })
+    expect(within(registrations).getAllByRole('button').map(button => button.textContent)).toEqual([expect.stringMatching(/^Patient One/)])
+    expect(screen.getAllByRole('button').filter(button => !registrations.contains(button))
+      .map(button => button.getAttribute('aria-label') ?? button.textContent).sort()).toEqual(['Back to list', 'Export'])
     // Back to the list, focus returns to the campaign opened.
     await press(screen.getByRole('button', { name: 'Back to list' }))
     expect(document.activeElement).toBe(card(await campaignsList(), 'Demo screening week'))
@@ -435,7 +454,7 @@ describe('campaigns, read only', () => {
     })
     renderPage()
     await press(card(await campaignsList(), 'Demo screening week'))
-    expect(await screen.findByText('No members yet')).toBeTruthy()
+    expect(await screen.findByText('No members')).toBeTruthy()
     await press(screen.getByRole('button', { name: 'Back to list' }))
     await press(card(await campaignsList(), 'Demo follow-up'))
     expect((await screen.findByRole('alert')).textContent).toContain(SAID_REFUSED)
@@ -638,12 +657,14 @@ describe('creating a registration case', () => {
     api.createOutreachCase.mockRejectedValueOnce('offline')
     renderPage()
     await press(fill(await openNew(), { fullName: 'Patient One', age: '34' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('The registration case could not be saved. Please retry.')
+    expect((await screen.findByRole('alert')).textContent).toBe('Registration case could not be created.')
   })
 
   it.each([
     ['Notes for the team', { notes: '  ab ' }, 'outreach-case-notes', 'Enter at least 3 characters, or leave this blank.'],
-    ['Phone', { phone: ' 12 ' }, 'outreach-case-phone', 'Enter at least 3 characters, or leave this blank.'],
+    // Outreach reads a phone number as E.164 (CreateRegistrationCaseDto normalizeOutreachPhone) and refuses anything else.
+    ['Phone', { phone: ' 12 ' }, 'outreach-case-phone', 'Enter a mobile number with 11 digits starting with 0, or starting with +234.'],
+    ['a phone number with no leading 0', { phone: '8031234567' }, 'outreach-case-phone', 'Enter a mobile number with 11 digits starting with 0, or starting with +234.'],
     ['an empty full name', { fullName: '   ' }, 'outreach-case-name', 'Complete this field.'],
     ['an empty age', { age: '' }, 'outreach-case-age', 'Complete this field.'],
     ['an age over 130', { age: '131' }, 'outreach-case-age', 'Enter an age in whole years, from 0 to 130.'],
@@ -684,7 +705,7 @@ describe('creating a registration case', () => {
     await waitFor(() => expect(document.activeElement).toBe(phone))
     expect(screen.queryByRole('alert')).toBeNull()
     await act(async () => { fireEvent.submit(form) })
-    const message = 'Enter at least 3 characters, or leave this blank.'
+    const message = 'Enter a mobile number with 11 digits starting with 0, or starting with +234.'
     const first = await screen.findByRole('alert')
     expect(first.textContent).toBe(message)
     await act(async () => { fireEvent.submit(form) })
@@ -787,7 +808,7 @@ describe('a registration case', () => {
       'Same name, age and phone as the Health ID record'))
     const status = document.getElementById(`outreach-case-status-${CASE_ID}`)!
     expect(status.getAttribute('role')).toBe('status')
-    await waitFor(() => expect(status.textContent).toBe('Patient linked. This registration case is now linked to the verified Health ID patient.'))
+    await waitFor(() => expect(status.textContent).toBe('Existing patient linked.'))
     expect(api.outreachCases).toHaveBeenCalledTimes(2)
     // Linked: the link is no longer offered, and focus, lost with the form, is on what was done.
     const done = await screen.findByRole('heading', { name: 'Patient linked' })
@@ -824,7 +845,7 @@ describe('a registration case', () => {
   it.each([
     ['a version conflict', new HidApiError(409, 'This registration case has changed. Refresh it and try again.', { code: 'VERSION_CONFLICT' }), SAID_CHANGED],
     ['a patient this membership may not open', new HidApiError(403, 'You do not have access to this patient.', { code: 'FORBIDDEN' }), SAID_REFUSED],
-    ['an unknown failure', 'offline', 'The patient could not be linked. Check your access to this patient, then refresh the case.'],
+    ['an unknown failure', 'offline', 'Patient could not be linked. Verify access and refresh the case.'],
   ])('says %s, keeps the form, and reads the case again for the next attempt', async (_name, error, message) => {
     api.linkExistingOutreachCase.mockRejectedValue(error)
     renderPage()
@@ -1110,6 +1131,17 @@ describe('linking a registration by Health ID', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
+  it('does not offer an Access PIN to a member whose role cannot use one (a receptionist): a share for care or an approved request only', async () => {
+    // Only doctors, clinicians and nurses may use a patient's Access PIN, and the access it gives is theirs alone.
+    session.permissions = ALL.filter(permission => permission !== 'identity.patient-access-pin.verify')
+    api.linkExistingOutreachCase.mockRejectedValue(new HidApiError(403, 'Existing patient access is not authorized', { code: 'IDENTITY_AUTHORIZATION_DENIED' }))
+    const form = await openLinkForm()
+    await link(HID, 'Same name, age and phone')
+    const field = healthIdField(form)
+    await waitFor(() => expect(describedBy(field)).toBe('To link this registration, you need access to add to their record. Ask them to share their record with your facility for care, or approve your request to see and add to it.'))
+    expect(document.body.textContent).not.toContain('Access PIN')
+  })
+
   it('says a refusal alert in the field when focus is in it already', async () => {
     api.lookupPatient.mockRejectedValue(new HidApiError(404, 'Patient was not found', { code: 'NOT_FOUND' }))
     const form = await openLinkForm()
@@ -1131,12 +1163,14 @@ describe('linking a registration by Health ID', () => {
     expect(api.outreachCases).toHaveBeenCalledTimes(1)
   })
 
-  it.each(['IDENTITY_AUTHORIZATION_DENIED', 'OUTREACH_PATIENT_ACCESS_REQUIRED'])('says a link refused for want of write access (%s) at the field: they must share for care', async code => {
+  it.each(['IDENTITY_AUTHORIZATION_DENIED', 'OUTREACH_PATIENT_ACCESS_REQUIRED'])('says a link refused for want of write access (%s) at the field: a PIN, a share for care or an approved request', async code => {
+    // A doctor, clinician or nurse: their role may use an Access PIN (identity.patient-access-pin.verify).
+    session.permissions = [...ALL, 'identity.patient-access-pin.verify']
     api.linkExistingOutreachCase.mockRejectedValue(new HidApiError(403, 'Existing patient access is not authorized', { code }))
     const form = await openLinkForm()
     await link(HID, 'Same name, age and phone')
     const field = healthIdField(form)
-    await waitFor(() => expect(describedBy(field)).toBe('To link this registration, the person needs to share their record with your facility for care. A PIN only lets you view their record, not link it.'))
+    await waitFor(() => expect(describedBy(field)).toBe('To link this registration, you need access to add to their record. Ask them to enter their Access PIN, share their record with your facility for care, or approve your request to see and add to it.'))
     expect(field.getAttribute('aria-invalid')).toBe('true')
     await waitFor(() => expect(document.activeElement).toBe(field))
     await waitFor(() => expect(api.outreachCases).toHaveBeenCalledTimes(2))
@@ -1151,7 +1185,7 @@ describe('linking a registration by Health ID', () => {
     await link(HID, 'Same name, age and phone')
     expect((await within(form).findByRole('alert')).textContent).toBe(SAID_REFUSED)
     expect(healthIdField(form).getAttribute('aria-invalid')).toBeNull()
-    expect(screen.queryByText(/A PIN only lets you view/)).toBeNull()
+    expect(screen.queryByText(/To link this registration, you need access to add/)).toBeNull()
     expect(document.body.textContent).not.toContain('ACCESS_DENIED')
     expect(document.body.textContent).not.toContain('Access denied')
   })

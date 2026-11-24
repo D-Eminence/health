@@ -4,6 +4,8 @@ import { createContext, useContext, useEffect, useMemo, type ReactNode } from 'r
 import { Route, Routes, useLocation } from 'react-router-dom'
 import { useStaff } from '../../../staff/App'
 import { PRODUCTS, productHere } from '../../frame/product'
+import { OpenPatientName } from './cameFrom'
+import { patientFacts } from './PatientHeader'
 import { SampleBanner } from './SampleBanner'
 import { segmentOf } from './segments'
 
@@ -28,11 +30,15 @@ const WorkspaceContext = createContext<WorkspaceValue | null>(null)
 export function Workspace({ path, title, sample = false, children }: { path: string; title?: string; sample?: boolean; children: ReactNode }) {
   const segment = segmentOf(path)
   const { pathname } = useLocation()
-  const { lock, state } = useStaff()
+  const { lock, state, activePatient } = useStaff()
+  // The open patient's name, from memory, for Back to name them (cameFrom.ts): history keeps no name.
+  const patientName = activePatient ? patientFacts(activePatient).name : null
   const productName = PRODUCTS[productHere(state.status === 'ready' ? state.session : null)].name
   // Inside the frame, today's ProviderTitle (staff/App.tsx) renames the tab on a move below a page today's portal serves
-  // (clinical/new reads "Page not found · Health ID Provider"), and the frame names it only when its page changes. Named
-  // again, after the frame's label, on every move inside this workspace: a label only, never a patient.
+  // (clinical/new reads "Page not found · Health ID Provider"). The frame names it again on every move too (BlueFrame.tsx,
+  // parity report 3.3-51); this names it the same way, by the workspace's own title, where it is mounted without the
+  // frame: a label only, never a patient. "Health ID <product>" in place of classic's "Health ID Provider" follows the owner's per-product sites
+  // (answer to Q88; contract section 53).
   useEffect(() => {
     if (title && lock === null) document.title = `${title} · Health ID ${productName}`
   }, [title, pathname, lock, productName])
@@ -51,10 +57,12 @@ export function Workspace({ path, title, sample = false, children }: { path: str
 
   return (
     <WorkspaceContext.Provider value={value}>
-      <Routes>
-        <Route path={`${segment}/*`} element={page} />
-        <Route path="*" element={page} />
-      </Routes>
+      <OpenPatientName.Provider value={patientName}>
+        <Routes>
+          <Route path={`${segment}/*`} element={page} />
+          <Route path="*" element={page} />
+        </Routes>
+      </OpenPatientName.Provider>
     </WorkspaceContext.Provider>
   )
 }

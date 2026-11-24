@@ -3,6 +3,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Registration } from './Registration'
 import { MemoryRouter } from 'react-router-dom'
 
+/** The desk's contact for the patient and whether they have a Health ID (hid-system 0114): fictional. */
+function fillDesk() {
+  fireEvent.change(screen.getByLabelText(/^Phone/), { target: { value: '0803 123 4567' } })
+  fireEvent.change(screen.getByLabelText(/^Address/), { target: { value: '3 Example Street' } })
+  fireEvent.change(screen.getByLabelText(/^City or town/), { target: { value: 'Ikeja' } })
+  fireEvent.change(screen.getByLabelText(/^State/), { target: { value: 'LA' } })
+  fireEvent.change(screen.getByLabelText(/^Local government area/), { target: { value: 'Ikeja' } })
+  fireEvent.change(screen.getByLabelText(/^Does the patient already have a Health ID/), { target: { value: 'no' } })
+}
+
+
 const api = vi.hoisted(() => ({
   registrationCapabilities: vi.fn(),
   registrationCase: vi.fn(),
@@ -79,12 +90,15 @@ describe('provider registration', () => {
     fireEvent.change(screen.getByLabelText(/First name/), { target: { value: 'Amina' } })
     fireEvent.change(screen.getByLabelText(/Last name/), { target: { value: 'Example' } })
     fireEvent.change(screen.getByLabelText(/Date of birth/), { target: { value: '1990-01-02' } })
+    fillDesk()
     fireEvent.click(screen.getByRole('button', { name: 'Check NIN' }))
     await waitFor(() => expect(api.resolveNin).toHaveBeenCalledTimes(1))
     await screen.findByText('We couldn’t check that NIN. Try again.')
     fireEvent.click(screen.getByRole('button', { name: 'Check NIN' }))
     await waitFor(() => expect(api.resolveNin).toHaveBeenCalledTimes(2))
     const [firstCall, secondCall] = api.resolveNin.mock.calls
+    expect(firstCall?.[1]).toMatchObject({ phone: '+2348031234567', addressLine: '3 Example Street', city: 'Ikeja', stateCode: 'LA',
+      lga: 'Ikeja', hasExistingHealthId: false, existingHealthId: null })
     expect(firstCall?.[2]).toBeTruthy()
     expect(firstCall?.[2]).toBe(secondCall?.[2])
     await screen.findByText('NIN checked. See the result below.')

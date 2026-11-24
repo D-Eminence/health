@@ -3107,3 +3107,164 @@ From the launch audit of the patient Records, Notifications and chat pages (RN-0
 - **Review (2026-11-05).** An independent review found four more; each fixed, test first. The 44px Previous versions and "Which records can I ask about?" had lost their open/close arrow (a flex summary draws none): they stay list items, with padding and a 44px minimum height (RN-21). On one record type, a search that found nothing said so twice: the page's "Nothing matches" with Clear search is now the only message, older records add no second "no match" line, and a search that matches only other types says how many and offers Show all record types (RN-19). New conversation on the hid-system main chat screen (`Chat.tsx`) deleted at once: it now asks first, as the staging screen does (RN-16). When Try again on old-account notifications finds none, focus no longer drops to the page: a quiet "No notifications from an old account." takes it (RN-22).
 - **Checked** in Chromium on the preview against the mock gateway at 320, 360, 390 and 1366px, light and dark: no sideways scroll, the older-records card readable in dark mode, a download failure in view beside its file, the empty Records page with one designed empty state, notification links and focus after Mark as read, and the chat tab title. Not checked on a real phone or on production.
 - **Not done here.** RN-02 and RN-15 are for the owner and the backend. Still needing the backend: paging (a cursor) for records and notifications and a Mark all as read route (RN-08, RN-11), and a facility name on visits and notes (RN-17). A build switch that keeps patient uploads off until the NDPA sign-off (RN-01, HCS-02) is the owner's call.
+
+## 2026-11-04: IDs on screen (patient app and staff screens)
+
+- Owner rule: screens show a Health ID and lab sample or accession numbers, and
+  no other ids, codes or permission names. Fixed in words:
+  - Patients (classic staff): sending an access request says "Access request
+    sent. The patient must approve it before records are available.", not the
+    request id and the server's status word.
+  - Access request lists (classic and blue) and lab and pharmacy work show a
+    patient the server has not named as "Patient (name not shown)", not the
+    last characters of their record id.
+  - Outreach (classic and blue): main already shows a case without its id or
+    its temporary record's id, and campaign members by role and date added
+    instead of a membership id, and classic Outreach already uses the blue
+    screens' words for a case's and a campaign's status and a member's role
+    (`memberRoleLabel` in `outreachParts.tsx`); the tests here check that.
+  - Document OCR (blue Migrate): main already says a job's patient as "Patient
+    (name not shown)" or "Patient not given" in the list, Quick view and the
+    opened job, with no "Job" reference; the tests here check that no part of
+    either id shows.
+  - Patient Records: lab tests and medicines say their status in words, and a
+    lab test its priority ("As soon as possible", "Immediately"; "Priority not
+    known" for any other value) (`labRequestStatusLabel`, `labPriorityLabel`,
+    `medicineStatusLabel` in `plainLabels.ts`).
+  - Document OCR (blue Migrate and classic): a job no longer shows its
+    document id, version or provider; a job whose file name is not known is
+    named "Scanned document" and the document's number on this page
+    ("Scanned document 2"), so two such documents can be told apart. Classic
+    Document OCR's job status says the blue screen's words ("Checked", "Ready
+    to check"), not OCR's status code. `shortId` (the masked last six
+    characters of an id) is deleted, as nothing uses it now.
+- Tests render fictional UUIDs and assert they, and any part of them, are absent.
+- Left for the owner (not changed): the order and share-invitation references
+  staff and patients read to each other (8 to 16 characters), the staff
+  invitation reference, the Registration ID used to continue a registration,
+  the Document OCR screens that find a job by document id, the outreach
+  "Patient ID" field, a diagnosis code shown when a patient opens a diagnosis,
+  the design sample workspaces (their names come from demo data), and the
+  platform admin site (correlation ids for support work).
+- Left for the owner, kept on purpose: a blue Outreach campaign's page still
+  shows "For Health ID support: Reference <id>, version <n>". It is the only
+  place support can get the two values the admin site's "A campaign has lost
+  its admin" form needs (Close campaign sends the version as If-Match), and
+  Identity has no admin route that lists a group's campaigns. Removing it would
+  leave support needing the database to close an orphaned campaign. "Make
+  admin" already needs the database: no screen has shown a member's reference
+  since main hid membership ids, and the form now says so. The fix is a backend
+  route that lists a group's campaigns (reference, current version) and their
+  members, so the admin site can pick them instead of having them typed; then
+  this support line can go.
+
+## 2026-11-05: EHR frame parity on the product sites (parity report 2.2, 3.1 #7, #15, #21)
+
+Branch `claude/ehr-frame-parity`, after merging main. Each item was checked against the frame on main first; what main already had is recorded, not rebuilt.
+
+- **Start menu (2.2).** The hint "Request record access: From another facility" said the request reached another facility. It asks the patient to share their record with this facility. Main already says "Ask a patient for access: Ask a patient to share their record here" (`ehr-blue/frame/BlueFrame.tsx`; `StartMenu.test.tsx`).
+- **Patients and Access requests on every product site (3.1 #7).** Main already lists both in the menu and search on lab., pharmacy., outreach. and migrate., each by its own permission (`ehr-blue/frame/product.ts` SHARED). This branch adds them to the phone tabs (Patients and Access first, then Staff and Audit, never one place twice) and to the Start menu (Find a patient, Ask a patient for access; registration and vitals stay the EHR's), test first (`EhrBlueProductMenu.test.tsx`). `registration-ehr-only.test.tsx` had asserted no Start menu at all on a product site; it now opens Start there and checks that it offers asking for access and never Register a patient. The leftover entries for both in `OPENED_UNLISTED`, and its comment calling them unlisted, are removed: they open because they are listed.
+- **A refused product page (#15, 2.4).** Main already lands on the Overview at `/provider` when the product's own page is not open to this session (lab., outreach., migrate.: `EhrBlueProductFallback.test.tsx`), and the pharmacy. site settles on Prescriptions' plain refusal instead of looping (`ProductSiteHome.test.tsx`). Nothing more needed.
+- **Page not found (#21).** Main then showed "Page not found / We can’t find that page." with one way back (Home, or a product's own first page), without the address (`ehr-blue/frame/NotFoundPage.tsx`; `EhrBlueFrame.test.tsx`). Correction (23 Nov 2026, parity report 21): those were not classic's words. Classic says "This provider page is unavailable." and "Go to provider overview →" (`staff/App.tsx` catch-all route); the blue page now says the same, see the entry for branch `claude/parity100-home-frame-and-access`.
+- **Not done here:** "Use the classic EHR" (2.3, owner decision), and the status labels in What's left (#21's other half).
+- **Gates:** typecheck, lint, boundaries, the full vitest (9859 tests; the one stale file above failed and passes after its update, rerun alone), the patient-web build and the launch-build check.
+
+## 2026-11-17: Prescribe form: strength, form, how long for, quantity and priority (hid-system 0125)
+
+Ola's prescription details, on the prescribe form of the blue EHR. Tests first
+(`prescribe-dispensing-details.test.tsx`).
+
+- **Shown only when the EHR takes them.** The form reads this consultation's prescriptions list once; only an answer
+  with `dispensingDetails: true` adds Strength, Form, How long for (with Days, weeks or months), Quantity to dispense
+  (with Quantity unit) and Priority, before Instructions. Without the flag, or if the list cannot be read, the form and
+  its request body are today's, key for key.
+  The form now reads the prescriptions list once when it opens, for every prescriber, to learn whether the details are taken.
+- **Checked as the EHR checks them** (hid-system #255, `CreatePrescriptionWithDetailsDto`): a whole number of 1 to 3650
+  with its unit, a quantity above 0 with up to 4 decimal places (at most 99999999.9999) with its unit, 80 characters
+  for the strength and the quantity unit. Each pair goes together. Only the details given are sent, under the EHR's
+  names (`strength`, `doseForm`, `durationValue`, `durationUnit`, `quantityToDispense`, `quantityUnit`, `priority`).
+- **Refusals in plain words.** A refused detail is marked at its field; an incomplete pair says which; if the EHR has
+  stopped taking the details since the list was read, the form says so, takes them off, and the next save sends
+  today's body.
+- **A saved prescription's page** shows each detail the EHR answered (for example "7 days", "21 capsules"), and none
+  for a prescription without them. Stat reads "Stat", as everywhere else in the app.
+- **Priority's hint** says only what is true: the pharmacy sees it on the prescription, it does not alert them, so
+  phone if it cannot wait (the pharmacy work list is not sorted by priority).
+- **Not verified live.** Component tests only; the backend (0125) is not released yet and its setting is off.
+
+## 2026-11-18: NIN checks wait for QoreID, say plainly why they could not finish
+
+Branch `claude/nin-check-waits`, hid-system #258 hand-over of 18 Nov, item 2. The sign-up's NIN start
+(`POST /identity/patient-enrollments`), the profile's Verify your NIN (`POST /identity/me/verification/nin`) and the
+desk's NIN check (`POST /identity/nin/resolve`) ask QoreID, which Identity waits for up to its QoreID timeout (12 s from
+hid-system #271; 15 s, at most 20 s, on the 0137 "One QoreID check per NIN" branch, where a second request for the same
+NIN waits that long plus 3 s). The gateway gives up at 30 s.
+
+- **Waits.** These three requests wait 30 s (`NIN_CHECK_TIMEOUT_MS`, `ninCheck.ts`); every other request keeps the
+  client's 15 s. After 4 s without an answer each screen says "Still checking the NIN. This can take up to a minute."
+  in a status line.
+- **Plain words, no codes.** 409 `NIN_CHECK_IN_PROGRESS`: "We’re still checking this NIN. Wait a moment, then try
+  again." 409 `NIN_CHECK_HELD`: "This NIN check is on hold. Try again after 14:32." (from `retryAfterSeconds`, in the
+  person's time zone, rounded up to the minute; "tomorrow" past midnight; "Try again in a few minutes." without it), and
+  the button stays off until then. 504 `QOREID_TIMEOUT`, any other 504 and this client's own wait ending: "The NIN check
+  is taking longer than usual. Try again in a minute." 400 `NIN_DETAILS_INVALID`: "Those details don’t match the NIN
+  record. Check the NIN, name and date of birth, then try again.", with the desk's name and date of birth fields marked
+  ("Check this against the NIN record.") and the profile's NIN field. Today's Registration page and a walk-in's New
+  Health ID say the same words (`staff/registrationFlow.ts`).
+- **Idempotency-Key.** A retry of the same details sends the same key, so it picks up the check already made: the
+  sign-up keeps one key per NIN (as before), the desk renews its key on any change to the form (as before), and the
+  profile now sends one per NIN and date of birth (Identity's route does not read it yet; 0137 already asks QoreID once
+  per NIN). Details refused with `NIN_DETAILS_INVALID` get a new key next time. Keys stay in memory only.
+- **`@hid/http`.** A problem's `retryAfterSeconds` member is kept as `HidApiError.retryInSeconds` (whole seconds, 0 to 7
+  days); the retry loop's `Retry-After` header handling is unchanged.
+- **Tests:** `ninCheckWire.test.ts` (fake timers: not given up at 15 s, given up at 30 s, other calls keep 15 s; the
+  answers in words), `NinCheckScreens.test.tsx` (sign-up and profile), `RegistrationNinCheck.test.tsx` (desk),
+  `problem-fields.test.ts`. Fictional data only (Patient One, NIN 12345678901).
+- **Not on staging yet:** `NIN_CHECK_IN_PROGRESS`, `NIN_CHECK_HELD` and the 0137 store are on the 0137 branch; the desk
+  QoreID check (`NIN_DETAILS_INVALID`) is on the desk-qoreid branch. The screens say today's words until they land.
+
+## 2026-11-17: Audit rows in plain English, support console too
+
+The blue Audit trail and the classic facility audit page already said each event in words (`audit/auditRow.ts`). The support console's Audit page and a facility's audit excerpts still showed the action code, the actor's ID, the item's ID, the request reference and the facility ID. Each fix has a test written first (`AuditPlainEnglish`, `auditRow`).
+
+- **Rows.** Support's Audit page and a facility's two excerpts now use the same words as the facility pages: what was done, who did it ("Staff member", "Health ID support", "Patient"...), when, and Allowed, Refused or Failed. A request record reads "A request to Health ID", never its route or method. Why it was done reads in words ("Purpose: caring for a patient"); an unknown purpose reads "another purpose". The Where column says Platform or links "A facility" without its ID. The Details drawer (item, item ID, request reference) is gone.
+- **Unknown codes.** A code with no dot that is not the previous system's (lower-case words joined by `_`) now reads "Another action" on every audit page, not "Activity from the previous Health ID system".
+- **Filters.** What happened is a list of actions in words, grouped by area; the code is only sent. Result says Allowed, Refused or Failed. Who, Facility ID, Item type and Item ID are no longer typed in: when a link sets one (Principals' "See their activity in Audit", a facility's "Open in Audit"), the page says "Showing one person's activity.", "Showing one facility's activity." or "Showing changes to one facility." with Show everyone, Show all facilities or Show every item. Request code is now Error reference. Every listed action keeps its own option, since the backend matches the action exactly: when two read the same, the option says what tells them apart in brackets, so the two role refusals read "(accounts, facilities and staff)" and "(health records, scanned documents, or not signed in)". An action from a link that has no option shows as "The action from your link", so the filter never reads "Any action" while one is on. Every action the live backend (hid-system afec3f75) writes has its own option: 63 that had no words yet (refused sign-ins, single sign-on sign-outs, allergies, the wave 1 reads, outreach and support actions among them) now have them, and `admin/__tests__/AuditActionOptions.test.ts` checks the list in `backendAuditActions.ts` (made by `scripts/list-backend-audit-actions.mjs`, not run in CI).
+- **Not done here.** Request-log rows ("A request to Health ID") can no longer be filtered by what happened, since the backend matches the action exactly and there are about 200 request codes. The page has no export. An error banner can still end "Reference: ..." (`admin/problems.ts`, shared by every console page). Support can no longer type a person's or facility's ID into the filters; they reach those through the links.
+
+## 2026-11-19: One sentence for a NIN QoreID has no record of (owner Q117)
+
+hid-system #279 answers a NIN QoreID has no record of with 422 `NIN_NOT_VERIFIED` on sign-up (`POST /identity/patient-enrollments`), the profile's Verify your NIN (`POST /identity/me/verification/nin`) and the desk NIN check (`POST /identity/nin/resolve`).
+
+- **Words.** All three screens now say "This NIN could not be verified. Check the number and try again." (`ninCheck.ts`, `ninCheckProblem`, outcome `not_verified`), only for that exact status and code. It replaces the sign-up's old words for the code. The older desk screens (`staff/registrationFlow.ts`) say the same.
+- **Field and key.** The NIN field is marked (the desk adds "Check this number." under it). As for `NIN_DETAILS_INVALID`, the next submit sends a new Idempotency-Key; the button stays on.
+- **Unchanged.** The desk's "does not match" (422 `NIN_VERIFICATION_FAILED`), the profile's 200 `not_verified` and `incomplete`, 409 `PATIENT_NIN_DETAILS_MISMATCH`, 502 `QOREID_PROVIDER_REJECTED` and the four 0137 answers keep their words.
+- **Tests:** `NinCheckScreens.test.tsx` (sign-up, profile), `RegistrationNinCheck.test.tsx` (desk), `ninCheckWire.test.ts` (mapping, older desk screens); `AuthStepFocus` and `EnrollmentRecordName` now expect the new sentence. Fictional data only (Patient One, NIN 12345678901).
+
+## 2026-11-23: Home, frame and access parity (parity report 15a, 15c, 16a, 21, 3.3-27, 3.3-47 to 3.3-57)
+
+Branch `claude/parity100-home-frame-and-access`. Website only; no backend contract changes. Each row is checked against the classic screen code (`staff/App.tsx`, `staff/routes/Dashboard.tsx`, `staff/routes/ReviewBanner.tsx`, `AppErrorBoundary.tsx`) and has a test (`ParityHomeFrameAccess.test.tsx`, and the frame tests listed).
+
+- **15a.** A pharmacy site role that can use no pharmacy page (no `pharmacy.work-item.read`) lands on Home, not on Prescriptions' refusal: the frame asks `pageUsable`, not `pageAllowed` (`BlueFrame.tsx`; `ProductSiteHome.test.tsx`, `sites/pharmacySite.test.tsx`).
+- **15c.** Facility subscription is in every product site's menu, by `billing.subscription.read` (`product.ts` SHARED).
+- **16a.** "Access is limited to your active facility and server permissions." is dropped on purpose: no "permission" wording on blue staff screens (code comment in `BlueFrame.tsx`).
+- **21.** Page not found says classic's "This provider page is unavailable." and "Go to provider overview" (`NotFoundPage.tsx`). The 2026-11-05 note above is corrected.
+- **3.3-27.** The Facility check card ("Pending", then "Done" once) shows above a product site's own pages.
+- **3.3-47, 3.3-48.** "Where are you working?" with classic's sentence, a radio choice, Continue and "Choose a facility to continue." (`ChooseWorkspace.tsx`).
+- **3.3-49.** Switching facility asks in place first, as classic's "Working at" did: "You are working at X. Switch to Y?" with Switch facility and Cancel, in the facility menu (now headed "Working at") and on the Switch facility page. After a switch Home opens, as classic's Overview did.
+- **3.3-50.** A page the role may not open refuses in its place, in its own words where it has a refusal (Facility subscription already showed its own "Billing access unavailable"), else "<page> unavailable" with the plain refusal sentence (`LivePages.tsx` PageUnavailable). Nobody is sent Home with the old general notice, on any site. Registration and In-person check keep their own refusals (rows 3.3-58 and 3.3-18 are another group's).
+- **3.3-51.** The frame names the tab on every move, so classic's ProviderTitle no longer leaves "Page not found · Health ID Provider" between two addresses with one label. Product names in the tab follow the owner's per-product sites (Q88; contract section 53).
+- **3.3-52.** A page that fails says "Reload it to try again." and "Go to your overview" (`BluePageBoundary.tsx`).
+- **3.3-53.** Home greets as classic's Overview did ("Provider workspace", "Good to see you, <first name>.", "Working at <facility>. All clinical activity uses your current membership and is checked by Health ID."). Home is in every site's menu. Only the address the browser opened (a sign-in's or a reload's) lands on a product's own page; Home chosen from the menu, a page the product does not open, and the overview after a switch stay on Home, as classic's Overview did.
+- **3.3-54.** Home has classic's Active facility card with the roles as a badge, and roles read classic's way: a role with no name is "Staff" ("Doctor, Staff"), never its code.
+- **3.3-55.** The open patient is classic's "Current patient" card with "Open clinical record", only where the site opens the clinical record (not a Needs attention line).
+- **3.3-56.** Home has classic's Workspaces card and its notes. The no-clinical-module note says "Your active facility has no clinical modules for your role." in place of classic's "module permissions" (house rule).
+- **3.3-57.** Home has classic's Health ID Migrate card for `ocr.job.read`, where the site opens Document OCR.
+
+## 2026-11-24: Migrate works as before (owner decision over parity report 3.3-53 on product sites)
+
+Branch `claude/migrate-as-before`. Website only; no backend contract changes. Since website release C (live 14:27 UTC 24 Nov), a product site opened its own page only from the browser's first address: on migrate. (and lab., pharmacy., outreach.) a facility switch, the brand, a page the product does not open and a sign-in returning to `/provider` landed on the general Home, and Home was listed in the product's menu. The owner asked for Migrate to work as it did before.
+
+- **Product sites.** `/provider` opens the product's own page for a role that can use it, however it is reached, and Home is listed there only for a role that cannot (`BlueFrame.tsx`, `product.ts` productLists), as at 3379a873. Owner decision recorded in code comments and on row 3.3-53 of `BLUE_EHR_PARITY_2026-11-01.md`. 15a (pharmacy lands on Home through `pageUsable`) and release C's other parity changes stay. The full EHR site is unchanged.
+- **The front desk on Migrate.** A receptionist with hid-system 0136's codes (`ocr.job.read-own`, no `ocr.job.read`) signs in to Scan paper records, not Home: the blue sign-in's landing asks `scanAccess(...).followsReadings` for `/provider/ocr` (`signInParts.tsx`). Classic's `PROVIDER_NAVIGATION` keeps its rule. Home's Health ID Migrate card and the Document OCR workspace show for the front desk's own readings too (`BlueHome.tsx`, `liveCards.tsx`).
+- **Tests.** New `sites/migrateAsBefore.test.tsx` and `ehr-blue/frame/auth/StaffLandingPath.test.ts`; the site and frame tests release C changed are back to the earlier expectation (`migrateSite`, `labSite`, `pharmacySite`, `outreachSite`, `ProductSiteOtherPages`, `EhrBlueProductFallback`, `EhrBlueFrame`, `ParityHomeFrameAccess`). Fictional data only.

@@ -10,7 +10,7 @@ import { RoleViewProvider } from '../../../ehr-blue/frame/roleView'
 import { NotificationsButton } from '../../../ehr-blue/frame/TopBarParts'
 import { ACKNOWLEDGE } from '../../../ehr-blue/clinical/emergency/BreakGlass'
 import { SUMMARY_LEDE } from '../../../ehr-blue/clinical/emergency/EmergencySummary'
-import { emergencyNotice } from '../../../ehr-blue/clinical/emergency/access'
+import { NOTICE_BEFORE, emergencyNotice } from '../../../ehr-blue/clinical/emergency/access'
 import { WrongPatientForm } from '../../../staff/routes/WrongPatient'
 import { REAL_FACILITY, facility } from './blueHarness'
 
@@ -49,12 +49,20 @@ function home(permissions: readonly string[]) {
 }
 
 describe('emergency access says only what is true', () => {
-  it('promises no review of each view: the patient is told, every opening is recorded, and access ends', () => {
+  it('promises no review and no emergency summary: it is recorded, the patient can see it, and access ends by itself', () => {
     for (const words of [ACKNOWLEDGE, SUMMARY_LEDE, emergencyNotice(false), emergencyNotice(true)]) {
       expect(words).not.toMatch(/review/i)
     }
-    expect(ACKNOWLEDGE).toBe('I understand the patient is told, every opening is recorded, and access ends after 30 minutes.')
-    expect(emergencyNotice(false)).toContain('It ends by itself, and every opening is recorded.')
+    for (const words of [ACKNOWLEDGE, NOTICE_BEFORE, emergencyNotice(false), emergencyNotice(true)]) {
+      expect(words).not.toMatch(/reviewed|emergency summary/i)
+      // Plain words: no en or em dashes.
+      expect(words).not.toMatch(/[\u2013\u2014]/)
+    }
+    expect(ACKNOWLEDGE).toBe('I understand this is recorded with my name and my reason, the patient can see it, and access ends by itself after 30 minutes.')
+    expect(NOTICE_BEFORE).toBe('Emergency access opens part of this patient’s record without their approval. It is recorded with your name, this '
+      + 'facility, the time and your reason. The patient can see that it was used, when and why. It ends by itself.')
+    // A message to the patient goes only where those alerts are on, so the box the staff member ticks does not promise one.
+    expect(ACKNOWLEDGE).not.toMatch(/patient is told/)
     expect(SUMMARY_LEDE).toMatch(/Every opening is recorded\.$/)
   })
 })
@@ -73,43 +81,50 @@ describe('the emergency notice says what the summary really shows and who is rea
 describe('Home and the bell: access requests wait for the patient', () => {
   const PERMISSIONS = ['identity.consent.write', 'identity.patient.read']
 
-  it('says a waiting request waits for the patient, on Home and in the bell', async () => {
+  it('says a waiting request waits for the patient in the bell, and counts it once on Home, on its card', async () => {
     vi.mocked(staffApi.listAccessRequests).mockResolvedValue(WAITING)
     const card = home(PERMISSIONS)
-    expect(await card.findByText('Waiting for the patient to answer')).toBeDefined()
-    expect(card.queryByText('All clear')).toBeNull()
+    expect(await within(screen.getByLabelText('Access requests')).findByText('1 pending request')).toBeDefined()
+    // The card says the count, so Needs attention neither lists the request nor says none waits.
+    expect(card.queryByText(/request/)).toBeNull()
     expect(document.body.textContent).not.toMatch(/Review and send them on|Review them/)
     fireEvent.click(screen.getByRole('button', { name: 'Notifications, 1 waiting' }))
     const drawer = await screen.findByRole('dialog', { name: 'Notifications' })
     expect(await within(drawer).findByText('Waiting for the patient to answer')).toBeDefined()
   })
 
-  it('says all clear once the requests were read and none waits', async () => {
+  it('leaves the requests to their card when none waits: all clear names only what Needs attention checked', async () => {
     vi.mocked(staffApi.listAccessRequests).mockResolvedValue([])
     const card = home(PERMISSIONS)
-    expect(await card.findByText('All clear')).toBeDefined()
-    expect(card.getByText('No requests waiting, no patient open.')).toBeDefined()
+    expect(await within(screen.getByLabelText('Access requests')).findByText('0 pending requests')).toBeDefined()
+    expect(card.getByText('All clear')).toBeDefined()
+    // The open patient is its own Current patient card (parity report 3.3-55), so it is not named here.
+    expect(card.getByText('Nothing is waiting for you.')).toBeDefined()
+    expect(screen.queryByText(/No requests waiting/)).toBeNull()
   })
 
-  it('does not say all clear while the requests are still being read', () => {
+  it('says the requests are loading on their card, not in Needs attention', () => {
     vi.mocked(staffApi.listAccessRequests).mockReturnValue(new Promise(() => {}))
     const card = home(PERMISSIONS)
-    expect(card.getByRole('status').textContent).toMatch(/^Loading what needs attention/)
-    expect(card.queryByText('All clear')).toBeNull()
+    expect(within(screen.getByLabelText('Access requests')).getByText('Loading requests…')).toBeDefined()
+    expect(card.queryByRole('status')).toBeNull()
+    expect(card.queryByText(/request/)).toBeNull()
   })
 
-  it('does not say all clear after the read failed', async () => {
+  it('says a failed read on the requests card, and Needs attention says nothing of the requests', async () => {
     vi.mocked(staffApi.listAccessRequests).mockRejectedValue(new HidApiError(503, 'Unavailable', { code: 'UNAVAILABLE' }))
     const card = home(PERMISSIONS)
-    expect(await card.findByText('Couldn’t load access requests')).toBeDefined()
+    expect(await within(screen.getByLabelText('Access requests')).findByText('Couldn’t load access requests')).toBeDefined()
     await waitFor(() => expect(card.queryByRole('status')).toBeNull())
-    expect(card.queryByText('All clear')).toBeNull()
+    expect(card.queryByText(/request/)).toBeNull()
+    expect(card.queryByText(/No requests waiting/)).toBeNull()
   })
 
   it('names only what it checked for a role that reads no requests', () => {
     const card = home(['identity.patient.read'])
     expect(card.getByText('All clear')).toBeDefined()
-    expect(card.getByText('No patient open.')).toBeDefined()
+    // The open patient is its own Current patient card (parity report 3.3-55), so it is not named here.
+    expect(card.getByText('Nothing is waiting for you.')).toBeDefined()
     expect(staffApi.listAccessRequests).not.toHaveBeenCalled()
   })
 })

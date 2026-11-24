@@ -1,21 +1,61 @@
 name: CI
 
+# Root documentation only (never **/*.md: some tests import Markdown that sits next to the code). GitHub still runs
+# the workflow when any changed path is outside this list.
 on:
   push:
     branches: [main]
+    paths-ignore: ['docs/**', 'README.md', 'PLAN.md', 'BACKEND-NEEDS.md']
   pull_request:
     branches: [main, phase-1-patient-core, phase-2-provider-reconciliation, phase-3-patient-safety]
+    paths-ignore: ['docs/**', 'README.md', 'PLAN.md', 'BACKEND-NEEDS.md']
+  workflow_dispatch:
+
+# A newer commit on the same pull request cancels the older run. Push and dispatch runs each get their own group, so
+# they are never cancelled or replaced: the pin fast path relies on main's push runs finishing.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
 
 jobs:
-  verify:
+  # full: every check. pin: only the backend pin file changed on a pull request whose base commit passed this
+  # workflow in full (scripts/ci_change_class.py). docs: root documentation only. Push, dispatch, any error or any
+  # unproven change gives full.
+  classify:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
-
+      actions: read
+    outputs:
+      mode: ${{ steps.classify.outputs.mode }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Classify the change
+        id: classify
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          BASE_REF: ${{ github.base_ref }}
+        run: python3 scripts/ci_change_class.py
 
-      - uses: actions/setup-node@v6
+  static:
+    needs: classify
+    # Anything but an explicit pin or docs result (including an empty one) runs this job.
+    if: ${{ !cancelled() && needs.classify.outputs.mode != 'pin' && needs.classify.outputs.mode != 'docs' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 22
           cache: npm
@@ -33,8 +73,11 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Tests
-        run: npm test
+      # Every Python test under scripts/, including the change classifier that decides when this job and the test
+      # shards are skipped (scripts/test_ci_change_class.py). A change to the classifier is always "full", so it
+      # reaches this step. About five seconds.
+      - name: Release and CI tool tests
+        run: python3 -m unittest discover -s scripts -p 'test_*.py'
 
       # Builds use placeholder local configuration. No staging or production
       # gateway address is available to CI, and CI never points at production.
@@ -56,5 +99,69 @@ jobs:
       - name: Launch build check
         run: npm run audit:launch-build
 
+      # High and critical advisories fail, except a written, expiring exception in
+      # security/npm-audit-exceptions.json (scripts/npm-audit-gate.mjs).
       - name: Dependency audit
-        run: npm audit --audit-level=high
+        run: |
+          npm run test:audit-gate
+          npm run audit:dependencies
+
+  # Every vitest file runs in exactly one of the six shards. At most six: the account runs 20 jobs at once.
+  test:
+    needs: classify
+    if: ${{ !cancelled() && needs.classify.outputs.mode != 'pin' && needs.classify.outputs.mode != 'docs' }}
+    name: test (${{ matrix.shard }}/6)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Tests
+        run: npm test -- --shard=${{ matrix.shard }}/6
+
+  # Only config/production-release-dependencies.json changed, and the base commit passed every check above. Nothing
+  # outside the release tools reads that file, so this runs their tests and the npm audit gate (new advisories appear
+  # over time). The release itself (production-frontends.yml on main) runs every check again, except that its test
+  # shards reuse the parent commit's release tests when the parent's run proves them and only the pin differs.
+  pin:
+    needs: classify
+    if: ${{ needs.classify.outputs.mode == 'pin' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Release and re-pin tests
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_production_deployment*.py'
+          python3 -m unittest discover -s scripts -p test_production_release.py
+          python3 -m unittest discover -s scripts -p test_ci_change_class.py
+
+      # High and critical advisories fail, except a written, expiring exception in
+      # security/npm-audit-exceptions.json (scripts/npm-audit-gate.mjs).
+      - name: Dependency audit
+        run: |
+          npm run test:audit-gate
+          npm run audit:dependencies

@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import importlib.util
 import json
 import pathlib
@@ -206,6 +207,76 @@ class ErrorReportingConfigTests(unittest.TestCase):
                         # "Ask about this patient" and imported records: the ehr build only, as the manifest says.
                         self.assertEqual(env[prefix + 'STAFF_PATIENT_CHAT_ENABLED'], str(features['staffPatientChatEnabled']).lower(), where)
                         self.assertEqual(env[prefix + 'IMPORTED_HISTORY_ENABLED'], str(features['importedRecordsEnabled']).lower(), where)
+
+
+class ParallelBuildTests(unittest.TestCase):
+    """build-staging.py builds the sites at once but lists them in the configuration's host order."""
+
+    def fake_root(self, folder):
+        root = pathlib.Path(folder)
+        (root / 'config').mkdir()
+        (root / 'config/staging.json').write_text((CONFIG / 'staging.json').read_text())
+        (root / 'package-lock.json').write_text('{}')
+        (root / 'infra/cloudflare/src').mkdir(parents=True)
+        (root / 'infra/cloudflare/src/worker.mjs').write_text('export default {}')
+        return root
+
+    def run_build(self, root, fail=None):
+        import subprocess
+        import threading
+        import time
+        from unittest import mock
+        build = load_build()
+        hosts = list(json.loads((root / 'config/staging.json').read_text())['hosts'])
+        started, lock, running, peak = [], threading.Lock(), [0], [0]
+
+        def fake_run(command, cwd, env, stdout, stderr):
+            app = 'public' if command[-1] == 'build:public-web' else command[-1].split('/')[-2]
+            with lock:
+                started.append(app)
+                running[0] += 1
+                peak[0] = max(peak[0], running[0])
+            # Later hosts finish first, so completion order is the reverse of host order.
+            time.sleep(0.02 * (len(hosts) - hosts.index(app)))
+            assets = root / 'apps/public-web/out' if app == 'public' else root / 'build/staging' / app / 'assets'
+            assets.mkdir(parents=True, exist_ok=True)
+            (assets / 'index.html').write_text(app + env['VITE_HID_BUILD' if app != 'public' else 'NEXT_PUBLIC_HID_BUILD'])
+            with lock:
+                running[0] -= 1
+            return subprocess.CompletedProcess(command, 1 if app == fail else 0)
+
+        def fake_git_or_node(*args, env=None):
+            for word, answer in (('status', ''), ('rev-parse', SOURCE), ('--version', 'v22.23.2'), ('branch', 'main')):
+                if word in args:
+                    return answer
+            raise AssertionError(args)
+
+        with mock.patch.object(build, 'ROOT', root), mock.patch.object(build, 'run', fake_git_or_node), \
+                mock.patch.object(build.subprocess, 'run', fake_run), mock.patch('builtins.print'):
+            build.main('staging')
+        return hosts, started, peak[0]
+
+    def test_manifest_lists_hosts_in_configuration_order(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = self.fake_root(folder)
+            hosts, started, peak = self.run_build(root)
+            manifest = json.loads((root / 'build/staging/manifest.json').read_text())
+            self.assertEqual([e['app'] for e in manifest['entries']], hosts)
+            self.assertEqual(sorted(started), sorted(hosts))
+            self.assertGreater(peak, 1)
+            self.assertLessEqual(peak, 4)
+            for entry in manifest['entries']:
+                self.assertEqual(entry['files']['index.html'],
+                                 hashlib.sha256((entry['app'] + SOURCE[:12]).encode()).hexdigest())
+            verify_manifest(manifest, root / 'build/staging', SOURCE, root / 'config/staging.json',
+                            root / 'package-lock.json', root / 'infra/cloudflare/src')
+
+    def test_any_failed_build_fails_without_a_manifest(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = self.fake_root(folder)
+            with self.assertRaisesRegex(RuntimeError, 'lab build failed'):
+                self.run_build(root, fail='lab')
+            self.assertFalse((root / 'build/staging/manifest.json').exists())
 
 
 if __name__ == '__main__':

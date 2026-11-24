@@ -357,9 +357,9 @@ describe('sample engine', () => {
     open('inpatient', `/${IDS.admitTaylor}`)
     const history = screen.getByRole('heading', { name: 'History' }).closest('section')!
     expect(within(history).getAllByRole('link').map(link => link.textContent)).toEqual([
-      'Appointments · Review of results', 'Patient visits · b57e94c9', 'Patient visits · Review of results', 'Triage & Vitals · 329417b6',
+      'Appointments · Review of results', 'Patient visits · Persistent fever and headache', 'Patient visits · Review of results', 'Triage & Vitals · 329417b6',
       'Consultation · fd276688', 'Laboratory · Malaria parasite test', 'Laboratory · Blood culture', 'Radiology · Abdominal ultrasound',
-      'Pharmacy · fe7be2ce', 'Nursing observations · 637d9f70', 'Nursing observations · 76354f18', 'Dental · 503fafd8',
+      'Pharmacy · fe7be2ce', 'Nursing observations · 637d9f70', 'Nursing observations · 76354f18', 'Dental · Toothache',
       'Nursing tasks · 4-hourly observations', 'Nursing tasks · Wound dressing check',
     ])
     expect(within(history).getByRole('link', { name: 'Appointments · Review of results' }).getAttribute('href')).toBe(`${BASE}/appointments/${IDS.apptTaylor}`)
@@ -367,7 +367,7 @@ describe('sample engine', () => {
 
   it('hand-off 09: the visit page as the design draws it, with the bare "Continue care" (its live hand-offs are not offered)', () => {
     open('journey', `/${IDS.visitTaylor}`)
-    expect(heading()).toBe('b57e94c9')
+    expect(heading()).toBe('Persistent fever and headache')
     expect(screen.getByText('Consulting')).toBeTruthy()
     expect(screen.getByText('Taylor Fiction · LOCAL-aeac58e6')).toBeTruthy()
     const saved = screen.getByRole('heading', { name: 'Saved record' }).closest('section')!
@@ -375,7 +375,7 @@ describe('sample engine', () => {
     expect(within(saved).getByText('Persistent fever and headache')).toBeTruthy()
     const actions = actionsCard()
     expect(within(actions).getAllByRole('button').map(button => button.textContent)).toEqual(['Assign / transfer queue', 'Complete visit'])
-    expect(within(actions).getByRole('heading', { level: 3, name: 'Continue care' })).toBeTruthy()
+    expect(within(actions).queryByRole('heading', { level: 3, name: 'Continue care' })).toBeNull()
     expect(within(actions).queryByRole('button', { name: 'Create triage & vitals' })).toBeNull()
     expect(within(actions).queryByRole('button', { name: 'Create consultation' })).toBeNull()
     expect(screen.getAllByText(SAMPLE_NOTICE)).toHaveLength(1)
@@ -400,7 +400,7 @@ describe('sample engine', () => {
     fireEvent.change(department, { target: { value: department.options[1]!.value } })
     fireEvent.submit(form)
     await waitFor(() => expect(screen.getByText('Waiting')).toBeTruthy())
-    expect(screen.getByRole('heading', { level: 3, name: 'Continue care' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { level: 3, name: 'Continue care' })).toBeNull()
     expect(screen.getByText('Taylor Fiction · LOCAL-aeac58e6')).toBeTruthy()
   })
 
@@ -647,7 +647,7 @@ describe('the emergency board inside another workspace', () => {
   it('shows its own sample notice once, with the board’s list', () => {
     board()
     expect(screen.getAllByText(SAMPLE_NOTICE)).toHaveLength(1)
-    expect(within(screen.getByRole('table', { name: 'Emergency' })).getByRole('link', { name: 'cfa650e2' })).toBeTruthy()
+    expect(within(screen.getByRole('table', { name: 'Emergency' })).getByRole('link', { name: 'Road traffic injury (fictional)' })).toBeTruthy()
   })
 
   it('shows the design’s assessed record', () => {

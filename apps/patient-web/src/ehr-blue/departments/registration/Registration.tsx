@@ -9,13 +9,20 @@ import { useDeptAccess } from '../parts/access'
 import { DeptUnavailable } from '../parts/DeptPage'
 import { RegistrationList } from './RegistrationList'
 import { RegistrationNew } from './RegistrationNew'
+import { NEW_TITLE, REGISTERED_WITHOUT_NIN, SENT_FOR_REVIEW, WITHOUT_NIN_PHONE_REQUIRED, WITHOUT_NIN_RELOAD, withoutNinErrorText } from './registrationText'
+import { offersWithoutNin, withoutNinInput, withoutNinProblems, type WithoutNinField, type WithoutNinForm } from './withoutNin'
+import { HidApiError } from '@hid/http'
+import { Drawer } from '../../../kasuwa/interactive'
 import { RegistrationRecord } from './RegistrationRecord'
-import { FIELD, START_HEADING, type Availability, type CaseLoading, type ReviewAction, type ShownError, type VisitCase } from './registrationModel'
+import { DESK_PREFIX, FIELD, START_HEADING, type Availability, type CaseLoading, type ReviewAction, type ShownError, type VisitCase } from './registrationModel'
 import { useCommandKey, useFormProblems } from './registrationParts'
+import { deskFormFrom, deskProblems, deskValues } from '../../collected/deskFields'
+import { deskControlId } from '../../collected/DeskFields'
+import { ninCheckProblem, useNinHold, useStillChecking } from '../../../ninCheck'
 import {
   APPROVE_PERMISSION, APPROVED, CAPABILITY_FAILED, CANDIDATE_REFUSED, CASE_CREATED, CASE_CREATED_RELOAD, CASE_ID_REFUSED,
-  CASE_LOAD_FAILED, COMPLETED, ENROLL_FAILED, ENROLL_REFUSED, ENROLLED, LINKED, NAME_DATE_REFUSED, NIN_REFUSED, REGISTRATION_WORK,
-  REVIEW_FAILED, REVIEW_REASON_REFUSED, safeError, UNAVAILABLE_TITLE, UUID, VERIFY_FAILED, WRITE_PERMISSION,
+  CASE_LOAD_FAILED, COMPLETED, ENROLL_REFUSED, ENROLLED, enrollErrorText, LINKED, NAME_DATE_REFUSED, NIN_DETAILS_FIELD, NIN_NUMBER_FIELD, NIN_REFUSED,
+  REGISTRATION_WORK, REVIEW_REASON_REFUSED, reviewErrorText, safeError, UNAVAILABLE_TITLE, UUID, VERIFY_FAILED, WRITE_PERMISSION,
 } from './registrationText'
 import './registration.css'
 
@@ -26,11 +33,22 @@ import './registration.css'
  * words. Where this file names a line, it is a line of that page.
  */
 
+/** The control id of a field of "Register without a NIN": its own fields, or the desk's (DESK_PREFIX). */
+function withoutControlId(field: WithoutNinField): string {
+  switch (field) {
+    case 'firstName': return FIELD.withoutFirst
+    case 'lastName': return FIELD.withoutLast
+    case 'dateOfBirth': return FIELD.withoutDob
+    case 'noNinReason': return FIELD.reason
+    default: return deskControlId(DESK_PREFIX, field)
+  }
+}
+
 /** Where the page is. In memory only: nothing about a case goes in the address or the history. */
 type View = { kind: 'list' } | { kind: 'new' } | { kind: 'case'; caseId: string }
 
 /**
- * The refusal without a facility or the write permission (Registration.tsx 215): also the frame's at the address. Its
+ * The refusal without a facility or the write permission (Registration.tsx 214): also the frame's at the address. Its
  * sentence follows who reads it, as the Laboratory's and Pharmacy's do: a self-signed-up facility's administrator is
  * never told to ask themselves.
  */
@@ -68,6 +86,11 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
   // Registration.tsx 55: one case read at a time, and which control asked for it.
   const [caseLoading, setCaseLoading] = useState<CaseLoading>(null)
   const [busy, setBusy] = useState(false)
+  // The NIN check under way: it can take up to half a minute, so the form says it is still checking (ninCheck.ts).
+  const [resolving, setResolving] = useState(false)
+  const stillChecking = useStillChecking(resolving)
+  // A NIN Identity holds after a check that could not finish: Verify stays off until the time it named.
+  const ninHold = useNinHold()
   const [message, setMessage] = useState('')
   const [error, setError] = useState<ShownError | null>(null)
   // A value refused before sending is reported at its field (PEHR-04). Each form keeps its own refusals: submitting
@@ -76,6 +99,7 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
   const caseProblems = useFormProblems()
   const reviewProblems = useFormProblems()
   const enrollProblems = useFormProblems()
+  const withoutProblems = useFormProblems()
   const { clear: clearReview } = reviewProblems
   const { clear: clearEnroll } = enrollProblems
   // Registration.tsx 72, 230: the resolve key is renewed by any change to the form, so an unchanged retry reuses it.
@@ -85,6 +109,8 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
   const pendingNames = useRef(new Map<string, string>())
   const reviewKey = useCommandKey()
   const enrollmentKey = useCommandKey()
+  // Register without a NIN (hid-system 0130): one key per set of details, so an unchanged retry replays its answer.
+  const withoutKey = useCommandKey()
 
   const [view, setView] = useState<View>({ kind: 'list' })
   const shown = view.kind === 'case' ? visits.find(visit => visit.item.caseId === view.caseId) ?? null : null
@@ -97,12 +123,16 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
   // step that removes its own form (a decision, an enrollment), to the case's heading only if focus was lost
   // (Registration.tsx 185, 209). A request made while the workspace is locked waits until it opens.
   const root = useRef<HTMLDivElement>(null)
+  // The new registration drawer's own title: another drawer (a route drawer under it) has a title of its own.
+  const drawerTitle = useRef<HTMLHeadingElement>(null)
   const [focusRequest, setFocusRequest] = useState<{ readonly id?: string; readonly ifLost: boolean } | null>(null)
   useLayoutEffect(() => {
     if (!focusRequest || lock != null) return
     setFocusRequest(null)
     if (focusRequest.ifLost && !focusLost()) return
-    const target = (focusRequest.id ? document.getElementById(focusRequest.id) : null) ?? root.current?.querySelector<HTMLElement>('h1') ?? null
+    // The new form sits in a drawer over the list: its heading is the drawer's own title.
+    const heading = viewKind.current === 'new' ? drawerTitle.current : root.current?.querySelector<HTMLElement>('h1')
+    const target = (focusRequest.id ? document.getElementById(focusRequest.id) : null) ?? heading ?? null
     if (!target) return
     if (target.tagName === 'H1' && !target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1')
     target.focus()
@@ -115,6 +145,7 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
     setFocusRequest({ id: focusId, ifLost: false })
   }, [])
   const { clear: clearNin } = ninProblems
+  const { clear: clearWithout } = withoutProblems
   /**
    * A view the user chose: what the last step said belongs to the view it was said on, and a case's review and
    * enrollment forms start afresh (Registration.tsx 69-71, where the case shown changes, not in an effect after it).
@@ -124,10 +155,11 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
     setMessage('')
     setError(null)
     clearNin()
+    clearWithout()
     clearReview()
     clearEnroll()
     show(next, focusId)
-  }, [clearNin, clearReview, clearEnroll, show])
+  }, [clearNin, clearWithout, clearReview, clearEnroll, show])
 
   /**
    * Keeps a case as Identity last answered it, first in the list when it is new to this visit. `name` is the patient's
@@ -198,7 +230,7 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
   // Registration.tsx 129-161: NIN verification.
   async function resolve(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!capabilities?.nin.enabled || busy) return
+    if (!capabilities?.nin.enabled || busy || ninHold.held) return
     const form = event.currentTarget
     const data = new FormData(form)
     const nin = String(data.get('nin') ?? '').trim()
@@ -215,11 +247,14 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
     if (!dateOfBirth) refused.push([FIELD.dob, NAME_DATE_REFUSED])
     if (!firstName) refused.push([FIELD.first, NAME_DATE_REFUSED])
     if (!lastName) refused.push([FIELD.last, NAME_DATE_REFUSED])
+    // hid-system 0114: the desk's contact and the stated Health ID, each refused at its field, after today's.
+    const desk = deskFormFrom(data)
+    for (const [field, problem] of deskProblems(desk)) refused.push([deskControlId(DESK_PREFIX, field), problem])
     if (refused.length) { ninProblems.refuse(refused); return }
-    setBusy(true)
+    setBusy(true); setResolving(true)
     try {
       const result = await staffApi.resolveNin(facilityId,
-        { nin, firstName, lastName, dateOfBirth, ...(gender ? { gender } : {}) }, resolveKey.current)
+        { nin, firstName, lastName, dateOfBirth, ...(gender ? { gender } : {}), ...deskValues(desk) }, resolveKey.current)
       if (!live.current) return
       // The NIN is cleared from the form after a successful response, and the next verification gets a new key.
       form.reset()
@@ -241,7 +276,74 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
         show({ kind: 'list' }, FIELD.caseId)
       }
     } catch (caught) {
-      if (live.current) setError({ text: safeError(caught, VERIFY_FAILED), at: 'resolve' })
+      if (!live.current) return
+      // The NIN check's own answers (ninCheck.ts). A retry of the unchanged form sends the same key; a change renews it.
+      const problem = ninCheckProblem(caught)
+      setError({ text: problem?.text ?? safeError(caught, VERIFY_FAILED), at: 'resolve' })
+      if (problem?.outcome === 'held') ninHold.hold(problem.heldUntil)
+      if (problem?.outcome === 'details') {
+        resolveKey.current = crypto.randomUUID()
+        ninProblems.refuse([[FIELD.dob, NIN_DETAILS_FIELD], [FIELD.first, NIN_DETAILS_FIELD], [FIELD.last, NIN_DETAILS_FIELD]])
+      }
+      // A NIN QoreID has no record of (owner Q117): the number is marked, and is changed before a new request.
+      if (problem?.outcome === 'not_verified') {
+        resolveKey.current = crypto.randomUUID()
+        ninProblems.refuse([[FIELD.nin, NIN_NUMBER_FIELD]])
+      }
+    } finally { if (live.current) { setBusy(false); setResolving(false) } }
+  }
+
+  /**
+   * hid-system 0130 (owner Q106): register the patient without a NIN, whenever Identity takes one. Registered at once when
+   * nobody already registered could be the same person, otherwise sent for an approver's review; either way the case
+   * opens, as after a NIN check.
+   */
+  async function registerWithoutNin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!offersWithoutNin(capabilities) || busy) return
+    const formElement = event.currentTarget
+    const data = new FormData(formElement)
+    const text = (name: string) => String(data.get(name) ?? '')
+    const form: WithoutNinForm = {
+      firstName: text('firstName'), lastName: text('lastName'), dateOfBirth: text('dateOfBirth'), gender: text('gender'),
+      noNinReason: text('noNinReason'), desk: deskFormFrom(data),
+    }
+    setError(null); setMessage(''); withoutProblems.clear()
+    const problems = withoutNinProblems(form)
+    if (problems.length) { withoutProblems.refuse(problems.map(([field, problem]) => [withoutControlId(field), problem])); return }
+    const input = withoutNinInput(form)
+    const key = withoutKey.forInput(JSON.stringify([facilityId, input]))
+    const name = `${input.firstName} ${input.lastName}`
+    setBusy(true)
+    try {
+      const result = await staffApi.registerWithoutNin(facilityId, input, key)
+      if (!live.current) return
+      formElement.reset()
+      withoutKey.clear()
+      setCaseIdInput(result.caseId)
+      clearReview(); clearEnroll()
+      const said = result.outcome === 'registered' ? REGISTERED_WITHOUT_NIN : SENT_FOR_REVIEW
+      setMessage(said)
+      try {
+        const detail = await staffApi.registrationCase(facilityId, result.caseId)
+        if (!live.current) return
+        remember(detail, name)
+        show({ kind: 'case', caseId: detail.caseId })
+      } catch {
+        if (!live.current) return
+        pendingNames.current.set(result.caseId, name)
+        setMessage(`${said} ${WITHOUT_NIN_RELOAD}`)
+        show({ kind: 'list' }, FIELD.caseId)
+      }
+    } catch (caught) {
+      if (!live.current) return
+      setError({ text: withoutNinErrorText(caught), at: 'without' })
+      const code = caught instanceof HidApiError ? caught.code : ''
+      // Identity's refusals that belong to one field are marked there too.
+      if (code === 'PHONE_REQUIRED') withoutProblems.refuse([[deskControlId(DESK_PREFIX, 'phone'), WITHOUT_NIN_PHONE_REQUIRED]])
+      if (code === 'NOT_A_CHILD') withoutProblems.refuse([[FIELD.reason, withoutNinErrorText(caught)]])
+      // The same key was used for other details: the next request gets a new one.
+      if (code === 'IDEMPOTENCY_KEY_REUSED') withoutKey.clear()
     } finally { if (live.current) setBusy(false) }
   }
 
@@ -269,12 +371,14 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
         ? await staffApi.approveNewRegistration(facilityId, registration, reason, key)
         : await staffApi.linkExistingRegistration(facilityId, registration, patientId, reason, key)
       if (!live.current) return
-      remember(result)
+      // The answer is laid over the case as it was read: a decision on a registration without a NIN answers without its
+      // possible matches (identity-api ReviewedWithoutNin), which the record still shows.
+      remember({ ...registration, ...result })
       setMessage(action === 'approve' ? APPROVED : LINKED)
       setFocusRequest({ ifLost: true })
       reviewKey.clear()
     } catch (caught) {
-      if (live.current) setError({ text: safeError(caught, REVIEW_FAILED), at: action })
+      if (live.current) setError({ text: reviewErrorText(caught), at: action })
     } finally { if (live.current) setBusy(false) }
   }
 
@@ -305,7 +409,7 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
       setMessage(ENROLLED)
       setFocusRequest({ ifLost: true })
     } catch (caught) {
-      if (live.current) setError({ text: safeError(caught, ENROLL_FAILED), at: 'enroll' })
+      if (live.current) setError({ text: enrollErrorText(caught), at: 'enroll' })
     } finally { if (live.current) setBusy(false) }
   }
 
@@ -314,11 +418,29 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
     refresh: () => { if (!capabilityLoading) void refreshCapabilities() },
   }
 
+  const list = (
+    <RegistrationList availability={availability} caseIdInput={caseIdInput} onCaseIdInput={setCaseIdInput} caseLoading={caseLoading}
+      busy={busy} problems={caseProblems} error={error?.at === 'find' ? error.text : ''} message={message} visits={visits}
+      onFind={() => { if (!caseLoading && !busy) void loadCase(caseIdInput, 'find') }}
+      onNew={() => go({ kind: 'new' })}
+      onOpen={visit => go({ kind: 'case', caseId: visit.item.caseId })} />
+  )
   let content
   if (view.kind === 'new') {
+    // The new registration opens in a side drawer over the list (owner, 18 Nov 2026); the case it makes opens as a page.
     content = (
-      <RegistrationNew availability={availability} busy={busy} problems={ninProblems} error={error?.at === 'resolve' ? error.text : ''}
-        onInput={() => { resolveKey.current = crypto.randomUUID() }} onSubmit={event => void resolve(event)} onBack={() => go({ kind: 'list' })} />
+      <>
+        {list}
+        <Drawer open size="lg" title={NEW_TITLE} titleRef={drawerTitle} onClose={() => { if (!busy) go({ kind: 'list' }) }}>
+          <div className="hid-route-drawer">
+            <RegistrationNew inDrawer availability={availability} busy={busy} problems={ninProblems} error={error?.at === 'resolve' ? error.text : ''}
+              stillChecking={stillChecking} held={ninHold.held}
+              onInput={() => { resolveKey.current = crypto.randomUUID(); ninHold.hold(null) }} onSubmit={event => void resolve(event)} onBack={() => go({ kind: 'list' })}
+              without={{ problems: withoutProblems, error: error?.at === 'without' ? error.text : '', onInput: () => {},
+                onSubmit: event => void registerWithoutNin(event) }} />
+          </div>
+        </Drawer>
+      </>
     )
   } else if (view.kind === 'case' && shown) {
     content = (
@@ -329,13 +451,7 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
         onReview={(event, action) => void review(event, action)} onEnroll={event => void enroll(event)} />
     )
   } else {
-    content = (
-      <RegistrationList availability={availability} caseIdInput={caseIdInput} onCaseIdInput={setCaseIdInput} caseLoading={caseLoading}
-        busy={busy} problems={caseProblems} error={error?.at === 'find' ? error.text : ''} message={message} visits={visits}
-        onFind={() => { if (!caseLoading && !busy) void loadCase(caseIdInput, 'find') }}
-        onNew={() => go({ kind: 'new' })}
-        onOpen={visit => go({ kind: 'case', caseId: visit.item.caseId })} />
-    )
+    content = list
   }
 
   return (

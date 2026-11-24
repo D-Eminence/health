@@ -1,36 +1,52 @@
-import { useCallback, useLayoutEffect, useState, type ReactNode } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { ClinicalRecord, LabAbnormalFlag, LabResultRevision } from '../../../staff/api'
 import { routeLabel } from '../../../plainLabels'
 import { ageInYears, decimalText, formatDate, formatWhen } from './format'
 import type { PatientFacts } from './PatientHeader'
+import { PrintHeader } from '../../frame/PrintHeader'
+import { startPrint, type PaperPrint, type PrintJob } from '../../../print/printPaper'
 import './clinicalPrint.css'
 
 /*
  * Printing clinical paper from the consultation: a prescription, a discharge summary and a lab result. Each is built
  * only from what the page already read; nothing is fetched to print. The paper is put on the page only while it
  * prints, straight under <body> so it is in normal flow and its named page size applies (clinicalPrint.css hides it on
- * screen and prints it alone); window.print runs in the commit that shows it, and the paper goes once the print dialog
- * closes. Where the record holds nothing for a line (the prescriber's licence,
+ * screen and prints it alone); it prints in the commit that shows it (usePaperPrint), and goes once it has printed. Where the record holds nothing for a line (the prescriber's licence,
  * follow-up), the paper leaves a line to write on by hand rather than inventing it.
  */
 
 export type PaperKind = 'prescription' | 'discharge' | 'lab-result'
 
+/** Each paper's page size and what it is called in its title (the facility and this; never the patient). */
+const PAPERS: Readonly<Record<PaperKind, PaperPrint>> = {
+  prescription: { size: 'A5', kind: 'Prescription' },
+  discharge: { size: 'A4', kind: 'Discharge summary' },
+  'lab-result': { size: 'A4', kind: 'Lab result' },
+}
+
+/**
+ * Prints a paper: Chrome, Edge and Firefox print the page, Safari a PDF of the paper (printPaper.ts), so no browser
+ * prints its web address on it. The print starts in the click; the paper is on the page until it has printed. A click
+ * whose paper is ready only later (a read still loading) `start`s the print in the click and passes that job to `print`
+ * once the paper is ready, so Safari's PDF tab is still opened in the click; a job not printed after all is cancelled.
+ */
 export function usePaperPrint() {
-  const [paper, setPaper] = useState<{ kind: PaperKind; node: ReactNode; round: number } | null>(null)
+  const [paper, setPaper] = useState<{ kind: PaperKind; node: ReactNode; round: number; job: PrintJob } | null>(null)
+  const area = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
     if (!paper) return
-    const done = () => setPaper(current => current?.round === paper.round ? null : current)
-    window.addEventListener('afterprint', done, { once: true })
-    try { window.print() } catch { done() }
-    return () => window.removeEventListener('afterprint', done)
+    return paper.job.run(area.current, () => setPaper(current => current?.round === paper.round ? null : current))
   }, [paper])
-  const print = useCallback((kind: PaperKind, node: ReactNode) => setPaper(current => ({ kind, node, round: (current?.round ?? 0) + 1 })), [])
-  const area = paper && typeof document !== 'undefined'
-    ? createPortal(<div data-clinical-print={paper.kind} aria-hidden="true">{paper.node}</div>, document.body)
+  const start = useCallback((kind: PaperKind): PrintJob => startPrint(PAPERS[kind]), [])
+  const print = useCallback((kind: PaperKind, node: ReactNode, started?: PrintJob) => {
+    const job = started ?? startPrint(PAPERS[kind])
+    setPaper(current => ({ kind, node, round: (current?.round ?? 0) + 1, job }))
+  }, [])
+  const portal = paper && typeof document !== 'undefined'
+    ? createPortal(<div ref={area} data-clinical-print={paper.kind} aria-hidden="true">{paper.node}</div>, document.body)
     : null
-  return { print, area }
+  return { print, start, area: portal }
 }
 
 function text(value: unknown): string {
@@ -129,36 +145,70 @@ export function isListedTest(record: ClinicalRecord): boolean {
   return !TEST_NOT_LISTED.has(text(record.status))
 }
 
+interface MembershipAt {
+  readonly id: string
+  readonly membershipId?: unknown
+}
+
+/**
+ * The signed-in member as the paper reads them: the staff session's actor (staff/api.ts Actor). EHR writes a record's
+ * createdBy as its author's account id and createdByMembershipId as their membership at the facility it was written
+ * at (hid-system ehr-api: context.actor.accountId, context.membershipId). The actor's `id` is the sign-in subject
+ * ("staff-invitation:<account id>", say), never the account id, so it is never compared. Identity sends `accountId`
+ * on every staff session (current-staff-context), though the Actor type does not name it, so it is read as unknown.
+ */
+export interface PrintingMember {
+  readonly displayName?: string
+  readonly accountId?: unknown
+  readonly facility?: MembershipAt
+  readonly facilities?: readonly MembershipAt[]
+}
+
+/**
+ * Whether the signed-in member wrote a record: by account when the session carries one; else by their membership at
+ * the chart's facility (where the chart's records were written), when the record carries one. Neither known: no.
+ */
+function writtenBy(actor: PrintingMember, facilityId: string): (record: ClinicalRecord) => boolean {
+  const accountId = text(actor.accountId)
+  if (accountId) return record => text(record.createdBy) === accountId
+  const membership = facilityId ? [actor.facility, ...(actor.facilities ?? [])].find(facility => facility?.id === facilityId) : undefined
+  const membershipId = text(membership?.membershipId)
+  if (membershipId) return record => text(record.createdByMembershipId) === membershipId
+  return () => false
+}
+
+/** The signed-in member's name, only when they wrote every one of the records; else null, a line to write by hand. */
+function authorName(records: readonly ClinicalRecord[], actor: PrintingMember | null | undefined, facilityId: string): string | null {
+  const name = actor?.displayName?.trim()
+  if (!actor || !name || records.length === 0) return null
+  return records.every(writtenBy(actor, facilityId)) ? name : null
+}
+
 /**
  * The clinician's name on the discharge summary, only when the signed-in member wrote the consultation note; anyone
- * else printing it (a nurse, records) leaves the line to be written by hand.
+ * else printing it (a nurse, records) leaves the line to be written by hand. `facilityId` is the chart's.
  */
-export function clinicianName(note: ClinicalRecord | null | undefined, actor: { readonly id: string; readonly displayName?: string } | null | undefined): string | null {
-  const name = actor?.displayName?.trim()
-  if (!name || !note) return null
-  return text(note.createdBy) === actor?.id ? name : null
+export function clinicianName(note: ClinicalRecord | null | undefined, actor: PrintingMember | null | undefined, facilityId: string): string | null {
+  return note ? authorName([note], actor, facilityId) : null
 }
 
 /**
  * The prescriber's name, when the paper can say it truthfully: the signed-in member wrote every printed record.
- * Records written by someone else carry only an account id, so the name is left for the prescriber to write.
+ * When anyone else wrote one, the name is left for the prescriber to write. `facilityId` is the chart's.
  */
-export function prescriberName(records: readonly ClinicalRecord[], actor: { readonly id: string; readonly displayName?: string } | null | undefined): string | null {
-  const name = actor?.displayName?.trim()
-  if (!name || records.length === 0) return null
-  return records.every(record => text(record.createdBy) === actor?.id) ? name : null
+export function prescriberName(records: readonly ClinicalRecord[], actor: PrintingMember | null | undefined, facilityId: string): string | null {
+  return authorName(records, actor, facilityId)
 }
 
+/** The shared print header (the Health ID logo and the facility), then what the paper is and when it was printed. */
 function PaperHead({ facility, kind, printedAt }: { readonly facility: string; readonly kind: string; readonly printedAt: string }) {
-  return (
+  return <>
+    <PrintHeader facility={facility} className="hid-clinical-paper-brand" />
     <div className="hid-clinical-paper-head">
-      <div>
-        <p className="hid-clinical-paper-facility">{facility}</p>
-        <p className="hid-clinical-paper-kind">{kind}</p>
-      </div>
+      <p className="hid-clinical-paper-kind">{kind}</p>
       <p className="hid-clinical-paper-caption">Date: {printedAt}</p>
     </div>
-  )
+  </>
 }
 
 function PatientBlock({ patient, extra = [] }: { readonly patient: PaperPatient; readonly extra?: ReadonlyArray<readonly [string, string]> }) {

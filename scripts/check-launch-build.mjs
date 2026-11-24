@@ -26,6 +26,13 @@
  * them; hid-system's stager, on its main branch only, must take the same
  * widenings before a Health-id build is staged there again, and its CSP's
  * `worker-src 'none'` would need `'self'` (and `manifest-src 'self'`).
+ * Third, for Outreach with no signal (owner, 13 November 2026): on Health ID
+ * Outreach's sites only, sw.js adds /sw-outreach.js (its one importScripts, on
+ * those hosts only), the offline app shell (inspectOutreachShell: the app's
+ * page and its content-hashed /assets/ files in one versioned cache, never an
+ * /api/ answer; no storage, IndexedDB or push), and the page registers the
+ * same /sw.js at start-up from the chunk Vite makes of
+ * apps/patient-web/src/outreachShell.ts (assets/outreachShell-<hash>.js).
  * Still refused: any other service worker (service-worker.js, workbox, a
  * worker anywhere but the root), a manifest naming one, any other manifest,
  * file or link.
@@ -55,17 +62,20 @@ const PUBLIC_FILES = Object.freeze({
   'icons/icon-512.png': 'manifest-icon',
   'icons/icon-maskable-512.png': 'manifest-icon',
   'sw.js': 'service-worker',
+  'sw-outreach.js': 'outreach-shell',
 })
 const MANIFEST_ICONS = new Set(['icon', 'apple-touch-icon', 'manifest-icon'])
-// The chunk Vite makes of apps/patient-web/src/pushDevice.ts: the only code that may use the worker API.
-const PUSH_DEVICE_CHUNK = /^assets\/pushDevice-[A-Za-z0-9_-]{8,}\.js$/
+// The chunks Vite makes of apps/patient-web/src/pushDevice.ts and src/outreachShell.ts: the only code that may use the
+// worker API, each registering /sw.js and nothing else.
+const PUSH_DEVICE_CHUNK = /^assets\/(?:pushDevice|outreachShell)-[A-Za-z0-9_-]{8,}\.js$/
 // What the push worker may not do: handle requests, use the Cache API, storage or the network, import code, or read
 // a push's data. Matched on the file as served, comments included, so its comments may not name them either.
 const WORKER_REFUSALS = Object.freeze([
   [/addEventListener\s*\(\s*['"`]fetch['"`]/, 'handles requests (a fetch listener)'],
   [/\bonfetch\b/, 'handles requests (onfetch)'],
   [/\bcaches\b/, 'uses the Cache API'],
-  [/\bimportScripts\b/, 'imports scripts'],
+  // The one script it may import, the offline app shell, and only on Outreach's own sites (inspectServiceWorker).
+  [/\bimportScripts\b(?!\('\/sw-outreach\.js'\))/, 'imports scripts'],
   [/\bindexedDB\b/, 'uses IndexedDB'],
   [/\bfetch\s*\(/, 'calls fetch'],
   [/\bXMLHttpRequest\b/, 'uses XMLHttpRequest'],
@@ -76,6 +86,21 @@ const WORKER_REFUSALS = Object.freeze([
   [/\.on[a-z]+\s*=(?!=)/, 'assigns an event handler property'],
 ])
 const WORKER_EVENTS = new Set(['push', 'notificationclick'])
+// The offline app shell's line in sw.js: its one import, behind Outreach's own hosts.
+const SHELL_IMPORT = /^const OFFLINE_SHELL_HOSTS = Object\.freeze\(\['outreach\.healthidentitydirectory\.com', 'outreach\.staging\.healthidentitydirectory\.com'\]\)\nif \(OFFLINE_SHELL_HOSTS\.includes\(self\.location\.hostname\)\) \{\n.*\n {2}try \{ importScripts\('\/sw-outreach\.js'\) \} catch \{ \/\*[^*]*\*\/ \}\n\}$/m
+// What the offline app shell may not do: use storage, IndexedDB or push, import code, or keep anything in a cache but its own.
+const SHELL_REFUSALS = Object.freeze([
+  [/\bimportScripts\b/, 'imports scripts'],
+  [/\bindexedDB\b/, 'uses IndexedDB'],
+  [/\bXMLHttpRequest\b/, 'uses XMLHttpRequest'],
+  [/\bWebSocket\b/, 'opens a WebSocket'],
+  [/\blocalStorage\b/, 'uses localStorage'],
+  [/\bsessionStorage\b/, 'uses sessionStorage'],
+  [/\bshowNotification\b|\bpushManager\b/, 'uses push or notifications'],
+  [/\.on[a-z]+\s*=(?!=)/, 'assigns an event handler property'],
+  [/caches\.open\s*\((?!SHELL_CACHE\))/, 'opens a cache other than its own'],
+])
+const SHELL_EVENTS = new Set(['install', 'activate', 'fetch', 'message'])
 const TEXT_FILE = /\.(?:html|js|css|svg)$/
 const GOOGLE_SIGN_IN = /accounts\.google\.com|\.apps\.googleusercontent\.com|\bgoogle\.accounts\.id\b|\/gsi\/client\b/
 
@@ -244,8 +269,9 @@ async function files(directory) {
 function classify(path, failures) {
   const name = path.split('/').at(-1)
   if (/\.map$/i.test(path)) failures.push(`${path} is a source map`)
-  // A worker-like name is accepted for exactly one file: sw.js at the root, the push worker (inspectServiceWorker).
-  else if (/^(?:service-worker|sw|workbox)(?:[-.][^/]*)?\.js$/i.test(name) && path !== 'sw.js') failures.push(`${path} is a service worker`)
+  // A worker-like name is accepted for exactly two files at the root: sw.js, the push worker (inspectServiceWorker), and
+  // sw-outreach.js, the offline app shell it adds on Outreach's sites (inspectOutreachShell).
+  else if (/^(?:service-worker|sw|workbox)(?:[-.][^/]*)?\.js$/i.test(name) && path !== 'sw.js' && path !== 'sw-outreach.js') failures.push(`${path} is a service worker`)
   else if ((/\.webmanifest$/i.test(name) || /^manifest(?:[-.][^/]*)?\.json$/i.test(name)) && !Object.hasOwn(PUBLIC_FILES, path)) {
     failures.push(`${path} is a web app manifest other than health-id.webmanifest`)
   } else if (path !== 'index.html' && !HASHED_ASSET.test(path) && !Object.hasOwn(PUBLIC_FILES, path)) {
@@ -284,6 +310,27 @@ function inspectServiceWorker(source, failures) {
     if (!listened.includes(event)) failures.push(`sw.js does not listen for ${event}`)
   }
   if (!source.includes("'/notifications'")) failures.push("sw.js does not open '/notifications'")
+  const imports = (source.match(/\bimportScripts\b/g) ?? []).length
+  if (imports > 0 && (imports !== 1 || !SHELL_IMPORT.test(source))) {
+    failures.push("sw.js imports /sw-outreach.js other than on Outreach's own sites, as a line of its own")
+  }
+}
+
+/**
+ * The offline app shell (sw-outreach.js) keeps the app's page and its hashed build files, in its own versioned cache,
+ * and nothing else: it leaves /api/ alone, uses no storage, IndexedDB or push, imports nothing, and listens only for
+ * install, activate, fetch and message.
+ */
+function inspectOutreachShell(source, failures) {
+  for (const [pattern, reason] of SHELL_REFUSALS) {
+    if (pattern.test(source)) failures.push(`sw-outreach.js ${reason}`)
+  }
+  const listened = [...source.matchAll(/addEventListener\s*\(\s*(?:(['"`])([^'"`]*)\1|([^,)]*))/g)].map(match => match[2] ?? `(${match[3].trim()})`)
+  for (const event of listened) {
+    if (!SHELL_EVENTS.has(event)) failures.push(`sw-outreach.js listens for ${event}; only install, activate, fetch and message are allowed`)
+  }
+  if (!/const SHELL_CACHE = 'hid-outreach-shell-v\d+'/.test(source)) failures.push('sw-outreach.js has no versioned cache of its own')
+  if (!source.includes("url.pathname.startsWith('/api/')")) failures.push('sw-outreach.js does not leave /api/ alone')
 }
 
 /** pushDevice's chunk registers /sw.js at most, and nothing else: every register() it makes names that file. */
@@ -315,6 +362,7 @@ for (const path of paths) {
     else failures.push(`${path} registers a service worker`)
   }
   if (path === 'sw.js') inspectServiceWorker(source, failures)
+  if (path === 'sw-outreach.js') inspectOutreachShell(source, failures)
   if (GOOGLE_SIGN_IN.test(source)) {
     failures.push(`${path} carries Google sign-in (Google Identity Services or a Google OAuth client id)`)
   }
@@ -327,4 +375,4 @@ if (failures.length > 0) {
   for (const failure of failures) process.stdout.write(`  ✗ ${failure}\n`)
   process.exit(1)
 }
-process.stdout.write(`Launch build check: ${paths.length} files; no Google sign-in, source map, or file outside assets/ but the icon files, their manifest and the push worker; no service worker but sw.js, which only shows a fixed notification, registered only by pushDevice's chunk; index.html is the Vite shell with its icon links.\n`)
+process.stdout.write(`Launch build check: ${paths.length} files; no Google sign-in, source map, or file outside assets/ but the icon files, their manifest, the push worker and Outreach's offline app shell; no service worker but sw.js, which shows a fixed notification and adds the offline app shell on Outreach's sites only, registered only by pushDevice's and outreachShell's chunks; index.html is the Vite shell with its icon links.\n`)

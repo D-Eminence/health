@@ -556,6 +556,25 @@ describe('application boundaries', () => {
       'PRESCRIPTION_SOURCE_MISMATCH']) expect(findEndpoint('ehr.prescriptionPharmacy')?.note, code).toContain(code)
   })
 
+  it('registers Send to pharmacy for the prescriber (hid-system 0133) for the staff site only, with no Idempotency-Key', () => {
+    const name = 'ehr.prescriptionOwnPharmacySend'
+    const example = '/api/v1/ehr/patients/a0000000-0000-4000-8000-000000000001/encounters/e0000000-0000-4000-8000-000000000001'
+      + '/prescriptions/b0000000-0000-4000-8000-000000000001/own-pharmacy-send'
+    expect(findEndpoint(name)).toMatchObject({ service: 'ehr', methods: ['POST'], status: 'proposed', auth: { kind: 'authenticated' },
+      permissions: { POST: ['ehr.prescription.write'] } })
+    expect(assertRegisteredBrowserRequest('POST', example).name).toBe(name)
+    expect(() => assertRegisteredBrowserRequest('GET', example)).toThrow(BrowserRouteError)
+    // The pharmacist's hand-off beside it is still its own route.
+    expect(assertRegisteredBrowserRequest('POST', example.replace(/own-pharmacy-send$/, 'pharmacy-work-item')).name).toBe('ehr.prescriptionPharmacy')
+    expect(() => assertEndpointAllowed('staff-web', name)).not.toThrow()
+    for (const app of ['patient-web', 'admin-web', 'public-web'] as const) {
+      expect(() => assertEndpointAllowed(app, name), app).toThrow(BoundaryViolationError)
+    }
+    const note = findEndpoint(name)?.note ?? ''
+    for (const words of ['not served by hid-system main', 'No Idempotency-Key', 'direct-care', 'pharmacyHandoff', 'ALLERGY_ACKNOWLEDGEMENT_REQUIRED',
+      'VISIT_ENTERED_IN_ERROR', 'CONSENT_REQUIRED', 'OWN_PHARMACY_SEND_UNAVAILABLE']) expect(note, words).toContain(words)
+  })
+
   it('registers item 3\'s wrong-patient report: the receiver\'s command for Lab and Pharmacy, the ordering facility\'s '
     + 'Overview read for the provider portal, and support\'s list and review for the console, served since bd8676e', () => {
     const routeId = '9c1b2d3e-4f5a-4b6c-8d7e-0f1a2b3c4d5e'
@@ -918,6 +937,34 @@ describe('application boundaries', () => {
     expect(() => assertEndpointAllowed('ehr-web', 'ehr.myHealthProfile')).toThrow(BoundaryViolationError)
     expect(assertRegisteredBrowserRequest('GET', '/api/v1/ehr/patients/patient-1/reported-health-profile').name).toBe(name)
     expect(() => assertRegisteredBrowserRequest('PUT', '/api/v1/ehr/patients/patient-1/reported-health-profile')).toThrow(BrowserRouteError)
+  })
+
+  it('lets the chart read and record allergies and check a medicine against them (hid-system 0117), and nothing else reach them', () => {
+    for (const [name, method, path] of [
+      ['ehr.allergies', 'GET', '/api/v1/ehr/patients/patient-1/allergies'],
+      ['ehr.allergies', 'POST', '/api/v1/ehr/patients/patient-1/allergies'],
+      ['ehr.allergyEnteredInError', 'POST', '/api/v1/ehr/patients/patient-1/allergies/allergy-1/entered-in-error'],
+      ['ehr.allergyCheck', 'POST', '/api/v1/ehr/patients/patient-1/allergy-check'],
+    ] as const) {
+      expect(findEndpoint(name)?.note).toMatch(/direct-care/)
+      expect(() => assertEndpointAllowed('staff-web', name), name).not.toThrow()
+      expect(() => assertEndpointAllowed('ehr-web', name), name).not.toThrow()
+      expect(() => assertEndpointAllowed('patient-web', name), name).toThrow(BoundaryViolationError)
+      expect(assertRegisteredBrowserRequest(method, path).name).toBe(name)
+    }
+    expect(findEndpoint('ehr.allergyCheck')?.note).toMatch(/warningToken/)
+    expect(findEndpoint('ehr.allergies')?.note).toMatch(/ALLERGY_NOT_A_SUBSTANCE/)
+  })
+
+  it('lets New consultation save in one call (EHR-C5), and no patient application reach it', () => {
+    const name = 'ehr.consultations'
+    expect(findEndpoint(name)?.note).toMatch(/direct-care/)
+    expect(findEndpoint(name)?.permissions).toEqual({ POST: ['ehr.encounter.write'] })
+    expect(() => assertEndpointAllowed('staff-web', name)).not.toThrow()
+    expect(() => assertEndpointAllowed('ehr-web', name)).not.toThrow()
+    expect(() => assertEndpointAllowed('patient-web', name)).toThrow(BoundaryViolationError)
+    expect(assertRegisteredBrowserRequest('POST', '/api/v1/ehr/patients/patient-1/consultations').name).toBe(name)
+    expect(() => assertRegisteredBrowserRequest('GET', '/api/v1/ehr/patients/patient-1/consultations')).toThrow(BrowserRouteError)
   })
 
   it('refuses an admin endpoint in a patient application', () => {

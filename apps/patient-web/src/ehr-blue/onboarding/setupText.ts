@@ -35,8 +35,36 @@ export function stepEyebrow(index: number, steps: readonly StepName[] = STEPS): 
   return `Step ${index + 1} of ${steps.length} · ${steps[index] ?? STEPS[0]}`
 }
 
-/** On every design field Health ID does not take: shown, disabled, never sent or kept. */
-export const NOT_COLLECTED = 'Not collected by Health ID yet'
+/** The Facility step while the facility's details are read (hid-system 0114). */
+export const PROFILE_LOADING = 'Getting your facility’s details…'
+
+/** Where Identity keeps the facility's details itself: a facility Health ID support manages, or a demo facility. */
+export const PROFILE_KEPT = 'Health ID support keeps this facility’s details. Contact them to change any of them.'
+
+/** The read failed for a fault. */
+export const PROFILE_FAILED = 'We couldn’t get your facility’s details just now.'
+
+/** After a failed read: what going on without them means. */
+export const PROFILE_NOT_SAVED = 'Your facility’s details are not saved yet. Try again, or go on and come back to this step to give them.'
+
+/** The button that goes on after a failed read. */
+export const CONTINUE_UNSAVED = 'Continue without saving'
+
+/** Someone else saved the details first (412): theirs were read again, and what was typed is kept. */
+export const PROFILE_CONFLICT = 'Someone else saved these details first. Your changes are still below and are not saved yet. '
+  + 'Check them against theirs, then save again.'
+
+/** The heading over the other person's saved details, where they differ from what was typed. */
+export const PROFILE_THEIRS = 'Their saved details that differ from yours'
+
+/** Where this person may not change the facility's details (403 PERMISSION_DENIED). */
+export const PROFILE_DENIED = 'Only the facility administrator can change these details.'
+
+/** After a save Identity refused (kept by support, a demo facility, or no permission): nothing typed was kept. */
+export const PROFILE_SAVE_REFUSED = 'The details you entered were not saved.'
+
+/** The Review step's value for a facility whose details are not given yet. */
+export const NOT_GIVEN = 'Not given yet'
 
 /** The design's required-field message (src/ui.tsx:248). */
 export const MISSING = 'Complete this field.'

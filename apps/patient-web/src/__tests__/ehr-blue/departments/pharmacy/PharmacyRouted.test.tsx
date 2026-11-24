@@ -97,7 +97,7 @@ describe('a prescription from another facility', () => {
     expect(mine.textContent).toContain('250 mg · Three times daily')
     expect(within(mine).getByText('From Demo Hospital')).toBeTruthy()
     const ours = row('Amoxicillin 500 mg capsule')
-    expect(within(ours).getByText('Patient ••••6f8a10')).toBeTruthy()
+    expect(within(ours).getByText('Patient (name not shown)')).toBeTruthy()
     expect(ours.textContent).not.toMatch(/From |Patient One/)
     expectNoFullPatientIds()
   })
@@ -226,6 +226,40 @@ describe('Incoming, at a pharmacy that receives prescriptions', () => {
     expect(document.body.textContent).toContain('If you can’t complete it for another reason, don’t use this: close this, open the order from the list below, and use '
       + '“We can’t complete this order” there.')
     expect(document.body.textContent).not.toMatch(/on its row/)
+  })
+
+  // Parity row 6a: the pharmacy. site has no Overview, so classic's incoming-orders count is said at the top of its first page.
+  it('says classic Overview’s count of prescriptions waiting at the top, from Incoming’s own read, never one patient’s find', async () => {
+    routes.incoming.mockImplementation(async (_facility: string, _service: string, healthId?: string) => healthId
+      ? { items: [], crossFacilityOrders: true, crossFacilityWork: true }
+      : { items: [incomingRx], crossFacilityOrders: true, crossFacilityWork: true })
+    renderPage()
+    const line = await screen.findByText('1 prescription from other facilities waiting at Demo Pharmacy')
+    const incoming = (await screen.findByRole('heading', { name: 'Incoming (1)' })).closest('section') as HTMLElement
+    // Above Incoming, and read once: the count is Incoming's own answer.
+    expect(line.compareDocumentPosition(incoming) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(routes.incoming).toHaveBeenCalledTimes(1)
+    // Finding one patient's orders by Health ID does not change the facility's count.
+    fireEvent.change(within(incoming).getByLabelText(/^Find by Health ID/), { target: { value: 'HID-ZDEMAAA2' } })
+    fireEvent.click(within(incoming).getByRole('button', { name: 'Find' }))
+    await waitFor(() => expect(routes.incoming).toHaveBeenLastCalledWith(DEMO_PHARMACY_ID, 'pharmacy', 'HID-ZDEMAAA2'))
+    expect(await screen.findByRole('heading', { name: 'Incoming (0)' })).toBeTruthy()
+    expect(screen.getByText('1 prescription from other facilities waiting at Demo Pharmacy')).toBeTruthy()
+    expect(document.body.textContent).not.toContain('0 prescriptions from other facilities')
+  })
+
+  it.each([
+    ['says “0 waiting” where Health ID says the facility receives now', true, '0 prescriptions from other facilities waiting at Demo Pharmacy'],
+    ['says nothing of 0 where it does not say so', undefined, null],
+  ])('%s, as the Overview did', async (_case, receives, said) => {
+    routes.incoming.mockResolvedValue({ items: [], crossFacilityOrders: true, crossFacilityWork: true,
+      ...(receives === undefined ? {} : { receives }) })
+    api.pharmacyWorkItems.mockResolvedValue(answer([routed()], receives === undefined ? {} : { receives }))
+    renderPage()
+    await screen.findByRole('heading', { name: 'Incoming (0)' })
+    await waitFor(() => expect(routes.incoming).toHaveBeenCalled())
+    if (said) expect(await screen.findByText(said)).toBeTruthy()
+    else expect(document.body.textContent).not.toMatch(/prescriptions? from other facilities waiting/)
   })
 
   it('is not read for a member who doesn’t receive prescriptions', async () => {

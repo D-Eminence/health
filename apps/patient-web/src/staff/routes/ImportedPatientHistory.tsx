@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ImportedHistory } from '../../ImportedHistory'
+import { CONSENT_REQUIRED_TEXT } from '../../ImportedHistoryPage'
 import { parseImportedRecords, type ImportedRecordsResponse } from '../../importedRecords'
 import { staffApi } from '../api'
 import { getEnvironment } from '../env'
@@ -26,7 +27,8 @@ export function ImportedPatientHistory({ facilityId, patientId, purpose, canDown
         const importedRecords = parseImportedRecords(result.importedRecords)
         if (!controller.signal.aborted) setData({ ...result, importedRecords })
       } catch (caught) {
-        if (!controller.signal.aborted) setError(plainErrorText(caught, 'Imported history could not be loaded.', { audience: 'facility' }))
+        if (!controller.signal.aborted) setError(plainErrorText(caught, 'Imported history could not be loaded.',
+          { audience: 'facility', codes: { CONSENT_REQUIRED: CONSENT_REQUIRED_TEXT } }))
       } finally { if (!controller.signal.aborted) setLoading(false) }
     })()
     return () => controller.abort()

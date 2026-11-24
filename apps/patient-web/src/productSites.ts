@@ -1,4 +1,4 @@
-import type { StaffProductKey } from './productHostname'
+import { startOutreachGroupHere, type StaffProductKey } from './productHostname'
 import { opensInProduct, PRODUCTS } from './ehr-blue/frame/product'
 
 /**
@@ -17,10 +17,12 @@ import { opensInProduct, PRODUCTS } from './ehr-blue/frame/product'
  * stays in the hospital EHR. The admin site, and any host that is not a Health ID site (local, preview), serve every
  * address, as before.
  *
- * The one named exception (owner, 2 Nov 2026; demo only): Demo Hospital opened on the Lab or Migrate site shows its
- * "Open Hospital EHR" button (ehr-blue/frame/BlueFrame.tsx FacilityOnAnotherSite, blueFacilities.ts demoFacilitySite),
- * because the sealed demo tenant's hospital works only on the EHR site. It is the only link from a product site to the
- * EHR site; no real facility gets one, and no other link may be added on its strength.
+ * The one named exception (owner, 2 Nov 2026; demo only): Demo Hospital opened on the Lab, Pharmacy or Outreach site
+ * shows its "Open Hospital EHR" button (ehr-blue/frame/BlueFrame.tsx FacilityOnAnotherSite, blueFacilities.ts
+ * demoFacilitySiteFrom), because the sealed demo tenant's hospital works on the EHR site. It is the only link from a
+ * product site to the EHR site; no real facility gets one, and no other link may be added on its strength. Demo
+ * Hospital also works on the Migrate site (owner: the demo staff login works on every product site, Migrate included),
+ * so there it opens Migrate as any facility would; every other demo facility works on its one site only.
  */
 export type SiteKey = 'web' | StaffProductKey
 
@@ -112,7 +114,10 @@ function siteIn(deployment: Deployment, key: SiteKey): Site {
  * a staff invitation and clinician sign-up. Every staff site serves its own (owner, 2026-11-02); where each page's own
  * links lead is the page's (productHostname.ts), not this table's.
  */
-const PUBLIC_STAFF_PAGES: ReadonlySet<string> = new Set(['sign-in', 'recover', 'enroll', 'invitation', 'join'])
+// With open sign-up on outreach. (owner decisions of 11 November 2026): the organiser sign-up, its terms and an outreach
+// invitation, public pages outside the workspace too.
+const PUBLIC_STAFF_PAGES: ReadonlySet<string> = new Set(['sign-in', 'recover', 'enroll', 'invitation', 'join', 'start-outreach',
+  'outreach-terms', 'outreach-invitation'])
 
 type SingleProduct = Exclude<StaffProductKey, 'ehr'>
 const SINGLE_PRODUCTS: readonly SingleProduct[] = ['lab', 'pharmacy', 'migrate', 'outreach']
@@ -234,6 +239,33 @@ export function otherStaffSites(paths: readonly string[], hostname: string = win
 }
 
 /**
+ * Whether this login can open the staff site `key` (owner decision Q97: each staff site for its own job), by Identity's
+ * actor.products (staff/api.ts Actor). A doctor, clinician, nurse or receptionist opens ehr and migrate only; a hospital
+ * administrator opens every site of their own hospital. When the session does not say (an Identity before Q97, or a
+ * value that is not a list), every site, as before: Identity still refuses on the site itself.
+ */
+export function loginOpensSite(key: SiteKey, products: unknown): boolean {
+  return !Array.isArray(products) || (products as readonly unknown[]).includes(key)
+}
+
+/**
+ * Whether "Start an outreach group" (owner decision 5 of 11 November 2026: the same login can also run its own outreach
+ * group) runs on this site for this login, its form shown here rather than a link to Health ID Outreach. Where
+ * startOutreachGroupHere says (Health ID Outreach, and any host that is not a product site); and on Health ID EHR for a
+ * login that cannot open Health ID Outreach (actor.products, owner decision Q97: a doctor's, clinician's, nurse's or
+ * receptionist's), which Health ID Outreach would refuse, so decision 5 still holds for them. Identity accepts the start
+ * from any staff site; the new group then opens on Health ID Outreach, where the group's membership is admitted.
+ */
+export function startOutreachGroupRunsHere(hostname: string, products: unknown): boolean {
+  return startOutreachGroupHere(hostname) || (siteOf(hostname)?.key === 'ehr' && !loginOpensSite('outreach', products))
+}
+
+/** Of `sites`, those this login can open (loginOpensSite), in the same order. */
+export function sitesThisLoginOpens<T extends { readonly key: SiteKey }>(sites: readonly T[], products: unknown): T[] {
+  return sites.filter(site => loginOpensSite(site.key, products))
+}
+
+/**
  * The staff site `key` when this host is another staff site: null on that site itself, and on any other host. The main
  * site is not a staff site: its staff pages are the portal's own rule (staffSignIn.tsx), and where staging's serves
  * them (#114, #115) they work as on a local build, for every facility.
@@ -246,4 +278,14 @@ export function siteElsewhere(key: StaffProductKey, hostname: string = window.lo
 /** The public site's address for the deployment this host belongs to (PUBLIC_SITE_HOSTNAMES). */
 export function publicSiteHref(hostname: string = window.location.hostname): string {
   return `https://${PUBLIC_SITE_HOSTNAMES[siteOf(hostname)?.deployment ?? 'production']}/`
+}
+
+/**
+ * The patient sign-up on the main site of the deployment this host belongs to: /enroll, which serves the sign-up without
+ * a NIN while Identity's availability read says `signup: true` (routes/Enrollment.tsx), the address the public site's
+ * "Get your Health ID" opens (public-web content/site.ts patientSignUp). Any host that is not a staging site gets
+ * production's. Nothing else is added: no query, no fragment, nothing about anyone.
+ */
+export function patientSignUpHref(hostname: string = window.location.hostname): string {
+  return `https://${SITE_HOSTNAMES[siteOf(hostname)?.deployment ?? 'production'].web}/enroll`
 }

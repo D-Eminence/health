@@ -104,20 +104,17 @@ describe('showing the password', () => {
     expect(screen.queryByLabelText('Confirm new password')).toBeNull()
   })
 
-  it('provider and administrator password reset: each field has its own toggle', async () => {
+  it('provider and administrator password reset: the one new password field has its own named toggle, as on app.', async () => {
     principal.start.mockResolvedValue({ accepted: true, challengeId: 'challenge-1' })
     principal.verify.mockResolvedValue({ verified: true, challengeId: 'challenge-1', verificationToken: 'verified' })
     show(<PrincipalRecovery audience="staff" />)
     fireEvent.change(screen.getByLabelText('Work email'), { target: { value: 'nurse@example.test' } })
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Send recovery code' }))
-    fireEvent.change(await screen.findByLabelText('Recovery code'), { target: { value: '123456' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Verify code' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send code' }))
+    await enterCode(await screen.findByLabelText('Code'), '123456')
     await screen.findByLabelText('New password')
     typeAndShow('New password', 'Show new password')
-    const confirm = screen.getByLabelText('Confirm new password') as HTMLInputElement
-    expect(confirm.type).toBe('password')
-    typeAndShow('Confirm new password', 'Show confirmed password')
+    expect(screen.queryByLabelText('Confirm new password')).toBeNull()
   })
 
   it('provider sign-in: a refused attempt keeps the password and masks it again', async () => {

@@ -1,6 +1,7 @@
 import { useRef } from 'react'
 import { plainErrorText } from '@hid/http'
 import type { RegistrationCase, ResolveNinInput } from './api'
+import { NIN_DETAILS_CHECK, NIN_HELD_FEW_MINUTES, NIN_IN_PROGRESS, NIN_NOT_VERIFIED_TEXT, NIN_TAKING_LONGER } from '../ninCheck'
 
 /*
  * The parts of facility registration (NIN check → case → approve or link → enroll) that more than one screen uses:
@@ -21,6 +22,12 @@ export const REGISTRATION_GENDERS: ReadonlyArray<{ value: NonNullable<ResolveNin
 const REGISTRATION_REFUSALS: Readonly<Record<string, string>> = {
   NIN_ALREADY_REGISTERED: 'This person already has a Health ID. Search for them instead.',
   NIN_MISMATCH: 'The details don’t match the NIN record. Check the name and date of birth, then try again.',
+  // The NIN check's own answers (ninCheck.ts); a screen that can say when a held NIN may be checked says that instead.
+  NIN_CHECK_IN_PROGRESS: NIN_IN_PROGRESS,
+  NIN_CHECK_HELD: NIN_HELD_FEW_MINUTES,
+  QOREID_TIMEOUT: NIN_TAKING_LONGER,
+  NIN_DETAILS_INVALID: NIN_DETAILS_CHECK,
+  NIN_NOT_VERIFIED: NIN_NOT_VERIFIED_TEXT,
 }
 
 /** A registration step's refusal in plain words (plainErrorText), or the step's own `fallback`. Never Identity's text. */

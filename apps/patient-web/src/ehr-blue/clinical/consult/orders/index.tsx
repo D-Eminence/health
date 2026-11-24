@@ -4,7 +4,6 @@ import { Link, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import type { ClinicalRecord, Encounter } from '../../../../staff/api'
 import { usesNovuBackend } from '../../../../backendContract'
 import { ChartGate, type Chart } from '../../parts/chart'
-import { Step } from '../../parts/Detail'
 import { ErrorBox, Loading, RecordNotFound } from '../../parts/Notices'
 import { StatusBadge } from '../../parts/StatusBadge'
 import { useWorkspaceHref } from '../../parts/Workspace'
@@ -12,8 +11,10 @@ import { ListPaging } from '../Notes'
 import { pagerProps, type RecordList } from '../records'
 import { CreateOrder } from './CreateOrder'
 import { OrderPage } from './OrderPage'
-import { FlashContext, KINDS, orderTitle, patientWord, routeOf, text, type Flash, type OrderKind } from './orders'
-import { routeStatus, routeStatusClass } from './Routing'
+import { formatWhen } from '../../parts/format'
+import { FlashContext, KINDS, orderDetail, orderTitle, patientWord, routeOf, text, type Flash, type OrderKind } from './orders'
+import { ownProgressText } from './progress'
+import { RouteNotices, routeStatus, routeStatusClass } from './Routing'
 import { isDemoFacility } from '../../../blueFacilities'
 import { useSampleCan } from '../../../frame/sampleAccess'
 
@@ -79,25 +80,39 @@ function OrderListPages({ kind, list }: { kind: OrderKind; list: RecordList<Clin
 }
 
 /**
- * One order's row: its link and status and, for an order sent to another facility, today's words under the row for
- * where it went and where it stands (the OrderRoutePanel's heading and status line, Clinical.tsx:1889-1893,
- * OrderRoutes.tsx:384-387), read from the route summary the list already carries, so it costs no read. The rest of
- * that panel (what to do next, the reason it couldn't be completed, the wrong-patient notice, details and Withdraw) is
- * on the order's page. The reference stays there too: the row says no code.
+ * One order's row, as classic's list row (staff/routes/Clinical.tsx:1818-1852): its link and status, classic's detail
+ * line (frequency; priority, with no test code: the row says no code) and when it was recorded, and, for an order sent to another facility,
+ * classic's OrderRoutePanel words under it (OrderRoutes.tsx:384-393): where it went and where it stands, what to do
+ * next, why it couldn't be completed, and the wrong-patient and late reports (RouteNotices), all read from the route
+ * summary the list already carries, so it costs no read. Its own pharmacy or laboratory progress (ORD-3) is a line
+ * under it, from the same list read. The details, Withdraw and the order's other changes are on the order's page; the
+ * reference stays there too.
  */
 function OrderRow({ kind, record, to, patient }: { kind: OrderKind; record: ClinicalRecord; to: string; patient: string }) {
   const routeId = useId()
+  const progressId = useId()
   // As today's list and the order page (rights.novu): only a novu backend's route, well formed (routeOf), is said.
   const route = usesNovuBackend() ? routeOf(record) : null
   const status = route ? routeStatus(route, patient) : null
+  const detail = orderDetail(kind, record)
+  const recorded = formatWhen(text(record.createdAt))
+  // Where it is in this facility's own pharmacy or laboratory (ORD-3), on a line of its own; nothing when not sent here.
+  const progress = ownProgressText(kind, record)
+  const describedBy = [status ? routeId : '', progress ? progressId : ''].filter(Boolean).join(' ')
   return (
     <li className="hid-ehr-clinical-history-row">
-      <Link className="hid-ehr-clinical-link" to={to} aria-describedby={status ? routeId : undefined}>{KINDS[kind].title} · {orderTitle(kind, record)}</Link>
+      <span>
+        <Link className="hid-ehr-clinical-link" to={to} aria-describedby={describedBy || undefined}>{KINDS[kind].title} · {orderTitle(kind, record)}</Link>
+        {detail ? <span className="hid-ehr-clinical-cell-sub">{detail}</span> : null}
+        {recorded ? <span className="hid-ehr-clinical-cell-sub">Recorded: {recorded}</span> : null}
+      </span>
       <StatusBadge status={text(record.status) || 'unknown'} />
-      {status ? (
+      {progress ? <p id={progressId} className="hid-ehr-clinical-orders-muted hid-ehr-clinical-orders-row-progress">{progress}</p> : null}
+      {route && status ? (
         <div id={routeId} className="hid-ehr-clinical-orders-row-route">
           <p className="hid-ehr-clinical-orders-muted">{kind === 'laboratory' ? 'Sent to another laboratory' : 'Sent to a pharmacy'}</p>
           <p className={routeStatusClass(status.tone)}>{status.text}</p>
+          <RouteNotices route={route} patient={patient} />
         </div>
       ) : null}
     </li>
@@ -135,17 +150,18 @@ export function EncounterOrders({ chart, encounter, lists: orders }: { chart: Ch
 
   return (
     <div className="hid-ehr-clinical-orders-connected">
-      {createRx ? <Step><EhrButton variant="secondary" onClick={() => navigate(href(encounter.id, 'orders', 'new', 'pharmacy'))}>New prescription</EhrButton></Step> : null}
-      {createLab ? <Step><EhrButton variant="secondary" onClick={() => navigate(href(encounter.id, 'orders', 'new', 'laboratory'))}>New lab request</EhrButton></Step> : null}
-      {/* Radiology and referrals are samples: offered only at the demo facilities, so a live page at a real facility
-          never leads into a sample; each only to a design role that may create there (sampleAccess.ts), as a role
-          the sample is closed to would land on Home instead. */}
-      {chart.canWrite && isDemoFacility(chart.facilityId) ? (
-        <>
-          {sampleCan('radiology', 'create') ? <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('radiology', 'new'))}>New radiology request</EhrButton></Step> : null}
-          {sampleCan('referrals', 'create') ? <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('referrals', 'new'))}>New referral</EhrButton></Step> : null}
-        </>
-      ) : null}
+      {/* The ways to order, side by side, each with its icon (owner, 18 Nov 2026): one row, not a stack of boxes. */}
+      <div className="hid-ehr-clinical-action-list">
+        {createRx ? <EhrButton variant="secondary" onClick={() => navigate(href(encounter.id, 'orders', 'new', 'pharmacy'))}>New prescription</EhrButton> : null}
+        {createLab ? <EhrButton variant="secondary" onClick={() => navigate(href(encounter.id, 'orders', 'new', 'laboratory'))}>New lab request</EhrButton> : null}
+        {/* Radiology and referrals are samples: offered only at the demo facilities, so a live page at a real facility
+            never leads into a sample; each only to a design role that may create there (sampleAccess.ts), as a role
+            the sample is closed to would land on Home instead. */}
+        {chart.canWrite && isDemoFacility(chart.facilityId) && sampleCan('radiology', 'create')
+          ? <EhrButton variant="secondary" onClick={() => navigate(href.to('radiology', 'new'))}>New radiology request</EhrButton> : null}
+        {chart.canWrite && isDemoFacility(chart.facilityId) && sampleCan('referrals', 'create')
+          ? <EhrButton variant="secondary" onClick={() => navigate(href.to('referrals', 'new'))}>New referral</EhrButton> : null}
+      </div>
       {createRx || createLab ? <p className="hid-ehr-clinical-note">{CONNECTED_ORDERS_NOTE}</p> : null}
       {loading ? <Loading label="Loading records…" /> : null}
       {lists.map(({ kind, list }) => list.error ? <ErrorBox key={kind}>{list.error}</ErrorBox> : null)}

@@ -18,9 +18,38 @@ export const NO_ACTIONS = 'Nothing else to do here.'
 export const RETRY_NOTE = 'Correct the issue or retry using the same button. No success is reported until saved.'
 /** The design's word for a required field left empty. */
 export const COMPLETE_FIELD = 'Complete this field.'
-/** At least this many characters, as Outreach takes a phone number or notes (CreateRegistrationCaseDto). */
+/** At least this many characters, as Outreach takes notes for the team (CreateRegistrationCaseDto). */
 export const AT_LEAST_THREE = 'Enter at least 3 characters, or leave this blank.'
 export const AGE_RANGE = 'Enter an age in whole years, from 0 to 130.'
+/** The phone field's hint, and its refusal in the same words: what Outreach takes (normalizeOutreachPhone below). */
+export const PHONE_HINT = 'A mobile number: 11 digits starting with 0, or starting with +234.'
+export const PHONE_FORMAT = 'Enter a mobile number with 11 digits starting with 0, or starting with +234.'
+
+/** A phone number as Outreach keeps it (create-registration-case.dto.ts E164_PHONE): + and 7 to 15 digits. */
+const E164_PHONE = /^\+[1-9]\d{6,14}$/
+
+/**
+ * A phone number as Outreach reads it before checking it (hid-system services/outreach-api create-registration-case.dto.ts
+ * normalizeOutreachPhone, ported exactly): a Nigerian local number (0 and 10 digits) is read as +234, a trunk 0 typed
+ * after +234 is dropped, and spaces, dots, dashes and brackets are ignored. Anything else is left as typed, so the E.164
+ * check refuses it. Nothing typed but those is no phone number at all.
+ */
+export function normalizeOutreachPhone(raw: string): string | undefined {
+  const compact = raw.trim().replace(/[\s().-]/g, '')
+  if (compact === '') return undefined
+  if (/^0\d{10}$/.test(compact)) return `+234${compact.slice(1)}`
+  if (/^234\d{10}$/.test(compact)) return `+${compact}`
+  const trunk = /^\+2340(\d{10})$/.exec(compact)
+  if (trunk) return `+234${trunk[1]}`
+  return E164_PHONE.test(compact) ? compact : raw.trim()
+}
+
+/** Whether Outreach takes a phone number as typed (CreateRegistrationCaseDto): none, or one that reads as E.164. */
+export function outreachPhoneAccepted(raw: string): boolean {
+  const phone = normalizeOutreachPhone(raw)
+  return phone === undefined || E164_PHONE.test(phone)
+}
+
 /** Outreach takes a resolution reason of 8 characters or more. */
 export const REASON_LENGTH = 'Enter at least 8 characters.'
 
@@ -31,9 +60,21 @@ export const LINK_RETRY_NOTE = 'The case has been read again, so a retry uses it
 
 export const CASES_NOT_LOADED = 'Registration cases could not be loaded. Refresh to try again.'
 export const CAMPAIGNS_NOT_LOADED = 'Campaigns could not be loaded. Refresh to try again.'
+/**
+ * Why the form can list no campaign when it is not that the person is in none: the campaigns, or a running campaign's
+ * members, are still being read, or couldn't be read (with no signal, or otherwise). Never said as "not in a campaign".
+ */
+export type CampaignsUnread = 'loading' | 'offline' | 'failed'
 export const MEMBERS_NOT_LOADED = 'Campaign members could not be loaded. Try again.'
-export const CREATE_FAILED = 'The registration case could not be saved. Please retry.'
-export const LINK_FAILED = 'The patient could not be linked. Check your access to this patient, then refresh the case.'
+/** The classic Outreach section's words (staff/routes/Operations.tsx, parity report 3.3-72) for a create or link refused. */
+export const CREATE_FAILED = 'Registration case could not be created.'
+export const LINK_FAILED = 'Patient could not be linked. Verify access and refresh the case.'
+/** The classic Outreach section's words once an existing patient is linked. */
+export const LINKED = 'Existing patient linked.'
+/** The classic Outreach section's empty lists. */
+export const NO_CASES = 'No registration cases'
+export const NO_CAMPAIGNS = 'No campaigns'
+export const NO_MEMBERS = 'No members'
 
 export const PENDING = 'identity_resolution_pending'
 
@@ -61,6 +102,8 @@ const CAMPAIGN_REFUSALS: Readonly<Record<string, string>> = {
   OUTREACH_STAFF_NOT_AVAILABLE: 'That person isn’t active staff at this facility now. Choose someone else.',
   OUTREACH_CAMPAIGN_MEMBER_EXISTS: 'That person is already in this campaign.',
   OUTREACH_CAMPAIGN_DATES_INVALID: END_AFTER_START,
+  // An outreach group (open sign-up on outreach.) that Health ID has paused.
+  OUTREACH_ORGANISER_SUSPENDED: 'This outreach group has been paused by Health ID. Contact Health ID support.',
 }
 /** The refusals after which the campaign is read again, since what the page shows is out of date. */
 export const CAMPAIGN_STALE: ReadonlySet<string> = new Set(['VERSION_CONFLICT', 'OUTREACH_CAMPAIGN_STATE_CONFLICT', 'OUTREACH_CAMPAIGN_CLOSED',
@@ -126,7 +169,13 @@ export const HEALTH_ID_FORMAT = 'Enter the Health ID as it’s written on their 
 export const HEALTH_ID_NOT_FOUND = 'No one has this Health ID. Check it with them and try again.'
 export const HEALTH_ID_NO_ACCESS = 'You can’t open this person’s record yet. Ask them to share their record with you, or approve your access request.'
 export const HEALTH_ID_ROLE = 'Your role can’t look people up by Health ID. Ask your facility administrator to link this registration, or to change your role.'
-export const LINK_NEEDS_SHARE = 'To link this registration, the person needs to share their record with your facility for care. A PIN only lets you view their record, not link it.'
+/**
+ * A link refused for want of access to add to the record. Only doctors, clinicians and nurses may use a patient's Access
+ * PIN (identity.patient-access-pin.verify), and the access it gives is theirs alone, so the PIN is offered only to them:
+ * other staff who may link (a receptionist, say) are never told to have the patient enter their PIN.
+ */
+export const LINK_NEEDS_SHARE = 'To link this registration, you need access to add to their record. Ask them to enter their Access PIN, share their record with your facility for care, or approve your request to see and add to it.'
+export const LINK_NEEDS_SHARE_NO_PIN = 'To link this registration, you need access to add to their record. Ask them to share their record with your facility for care, or approve your request to see and add to it.'
 export const LOOKUP_FAILED = 'We couldn’t check this Health ID. Try again.'
 
 /** A Health ID as Identity takes it (patient-lookup.dto.ts): HID- and 6 to 32 letters and digits, no I, O, 0 or 1. */
@@ -194,7 +243,8 @@ export function sexText(item: OutreachCase) {
 
 /** The words a list search looks in: what a row shows, and nothing that is not on screen. */
 export function caseSearchText(item: OutreachCase) {
-  return [caseName(item), statusLabel(item.status), ageText(item), sexText(item), dateText(item.createdAt)]
+  // The Health ID too (owner, 14 Nov: find a person by Health ID). Never the phone number, which stays masked.
+  return [caseName(item), statusLabel(item.status), ageText(item), sexText(item), dateText(item.createdAt), item.healthId]
 }
 
 export function campaignSearchText(campaign: OutreachCampaign) {
@@ -223,7 +273,8 @@ export function caseFacts(item: OutreachCase, campaign: OutreachCampaign | undef
     { label: 'Age', value: ageText(item) },
     { label: 'Sex', value: sexText(item) },
     ...(item.phone !== undefined ? [{ label: 'Phone number', value: phoneText(item.phone) }] : []),
-    { label: 'Status', value: statusLabel(item.status) },
+    ...(item.area !== undefined ? [{ label: 'Area, town or LGA', value: item.area?.trim() || 'Not recorded' }] : []),
+    { label: 'Status', value: caseBadgeText(item) },
     { label: 'Campaign', value: item.campaignId ? (campaign?.name ?? 'A campaign not listed here') : 'No campaign' },
     { label: 'Created', value: dateText(item.createdAt) },
     ...(item.operationalNotes !== undefined
@@ -240,6 +291,10 @@ export function campaignFacts(campaign: OutreachCampaign): DeptFact[] {
     { label: 'Starts', value: dateText(campaign.startsAt) },
     // Outreach sends its end on every campaign (null: none set); an older answer leaves it out, and so does this.
     ...(campaign.endsAt !== undefined ? [{ label: 'Ends', value: campaign.endsAt ? dateText(campaign.endsAt) : 'No end date' }] : []),
+    // What Health ID support asks for when a campaign has lost its only admin: its reference and, to close it, its version.
+    // Kept, though no other id is shown, because no other screen has them: the platform admin site's rescue form needs
+    // both and Identity has no admin route that lists a group's campaigns yet (docs/LOG.md, IDs on screen, left for the owner).
+    { label: 'For Health ID support', value: <span className="break-all">Reference {campaign.id}, version {campaign.rowVersion}</span> },
   ]
 }
 
@@ -249,6 +304,8 @@ export interface MembersRead {
   readonly items: OutreachCampaignMember[] | null
   readonly loading: boolean
   readonly error: string
+  /** The refusal itself, when the read failed. */
+  readonly caught?: unknown
   readonly refresh: () => Promise<void>
 }
 
@@ -338,9 +395,31 @@ export function caseTone(status: string): Tone {
   return LINKED_STATUSES.has(status) ? 'success' : 'neutral'
 }
 
+/** Said of a registration that has a Health ID made at outreach (0119), which stays pending identity all the same. */
+export const HAS_HEALTH_ID = 'Has a Health ID'
+/** A registration's Health ID made at outreach, as its card and case view say it. */
+export const healthIdMadeText = (healthId: string) => `Health ID made: ${healthId}`
+/** Where Outreach makes Health IDs (its reads carry `healthId`) and this registration has none yet. */
+export const NO_HEALTH_ID_YET = 'No Health ID yet'
+
+/** A case's status in words, or that it has a Health ID made at outreach. */
+export function caseBadgeText(item: OutreachCase): string {
+  return item.status === PENDING && item.healthId ? HAS_HEALTH_ID : statusLabel(item.status)
+}
+/** A case's badge tone: green once it has a Health ID made at outreach. */
+export function caseBadgeTone(item: OutreachCase): Tone {
+  return item.status === PENDING && item.healthId ? 'success' : caseTone(item.status)
+}
+
 /** What happens next on a case, said on its card: the one next step, or that it is done. */
-export function nextStepText(item: OutreachCase, canLink: boolean): string {
+export function nextStepText(item: OutreachCase, canLink: boolean, group = false): string {
   if (item.status !== PENDING) return Object.hasOwn(STATUS_LABEL, item.status) ? 'Done: nothing more to do' : 'Nothing else to do here.'
+  // A Health ID made at outreach (0119): the registration stays pending identity, but there is nothing to link.
+  if (item.healthId) return healthIdMadeText(item.healthId)
+  // Where Outreach makes Health IDs (its reads carry healthId), one can still be made from the case view.
+  if (group && 'healthId' in item) return NO_HEALTH_ID_YET
+  // At an outreach group nobody here links it: the person links their own Health ID later.
+  if (group) return 'They link their own Health ID later'
   return canLink ? 'Next: link their Health ID' : 'Waiting for someone to link their Health ID'
 }
 

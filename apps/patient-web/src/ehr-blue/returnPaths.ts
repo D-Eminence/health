@@ -18,8 +18,12 @@ export const BLUE_RETURN_PATHS: readonly string[] = [
   '/provider/payment-setup', '/provider/referrals', '/provider/ambulance', '/provider/bloodbank',
   '/provider/telemedicine', '/provider/shifts', '/provider/hr', '/provider/quality', '/provider/services',
   '/provider/ward-config', '/provider/vehicles', '/provider/facility', '/provider/onboarding',
-  '/provider/supply', '/provider/procurement', '/provider/institutions',
+  '/provider/supply', '/provider/procurement', '/provider/institutions', '/provider/help',
   '/provider/laboratory/new', '/provider/laboratory/work', '/provider/laboratory/results',
   '/provider/laboratory/tests', '/provider/laboratory/till', '/provider/laboratory/settings',
-  '/provider/laboratory/new-walk-in',
+  '/provider/laboratory/new-walk-in', '/provider/reading-quality',
+  // The waiting list (hid-system 0135) under Front desk.
+  '/provider/waiting-list',
+  // Open sign-up on outreach. (owner decision 5): "Start an outreach group" for a signed-in login.
+  '/provider/start-outreach-group',
 ]

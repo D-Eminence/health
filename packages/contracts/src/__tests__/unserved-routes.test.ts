@@ -65,6 +65,21 @@ const NOT_ON_MAIN = [
   'identity.facilitySettings', 'identity.facilityOnePersonLab',
   // Single sign-on on auth. (ADR-070, proposed): the product's sign-out answering the provider's end-session address.
   'auth.ssoLogout',
+  // Open sign-up on outreach. (owner decisions of 11 November 2026): the sign-up, "Start an outreach group", the team's
+  // invitations and accepting one, and support's queue and tools.
+  'enrollment.outreachOrganiserAvailability', 'enrollment.outreachOrganiserStart', 'enrollment.outreachOrganiserVerify',
+  'enrollment.outreachOrganiserActivate', 'identity.outreachGroupAvailability', 'identity.outreachGroupStart',
+  'identity.outreachInvitations', 'enrollment.outreachInvitationAccept', 'identity.outreachInvitationSignedInAccept',
+  'admin.outreachOrganisers', 'admin.outreachOrganiserSuspend', 'admin.outreachCampaignClose',
+  'admin.outreachCampaignAdmins', 'admin.outreachRegistrationSearch', 'admin.outreachRegistrationRedact',
+  // Outreach health checks (outreach-api 0118).
+  'outreach.caseScreening',
+  // Assisted Health ID (outreach-api 0119, and the unverified Health ID after it).
+  'outreach.healthIdStart', 'outreach.healthIdConfirm', 'outreach.healthIdCreateUnverified',
+  // Release A (0131, 0132): staff patient search, emergency search, and opening this facility's own patient.
+  'identity.patientSearch', 'identity.patientEmergencySearch', 'identity.ownFacilityAccess',
+  // Release A (hid-system 0135 on staging-novu-ci-20261005): the waiting list.
+  'ehr.visitQueue', 'ehr.visitQueueCheckIn', 'ehr.visitQueueEntry',
 ] as const
 
 describe('routes hid-system main does not serve', () => {

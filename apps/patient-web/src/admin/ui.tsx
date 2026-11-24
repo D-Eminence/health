@@ -62,12 +62,14 @@ export function useResource<T>(load: (signal?: AbortSignal) => Promise<T>, error
   return { data, loading, error, reload: () => setRevision(value => value + 1) }
 }
 
-export function Page({ eyebrow, title, description, children, action }: {
+export function Page({ eyebrow, title, description, children, action, back }: {
   eyebrow: string; title: string; description: string; children: ReactNode; action?: ReactNode
+  /** A page opened from a list: the way back to it, named ("Back to facilities"). */
+  back?: { to: string; label: string }
 }) {
   // paytrail's PageHeader, with the area's section as a quiet overline above the title.
   return <section className="admin-page flex flex-col gap-6">
-    <KPageHeader eyebrow={<p className="m-0 text-overline text-ink-3">{eyebrow}</p>} title={title} description={description} actions={action} />
+    <KPageHeader eyebrow={<p className="m-0 text-overline text-ink-3">{eyebrow}</p>} title={title} description={description} actions={action} back={back} />
     {children}
   </section>
 }

@@ -110,7 +110,7 @@ describe('who may open Prescriptions', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Prescriptions' })).toBeTruthy()
     expect(screen.getByText('You can’t open Prescriptions here. Your role needs permission to see prescriptions.')).toBeTruthy()
     expect(screen.queryByRole('searchbox')).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Refresh' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Refresh work' })).toBeNull()
     expect(api.pharmacyWorkItems).not.toHaveBeenCalled()
     expect(api.dispense).not.toHaveBeenCalled()
     expect(api.dispensing).not.toHaveBeenCalled()
@@ -166,13 +166,13 @@ describe('the queue', () => {
     await renderList()
     showTab('All')
     const first = row(AMOXICILLIN)
-    expect(within(first).getByText('Patient ••••6f8a10')).toBeTruthy()
+    expect(within(first).getByText('Patient (name not shown)')).toBeTruthy()
     expect(within(first).getByText('500 mg · Capsule')).toBeTruthy()
     expect(first.textContent).toContain('1 capsule · Three times daily')
     expect(within(first).getByText('To dispense')).toBeTruthy()
     expect(within(first).getByTitle(`Accepted ${dateText(accepted.acceptedAt)}`)).toBeTruthy()
     expect(within(row(METFORMIN)).getByText('Dispensed')).toBeTruthy()
-    expect(within(row(METFORMIN)).getByText('Patient ••••a9b3c4')).toBeTruthy()
+    expect(within(row(METFORMIN)).getByText('Patient (name not shown)')).toBeTruthy()
     const third = row(SALBUTAMOL)
     expect(within(third).getByText('Reversed')).toBeTruthy()
     expect(within(third).getByText('Dose not recorded')).toBeTruthy()
@@ -230,7 +230,7 @@ describe('the queue', () => {
     api.pharmacyWorkItems.mockReturnValueOnce(load.promise)
     renderPage()
     expect(screen.getByRole('status', { name: 'Loading prescriptions' })).toBeTruthy()
-    const refresh = screen.getByRole('button', { name: 'Refresh' })
+    const refresh = screen.getByRole('button', { name: 'Refresh work' })
     expect(refresh.getAttribute('aria-busy')).toBe('true')
     expect(refresh.hasAttribute('disabled')).toBe(false)
     expect(screen.queryByRole('alert')).toBeNull()
@@ -244,12 +244,17 @@ describe('the queue', () => {
     expect(refresh.getAttribute('aria-busy')).toBeNull()
   })
 
-  it('says when there are no prescriptions, and finds new ones on Refresh', async () => {
+  it('says when there are no prescriptions in classic’s words, and finds new ones on its Refresh (parity row 3.3-69)', async () => {
     api.pharmacyWorkItems.mockResolvedValueOnce({ items: [] }).mockResolvedValueOnce({ items: [accepted] })
     renderPage()
-    expect(await screen.findByText('Nothing waiting to dispense')).toBeTruthy()
-    expect(screen.getByText('New prescriptions show here as soon as Pharmacy accepts them.')).toBeTruthy()
+    expect(await screen.findByText('No accepted prescriptions')).toBeTruthy()
+    expect(screen.getByText('Refresh to check for new work at this facility.')).toBeTruthy()
+    expect(screen.queryByText('Nothing waiting to dispense')).toBeNull()
     expect(screen.queryByRole('list', { name: 'Prescriptions' })).toBeNull()
+    // Classic's words under the heading, and its toolbar's Refresh work beside the empty list's Refresh.
+    expect(screen.getByText('Accepted prescriptions and full dispensing records for the active facility. The server checks '
+      + 'patient authorization before dispensing or reversal.')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Refresh work' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
     expect(await screen.findByRole('button', { name: AMOXICILLIN })).toBeTruthy()
     expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(2)
@@ -273,7 +278,7 @@ describe('the queue', () => {
   })
 
   it.each([
-    ['a rejection with no message', { status: 0 }, 'Prescriptions could not be loaded. Please retry.'],
+    ['a rejection with no message', { status: 0 }, 'Work could not be loaded.'],
     ['Pharmacy switched off on this deployment', new HidApiError(404, 'Not found', { code: 'API_ROUTE_NOT_FOUND' }), SAID_NOT_TURNED_ON],
     ['a fault between Health ID services', new HidApiError(503, 'Upstream', { code: 'PHARMACY_SERVICE_AUTH_UNAVAILABLE' }), SAID_TRY_SHORTLY],
   ])('says %s plainly', async (_case, refusal, text) => {
@@ -288,7 +293,7 @@ describe('the queue', () => {
     const reload = deferred<{ items: PharmacyWorkItem[] }>()
     api.pharmacyWorkItems.mockResolvedValueOnce({ items: [accepted] }).mockReturnValueOnce(reload.promise)
     await renderList()
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh work' }))
     expect(screen.getByRole('button', { name: AMOXICILLIN })).toBeTruthy()
     expect(screen.queryByRole('status', { name: 'Loading prescriptions' })).toBeNull()
     await act(async () => { reload.reject(new HidApiError(503, 'Pharmacy work is temporarily unavailable.', { code: 'PHARMACY_SERVICE_UNAVAILABLE' })) })
@@ -374,7 +379,7 @@ describe('the picking view', () => {
     expect(screen.queryByRole('list', { name: 'Prescriptions' })).toBeNull()
     // Who it is for, in the same place on every record. This pharmacy's own work, sent without its patient: nothing was
     // left unsent by another facility.
-    const banner = screen.getByRole('region', { name: 'Patient: Patient ••••6f8a10' })
+    const banner = screen.getByRole('region', { name: 'Patient: Patient (name not shown)' })
     expect(banner.textContent).toContain('Health ID not shown')
     expect(banner.textContent).not.toContain('Health ID not sent')
     expect(recordStatus()).toBe('To dispense')
@@ -399,7 +404,7 @@ describe('the picking view', () => {
 
   it.each([
     { sent: 'the patient without a Health ID', patient: { ...PATIENT, healthIdLast4: null }, region: 'Patient: Patient One' },
-    { sent: 'no patient', patient: undefined, region: 'Patient: Patient ••••6f8a10' },
+    { sent: 'no patient', patient: undefined, region: 'Patient: Patient (name not shown)' },
   ])('says the Health ID was not sent on a prescription another facility sent with $sent', ({ patient, region }) => {
     renderRecord(routed({ patient }), [READ])
     const banner = screen.getByRole('region', { name: region })

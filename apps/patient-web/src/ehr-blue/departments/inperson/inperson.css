@@ -17,15 +17,57 @@
 
 /* A group of fields under a legend: no fieldset border, and no min-content width, so a long statement wraps at a phone's
    width instead of widening the page. */
-.hid-ehr .hid-ehr-dept-inperson-group,
-.hid-ehr .hid-ehr-dept-inperson-method {
+.hid-ehr .hid-ehr-dept-inperson-group {
   min-width: 0;
   margin: 0;
   padding: 0;
   border: 0;
 }
 
-/* "As written on the document", "Confirm each statement": the design's sub-heading inside a card. */
+/* One of classic's three steps: its numbered head, then its fields, 18px apart as the form's parts are. */
+.hid-ehr .hid-ehr-dept-inperson-stepgroup {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+
+.hid-ehr .hid-ehr-dept-inperson-stephead {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.hid-ehr .hid-ehr-dept-inperson-stephead .hid-ehr-dept-inperson-legend {
+  margin: 3px 0 0;
+}
+
+.hid-ehr .hid-ehr-dept-inperson-n {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--ehr-brand-dark);
+  color: var(--ehr-surface);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* A step's hint and the "Type the details exactly as they are on the ID." line: small, muted. */
+.hid-ehr .hid-ehr-dept-inperson-note {
+  margin: 2px 0 0;
+  padding: 0;
+  color: var(--ehr-muted);
+  font-size: 13px;
+}
+
+.hid-ehr .hid-ehr-dept-inperson-group > legend.hid-ehr-dept-inperson-note {
+  margin: 0 0 12px;
+}
+
+/* A step's title: the design's sub-heading inside a card. */
 .hid-ehr .hid-ehr-dept-inperson-legend {
   margin: 0 0 12px;
   padding: 0;
@@ -34,19 +76,13 @@
   font-weight: 600;
 }
 
-/* "Method": a field's label over its one choice, 6px apart as a field's are. */
-.hid-ehr .hid-ehr-dept-inperson-method > legend {
-  margin: 0 0 6px;
-  padding: 0;
-}
-
 /* The statements: the design's checkbox list, one per line. */
 .hid-ehr .hid-ehr-dept-inperson-checks {
   display: grid;
   gap: 4px;
 }
 
-/* A statement or the method: the box before its words, as the design's facility onboarding draws its statements. */
+/* A statement: the box before its words, as the design's facility onboarding draws its statements. */
 .hid-ehr .hid-ehr-dept-inperson-choice {
   display: flex;
   align-items: flex-start;

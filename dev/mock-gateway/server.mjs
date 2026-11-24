@@ -26,7 +26,7 @@ import { CSRF, EXPECTED_404, configure, notServed, respond, workspaceFor } from 
 const PORT = Number(process.env.MOCK_PORT ?? 3000)
 const HERE = dirname(fileURLToPath(import.meta.url))
 const NEEDS_LOG = join(HERE, 'backend-needs.log')
-configure({ facility: process.env.MOCK_FACILITY === 'classic' ? 'classic' : 'blue' })
+configure({ facility: process.env.MOCK_FACILITY === 'classic' ? 'classic' : process.env.MOCK_FACILITY === 'outreach' ? 'outreach' : 'blue' })
 
 const seen = new Set()
 function logNeed(method, path, workspace) {
@@ -57,7 +57,9 @@ createServer((req, res) => {
     let pagePath = ''
     try { pagePath = new URL(req.headers.referer ?? '').pathname } catch { /* no referer */ }
     const workspace = workspaceFor(path, pagePath, process.env.MOCK_ROLE)
-    const hit = respond(method, path, workspace)
+    // Bodies are ignored; the query and headers are read (the outreach organisers' status, and If-Match on support's
+    // outreach commands).
+    const hit = respond(method, path, workspace, { query: url.searchParams, headers: { get: name => req.headers[String(name).toLowerCase()] ?? null } })
     if (hit) {
       console.log(`  ${workspace.padEnd(8)} ${method} ${path} → ${hit.status}`)
       return send(res, hit.status, hit.body, hit.headers)

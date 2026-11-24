@@ -31,20 +31,28 @@ function qrPath(text: string): { size: number; d: string } | null {
 }
 
 /**
- * A new authenticator's setup key as a QR code, for the authenticator app's
- * camera. It is drawn here from the `otpauth://` URI Identity returned, with
- * no request: the URI holds the secret, which no QR service may see. Inline
- * SVG with presentation attributes only, as the portal's Content Security
- * Policy allows (style-src 'self'); dark on light whatever the page's colours.
- * Nothing is drawn for a URI too long for a QR code: the setup key and the
- * link to the app still serve.
+ * `text` as a QR code, drawn here with no request (no QR service sees what it holds). Inline SVG with presentation
+ * attributes only, as the portal's Content Security Policy allows (style-src 'self'); dark on light whatever the page's
+ * colours. `label` is its text alternative. Nothing is drawn for a text too long for a QR code: the page's own words
+ * and links must still serve.
  */
-export function OtpauthQr({ uri, className }: { uri: string; className?: string }) {
-  const drawn = useMemo(() => qrPath(uri), [uri])
+export function QrCode({ text, label, className, size = 200 }: { text: string; label: string; className?: string; size?: number }) {
+  const drawn = useMemo(() => qrPath(text), [text])
   if (!drawn) return null
-  return <svg className={className} role="img" aria-label="QR code of the setup key, for your authenticator app"
-    viewBox={`0 0 ${drawn.size} ${drawn.size}`} width={200} height={200} shapeRendering="crispEdges">
+  return <svg className={className} role="img" aria-label={label}
+    viewBox={`0 0 ${drawn.size} ${drawn.size}`} width={size} height={size} shapeRendering="crispEdges">
     <rect width={drawn.size} height={drawn.size} fill="#fff" />
     <path d={drawn.d} fill="#000" />
   </svg>
+}
+
+/**
+ * A new authenticator's setup key as a QR code, for the authenticator app's
+ * camera. It is drawn here from the `otpauth://` URI Identity returned, with
+ * no request: the URI holds the secret, which no QR service may see. Nothing
+ * is drawn for a URI too long for a QR code: the setup key and the link to the
+ * app still serve.
+ */
+export function OtpauthQr({ uri, className }: { uri: string; className?: string }) {
+  return <QrCode text={uri} label="QR code of the setup key, for your authenticator app" className={className} />
 }

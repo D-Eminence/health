@@ -125,11 +125,14 @@
 }
 
 .hid-ehr .hid-ehr-clinical-banner.hid-ehr-clinical-banner-warning {
-  background: var(--ehr-warning-banner-surface);
+  background: var(--color-warn-soft);
+  color: var(--color-ink);
 }
 
+/* Theme tokens, not fixed tints: readable in light and dark (QA P1-17). */
 .hid-ehr .hid-ehr-clinical-banner.hid-ehr-clinical-banner-critical {
-  background: #fff0ee;
+  background: var(--color-danger-soft);
+  color: var(--color-ink);
 }
 
 .hid-ehr .hid-ehr-clinical-banner-title {
@@ -328,15 +331,18 @@
 }
 
 /* Full-width outline action buttons, 8px apart. */
+/* A record's actions read as buttons, not as a stack of input-like boxes (UX review, 17 Nov 2026): sized to their words,
+   side by side and wrapping, the lead action filled (frame/actionVariant.ts), 44px tall to tap. */
 .hid-ehr .hid-ehr-clinical-action-list {
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
 }
 
 .hid-ehr .hid-ehr-clinical-action-list > .hid-ehr-button {
-  width: 100%;
+  min-height: 44px;
+  padding-inline: 16px;
 }
 
 /* An action that cannot run yet keeps focus (aria-disabled, not disabled), so the kit's :disabled look misses it:
@@ -762,6 +768,16 @@
   margin: 0;
 }
 
+/* The patient's allergies in a line or two (patients/AllergiesCard.tsx AllergyLines): the patient's own words can be one
+   long run with no space, so they wrap at phone width; the second line sits just under the first. */
+.hid-ehr .hid-ehr-clinical-allergy-line {
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-clinical-allergy-line + .hid-ehr-clinical-allergy-line {
+  margin-top: 4px;
+}
+
 /* ---- Quick view drawer content --------------------------------------------- */
 
 /* Title, "Last updated", the rows and "Open full record" stack with no gap (record-quick-view.png). */
@@ -888,8 +904,8 @@
   padding: 12px 16px;
   border: 1px solid var(--ehr-line);
   border-radius: 10px;
-  background: #fff7e6;
-  color: var(--ehr-ink);
+  background: var(--color-warn-soft);
+  color: var(--color-ink);
 }
 
 /* A diagnosis row and its change form. */
@@ -941,7 +957,9 @@
   font-family: var(--ehr-font-body);
 }
 
-.hid-ehr .hid-ehr-clinical-today h2 {
+/* Today's own sections only: a card drawn in the redesign's parts (ImportedFromPaper, .imported-from-paper) keeps its own
+   headings and text. */
+.hid-ehr .hid-ehr-clinical-today h2:not(.imported-from-paper *) {
   margin: 0 0 16px;
   font-family: var(--ehr-font-body);
   font-size: 17px;
@@ -950,7 +968,7 @@
   color: var(--ehr-text);
 }
 
-.hid-ehr .hid-ehr-clinical-today p {
+.hid-ehr .hid-ehr-clinical-today p:not(.imported-from-paper *) {
   margin: 12px 0;
   font-size: 14px;
   line-height: 21px;
@@ -1022,6 +1040,26 @@
 
 .hid-ehr .hid-ehr-clinical-orders-gap {
   margin-top: 12px;
+}
+
+/* The reasons given on a prescription to go ahead over an allergy warning, above its actions (AllergyOverrides.tsx), in
+   the allergy warning's red edge: each reason with its own line breaks, a little air between its lines and between
+   reasons. */
+.hid-ehr .hid-ehr-clinical-allergy-override li > p + p {
+  margin-top: 2px;
+}
+
+.hid-ehr .hid-ehr-clinical-allergy-override .hid-ehr-clinical-allergy-warning-lines > li + li {
+  margin-top: 10px;
+}
+
+.hid-ehr .hid-ehr-clinical-allergy-override-reason {
+  white-space: pre-line;
+}
+
+/* From an EHR before 7fbb04aa: whether a warning was overridden can't be shown, said above the actions. */
+.hid-ehr .hid-ehr-clinical-allergy-override-unknown {
+  margin-bottom: 12px;
 }
 
 .hid-ehr .hid-ehr-clinical-orders-lead {
@@ -1130,7 +1168,7 @@
 }
 
 .hid-ehr .hid-ehr-clinical-orders-notice.hid-ehr-clinical-orders-danger {
-  background: #fff0ee;
+  background: var(--color-danger-soft);
 }
 
 .hid-ehr .hid-ehr-clinical-orders-notice > p {
@@ -1139,6 +1177,71 @@
 
 .hid-ehr .hid-ehr-clinical-orders-notice > p + p {
   margin-top: 8px;
+}
+
+/* The allergy warning at prescribing (parts/AllergyWarningPanel.tsx): its own red edge, apart from the lab draft note's
+   pink notice; a severe warning has a heavier edge and a stronger tint. Long patient words wrap at phone width. */
+.hid-ehr .hid-ehr-clinical-allergy-warning {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 12px 0;
+  padding: 12px 16px;
+  border: 1px solid var(--ehr-danger-300);
+  border-left: 4px solid var(--ehr-critical);
+  border-radius: var(--ehr-radius-md);
+  background: var(--ehr-danger-50);
+  color: var(--ehr-ink);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-clinical-allergy-warning.hid-ehr-clinical-allergy-warning-severe {
+  border-width: 2px 2px 2px 6px;
+  border-color: var(--ehr-critical);
+  background: #fde8e6;
+}
+
+.hid-ehr .hid-ehr-clinical-allergy-warning p {
+  margin: 0;
+}
+
+.hid-ehr .hid-ehr-clinical-allergy-warning-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--ehr-critical);
+}
+
+.hid-ehr .hid-ehr-clinical-allergy-warning-title > svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* Focus is moved to the title when a warning appears, for a screen reader to read it; no ring for that. */
+.hid-ehr .hid-ehr-clinical-allergy-warning-title:focus {
+  outline: none;
+}
+
+.hid-ehr .hid-ehr-clinical-allergy-warning-changed {
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-clinical-allergy-warning-lines {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.hid-ehr .hid-ehr-clinical-allergy-warning-lines > li + li {
+  margin-top: 6px;
+}
+
+.hid-ehr .hid-ehr-clinical-allergy-warning-severe-line {
+  font-weight: 600;
 }
 
 /* Where a sent order stands, in the tone of its state. */
@@ -1167,6 +1270,11 @@
 
 /* Under an order's row in the list: where it was sent and where it stands, on a line of its own across the row. */
 .hid-ehr .hid-ehr-clinical-orders-row-route {
+  flex: 1 0 100%;
+}
+
+/* Under an order's row: where it is in this facility's own pharmacy or laboratory (ORD-3), across the row. */
+.hid-ehr .hid-ehr-clinical-orders-row-progress {
   flex: 1 0 100%;
 }
 
@@ -1360,4 +1468,40 @@
 .hid-ehr .hid-ehr-clinical-cell-sub-inline {
   color: var(--ehr-muted);
   font-size: 12px;
+}
+
+/* The patient banner stays at the top while a chart page scrolls: a field moved to by Tab or by an error link stops
+   below it, never under it (QA P1-15). The banner sits 64-80px down and is about 72px tall. */
+.hid-ehr .hid-ehr-clinical-page :is(input, textarea, select, button, [tabindex]) {
+  scroll-margin-top: 11rem;
+}
+
+/* Common words under a text box, one tap to add (owner, 18 Nov 2026). */
+.hid-ehr .hid-ehr-clinical-quick-words {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.hid-ehr .hid-ehr-clinical-quick-word {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--ehr-border);
+  border-radius: 999px;
+  background: var(--ehr-surface);
+  color: var(--ehr-ink);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.hid-ehr .hid-ehr-clinical-quick-word:hover {
+  border-color: var(--ehr-brand);
+  color: var(--ehr-brand);
+}
+
+.hid-ehr .hid-ehr-clinical-quick-word:focus-visible {
+  outline: 2px solid var(--ehr-brand);
+  outline-offset: 2px;
 }

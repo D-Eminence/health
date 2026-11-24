@@ -1,0 +1,421 @@
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { EXPORT_PRIVACY, onScreenOnly, OutreachExport } from '../../../../ehr-blue/departments/outreach/OutreachExport'
+import { screeningsFailed } from '../../../../ehr-blue/departments/outreach/outreachExport'
+import type { OutreachCase } from '../../../../staff/api'
+
+/*
+ * "Export" on Outreach: a real button, a dialog that asks for the file type and says how to keep the file, a file only
+ * on Export, focus back on the button, and nothing to press when there is nothing to export. The Excel, Word and PDF
+ * makers (and their libraries) are stood in for here; outreachExport.test.ts checks what they write. Fictional data.
+ */
+
+const saved = vi.hoisted(() => ({ saveFile: vi.fn() }))
+vi.mock('../../../../download', () => saved)
+const files = vi.hoisted(() => ({
+  xlsxBytes: vi.fn(async () => new Uint8Array([1])),
+  docxBytes: vi.fn(async () => new Uint8Array([2])),
+  pdfBytes: vi.fn(async () => new Uint8Array([3]).buffer),
+}))
+vi.mock('../../../../ehr-blue/departments/outreach/outreachExportFiles', () => files)
+const api = vi.hoisted(() => ({ recordOutreachExport: vi.fn(), outreachCasesPage: vi.fn(), outreachScreening: vi.fn() }))
+vi.mock('../../../../staff/api', () => ({ staffApi: api }))
+vi.mock('../../../../ehr-blue/departments/parts/access', () => ({ useDeptAccess: () => ({ facilityId: 'facility-demo-1' }) }))
+
+const CASES: OutreachCase[] = [
+  { id: 'case-1', campaignId: 'campaign-1', status: 'identity_resolution_pending', fullName: 'Patient One', ageYears: 34, sex: 'female',
+    phone: '+2348000000001', createdAt: '2026-11-14T08:30:00.000Z', rowVersion: 1 },
+  { id: 'case-2', campaignId: 'campaign-2', status: 'identity_resolved', fullName: 'Patient Two', ageYears: 51, sex: 'male',
+    createdAt: '2026-11-14T08:00:00.000Z', rowVersion: 1 },
+]
+const NAMES: Record<string, string> = { 'campaign-1': 'Demo Screening Week', 'campaign-2': 'Demo follow-up' }
+const campaignOf = (id: string | undefined) => (id && NAMES[id] ? { name: NAMES[id] } : undefined)
+
+beforeEach(() => {
+  api.recordOutreachExport.mockResolvedValue(undefined)
+  api.outreachCasesPage.mockResolvedValue({ items: CASES, nextCursor: null })
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date(2026, 10, 14, 9, 0))
+})
+afterEach(() => {
+  vi.useRealTimers()
+  vi.clearAllMocks()
+})
+
+async function press(button: HTMLElement) {
+  button.focus()
+  await act(async () => { fireEvent.click(button) })
+}
+const exportButton = () => screen.getByRole('button', { name: 'Export' })
+const dialog = () => screen.getByRole('dialog', { name: 'Export registrations' })
+
+describe('Outreach export', () => {
+  it('asks for the file type and says how to keep the file before anything is saved', async () => {
+    render(<OutreachExport cases={CASES} campaignOf={campaignOf} />)
+    const button = exportButton()
+    expect(button.tagName).toBe('BUTTON')
+    expect(button.getAttribute('aria-haspopup')).toBe('dialog')
+    await press(button)
+    const box = dialog()
+    expect(within(box).getByText(/^The file holds every registration from every campaign you can see\. They are read from Health ID first/)).toBeTruthy()
+    expect(within(box).getByText(EXPORT_PRIVACY)).toBeTruthy()
+    expect(EXPORT_PRIVACY).toBe('This file contains people’s personal and health information. Keep it safe and delete it when you’re done.')
+    const group = within(box).getByRole('group', { name: 'File type' })
+    expect(within(group).getAllByRole('radio').map(radio => (radio as HTMLInputElement).value)).toEqual(['csv', 'xlsx', 'docx', 'pdf'])
+    // Keyboard first: the dialog opens on the chosen file type.
+    expect(document.activeElement).toBe(within(group).getByRole('radio', { name: /^CSV/ }))
+    expect(saved.saveFile).not.toHaveBeenCalled()
+  })
+
+  it('saves nothing on Cancel, and gives focus back to Export', async () => {
+    render(<OutreachExport cases={CASES} campaignOf={campaignOf} />)
+    await press(exportButton())
+    await press(within(dialog()).getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(saved.saveFile).not.toHaveBeenCalled()
+    expect(api.recordOutreachExport).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(exportButton())
+  })
+
+  it('closes on Escape without saving', async () => {
+    render(<OutreachExport cases={CASES} campaignOf={campaignOf} />)
+    await press(exportButton())
+    await act(async () => { fireEvent.keyDown(document, { key: 'Escape' }) })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(saved.saveFile).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(exportButton())
+  })
+
+  it('saves a CSV of every registration it was given, named for the day', async () => {
+    render(<OutreachExport cases={CASES} campaignOf={campaignOf} />)
+    await press(exportButton())
+    await press(within(dialog()).getByRole('button', { name: 'Export' }))
+    expect(saved.saveFile).toHaveBeenCalledTimes(1)
+    const [blob, name] = saved.saveFile.mock.calls[0] as [Blob, string]
+    expect(name).toBe('outreach-all-registrations-2026-11-14.csv')
+    const csv = await blob.text()
+    expect(csv).toContain('No.,Full name,Sex,Age (years),Phone number,Campaign,Registered on,Status')
+    // The first registered first (Patient Two, 08:00), numbered.
+    expect(csv.indexOf('2,Patient One,')).toBeGreaterThan(csv.indexOf('1,Patient Two,'))
+    expect(csv).toContain('1,Patient Two,')
+    // A phone number is written as it is: nothing a spreadsheet would run.
+    expect(csv).toContain('Patient One,Female,34,+2348000000001,Demo Screening Week,')
+    expect(csv).toContain('Patient Two,Male,51,,Demo follow-up,')
+    expect(csv).not.toContain('case-1')
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.activeElement).toBe(exportButton())
+    expect(files.xlsxBytes).not.toHaveBeenCalled()
+    // Outreach is told, after the file is saved, for its audit: no campaign named when every campaign is exported.
+    expect(api.recordOutreachExport).toHaveBeenCalledTimes(1)
+    expect(api.recordOutreachExport).toHaveBeenCalledWith('facility-demo-1', { format: 'csv', count: 2 })
+    expect(saved.saveFile.mock.invocationCallOrder[0]).toBeLessThan(api.recordOutreachExport.mock.invocationCallOrder[0]!)
+  })
+
+  it.each([
+    ['Excel (.xlsx)', 'xlsx', files.xlsxBytes],
+    ['Word (.docx)', 'docx', files.docxBytes],
+    ['PDF', 'pdf', files.pdfBytes],
+  ] as const)('makes %s with its own maker, for a campaign only its registrations', async (label, extension, maker) => {
+    render(<OutreachExport cases={CASES} campaign={{ id: 'campaign-1', name: 'Demo Screening Week' }} campaignOf={campaignOf} />)
+    await press(exportButton())
+    expect(within(dialog()).getByText(/^The file holds every registration in Demo Screening Week\./)).toBeTruthy()
+    await act(async () => { fireEvent.click(within(dialog()).getByRole('radio', { name: new RegExp(`^${label.replace(/[().]/g, '\\$&')}`) })) })
+    await press(within(dialog()).getByRole('button', { name: 'Export' }))
+    expect(maker).toHaveBeenCalledTimes(1)
+    const [table, meta] = maker.mock.calls[0] as unknown as [{ rows: string[][] }, { title: string }]
+    // Numbered first, then the name.
+    expect(table.rows.map(row => row.slice(0, 2))).toEqual([['1', 'Patient One']])
+    expect(meta.title).toBe('Outreach registrations: Demo Screening Week')
+    const [, name] = saved.saveFile.mock.calls[0] as [Blob, string]
+    expect(name).toBe(`outreach-demo-screening-week-2026-11-14.${extension}`)
+    expect(api.recordOutreachExport).toHaveBeenCalledWith('facility-demo-1', { format: extension, count: 1, campaignId: 'campaign-1' })
+    expect(api.outreachCasesPage).toHaveBeenCalledWith('facility-demo-1', { limit: 500, before: undefined, campaignId: 'campaign-1' })
+  })
+
+  it.each([
+    ['an older Outreach (404)', () => Promise.reject(Object.assign(new Error('Not found'), { status: 404 }))],
+    ['an older Outreach (405)', () => Promise.reject(Object.assign(new Error('Method not allowed'), { status: 405 }))],
+    ['a lost connection', () => Promise.reject(new TypeError('Failed to fetch'))],
+    ['an answer that never comes', () => new Promise(() => {})],
+    ['a call that throws at once', () => { throw new Error('boom') }],
+  ])('saves the file and says nothing more when recording the export meets %s', async (_, answer) => {
+    api.recordOutreachExport.mockImplementation(answer)
+    render(<OutreachExport cases={CASES} campaignOf={campaignOf} />)
+    await press(exportButton())
+    await press(within(dialog()).getByRole('button', { name: 'Export' }))
+    await act(async () => { await Promise.resolve() })
+    expect(saved.saveFile).toHaveBeenCalledTimes(1)
+    expect(api.recordOutreachExport).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(document.activeElement).toBe(exportButton())
+  })
+
+  it('says when the file could not be made, and keeps the dialog open', async () => {
+    files.pdfBytes.mockRejectedValueOnce(new Error('no memory'))
+    render(<OutreachExport cases={CASES} campaignOf={campaignOf} />)
+    await press(exportButton())
+    await act(async () => { fireEvent.click(within(dialog()).getByRole('radio', { name: /^PDF/ })) })
+    await press(within(dialog()).getByRole('button', { name: 'Export' }))
+    expect(within(dialog()).getByRole('alert').textContent).toMatch(/The file could not be made\. Try again/)
+    expect(saved.saveFile).not.toHaveBeenCalled()
+    expect(api.recordOutreachExport).not.toHaveBeenCalled()
+  })
+
+  it('reads every page first, following the cursor, and says how many rows it is preparing', async () => {
+    const page = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => ({ ...CASES[1]!, id: `case-p${from + i}`,
+      fullName: `Patient ${from + i}`, createdAt: new Date(Date.UTC(2026, 10, 14, 8, 0) - (from + i) * 60_000).toISOString() }))
+    api.outreachCasesPage
+      .mockResolvedValueOnce({ items: page(1, 500), nextCursor: 'cursor-2' })
+      .mockResolvedValueOnce({ items: page(501, 1000), nextCursor: 'cursor-3' })
+      .mockResolvedValueOnce({ items: page(1001, 1030), nextCursor: null })
+    let release!: () => void
+    files.xlsxBytes.mockImplementationOnce(() => new Promise(resolve => { release = () => resolve(new Uint8Array([1])) }))
+    render(<OutreachExport cases={CASES} campaignOf={campaignOf} />)
+    await press(exportButton())
+    await act(async () => { fireEvent.click(within(dialog()).getByRole('radio', { name: /^Excel/ })) })
+    await press(within(dialog()).getByRole('button', { name: 'Export' }))
+    expect(api.outreachCasesPage.mock.calls.map(call => call[1])).toEqual([
+      { limit: 500, before: undefined }, { limit: 500, before: 'cursor-2' }, { limit: 500, before: 'cursor-3' },
+    ])
+    expect(within(dialog()).getByText('Preparing 1030 rows…')).toBeTruthy()
+    await act(async () => { release() })
+    const [table] = files.xlsxBytes.mock.calls[0] as unknown as [{ rows: string[][] }]
+    expect(table.rows).toHaveLength(1030)
+    // The first registered (the oldest, Patient 1030) is at the top, numbered 1; the newest last.
+    expect(table.rows[0]!.slice(0, 2)).toEqual(['1', 'Patient 1030'])
+    expect(table.rows.at(-1)!.slice(0, 2)).toEqual(['1030', 'Patient 1'])
+    expect(api.recordOutreachExport).toHaveBeenCalledWith('facility-demo-1', { format: 'xlsx', count: 1030 })
+    expect(screen.getAllByRole('status').map(status => status.textContent)).not.toContain('Only the latest 100 registrations could be exported.')
+  })
+
+  it('stops after 20 pages and says the file holds the first 10,000', async () => {
+    let n = 0
+    api.outreachCasesPage.mockImplementation(async () => {
+      n += 1
+      return { items: Array.from({ length: 500 }, (_, i) => ({ ...CASES[1]!, id: `case-${n}-${i}` })), nextCursor: `cursor-${n + 1}` }
+    })
+    render(<OutreachExport cases={CASES} campaignOf={campaignOf} />)
+    await press(exportButton())
+    await press(within(dialog()).getByRole('button', { name: 'Export' }))
+    expect(api.outreachCasesPage).toHaveBeenCalledTimes(20)
+    expect(api.recordOutreachExport).toHaveBeenCalledWith('facility-demo-1', { format: 'csv', count: 10000 })
+    expect(screen.getByText('Showing the first 10,000 registrations. The file holds only these.')).toBeTruthy()
+  })
+
+  it('warns that only the latest 100 could be exported when an older Outreach sends 100 and no cursor', async () => {
+    const hundred = Array.from({ length: 100 }, (_, i) => ({ ...CASES[1]!, id: `case-${i}` }))
+    api.outreachCasesPage.mockResolvedValue({ items: hundred, nextCursor: null })
+    render(<OutreachExport cases={hundred} campaignOf={campaignOf} />)
+    await press(exportButton())
+    await press(within(dialog()).getByRole('button', { name: 'Export' }))
+    expect(api.outreachCasesPage).toHaveBeenCalledTimes(1)
+    expect(saved.saveFile).toHaveBeenCalledTimes(1)
+    const note = screen.getByText('Only the latest 100 registrations could be exported.')
+    expect(note.getAttribute('role')).toBe('status')
+    expect(document.activeElement).toBe(exportButton())
+  })
+
+  it('does not warn when fewer than 100 came back with no cursor', async () => {
+    render(<OutreachExport cases={CASES} campaignOf={campaignOf} />)
+    await press(exportButton())
+    await press(within(dialog()).getByRole('button', { name: 'Export' }))
+    expect(screen.queryByText(/Only the latest 100/)).toBeNull()
+  })
+
+  it('exports what is on screen, and says so, when Health ID cannot be reached', async () => {
+    api.outreachCasesPage.mockRejectedValue(new TypeError('Failed to fetch'))
+    render(<OutreachExport cases={CASES} campaignOf={campaignOf} />)
+    await press(exportButton())
+    await press(within(dialog()).getByRole('button', { name: 'Export' }))
+    expect(saved.saveFile).toHaveBeenCalledTimes(1)
+    expect(api.recordOutreachExport).toHaveBeenCalledWith('facility-demo-1', { format: 'csv', count: 2 })
+    expect(screen.getByText(onScreenOnly(2))).toBeTruthy()
+    expect(onScreenOnly(2)).toBe('Health ID couldn’t be reached, so the file holds only the 2 registrations on this screen.')
+  })
+
+  it.each([
+    ['no registrations', [] as OutreachCase[], undefined, 'No registrations to export'],
+    ['none in this campaign', CASES, { id: 'campaign-9', name: 'Empty' }, 'No registrations to export'],
+    ['the list not read yet', null, undefined, 'Registrations not loaded yet'],
+  ])('opens nothing with %s, and says why', async (_, cases, campaign, reason) => {
+    render(<OutreachExport cases={cases} campaign={campaign} campaignOf={campaignOf} />)
+    const button = exportButton()
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+    expect(document.getElementById(button.getAttribute('aria-describedby') ?? '')?.textContent).toBe(reason)
+    expect(screen.getByText(reason)).toBeTruthy()
+    await press(button)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(saved.saveFile).not.toHaveBeenCalled()
+  })
+
+  describe('health check results', () => {
+    /** The CSV's rows as cells (RFC 4180: a quoted cell may hold commas). */
+    const csvRows = (csv: string) => csv.replace(/^\uFEFF/, '').trim().split('\r\n')
+      .map(line => [...line.matchAll(/(?:^|,)("(?:[^"]|"")*"|[^,]*)/g)].map(match => match[1]!.replace(/^"|"$/g, '').replace(/""/g, '"')))
+    const screened = (id: string, name: string, minute: number): OutreachCase => ({ id, campaignId: 'campaign-1', status: 'identity_resolution_pending',
+      fullName: name, ageYears: 40, sex: 'female', createdAt: `2026-11-14T08:${String(minute).padStart(2, '0')}:00.000Z`, rowVersion: 1, hasScreening: true })
+    const PEOPLE: OutreachCase[] = [
+      screened('case-a', 'Patient Ada', 50), screened('case-b', 'Patient Bisi', 40), screened('case-c', 'Patient Chika', 30),
+      { ...screened('case-d', 'Patient Dayo', 20), hasScreening: false },
+    ]
+    const stored = (caseId: string, given: Record<string, unknown>) => ({ screening: {
+      bpSystolic: null, bpDiastolic: null, pulseBpm: null, temperatureC: null, weightKg: null, heightCm: null, glucoseValue: null, glucoseUnit: null,
+      glucoseTiming: null, malariaRdt: null, hearingLeft: null, hearingRight: null, mainComplaint: null, seenByClinician: null, clinicianName: null,
+      outcome: null, medicinesGiven: null, referred: null, referredTo: null, caseId, version: 1, recordedAt: '2026-11-14T09:00:00.000Z',
+      recordedByMembershipId: 'membership-1', updatedAt: '2026-11-14T09:00:00.000Z', ...given } })
+
+    it('reads each person’s health checks and writes them in the file, genotype and blood group in their own columns', async () => {
+      api.outreachCasesPage.mockResolvedValue({ items: PEOPLE, nextCursor: null })
+      api.outreachScreening.mockImplementation(async (_facility: string, caseId: string) => stored(caseId, {
+        bpSystolic: 130, bpDiastolic: 85, malariaRdt: 'positive', outcome: 'Genotype: AA. Blood group: A+. See a doctor this week.',
+      }))
+      render(<OutreachExport cases={PEOPLE} campaignOf={campaignOf} />)
+      await press(exportButton())
+      await press(within(dialog()).getByRole('button', { name: 'Export' }))
+      expect(api.outreachScreening.mock.calls.map(call => call.slice(0, 2))).toEqual([
+        ['facility-demo-1', 'case-a'], ['facility-demo-1', 'case-b'], ['facility-demo-1', 'case-c'],
+      ])
+      const csv = await (saved.saveFile.mock.calls[0]![0] as Blob).text()
+      const [headings, ...lines] = csvRows(csv)
+      const cell = (line: number, heading: string) => lines[line]![headings!.indexOf(heading)]
+      expect(headings).toEqual(expect.arrayContaining(['Health check done', 'Blood pressure', 'Malaria test', 'Genotype', 'Blood group', 'Outcome or advice']))
+      // The first registered first: Patient Dayo (08:20) to Patient Ada (08:50), numbered 1 to 4.
+      expect(lines.map(line => [cell(lines.indexOf(line), 'No.'), cell(lines.indexOf(line), 'Full name')])).toEqual([
+        ['1', 'Patient Dayo'], ['2', 'Patient Chika'], ['3', 'Patient Bisi'], ['4', 'Patient Ada'],
+      ])
+      expect(cell(3, 'Blood pressure')).toBe('130/85')
+      expect(cell(3, 'Malaria test')).toBe('Positive')
+      expect(cell(3, 'Genotype')).toBe('AA')
+      expect(cell(3, 'Blood group')).toBe('A+')
+      expect(cell(3, 'Outcome or advice')).toBe('See a doctor this week.')
+      // Patient Dayo has no health checks: nothing is read for them, and their cells are empty.
+      expect(cell(0, 'Blood pressure')).toBe('')
+      expect(screen.getByRole('status', { hidden: true }).textContent ?? '').not.toMatch(/couldn’t be read/)
+    })
+
+    /** The waits before each further try are real setTimeouts: these tests move the clock on instead of waiting. */
+    async function exportWithClock() {
+      vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
+      vi.setSystemTime(new Date(2026, 10, 14, 9, 0))
+      render(<OutreachExport cases={PEOPLE} campaignOf={campaignOf} />)
+      await press(exportButton())
+      await press(within(dialog()).getByRole('button', { name: 'Export' }))
+      await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+      await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
+    }
+
+    it('tries again a health check that could not be read, so it is in the file with nothing missing', async () => {
+      api.outreachCasesPage.mockResolvedValue({ items: PEOPLE, nextCursor: null })
+      let bisiTries = 0
+      api.outreachScreening.mockImplementation(async (_facility: string, caseId: string) => {
+        if (caseId === 'case-b' && ++bisiTries === 1) throw new TypeError('Failed to fetch')
+        return stored(caseId, { pulseBpm: 80 })
+      })
+      await exportWithClock()
+      expect(saved.saveFile).toHaveBeenCalledTimes(1)
+      expect(bisiTries).toBe(2)
+      const csv = await (saved.saveFile.mock.calls[0]![0] as Blob).text()
+      const [headings, ...lines] = csvRows(csv)
+      const name = headings!.indexOf('Full name')
+      const pulse = headings!.indexOf('Pulse')
+      expect(lines.map(line => [line[name], line[pulse]])).toEqual([
+        ['Patient Dayo', ''], ['Patient Chika', '80'], ['Patient Bisi', '80'], ['Patient Ada', '80'],
+      ])
+      expect(document.body.textContent ?? '').not.toMatch(/couldn’t be read/)
+    })
+
+    it('leaves blank only the health checks that could not be read after every try, makes the file anyway, and names who', async () => {
+      api.outreachCasesPage.mockResolvedValue({ items: PEOPLE, nextCursor: null })
+      api.outreachScreening.mockImplementation(async (_facility: string, caseId: string) => {
+        if (caseId === 'case-b') throw new TypeError('Failed to fetch')
+        return stored(caseId, { pulseBpm: 80 })
+      })
+      await exportWithClock()
+      expect(saved.saveFile).toHaveBeenCalledTimes(1)
+      // Tried three times in all: the first round and two more.
+      expect(api.outreachScreening.mock.calls.filter(call => call[1] === 'case-b')).toHaveLength(3)
+      const csv = await (saved.saveFile.mock.calls[0]![0] as Blob).text()
+      const [headings, ...lines] = csvRows(csv)
+      const name = headings!.indexOf('Full name')
+      const pulse = headings!.indexOf('Pulse')
+      expect(lines.map(line => [line[name], line[pulse]])).toEqual([
+        ['Patient Dayo', ''], ['Patient Chika', '80'], ['Patient Bisi', ''], ['Patient Ada', '80'],
+      ])
+      expect(screen.getByText(screeningsFailed(1, ['Patient Bisi']))).toBeTruthy()
+      expect(api.recordOutreachExport).toHaveBeenCalledWith('facility-demo-1', { format: 'csv', count: 4 })
+    })
+
+    it('says how far it has got while reading health checks', async () => {
+      api.outreachCasesPage.mockResolvedValue({ items: PEOPLE, nextCursor: null })
+      const waiting: Array<() => void> = []
+      api.outreachScreening.mockImplementation((_facility: string, caseId: string) =>
+        new Promise(resolve => { waiting.push(() => resolve(stored(caseId, {}))) }))
+      render(<OutreachExport cases={PEOPLE} campaignOf={campaignOf} />)
+      await press(exportButton())
+      await press(within(dialog()).getByRole('button', { name: 'Export' }))
+      expect(within(dialog()).getByText('Reading health checks 0 of 3…')).toBeTruthy()
+      await act(async () => { waiting.shift()!() })
+      expect(within(dialog()).getByText('Reading health checks 1 of 3…')).toBeTruthy()
+      await act(async () => { while (waiting.length) waiting.shift()!() })
+      expect(saved.saveFile).toHaveBeenCalledTimes(1)
+    })
+
+    it('stops on Cancel while health checks are being read: no more reads, nothing saved, and a new export works', async () => {
+      const MANY = Array.from({ length: 12 }, (_, i) => screened(`case-${i}`, `Patient ${i}`, 50 - i))
+      api.outreachCasesPage.mockResolvedValue({ items: MANY, nextCursor: null })
+      const waiting: Array<() => void> = []
+      const signals: Array<AbortSignal | undefined> = []
+      api.outreachScreening.mockImplementation((_facility: string, caseId: string, signal?: AbortSignal) => {
+        signals.push(signal)
+        return new Promise(resolve => { waiting.push(() => resolve(stored(caseId, { pulseBpm: 70 }))) })
+      })
+      render(<OutreachExport cases={MANY} campaignOf={campaignOf} />)
+      await press(exportButton())
+      await press(within(dialog()).getByRole('button', { name: 'Export' }))
+      expect(within(dialog()).getByText('Reading health checks 0 of 12…')).toBeTruthy()
+      expect(api.outreachScreening).toHaveBeenCalledTimes(3)
+      const cancel = within(dialog()).getByRole('button', { name: 'Cancel' }) as HTMLButtonElement
+      expect(cancel.disabled).toBe(false)
+      await press(cancel)
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(signals.every(signal => signal?.aborted === true)).toBe(true)
+      // The reads already sent end: no more are sent, and no file is made.
+      await act(async () => { while (waiting.length) waiting.shift()!() })
+      expect(api.outreachScreening).toHaveBeenCalledTimes(3)
+      expect(saved.saveFile).not.toHaveBeenCalled()
+      expect(api.recordOutreachExport).not.toHaveBeenCalled()
+      expect(document.activeElement).toBe(exportButton())
+
+      // Export again: it starts afresh and saves.
+      api.outreachScreening.mockImplementation(async (_facility: string, caseId: string) => stored(caseId, { pulseBpm: 70 }))
+      await press(exportButton())
+      await press(within(dialog()).getByRole('button', { name: 'Export' }))
+      expect(saved.saveFile).toHaveBeenCalledTimes(1)
+      expect(api.outreachScreening).toHaveBeenCalledTimes(3 + 12)
+    })
+
+    it('saves nothing when Escape is pressed while the registrations are being read', async () => {
+      let answer: (page: { items: OutreachCase[]; nextCursor: null }) => void = () => {}
+      api.outreachCasesPage.mockImplementation(() => new Promise(resolve => { answer = resolve }))
+      render(<OutreachExport cases={PEOPLE} campaignOf={campaignOf} />)
+      await press(exportButton())
+      await press(within(dialog()).getByRole('button', { name: 'Export' }))
+      await act(async () => { fireEvent.keyDown(document, { key: 'Escape' }) })
+      expect(screen.queryByRole('dialog')).toBeNull()
+      await act(async () => { answer({ items: PEOPLE, nextCursor: null }) })
+      expect(api.outreachScreening).not.toHaveBeenCalled()
+      expect(saved.saveFile).not.toHaveBeenCalled()
+    })
+
+    it('reads no health checks when the registrations could not be read', async () => {
+      api.outreachCasesPage.mockRejectedValue(new TypeError('Failed to fetch'))
+      render(<OutreachExport cases={PEOPLE} campaignOf={campaignOf} />)
+      await press(exportButton())
+      await press(within(dialog()).getByRole('button', { name: 'Export' }))
+      expect(api.outreachScreening).not.toHaveBeenCalled()
+      expect(saved.saveFile).toHaveBeenCalledTimes(1)
+      expect(screen.getByText(onScreenOnly(4))).toBeTruthy()
+    })
+  })
+})

@@ -138,20 +138,22 @@ describe('Consultation record: Vitals card', () => {
     // The card's own error box (History says it too), not an empty card.
     expect(card.getByRole('alert').textContent).not.toBe('')
     expect(card.queryByText('Loading records…')).toBeNull()
-    expect(card.queryByText('No vitals for this consultation.')).toBeNull()
+    expect(card.queryByText('No vitals for this encounter.')).toBeNull()
   })
 
-  it('sits between Notes and Diagnoses, as today’s tabs do', async () => {
+  it('comes first, before the note, so the doctor sees the readings before writing (owner, 18 Nov 2026)', async () => {
     staff.permissions = [...READS, 'ehr.note.read', 'ehr.diagnosis.read']
     await openEncounter()
     const titles = screen.getAllByRole('heading', { level: 2 }).map(heading => heading.textContent)
-    expect(titles.slice(titles.indexOf('Notes'), titles.indexOf('Notes') + 3)).toEqual(['Notes', 'Vitals', 'Diagnoses'])
+    expect(titles.indexOf('Vitals')).toBeGreaterThanOrEqual(0)
+    expect(titles.indexOf('Vitals')).toBeLessThan(titles.indexOf('Note'))
+    expect(titles.slice(titles.indexOf('Notes'), titles.indexOf('Notes') + 2)).toEqual(['Notes', 'Diagnoses'])
   })
 
   it('says today’s sentence when the visit has no vitals', async () => {
     vitals = []
     const card = await openEncounter()
-    expect(await card.findByText('No vitals for this consultation.')).toBeTruthy()
+    expect(await card.findByText('No vitals for this encounter.')).toBeTruthy()
   })
 
   it('shows a corrected vital’s current correction, its reason and time, and what was first recorded', async () => {
@@ -245,6 +247,8 @@ describe('Consultation record: Vitals card', () => {
     card = await openEncounter()
     expect((await card.findByRole('link', { name: 'Record vitals' })).getAttribute('href')).toBe('/provider/triage/new')
     cleanup()
+    // The write check is asked once per open patient (chart.tsx): a read-only grant is a patient opened again.
+    staff.activePatient = activePatient()
     api.consentStatus.mockResolvedValue({ patientId: PATIENT_ID, facilityId: FACILITY_ID, purpose: 'direct-care', readAllowed: true, writeAllowed: false })
     card = await openEncounter()
     await screen.findByText('You can view this record but not change it.')
