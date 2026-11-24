@@ -881,24 +881,31 @@ describe('testing and results', () => {
     return stageCard()
   }
 
-  it('starts the test on a received sample, asking what is being done first', async () => {
+  // Classic's words (staff/routes/Operations.tsx, AnalyticalExecution: start form; parity row 3.3-67).
+  it('starts the test on a received sample, asking for a reason first, in classic’s words', async () => {
     const received = specimen('received')
     const started = execution({ status: 'in_progress', completedAt: null, version: 1 })
     api.labExecutions.mockResolvedValueOnce({ items: [] }).mockResolvedValue({ items: [started] })
     api.startLabExecution.mockResolvedValue(started)
     const card = await openReceived()
-    fireEvent.click(within(card).getByRole('button', { name: 'Start test' }))
-    const details = screen.getByRole('textbox', { name: 'What is being done' })
-    expect(await refusalOf(details)).toBe('Say what is being done, like “Run on the analyser”.')
+    expect(within(card).getByText('Begin analysis for this received specimen. Health ID checks the exact specimen version and patient authorization.')).toBeTruthy()
+    expect(within(card).queryByPlaceholderText('Analyser, microscopy…')).toBeNull()
+    fireEvent.click(within(card).getByRole('button', { name: 'Start execution' }))
+    const details = screen.getByRole('textbox', { name: 'Reason' })
+    expect(await refusalOf(details)).toBe('Enter a reason to begin execution.')
     expect(document.activeElement).toBe(details)
     expect([screen.getByRole('textbox', { name: /^Method/ }).id, details.id]).toEqual(['lab-method-specimen-1', 'lab-start-specimen-1'])
     expect(api.startLabExecution).not.toHaveBeenCalled()
     fireEvent.change(screen.getByRole('textbox', { name: /^Method/ }), { target: { value: 'Analyser' } })
     fireEvent.change(details, { target: { value: ' Routine count ' } })
-    fireEvent.click(within(card).getByRole('button', { name: 'Start test' }))
+    const starting = deferred<LabExecution>()
+    api.startLabExecution.mockReturnValueOnce(starting.promise)
+    fireEvent.click(within(card).getByRole('button', { name: 'Start execution' }))
+    expect(await within(card).findByRole('button', { name: 'Starting…' })).toBeTruthy()
+    await act(async () => { starting.resolve(started) })
     expect(await screen.findByText('Analytical execution started.')).toBeTruthy()
     expect(api.startLabExecution).toHaveBeenCalledWith(DEMO_LABORATORY_ID, received, 'Routine count', 'Analyser')
-    expect(await screen.findByRole('button', { name: 'Finish test' })).toBeTruthy()
+    expect(await screen.findByRole('button', { name: 'Complete execution' })).toBeTruthy()
   })
 
   it('tells a member who may only read that they can’t start tests', async () => {
@@ -906,15 +913,19 @@ describe('testing and results', () => {
     expect(await within(stageCard()).findByText('Your role can’t start tests.')).toBeTruthy()
   })
 
-  it('finishes the test running', async () => {
+  it('completes the test running, in classic’s words', async () => {
     const running = execution({ status: 'in_progress', completedAt: null, version: 1 })
     api.labExecutions.mockResolvedValueOnce({ items: [running] }).mockResolvedValue({ items: [execution()] })
     api.completeLabExecution.mockResolvedValue(execution())
     const card = await openReceived()
-    const notes = screen.getByRole('textbox', { name: /^Notes/ })
+    const notes = screen.getByRole('textbox', { name: /^Completion notes/ })
     expect(notes.id).toBe('lab-finish-execution-1')
     fireEvent.change(notes, { target: { value: 'Run passed QC' } })
-    fireEvent.click(within(card).getByRole('button', { name: 'Finish test' }))
+    const completing = deferred<LabExecution>()
+    api.completeLabExecution.mockReturnValueOnce(completing.promise)
+    fireEvent.click(within(card).getByRole('button', { name: 'Complete execution' }))
+    expect(await within(card).findByRole('button', { name: 'Completing…' })).toBeTruthy()
+    await act(async () => { completing.resolve(execution()) })
     expect(await screen.findByText('Analytical execution was completed.')).toBeTruthy()
     expect(api.completeLabExecution).toHaveBeenCalledWith(DEMO_LABORATORY_ID, running, 'Run passed QC')
   })
@@ -978,7 +989,8 @@ describe('testing and results', () => {
     api.labExecutions.mockResolvedValue({ items: [execution({ result })] })
     api.verifyLabResult.mockResolvedValue(verifiedResult())
     const card = await openReceived()
-    expect(within(card).getByText('To check')).toBeTruthy()
+    // Classic's status words (result.status with '_' as a space), saying "not verified", never "unverified" (parity row 10).
+    expect(within(card).getByText('Entered, not verified')).toBeTruthy()
     expect(within(card).getByText('7.1')).toBeTruthy()
     expect(within(card).getByText('Normal range 12.0-15.5')).toBeTruthy()
     // Even to a member who may also release, a draft offers only Verify.
@@ -986,9 +998,10 @@ describe('testing and results', () => {
     fireEvent.click(within(card).getByRole('button', { name: 'Verify result version' }))
     const sheet = await screen.findByRole('dialog', { name: 'Verify result version' })
     expect(within(sheet).getByRole('region', { name: `Patient: ${MASKED}` })).toBeTruthy()
-    expect(within(sheet).getByText(/^Verify version 1 /).textContent).toBe(`Verify version 1 of the Hemoglobin result for ${MASKED} after independent review?`)
-    expect(within(sheet).getByText(/^The person who entered it cannot verify it\./).textContent)
-      .toBe('The person who entered it cannot verify it. It is released in a separate step; until then only the lab sees it.')
+    // Classic's sentences (Operations.tsx ResultGovernance), with nothing added (parity row 10).
+    expect(within(sheet).getByText(/^Verify version 1 /).textContent).toBe('Verify version 1 after independent review.')
+    expect(within(sheet).getByText(/^The person who entered it cannot verify it\./).textContent).toBe('The person who entered it cannot verify it.')
+    expect(within(sheet).queryByText(/separate step/)).toBeNull()
     fireEvent.click(within(sheet).getByRole('button', { name: 'Verify result version' }))
     const reason = within(sheet).getByRole('textbox', { name: 'Verification reason' })
     expect(await refusalOf(reason)).toBe('Enter a reason for this decision.')
@@ -1007,13 +1020,14 @@ describe('testing and results', () => {
     api.labExecutions.mockResolvedValue({ items: [execution({ result })] })
     api.releaseLabResult.mockResolvedValue(publishedResult())
     const card = await openReceived()
-    expect(within(card).getByText('Checked, not released')).toBeTruthy()
+    expect(within(card).getByText('Verified, not released')).toBeTruthy()
     expect(within(card).queryByRole('button', { name: /verify/i })).toBeNull()
     fireEvent.click(within(card).getByRole('button', { name: 'Release result version' }))
     const sheet = await screen.findByRole('dialog', { name: 'Release result version' })
     expect(within(sheet).getByRole('region', { name: `Patient: ${MASKED}` })).toBeTruthy()
-    expect(within(sheet).getByText(/^Release verified version 1 /).textContent)
-      .toBe(`Release verified version 1 of the Hemoglobin result for ${MASKED} to authorized readers?`)
+    // Classic's sentence (Operations.tsx ResultGovernance), and no line of its own under it (parity row 10).
+    expect(within(sheet).getByText(/^Release verified version 1 /).textContent).toBe('Release verified version 1 to authorized readers.')
+    expect(within(sheet).queryByText('A wrong result can be corrected; every version is kept.')).toBeNull()
     fireEvent.click(within(sheet).getByRole('button', { name: 'Release result version' }))
     const reason = within(sheet).getByRole('textbox', { name: 'Release reason' })
     expect(await refusalOf(reason)).toBe('Enter a reason for this decision.')
@@ -1207,7 +1221,7 @@ describe('testing and results', () => {
     api.labExecutions.mockRejectedValue(problem(403, 'LAB_EXECUTION_ACCESS_DENIED', 'Lab execution/result access is not authorized'))
     await openReceived()
     expect(await screen.findByText(DENIED)).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Start test' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Start execution' })).toBeNull()
     expect(within(stageCard()).getByRole('button', { name: 'Refresh' })).toBeTruthy()
   })
 
@@ -1221,9 +1235,9 @@ describe('testing and results', () => {
     await openRecord()
     await waitFor(() => expect(api.labExecutions).toHaveBeenCalled())
     expect(within(stageCard()).getByRole('status').textContent).toBe('Loading…')
-    expect(within(stageCard()).queryByRole('button', { name: 'Start test' })).toBeNull()
+    expect(within(stageCard()).queryByRole('button', { name: 'Start execution' })).toBeNull()
     await act(async () => { pending.resolve({ items: [] }) })
-    expect(await within(stageCard()).findByRole('button', { name: 'Start test' })).toBeTruthy()
+    expect(await within(stageCard()).findByRole('button', { name: 'Start execution' })).toBeTruthy()
   })
 
   it('hides the values when a refused verify is followed by a refused re-read', async () => {
@@ -1303,6 +1317,9 @@ describe('testing and results', () => {
       expect(within(card).getByText(SELF_HINT)).toBeTruthy()
       expect(within(card).queryByRole('button', { name: 'Verify result version' })).toBeNull()
       expect(within(sheet).getByText(/^Check version 1 /).textContent).toBe(`Check version 1 of the Hemoglobin result for ${MASKED} yourself?`)
+      // Classic's verify says nothing of the release step; neither does a self-check (parity row 10).
+      expect(within(sheet).getByText(/^Your reason is kept with the check/).textContent)
+        .toBe('Your reason is kept with the check, and the result’s history shows it was checked by the same scientist who entered it.')
       expect(reason.id).toBe('lab-self-check-reason-execution-1')
       expect(document.getElementById(reason.getAttribute('aria-describedby') ?? '')?.textContent)
         .toBe(`${SELF_HINT} 0 of 500 characters; at least 10.`)
