@@ -18,21 +18,40 @@ export const DESK_PREFIX = 'registration'
 export const START_HEADING = 'registration-start-title'
 
 /**
- * A case found or made during this visit to the page, with the account enrolled for it here. Today has no case list
- * (the backend offers none), so these are the page's own: in memory only, gone with the page or another facility.
- * `seq` names its row without its case ID. A case is shown by the person's name and when it was started or reopened
- * here, never by its ID: Identity sends no name with a case, so the name is the one typed when it was started here.
+ * A case opened, found or made during this visit to the page, with the account enrolled for it here: in memory only,
+ * gone with the page or another facility. `seq` names its row without its case ID. A case is shown by the person's
+ * name and when it was started or reopened, never by its ID: GET :caseId sends no name, so the name is the one typed
+ * when it was started here, or the list's (SX-10) when it was opened from the list.
  */
 export interface VisitCase {
   readonly seq: number
   readonly item: RegistrationCase
   readonly enrollment: RegistrationEnrollment | null
-  /** The patient's name as typed to start the case here; null for a case reopened by its reference. */
+  /** The patient's name as typed to start the case here, or as the list gives it; null for a case reopened by its reference. */
   readonly name: string | null
-  /** Whether the case was started on this visit (or reopened by its reference). */
+  /** Whether the case was started on this visit (or reopened by its reference, or opened from the list). */
   readonly started: boolean
   /** When it was started or reopened here (an ISO time). */
   readonly at: string
+  /** What the list (SX-10) said of the case when it was opened from there: when it was started, and whether by this member. */
+  readonly listed?: ListedFacts
+}
+
+export interface ListedFacts {
+  readonly createdAt: string
+  readonly createdByMe: boolean
+}
+
+/** When the case was started (here, or as the list says), or else when it was reopened here by its reference. */
+export function visitWhen(visit: VisitCase): { readonly started: boolean; readonly at: string } {
+  if (visit.started) return { started: true, at: visit.at }
+  if (visit.listed) return { started: true, at: visit.listed.createdAt }
+  return { started: false, at: visit.at }
+}
+
+/** Whether this member started the case: on this visit, or as the list says. Nobody else who started one is named. */
+export function startedByMe(visit: VisitCase): boolean {
+  return visit.started || visit.listed?.createdByMe === true
 }
 
 /** What NIN verification's availability is, as today's "Verification availability" card reads it (Registration.tsx 49-51). */
@@ -49,7 +68,10 @@ export interface Availability {
 export type ReviewAction = 'approve' | 'link'
 
 /** Where a refusal belongs: the form or view whose request it answered. */
-export type ErrorAt = 'find' | 'refresh' | 'resolve' | 'without' | ReviewAction | 'enroll'
-/** Which case read is running (Registration.tsx 55: one at a time), so only the control that asked says "Loading…". */
-export type CaseLoading = 'find' | 'refresh' | null
+export type ErrorAt = 'find' | 'list' | 'refresh' | 'resolve' | 'without' | ReviewAction | 'enroll'
+/**
+ * Which case read is running (Registration.tsx 55: one at a time), so only the control that asked says "Loading…": a
+ * row of the list (SX-10) names its row by its place in the list.
+ */
+export type CaseLoading = 'find' | 'refresh' | { readonly row: number } | null
 export interface ShownError { readonly text: string; readonly at: ErrorAt }

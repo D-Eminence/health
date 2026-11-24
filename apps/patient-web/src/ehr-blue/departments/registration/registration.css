@@ -168,3 +168,37 @@
 .hid-ehr .hid-ehr-dept-registration-more p {
   margin: 8px 0 0;
 }
+
+/* The registration list (SX-10): which list, then its filters side by side, wrapping on a phone. */
+.hid-ehr .hid-ehr-dept-registration-list > nav {
+  margin-bottom: 16px;
+}
+
+.hid-ehr .hid-ehr-dept-registration-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  margin: 0 0 16px;
+}
+
+.hid-ehr .hid-ehr-dept-registration-filters > * {
+  flex: 1 1 14rem;
+  max-width: 20rem;
+}
+
+/* "Load more" under the rows, with what went wrong above it. */
+.hid-ehr .hid-ehr-dept-registration-more-rows {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.hid-ehr .hid-ehr-dept-registration-more-rows .hid-ehr-dept-registration-error {
+  margin: 0;
+}
+
+.hid-ehr .hid-ehr-dept-registration-end {
+  margin: 16px 0 0;
+  outline: none;
+}

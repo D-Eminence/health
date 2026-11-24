@@ -631,6 +631,15 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'none, ninStatus, replayed, patient? }. 400 PHONE_REQUIRED, NOT_A_CHILD, REGISTRATION_WITHOUT_NIN_INVALID; 403 '
     + 'REGISTRATION_WITHOUT_NIN_DENIED, REGISTRATION_WITHOUT_NIN_NOT_AVAILABLE; 409 IDEMPOTENCY_KEY_REUSED; 503 '
     + 'REGISTRATION_WITHOUT_NIN_UNAVAILABLE.'),
+  // SX-10 (hid-system a30888a6; evidence from 0130): the desk's registrations and, for approvers, the facility's.
+  { ...r('identity.registrationCases','identity','/api/v1/identity/registration-cases',G,false,one('GET','identity.registration.write'),
+    'X-Facility-ID, X-Purpose-Of-Use (direct-care, emergency or healthcare-operations). Query only view (mine, the default, '
+    + 'or facility, which also needs identity.registration.approve), status, evidence (none or nin), limit (1 to 100, 50 by '
+    + 'default) and cursor; any other key is 400 VALIDATION_FAILED. 200 { view, cases: [{ caseId, status, version, '
+    + 'candidateCount, contactRecorded, ninStatus, identityEvidence, patient?, fullName, dateOfBirth, createdAt, updatedAt, '
+    + 'createdByMe }], nextCursor }, newest first; never who else started a case. 400 REGISTRATION_CASE_CURSOR_INVALID; '
+    + '403 REGISTRATION_CASE_LIST_DENIED (view facility without approve).'),
+  forbiddenQuery: { GET: ['hid', 'healthId', 'nin'] } },
   r('identity.registrationCase','identity','/api/v1/identity/registration-cases/:caseId',G,false,one('GET','identity.registration.write')),
   r('identity.registrationApprove','identity','/api/v1/identity/registration-cases/:caseId/approve-new',P,false,one('POST','identity.registration.approve')),
   r('identity.registrationEnroll','identity','/api/v1/identity/registration-cases/:caseId/enroll',P,false,one('POST','identity.registration.approve')),

@@ -24,7 +24,7 @@ vi.mock('../../../../staff/App', async () => {
   }
 })
 const api = vi.hoisted(() => ({
-  registrationCapabilities: vi.fn(), registrationCase: vi.fn(), resolveNin: vi.fn(), linkExistingRegistration: vi.fn(),
+  registrationCapabilities: vi.fn(), listRegistrationCases: vi.fn(), registrationCase: vi.fn(), resolveNin: vi.fn(), linkExistingRegistration: vi.fn(),
   approveNewRegistration: vi.fn(), enrollRegistration: vi.fn(),
 }))
 vi.mock('../../../../staff/api', () => ({ staffApi: api }))
@@ -38,6 +38,7 @@ const VERIFY = 'Check NIN'
 beforeEach(() => {
   vi.clearAllMocks()
   api.registrationCapabilities.mockResolvedValue(ENABLED)
+  api.listRegistrationCases.mockResolvedValue({ view: 'mine', cases: [], nextCursor: null })
   api.registrationCase.mockResolvedValue(pending)
 })
 afterEach(() => { vi.useRealTimers() })

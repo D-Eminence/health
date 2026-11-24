@@ -1,20 +1,24 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import {
-  staffApi, type RegistrationCapabilities, type RegistrationCase, type RegistrationEnrollment, type ResolveNinInput,
+  staffApi, type RegistrationCapabilities, type RegistrationCase, type RegistrationCaseListItem, type RegistrationEnrollment,
+  type ResolveNinInput,
 } from '../../../staff/api'
 import { useStaff } from '../../../staff/App'
 import { refusedWorkText } from '../../../staff/refusedWork'
 import { focusLost } from '../../../pageFocus'
 import { useDeptAccess } from '../parts/access'
 import { DeptUnavailable } from '../parts/DeptPage'
-import { RegistrationList } from './RegistrationList'
+import { listRowId, RegistrationList, visitRowId } from './RegistrationList'
+import { useRegistrationCases } from './registrationCases'
 import { RegistrationNew } from './RegistrationNew'
 import { NEW_TITLE, REGISTERED_WITHOUT_NIN, SENT_FOR_REVIEW, WITHOUT_NIN_PHONE_REQUIRED, WITHOUT_NIN_RELOAD, withoutNinErrorText } from './registrationText'
 import { offersWithoutNin, withoutNinInput, withoutNinProblems, type WithoutNinField, type WithoutNinForm } from './withoutNin'
 import { HidApiError } from '@hid/http'
 import { Drawer } from '../../../kasuwa/interactive'
 import { RegistrationRecord } from './RegistrationRecord'
-import { DESK_PREFIX, FIELD, START_HEADING, type Availability, type CaseLoading, type ReviewAction, type ShownError, type VisitCase } from './registrationModel'
+import {
+  DESK_PREFIX, FIELD, START_HEADING, type Availability, type CaseLoading, type ListedFacts, type ReviewAction, type ShownError, type VisitCase,
+} from './registrationModel'
 import { useCommandKey, useFormProblems } from './registrationParts'
 import { deskFormFrom, deskProblems, deskValues } from '../../collected/deskFields'
 import { deskControlId } from '../../collected/DeskFields'
@@ -161,18 +165,29 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
     show(next, focusId)
   }, [clearNin, clearWithout, clearReview, clearEnroll, show])
 
+  // The registration list (SX-10): "My registrations", and "All registrations" for approvers.
+  const cases = useRegistrationCases(facilityId, canApprove)
+  const { patch: patchListed, reload: reloadListed, filter: listFilter } = cases
+  // A row that could not be opened is no longer said once another list or filter is chosen.
+  useEffect(() => { setError(previous => (previous?.at === 'list' ? null : previous)) }, [listFilter])
+
   /**
-   * Keeps a case as Identity last answered it, first in the list when it is new to this visit. `name` is the patient's
-   * name as typed to start it here (a case reopened by its reference has none); a known case keeps the name it has.
+   * Keeps a case as Identity last answered it, first in the list when it is new to this visit, and its row in the
+   * registration list says the same. `name` is the patient's name as typed to start it here, or as the list gives it
+   * (a case reopened by its reference has none); a known case keeps the name it has. `listed`: what the list said of a
+   * case opened from it, which is then not one started on this visit.
    */
-  const remember = useCallback((item: RegistrationCase, name: string | null = null) => {
+  const remember = useCallback((item: RegistrationCase, name: string | null = null, listed?: ListedFacts) => {
     nextSeq.current += 1
     const seq = nextSeq.current
     const at = new Date().toISOString()
     setVisits(previous => previous.some(visit => visit.item.caseId === item.caseId)
-      ? previous.map(visit => (visit.item.caseId === item.caseId ? { ...visit, item, name: visit.name ?? name } : visit))
-      : [{ seq, item, enrollment: null, name, started: name !== null, at }, ...previous])
-  }, [])
+      ? previous.map(visit => (visit.item.caseId === item.caseId
+        ? { ...visit, item, name: visit.name ?? name, ...(listed && !visit.listed ? { listed } : {}) }
+        : visit))
+      : [{ seq, item, enrollment: null, name, started: name !== null && !listed, at, ...(listed ? { listed } : {}) }, ...previous])
+    patchListed(item)
+  }, [patchListed])
   const rememberEnrollment = useCallback((caseId: string, enrollment: RegistrationEnrollment) => {
     setVisits(previous => previous.map(visit => (visit.item.caseId === caseId ? { ...visit, enrollment } : visit)))
   }, [])
@@ -227,6 +242,23 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
     } finally { if (live.current) setCaseLoading(null) }
   }
 
+  // SX-10: a row of the registration list opens its registration as GET :caseId reads it (with its possible matches),
+  // by the name the list gives. Its ID never goes in "Find registration case", the address or the history.
+  async function openListed(item: RegistrationCaseListItem, row: number) {
+    setMessage('')
+    setError(null); caseProblems.clear()
+    const asked = viewSeq.current
+    setCaseLoading({ row })
+    try {
+      const value = await staffApi.registrationCase(facilityId, item.caseId)
+      if (!live.current) return
+      remember(value, item.fullName, { createdAt: item.createdAt, createdByMe: item.createdByMe })
+      if (viewSeq.current === asked) { clearReview(); clearEnroll(); show({ kind: 'case', caseId: value.caseId }) }
+    } catch (caught) {
+      if (live.current && viewSeq.current === asked) setError({ text: safeError(caught, CASE_LOAD_FAILED), at: 'list' })
+    } finally { if (live.current) setCaseLoading(null) }
+  }
+
   // Registration.tsx 129-161: NIN verification.
   async function resolve(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -262,6 +294,8 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
       setCaseIdInput(result.caseId)
       clearReview(); clearEnroll()
       setMessage(CASE_CREATED)
+      // The new registration is the newest in the list: its first page is read again while the case opens.
+      reloadListed()
       try {
         const detail = await staffApi.registrationCase(facilityId, result.caseId)
         if (!live.current) return
@@ -324,6 +358,7 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
       clearReview(); clearEnroll()
       const said = result.outcome === 'registered' ? REGISTERED_WITHOUT_NIN : SENT_FOR_REVIEW
       setMessage(said)
+      reloadListed()
       try {
         const detail = await staffApi.registrationCase(facilityId, result.caseId)
         if (!live.current) return
@@ -418,12 +453,21 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
     refresh: () => { if (!capabilityLoading) void refreshCapabilities() },
   }
 
+  // Back to the list, focus goes to the case's row: in the registration list where it shows the case, else under "Find
+  // registration case".
+  const backTo = (visit: VisitCase) => {
+    const row = cases.list.kind === 'ready' ? cases.list.items.findIndex(item => item.caseId === visit.item.caseId) : -1
+    return row >= 0 ? listRowId(row) : visitRowId(visit.seq)
+  }
+
   const list = (
-    <RegistrationList availability={availability} caseIdInput={caseIdInput} onCaseIdInput={setCaseIdInput} caseLoading={caseLoading}
-      busy={busy} problems={caseProblems} error={error?.at === 'find' ? error.text : ''} message={message} visits={visits}
+    <RegistrationList availability={availability} cases={cases} caseIdInput={caseIdInput} onCaseIdInput={setCaseIdInput} caseLoading={caseLoading}
+      busy={busy} problems={caseProblems} error={error?.at === 'find' ? error.text : ''} listError={error?.at === 'list' ? error.text : ''}
+      message={message} visits={visits}
       onFind={() => { if (!caseLoading && !busy) void loadCase(caseIdInput, 'find') }}
       onNew={() => go({ kind: 'new' })}
-      onOpen={visit => go({ kind: 'case', caseId: visit.item.caseId })} />
+      onOpen={visit => go({ kind: 'case', caseId: visit.item.caseId })}
+      onOpenListed={(item, row) => void openListed(item, row)} />
   )
   let content
   if (view.kind === 'new') {
@@ -446,7 +490,7 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
     content = (
       <RegistrationRecord key={shown.item.caseId} visit={shown} canApprove={canApprove} busy={busy} caseLoading={caseLoading}
         message={message} error={error} reviewProblems={reviewProblems} enrollProblems={enrollProblems}
-        onBack={() => go({ kind: 'list' }, `registration-visit-${shown.seq}-open`)}
+        onBack={() => go({ kind: 'list' }, backTo(shown))}
         onRefresh={() => { if (!caseLoading && !busy) void loadCase(shown.item.caseId, 'refresh') }}
         onReview={(event, action) => void review(event, action)} onEnroll={event => void enroll(event)} />
     )

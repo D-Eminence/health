@@ -23,7 +23,7 @@ vi.mock('../../../../staff/App', async () => {
 })
 
 const api = vi.hoisted(() => ({
-  registrationCapabilities: vi.fn(), registrationCase: vi.fn(), resolveNin: vi.fn(), registerWithoutNin: vi.fn(),
+  registrationCapabilities: vi.fn(), listRegistrationCases: vi.fn(), registrationCase: vi.fn(), resolveNin: vi.fn(), registerWithoutNin: vi.fn(),
   linkExistingRegistration: vi.fn(), approveNewRegistration: vi.fn(), enrollRegistration: vi.fn(),
 }))
 vi.mock('../../../../staff/api', () => ({ staffApi: api }))
@@ -50,6 +50,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   session.permissions = [WRITE]
   api.registrationCapabilities.mockResolvedValue(NIN_OFF)
+  api.listRegistrationCases.mockResolvedValue({ view: 'mine', cases: [], nextCursor: null })
 })
 afterEach(() => {
   // The word the owner ruled out is never on screen.
