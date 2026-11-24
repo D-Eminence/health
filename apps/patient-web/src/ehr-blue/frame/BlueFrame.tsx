@@ -258,14 +258,16 @@ function BlueFrameBody({ drawer, closed }: { drawer: RouteDrawerState | null; cl
   // home instead, as today's portal lands there (staff/navigation.ts staffLandingPath): the product's page would only
   // refuse. Usable, not only open (pageAccess.ts pageUsable): Pharmacy's own address opens for everyone and only sends on
   // to its pages, so a role that may open none of them (no pharmacy.work-item.read) lands on Home, not on Prescriptions'
-  // refusal (parity report 15a). Home itself is listed on every site, as classic listed the Overview (3.3-53).
+  // refusal (parity report 15a). So Home is always listed in the EHR, and on a single product's site only then, where
+  // /provider lands. Owner's decision (24 November 2026, "Migrate works as before"): a product site keeps its own page as
+  // its home, over parity report 3.3-53's Home on every site.
   const ownPage = product === 'ehr' ? undefined : BLUE_PAGES.find(page => basePath(page.path) === info.home)
   const ownPageOpen = ownPage !== undefined && pageUsable(ownPage, BLUE_PAGES, session, viewing)
   // What each page that can say so says now (EhrBluePage.listedChanges): the list below is worked out again when it changes.
   const listedNow = useListedChanges(BLUE_PAGES, session)
   const listed = useMemo(() => allowed.filter(page => (page.status !== 'sample' || page.path === '') && !INTERNAL_GROUPS.has(page.group)
-    && pageListedInProduct(product, page, servedHere)
-    && (!session || (page.listed?.(session) ?? true))), [allowed, session, product, listedNow])
+    && (page.path === '' ? product === 'ehr' || !ownPageOpen : pageListedInProduct(product, page, servedHere))
+    && (!session || (page.listed?.(session) ?? true))), [allowed, session, product, ownPageOpen, listedNow])
   const match = matchBluePage(BLUE_PAGES, location.pathname)
   // A pharmacy or lab on its own lists a product's pages in the sidebar, so it draws no tabs above them as well.
   // A tab the menu would not list for this session (a lab's own till where Finance lists the facility's) is not drawn
@@ -296,11 +298,12 @@ function BlueFrameBody({ drawer, closed }: { drawer: RouteDrawerState | null; cl
   const redirect = (to: ReactNode) => <AttentionProvider facilityId={facility?.id} permissions={permissions} readOnOpen={false}>{to}</AttentionProvider>
   const moved = movedAddress(location.pathname)
   if (moved) return redirect(<Navigate replace to={{ pathname: moved, search: location.search, hash: location.hash }} />)
-  // A single product's home is its own queue, when this session can use it; otherwise /provider stays Home. Only the
-  // address the browser opened lands there (the history's first entry, key "default": a sign-in's or a reload's),
-  // as classic's sign-in landed on the product's page (staff/navigation.ts staffLandingPath): Home chosen from the
-  // menu, the brand or after a switch stays Home, as classic's Overview did on every site (parity report 3.3-53).
-  if (product !== 'ehr' && ownPageOpen && location.key === 'default' && /^\/provider\/?$/.test(location.pathname)) return redirect(<Navigate replace to={{ pathname: `/provider/${info.home}`, search: location.search }} state={location.state} />)
+  // A single product's home is its own queue, when this session can use it; otherwise /provider stays Home. Every
+  // arrival at /provider lands there: a sign-in or its return address, a reload, the brand, a facility switch, and a
+  // page the product does not open (below). Owner's decision (24 November 2026, "i need migrate to work smoothly as it
+  // has before"): Health ID Migrate and the other product sites work as before website release C, which beats parity
+  // report 3.3-53 (classic's Overview on every site) there. The full EHR site is unchanged: /provider is its Home.
+  if (product !== 'ehr' && ownPageOpen && /^\/provider\/?$/.test(location.pathname)) return redirect(<Navigate replace to={{ pathname: `/provider/${info.home}`, search: location.search }} state={location.state} />)
   // On a single product's site, a page of the hospital EHR's (Patient registration, Consultation, a sample), typed or a
   // sign-in's return address, opens the product's Home instead (review, 2026-11-01): its menu never offers one. The
   // page never mounts, so it reads nothing, and its query stays behind with it. What the product opens unlisted
