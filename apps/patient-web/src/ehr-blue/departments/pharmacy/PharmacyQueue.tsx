@@ -5,7 +5,7 @@ import type { PharmacyWorkItem } from '../../../staff/api'
 import { isUrgent, PriorityBadge, QueuePatient } from '../parts/WorkQueue'
 import { DrugTile } from './DrugTile'
 import { drugOf, FORM_WORD } from './drugForm'
-import { DOSE_MISSING, doseText, durationText, statusWord, type PharmacyStatus } from './pharmacyText'
+import { DOSE_MISSING, doseText, durationText, isWithdrawn, statusWord, stepText, type PharmacyStatus } from './pharmacyText'
 
 /*
  * The pharmacy queue as large cards, one per prescription, made for a counter tablet and a phone. Each card leads with
@@ -40,6 +40,10 @@ export function PharmacyCard({ item, buttonId, status, tone, missing, patientFal
   const dose = doseText(item)
   const duration = durationText(item)
   const detailId = `${buttonId}-detail`
+  // Withdrawn by the prescribing team before it was dispensed (0133): it waits no more. Why is said under the card.
+  const withdrawn = isWithdrawn(item)
+  // Received or accepted by a pharmacist (ORD-4), beside the status; nothing when the backend sends no step.
+  const step = stepText(item)
   return (
     <li className={cx('@container flex min-w-0 flex-col overflow-hidden rounded-2xl bg-surface shadow-[var(--shadow-card)] ring-1',
       missing ? 'ring-warn/60' : 'ring-line')}>
@@ -49,6 +53,7 @@ export function PharmacyCard({ item, buttonId, status, tone, missing, patientFal
         <span id={detailId} className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="flex flex-wrap items-center gap-1.5">
             <Badge size="sm" tone={tone}>{statusWord(status)}</Badge>
+            {step ? <Badge size="sm" tone="neutral">{step}</Badge> : null}
             {isUrgent(item.priority) ? <PriorityBadge priority={item.priority} /> : null}
             {missing ? <span className="inline-flex items-center gap-1 rounded-md bg-warn-soft px-2 py-0.5 text-[12px] font-semibold text-warn-ink">
               <TriangleAlert className="size-3.5" aria-hidden />{DOSE_MISSING}</span> : null}
@@ -65,7 +70,7 @@ export function PharmacyCard({ item, buttonId, status, tone, missing, patientFal
           {item.instructions ? <span className="text-[13px] text-ink-2 break-words">{item.instructions}</span> : null}
           <span className="mt-2 flex flex-wrap items-end justify-between gap-x-3 gap-y-1 border-t border-line pt-2 text-[13px]">
             <span className="min-w-0"><span className="sr-only">For </span><QueuePatient patient={item.patient} fallback={patientFallback} /></span>
-            <span className="text-ink-3 tabular" title={`Accepted ${when}`}>{item.dispensing ? `Accepted ${timeAgo(item.acceptedAt)}` : waitingText(item.acceptedAt)}</span>
+            <span className="text-ink-3 tabular" title={`Accepted ${when}`}>{item.dispensing || withdrawn ? `Accepted ${timeAgo(item.acceptedAt)}` : waitingText(item.acceptedAt)}</span>
           </span>
         </span>
         <ChevronRight className="mt-1 hidden size-5 shrink-0 text-ink-3 @sm:block" aria-hidden />

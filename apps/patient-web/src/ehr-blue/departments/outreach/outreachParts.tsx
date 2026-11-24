@@ -66,8 +66,15 @@ export const CAMPAIGNS_NOT_LOADED = 'Campaigns could not be loaded. Refresh to t
  */
 export type CampaignsUnread = 'loading' | 'offline' | 'failed'
 export const MEMBERS_NOT_LOADED = 'Campaign members could not be loaded. Try again.'
-export const CREATE_FAILED = 'The registration case could not be saved. Please retry.'
-export const LINK_FAILED = 'The patient could not be linked. Check your access to this patient, then refresh the case.'
+/** The classic Outreach section's words (staff/routes/Operations.tsx, parity report 3.3-72) for a create or link refused. */
+export const CREATE_FAILED = 'Registration case could not be created.'
+export const LINK_FAILED = 'Patient could not be linked. Verify access and refresh the case.'
+/** The classic Outreach section's words once an existing patient is linked. */
+export const LINKED = 'Existing patient linked.'
+/** The classic Outreach section's empty lists. */
+export const NO_CASES = 'No registration cases'
+export const NO_CAMPAIGNS = 'No campaigns'
+export const NO_MEMBERS = 'No members'
 
 export const PENDING = 'identity_resolution_pending'
 

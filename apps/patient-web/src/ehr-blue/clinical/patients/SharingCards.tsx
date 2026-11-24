@@ -36,6 +36,12 @@ function useCardLoad<T>(facilityId: string | undefined, allowed: boolean, read: 
   return [load, setLoad] as const
 }
 
+/** Today's texts (SharedPatients.tsx:78, 146-148, 153): each list says when it is empty, and a role that may not accept says why. */
+export const NOTHING_SHARED = 'No patient has shared their record with you here.'
+export const NO_INVITATIONS = 'No invitations are waiting for your sign-in email.'
+export const NOT_ELIGIBLE = 'Only a doctor, clinician or nurse at a facility Health ID has checked can accept invitations. Your role here '
+  + 'cannot, so invitations sent to your email are not shown. Switch to such a facility to see them.'
+
 const DURATION_LABELS: Readonly<Record<ShareDuration, string>> = {
   '24h': '24 hours', '7d': '7 days', '30d': '30 days', until_revoked: 'Until the patient ends it (up to 1 year)',
 }
@@ -112,13 +118,20 @@ export function SharedWithYouCard({ facilityId, permissions, openUnavailable, bu
   const patients = shared.state === 'ready' ? shared.value : []
   const waiting = invites.state === 'ready' && invites.value.eligible ? invites.value.items : []
   const empty = patients.length === 0 && waiting.length === 0
+  // Each read that answered says so when it has nothing, in today's words; an invitations list for a role that may not
+  // accept says why instead.
+  const notes = [
+    shared.state === 'ready' && patients.length === 0 ? NOTHING_SHARED : '',
+    invites.state === 'ready' && !invites.value.eligible ? NOT_ELIGIBLE : '',
+    invites.state === 'ready' && invites.value.eligible && waiting.length === 0 ? NO_INVITATIONS : '',
+  ].filter(Boolean)
   return (
     <Card>
       <CardHeader as="h2" title="Shared with you" icon={Share2} iconTone="brand"
         description="Patients who let you see their record here, and invitations they sent to your email." />
       {shared.state === 'failed' ? <div className="px-5 pt-4"><Alert intent="error" size="sm" title="Couldn’t load patients shared with you">{shared.message}</Alert></div> : null}
       {invites.state === 'failed' ? <div className="px-5 pt-4"><Alert intent="error" size="sm" title="Couldn’t load your invitations">{invites.message}</Alert></div> : null}
-      {empty && shared.state !== 'failed' && invites.state !== 'failed' ? <p className="m-0 px-5 py-4 text-[13px] text-ink-3">No patient has shared their record with you here yet.</p> : null}
+      {notes.length > 0 ? <div className="flex flex-col gap-1 px-5 py-4">{notes.map(note => <p key={note} className="m-0 text-[13px] text-ink-3">{note}</p>)}</div> : null}
       {openUnavailable && patients.length > 0 ? <p id="shared-open-unavailable" className="m-0 px-5 pt-3 text-[12px] text-ink-3">{openUnavailable}</p> : null}
       {!empty ? <ul className="m-0 list-none divide-y divide-line p-0">
         {patients.map(item => (

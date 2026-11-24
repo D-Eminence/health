@@ -1,4 +1,5 @@
-import type { AccessHistory } from '../api'
+import type { AccessHistory, AccessRequest } from '../api'
+import { roleName } from '../staff/staffAccess'
 
 /**
  * "Who has access" on Access & sharing, counted and grouped the way the patient reads it. Each access (one row) is one
@@ -123,4 +124,28 @@ const PURPOSES: Readonly<Record<string, string>> = {
 export function purposeLabel(purpose: string | null | undefined): string | null {
   const key = (purpose ?? '').trim().toLowerCase()
   return Object.hasOwn(PURPOSES, key) ? PURPOSES[key]! : null
+}
+
+/** Who asked, when Identity names neither the staff member nor a role Health ID has words for. */
+const UNNAMED_REQUESTER = 'A staff member'
+
+/**
+ * Who asked, on a request (hid-system 0128): "Dr Ada Obi (Doctor)", the name alone, "A staff member (Nurse)" with the
+ * role alone, or "A staff member" when Identity sends neither (or an Identity before 0128). A role Health ID has no words
+ * for is left out, never shown as its code.
+ */
+export function requester(item: Pick<AccessRequest, 'requesterName' | 'requesterRole'>): string {
+  const name = typeof item.requesterName === 'string' ? item.requesterName.trim() : ''
+  const code = typeof item.requesterRole === 'string' ? item.requesterRole.trim() : ''
+  const named = code ? roleName(code) : ''
+  const role = named && named !== 'Staff' ? named : ''
+  return `${name || UNNAMED_REQUESTER}${role ? ` (${role})` : ''}`
+}
+
+/**
+ * Whether the request says who asked beyond "A staff member": a name, or a role Health ID has words for. A role code
+ * alone that has no words says nothing more, so the review's "Asked by" line is left out for it.
+ */
+export function requesterKnown(item: Pick<AccessRequest, 'requesterName' | 'requesterRole'>): boolean {
+  return requester(item) !== UNNAMED_REQUESTER
 }

@@ -281,13 +281,9 @@ describe('removing a member (Account access: ended)', () => {
     const decision = await screen.findByRole('alertdialog')
     fireEvent.change(within(decision).getByLabelText('Type DEACTIVATE to confirm'), { target: { value: 'DEACTIVATE' } })
     fireEvent.click(within(decision).getByRole('button', { name: 'Deactivate staff member' }))
-    if (words) {
-      await waitFor(() => expect(pageNotice()).toBe(`Demo Nurse no longer has access to Demo Hospital.${words}`))
-      expect(toasts.success).not.toHaveBeenCalled()
-    } else {
-      await waitFor(() => expect(toasts.success).toHaveBeenCalledWith('Staff member deactivated'))
-      expect(pageNotice()).toBe('')
-    }
+    // The classic Staff page's full sentence, in the banner, with no toast, whether or not consents ended (3.3-73).
+    await waitFor(() => expect(pageNotice()).toBe(`Demo Nurse no longer has access to Demo Hospital.${words}`))
+    expect(toasts.success).not.toHaveBeenCalled()
   })
 
   it('removes nothing when the decision is cancelled, and keeps the form', async () => {

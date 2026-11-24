@@ -54,9 +54,11 @@ describe(SITE, () => {
     expect(opened).not.toHaveBeenCalled()
   })
 
-  it.each(['/provider/registration', '/provider/clinical'])('opens the Pharmacy’s Home in place of the Hospital EHR’s %s, signed in, on this site', async path => {
+  it.each(['/provider/registration', '/provider/clinical'])('opens Home in place of the Hospital EHR’s %s, signed in, on this site', async path => {
     await openPortalSignedInOn(SITE, path, { id: PHARMACY_DEMO, name: 'Demo Pharmacy' }, EVERY_PERMISSION)
-    await waitFor(() => expect(address()).toMatch(/^\/provider\/pharmacy(\/|$)/))
+    await waitFor(() => expect(address()).toBe('/provider'))
+    // Classic's Shell sent such a page to its Overview (staff/App.tsx); blue's Home is that Overview (parity report 3.3-53).
+    expect(await screen.findByRole('heading', { level: 1, name: /^Good to see you, / })).toBeTruthy()
     expect(screen.queryByText(/Opening it there/)).toBeNull()
     expect(opened).not.toHaveBeenCalled()
   })
@@ -168,13 +170,25 @@ describe(`${SITE}, for a role without the pharmacy page’s permission`, () => {
   const NONE = 'Your role at this facility doesn’t include pharmacy work. Ask your facility administrator.'
   const NO_PRESCRIPTIONS = 'Your role at this facility doesn’t include prescriptions. Ask your facility administrator.'
 
+  // Parity report 15a: with no pharmacy page of use to the role, /provider (and a hospital EHR page sent there) stays on
+  // Home, as classic's sign-in landed on its Overview, and settles there.
   it.each([
-    ['/provider', 'Demo Pharmacy', ['audit.read'], NONE],
+    ['/provider', 'Demo Pharmacy', ['audit.read']],
+    ['/provider/registration', 'Demo Pharmacy', ['audit.read']],
+    ['/provider', 'a fictional pharmacy, with the clinic switch on', ['audit.read']],
+  ])('opened at %s at %s holding %j, settles on Home here, without going round', async (path, at, permissions) => {
+    clinic.switchedOn = at !== 'Demo Pharmacy'
+    await openStaffAt(path, facility(at === 'Demo Pharmacy' ? PHARMACY_DEMO : REAL_CLINIC, 'Corner Pharmacy (fictional)', permissions))
+    expect(await screen.findByRole('heading', { level: 1, name: /^Good to see you, / })).toBeTruthy()
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)) })
+    expect(trail.at(-1)).toBe('/provider')
+    expect(trail).not.toContain('/provider/pharmacy/prescriptions')
+    expect(opened).not.toHaveBeenCalled()
+  })
+
+  it.each([
     ['/provider/pharmacy', 'Demo Pharmacy', ['audit.read'], NONE],
-    // A page of the hospital EHR's stays on this site now, where the frame opens the Pharmacy's Home in its place.
-    ['/provider/registration', 'Demo Pharmacy', ['audit.read'], NONE],
     ['/provider', 'Demo Pharmacy', ['billing.bill.read'], NO_PRESCRIPTIONS],
-    ['/provider', 'a fictional pharmacy, with the clinic switch on', ['audit.read'], NONE],
   ])('opened at %s at %s holding %j, settles on Pharmacy’s plain refusal here, without going round', async (path, at, permissions, message) => {
     clinic.switchedOn = at !== 'Demo Pharmacy'
     await openStaffAt(path, facility(at === 'Demo Pharmacy' ? PHARMACY_DEMO : REAL_CLINIC, 'Corner Pharmacy (fictional)', permissions))

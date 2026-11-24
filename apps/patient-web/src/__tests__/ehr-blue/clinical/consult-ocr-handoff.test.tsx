@@ -27,7 +27,7 @@ afterEach(() => { backToTestSite(); vi.unstubAllGlobals(); vi.restoreAllMocks();
 const EHR = 'ehr.healthidentitydirectory.com'
 const CLINIC = 'Riverside Clinic (fictional)'
 /** Finding a patient, Consultation, the visit's documents, and Document OCR with its new job: nothing more. */
-const PERMISSIONS = ['identity.patient.read', 'ehr.encounter.read', 'ehr.document.read', 'ocr.job.read', 'ocr.job.write']
+const PERMISSIONS = ['identity.patient.read', 'ehr.encounter.read', 'ehr.document.read', 'ocr.job.read', 'ocr.job.write', 'ocr.job.start']
 const ACTOR_ID = 'staff-demo-1'
 const GRANT_ID = 'grant-ocr-c1'
 const PATIENT_ID = 'a0000000-0000-4000-8000-0000000000c1'
@@ -104,7 +104,9 @@ describe('Extract with OCR on the EHR’s own site', () => {
     // The first wait loads the real app's lazy pages cold (registration-ehr-only.test.tsx).
     fireEvent.change(await screen.findByRole('textbox', { name: 'Health ID' }, { timeout: 25000 }), { target: { value: PATIENT_HID } })
     fireEvent.click(screen.getByRole('button', { name: 'Find' }))
+    // Find a patient opens the patient's page, not the chart (owner decision Q139 B, 23 Nov; parity 13d).
     expect(await screen.findByRole('heading', { level: 1, name: PATIENT_NAME })).toBeTruthy()
+    expect(address()).toBe('/provider/patients/open')
 
     // The visit, from "Visits here", and its Documents card.
     fireEvent.click(await screen.findByRole('button', { name: new RegExp(`^${consultationLabel(ENCOUNTER)}`) }))

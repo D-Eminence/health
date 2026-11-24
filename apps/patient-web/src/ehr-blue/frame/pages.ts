@@ -1,6 +1,7 @@
 import { createElement } from 'react'
 import { EhrIcon, type EhrIconName } from '@hid/ui/ehr'
 import { isDemoFacility } from '../blueFacilities'
+import { OCR_JOB_READ, OCR_JOB_READ_OWN } from '../../scanAccess'
 import type { StaffSession } from '../../staff/api'
 import type { EhrBluePage, EhrBluePageStatus } from './types'
 import { LivePage, StaffAccessPage } from './LivePages'
@@ -32,10 +33,12 @@ const todayPages = new Set<EhrBluePage>()
  * A stand-in for today's page at its address: today's page itself, unless `element` draws it in the design. Today's page
  * is `live`; one drawn in the design is `partial` while its words or steps still differ from today's.
  */
-function live(path: string, group: string, label: string, iconName: EhrIconName, permission: string,
+function live(path: string, group: string, label: string, iconName: EhrIconName, permission: string | readonly [string, ...string[]],
   element: EhrBluePage['element'] = createElement(LivePage), status: EhrBluePageStatus = 'live'): EhrBluePage {
   todayPaths.push(path)
-  const entry: EhrBluePage = { path, group, label, icon: icon(iconName), permission, status, element }
+  // Several codes: any one of them opens the page (pageAccess.ts pagePermissions).
+  const [first, ...others] = typeof permission === 'string' ? [permission] : permission
+  const entry: EhrBluePage = { path, group, label, icon: icon(iconName), permission: first, ...(others.length ? { orPermissions: others } : {}), status, element }
   todayPages.add(entry)
   return entry
 }
@@ -101,7 +104,8 @@ export const pages: EhrBluePage[] = [
   sample('ambulance', 'Network & Services', 'Dispatch', 'truck'),
   sample('bloodbank', 'Network & Services', 'Blood Bank', 'droplet'),
   sample('telemedicine', 'Network & Services', 'Telemedicine', 'video'),
-  live('ocr', 'Network & Services', 'Scan paper records', 'document', 'ocr.job.read'),
+  // The front desk scans paper records too: it follows the readings of its own uploads (hid-system 0136, Q112 A).
+  live('ocr', 'Network & Services', 'Scan paper records', 'document', [OCR_JOB_READ, OCR_JOB_READ_OWN]),
   live('outreach', 'Network & Services', 'Outreach', 'outreach', 'outreach.registration.read'),
 
   sample('shifts', 'People', 'Shifts & Roster', 'clock'),

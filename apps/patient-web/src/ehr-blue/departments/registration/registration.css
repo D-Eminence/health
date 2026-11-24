@@ -78,6 +78,11 @@
   gap: 12px;
 }
 
+/* Register without a NIN, chosen next to the NIN form (or back), under the form shown. */
+.hid-ehr .hid-ehr-dept-registration-choice {
+  margin-top: 18px;
+}
+
 /* The design's checkbox, after its label, in line with the field beside it. */
 .hid-ehr .hid-ehr-dept-registration-check {
   justify-content: center;

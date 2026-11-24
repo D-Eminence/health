@@ -10,11 +10,11 @@ import { priorityLabel } from '../../../staff/orderRoutes'
 import { selfServiceReview } from '../../../staff/staffAccess'
 import { NOTHING_REPORTED, RecordedAllergyFacts, RecordedHeading, ReportedHeading, profileUpdated } from '../patients/AllergiesCard'
 import { oldVitalsLine } from '../nursing/observations'
-import { ChartGate, type Chart } from '../parts/chart'
+import { ChartGate, readEndsAccess, type Chart } from '../parts/chart'
 import { formatWhen } from '../parts/format'
 import { codeText, MoreDetails } from '../parts/MoreDetails'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
-import { ACCESS_CLOSED, CLOSE_FAILED, CLOSE_GRANT, CLOSE_REASON, CLOSE_REFUSALS, actionUnavailable } from './access'
+import { ACCESS_CLOSED, CLOSE_FAILED, CLOSE_GRANT, CLOSE_REASON, actionUnavailable } from './access'
 import { emergencyAllergies, type EmergencyAllergies } from './emergencyAllergies'
 import { ReleasedResults } from './ReleasedResults'
 import { plainErrorText } from '@hid/http'
@@ -323,6 +323,9 @@ function Summary({ chart, onClosed }: { chart: Chart; onClosed: () => void }) {
   // The latest re-check, so a new function identity does not read the summary again.
   const verify = useRef(chart.verify)
   useLayoutEffect(() => { verify.current = chart.verify })
+  // The latest chart: opened from an emergency search card (no Health ID to look up again), a refused read ends access.
+  const latest = useRef(chart)
+  useLayoutEffect(() => { latest.current = chart })
 
   useEffect(() => {
     let active = true
@@ -332,7 +335,11 @@ function Summary({ chart, onClosed }: { chart: Chart; onClosed: () => void }) {
     verify.current()
       .then(() => staffApi.emergencyRecords(facilityId, patientId))
       .then(result => { if (active) setSummary(result) })
-      .catch((caught: unknown) => { if (active) setError(refusalText(caught, SUMMARY_FAILED)) })
+      .catch((caught: unknown) => {
+        if (!active) return
+        if (readEndsAccess(latest.current.patient, caught)) latest.current.endAccess()
+        else setError(refusalText(caught, SUMMARY_FAILED))
+      })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [facilityId, patientId, revision])
@@ -352,7 +359,7 @@ function Summary({ chart, onClosed }: { chart: Chart; onClosed: () => void }) {
     try {
       await staffApi.closeGrant(facilityId, grantId, CLOSE_REASON)
     } catch (caught) {
-      setCloseError(plainErrorText(caught, CLOSE_FAILED, { codes: CLOSE_REFUSALS, audience: 'facility' }))
+      setCloseError(plainErrorText(caught, CLOSE_FAILED, { audience: 'facility' }))
       return
     } finally {
       closing.current = false
@@ -381,7 +388,8 @@ function Summary({ chart, onClosed }: { chart: Chart; onClosed: () => void }) {
               ? <Button variant="ghost" icon={UserSearch} to={href.to('patients')}>Find another patient</Button> : null}
           </div>
           {grantId && closeUnavailable ? <p id={closeUnavailableId} className="m-0 text-[13px] text-ink-3">{closeUnavailable}</p> : null}
-          {closeError ? <Alert intent="error" title="Couldn’t end access">{closeError}</Alert> : null}
+          {/* Today's failure has no title of its own (Patients.tsx:246, 271). */}
+          {closeError ? <Alert intent="error">{closeError}</Alert> : null}
         </div>
       </Card>
       {loading && !summary ? <Card><LoadingRows rows={3} label={LOADING_SUMMARY} /></Card> : null}

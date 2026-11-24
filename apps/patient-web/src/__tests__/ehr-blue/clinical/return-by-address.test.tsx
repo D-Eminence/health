@@ -197,7 +197,10 @@ describe('A clinical page reached by its address alone', () => {
     fireEvent.click(await screen.findByRole('link', { name: 'Find a patient' }))
     fireEvent.change(await screen.findByLabelText('Health ID'), { target: { value: 'hid-zdemaaa2' } })
     fireEvent.click(screen.getByRole('button', { name: 'Find' }))
+    // An allowed lookup opens the patient's page, never the chart (owner decision Q139 B, 23 Nov; parity 13d).
     expect(await screen.findByRole('heading', { level: 1, name: PATIENT_NAME })).toBeTruthy()
+    expect(seen.at(-1)).toBe(PATIENT_PAGE)
+    expect(seen).not.toContain('/provider/clinical')
     // The lookup is of what was typed, at the working facility, for direct care: nothing came from the address.
     expect(api('lookupPatient').mock.calls[0]).toEqual([FACILITY_ID, PATIENT_HID, 'direct-care'])
     expect(staff.setActivePatient).toHaveBeenCalledWith({ hid: PATIENT_HID, lookup: allowedLookup, purpose: 'direct-care' })

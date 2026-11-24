@@ -2,6 +2,7 @@ import type { EhrBluePage } from '../types'
 import { DeptUnavailable } from '../parts/DeptPage'
 import { ChartIcon, UploadIcon } from '../parts/icons'
 import { readingQualityServed, subscribeReadingQualityServed } from '../../../readingLearningServed'
+import { OCR_JOB_READ, OCR_JOB_READ_OWN } from '../../../scanAccess'
 import { Migrate, NO_DOCUMENT_OCR } from './Migrate'
 import { qualityReader } from './readingQualityApi'
 import { ReadingQualityPage, ReadingQualityRefusal } from './ReadingQualityPage'
@@ -11,7 +12,9 @@ export const migratePage: EhrBluePage = {
   group: 'Network & Services',
   // Plain words for clinical staff, not "Document OCR" (QA P1-10).
   label: 'Scan paper records',
-  permission: 'ocr.job.read',
+  // Any one of these: the front desk follows the readings of its own uploads (ocr.job.read-own, hid-system 0136, Q112 A).
+  permission: OCR_JOB_READ,
+  orPermissions: [OCR_JOB_READ_OWN],
   // Partial, not live: it works on Health ID, but not yet with today's words and steps throughout.
   status: 'partial',
   icon: <UploadIcon />,

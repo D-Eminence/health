@@ -11,8 +11,9 @@ import { normalizeDeskCode } from '../../../../ehr-blue/departments/inperson/inP
 import { SAID_FIELDS_REFUSED } from '../../../said'
 
 /*
- * The blue In-person check: today's check (staff/routes/InPersonCheck.tsx and InPersonCheck.test.tsx at main a4f5704)
- * in the design's form and record pattern. Every request, rule and word is today's; each is pinned here word for word.
+ * The blue In-person check: the classic check (staff/routes/InPersonCheck.tsx and InPersonCheck.test.tsx as they are on
+ * main now) in the design's form and record pattern. Every request, rule, step and word is classic's (parity report
+ * 3.3-18 to 3.3-26); each is pinned here word for word.
  * Every person, code and facility is fictional.
  */
 
@@ -51,24 +52,32 @@ const OTHER_FACILITY = '98d00002-0000-4000-8000-000000000004'
 const problem = (status: number, code: string, detail: string, extra: { fields?: Record<string, string>; details?: unknown } = {}) =>
   new HidApiError(status, detail, { code, requestId: `corr-${status}`, ...extra })
 
-// Today's words, as today's page and test give them.
+// Classic's words, as the classic page (staff/routes/InPersonCheck.tsx) gives them.
 const ATTESTATIONS = [
   'The patient is here in person.',
-  'I have seen the original document, not a copy or a photo of it.',
-  'The photo on the document matches the person in front of me.',
-  'The desk code is shown on the patient’s own phone.',
-  'The patient agrees to this check against their NIN record.',
+  'I’ve seen the original ID, not a copy or photo.',
+  'The photo on the ID is this person.',
+  'The code is on their own phone.',
+  'They agree to this check against their NIN.',
 ]
-const UNAVAILABLE = 'Your role at this facility cannot check patients in person. Doctors, clinicians and nurses at a facility that takes part in registration can. Ask a platform administrator if your role should.'
-const DESCRIPTION = 'Check a patient registering on their own phone who cannot receive the code sent to the phone on their NIN record. You check one original photo ID; Health ID compares the details with the NIN record and never shows you the record.'
-const DESK_CODE_ENTRY = 'Enter the 10-character desk code shown on the patient’s phone.'
-const VERIFIED = 'Checked. The patient can continue on their phone.'
-const VERIFIED_NEXT = 'On their own phone they add a phone number or email, choose a password, and then see their Health ID. If the phone still shows the desk code, ask them to open their registration again on that phone.'
-const REGISTERED_NEXT = 'Do not start a new registration for them. Their registration on the phone has ended; account recovery lets them sign in to the Health ID they have.'
-const MISMATCH_NEXT = 'Check the document. If only spelling or spacing differs, such as a hyphen or a space in a name, type it the way the document allows and check again; each check counts toward the daily limit. Otherwise do not register this patient.'
-const RETRY = 'The check could not be completed. Press Check again without changing the details: it is sent as the same check, so it is not counted twice.'
-const RETRY_PROOF = 'The check is recorded, but the patient’s registration could not be moved on. Press Check again without changing the details within 10 minutes: it is not counted twice.'
-const STALE = 'This desk code can no longer be checked: another check came first, or the patient has a new code. Ask the patient for the code on their phone now, then check again.'
+const UNAVAILABLE_TITLE = 'You can’t check patients in person here'
+const UNAVAILABLE = 'Doctors and nurses at a taking-part facility can. Ask your administrator.'
+const PAGE_TITLE = 'Check a patient in person'
+const DESCRIPTION = 'For patients who can’t get a code on their NIN phone. You check their photo ID.'
+const DESK_CODE_ENTRY = 'Type the 10-character code on their phone.'
+const DESK_CODE_NOT_FOUND = 'No sign-up is waiting for this code. Ask them to show the code again.'
+const VERIFIED = 'Checked'
+const VERIFIED_NEXT = 'They can finish on their phone now. If it still shows the code, ask them to open their sign-up again.'
+const REGISTERED = 'They already have a Health ID'
+const REGISTERED_NEXT = 'Don’t register them again. They can get back into their account with “Forgot password”.'
+const MISMATCH = 'The details don’t match their NIN'
+const MISMATCH_NEXT = 'If only a space or hyphen differs, type it as the ID shows and check again. Otherwise, don’t register them.'
+const RETRY = 'That didn’t go through. Press Check again without changes. It won’t count twice.'
+const RETRY_PROOF = 'Saved, but their sign-up didn’t move on. Press Check again within 10 minutes, without changes.'
+const STALE = 'That code has changed. Ask for the code on their phone now, then check again.'
+const CHECK = 'Check details'
+/** Classic's alert title over every answer the alert says. */
+const ERROR_TITLE = 'That didn’t work'
 
 // Fictional: what the staff member types from the document.
 const FIRST = 'Demo-Patient'
@@ -100,12 +109,15 @@ function renderPage({ pages = [] as readonly EhrBluePage[] } = {}) {
   return render(tree(<InPersonCheck />, pages))
 }
 
-const deskCode = () => screen.getByRole('textbox', { name: 'Desk code' }) as HTMLInputElement
-const dateOfBirth = () => screen.getByLabelText('Date of birth (if the document shows one)') as HTMLInputElement
+const deskCode = () => screen.getByRole('textbox', { name: 'Code' }) as HTMLInputElement
+const dateOfBirth = () => screen.getByLabelText('Date of birth') as HTMLInputElement
+const documentType = () => screen.getByRole('combobox', { name: 'Which ID?' }) as HTMLSelectElement
+/** The alert's words under its title. */
+const alertText = (alert: HTMLElement) => alert.querySelector('.hid-ehr-dept-notice-body')?.textContent
 
 function fill(values: { code?: string; type?: string; first?: string; last?: string; dob?: string; attest?: number } = {}) {
   fireEvent.change(deskCode(), { target: { value: values.code ?? CODE_TYPED } })
-  fireEvent.change(screen.getByRole('combobox', { name: 'Document checked' }), { target: { value: values.type ?? 'national_id_card' } })
+  fireEvent.change(documentType(), { target: { value: values.type ?? 'national_id_card' } })
   fireEvent.change(screen.getByRole('textbox', { name: 'First name' }), { target: { value: values.first ?? ` ${FIRST} ` } })
   fireEvent.change(screen.getByRole('textbox', { name: 'Last name' }), { target: { value: values.last ?? LAST } })
   fireEvent.change(dateOfBirth(), { target: { value: values.dob ?? '1990-04-02' } })
@@ -115,7 +127,7 @@ function fill(values: { code?: string; type?: string; first?: string; last?: str
   }
 }
 
-const submit = () => fireEvent.click(screen.getByRole('button', { name: /^Check (the details|again)$/ }))
+const submit = () => fireEvent.click(screen.getByRole('button', { name: /^Check (details|again)$/ }))
 const sentKeys = () => api.assistedVerification.mock.calls.map(call => call[2] as string)
 
 /** The error a control is described by (its field's hint describes it too). */
@@ -154,7 +166,7 @@ afterEach(() => {
 })
 
 describe('the page entry', () => {
-  it('replaces the frame’s live stand-in in place: its path, group, label and permission, partial, with today’s refusal', () => {
+  it('replaces the frame’s live stand-in in place: its path, group, label and permission, partial, with classic’s refusal', () => {
     expect(inPersonCheckPage).toMatchObject({
       path: 'in-person-check', group: 'Clinical', label: 'In-person check', permission: 'identity.patient.assisted_registration', status: 'partial',
     })
@@ -165,71 +177,75 @@ describe('the page entry', () => {
 })
 
 describe('the blue in-person check (hid-system #85, ADR-063)', () => {
-  it('is unavailable to a role without the permission, in today’s words, and sends nothing', () => {
+  it('refuses someone this facility does not let check patients in classic’s words, naming no permission, and sends nothing', () => {
     session.permissions = ['identity.patient.read']
     renderPage()
-    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('In-person check unavailable')
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(UNAVAILABLE_TITLE)
     expect(screen.getByText(UNAVAILABLE)).toBeTruthy()
-    expect(screen.queryByRole('textbox', { name: 'Desk code' })).toBeNull()
+    expect(document.body.textContent).not.toMatch(/permission|platform administrator/i)
+    expect(screen.queryByRole('textbox', { name: 'Code' })).toBeNull()
     expect(api.assistedVerification).not.toHaveBeenCalled()
   })
 
   it('is unavailable without a working facility too', () => {
     session.facilityId = null
     renderPage()
-    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('In-person check unavailable')
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(UNAVAILABLE_TITLE)
     expect(screen.getByText(UNAVAILABLE)).toBeTruthy()
   })
 
   it('says the same as the refusal the frame shows at its address', () => {
     render(tree(<InPersonUnavailable />, []))
-    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('In-person check unavailable')
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(UNAVAILABLE_TITLE)
     expect(screen.getByText(UNAVAILABLE)).toBeTruthy()
   })
 
-  it('has today’s heading, and the form card in the design’s two-column grid', () => {
+  it('has classic’s heading and line, and classic’s three steps in the form card, with no Method choice', () => {
     const { container } = renderPage()
-    expect(screen.getByText('Identity operations')).toBeTruthy()
-    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('In-person check')
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(PAGE_TITLE)
     expect(screen.getByText(DESCRIPTION)).toBeTruthy()
+    expect(screen.queryByText('Identity operations')).toBeNull()
     const card = screen.getByRole('region', { name: 'Check a patient' })
     expect(card.classList.contains('hid-ehr-card')).toBe(true)
-    // Desk code beside the method, then the document; the names beside each other, then the date of birth.
+    // Classic's steps (InPersonCheck.tsx:291-326), each an h3, numbered.
+    expect(within(card).getAllByRole('heading', { level: 3 }).map(heading => heading.textContent))
+      .toEqual(['The code on their phone', 'Their photo ID', 'Confirm'])
+    expect([...card.querySelectorAll('.hid-ehr-dept-inperson-n')].map(n => n.textContent)).toEqual(['1', '2', '3'])
+    expect(screen.getByText('The original, not a copy or a photo of it.')).toBeTruthy()
+    // The method is fixed, so it is never offered as a choice (classic says none).
+    expect(screen.queryByRole('radio')).toBeNull()
+    expect(screen.queryByRole('group', { name: 'Method' })).toBeNull()
+    expect(document.body.textContent).not.toContain('Original government photo ID')
+    // The names beside each other, then the date of birth.
     const grids = [...card.querySelectorAll('.hid-ehr-dept-form-grid')]
-    expect(grids).toHaveLength(2)
-    expect(within(grids[0] as HTMLElement).getByRole('textbox', { name: 'Desk code' })).toBeTruthy()
-    expect(within(grids[0] as HTMLElement).getByRole('radio', { name: 'Original government photo ID, checked in person' })).toBeTruthy()
-    expect(within(grids[0] as HTMLElement).getByRole('combobox', { name: 'Document checked' })).toBeTruthy()
-    expect(within(grids[1] as HTMLElement).getAllByRole('textbox').map(input => input.getAttribute('name'))).toEqual(['firstName', 'lastName'])
-    expect(grids[1]!.contains(dateOfBirth())).toBe(true)
+    expect(grids).toHaveLength(1)
+    expect(within(grids[0] as HTMLElement).getAllByRole('textbox').map(input => input.getAttribute('name'))).toEqual(['firstName', 'lastName'])
+    expect(grids[0]!.contains(dateOfBirth())).toBe(true)
     // A required field is marked as the design marks it; the mark is not read as part of the name.
-    for (const name of ['Desk code', 'Document checked', 'First name', 'Last name']) {
+    for (const name of ['Code', 'Which ID?', 'First name', 'Last name']) {
       const label = [...container.querySelectorAll('label')].find(element => element.textContent === `${name} *`)
       expect(label?.querySelector('[aria-hidden="true"]')?.textContent).toBe(' *')
     }
-    // The page's own rules, under .hid-ehr with its prefix: nothing of today's staff look.
+    // The page's own rules, under .hid-ehr with its prefix: nothing of the staff portal's look.
     expect(container.querySelector('.hid-ehr-dept-inperson')).not.toBeNull()
     expect(container.querySelector('[class*="staff-"]')).toBeNull()
   })
 
-  it('asks for the desk code, the method, the document, the names, an optional date of birth and five statements', () => {
+  it('asks for the code, the ID, the names, an optional date of birth and five statements, in classic’s words', () => {
     renderPage()
     expect(deskCode().getAttribute('maxlength')).toBe('20')
     expect(deskCode().getAttribute('autocomplete')).toBe('off')
     expect(deskCode().getAttribute('autocapitalize')).toBe('characters')
     expect(deskCode().getAttribute('spellcheck')).toBe('false')
-    expect(screen.getByText('As the patient’s own phone shows it: 10 letters and digits. Spaces, hyphens and case do not matter.')).toBeTruthy()
-    const method = screen.getByRole('radio', { name: 'Original government photo ID, checked in person' }) as HTMLInputElement
-    expect(method.checked).toBe(true)
-    expect(method.value).toBe('government_photo_id_in_person')
-    expect(screen.getByRole('group', { name: 'Method' }).contains(method)).toBe(true)
-    const documents = within(screen.getByRole('combobox', { name: 'Document checked' })).getAllByRole('option')
-    expect(documents.map(option => option.textContent)).toEqual(['Choose the document',
+    expect(deskCode().getAttribute('placeholder')).toBe('ABCD-EFGH-JK')
+    expect(screen.getByText('10 letters and numbers. Spaces and dashes don’t matter.')).toBeTruthy()
+    const documents = within(documentType()).getAllByRole('option')
+    expect(documents.map(option => option.textContent)).toEqual(['Choose',
       'National ID card', 'International passport', 'Driver’s licence', 'Voter’s card'])
     expect(documents.map(option => (option as HTMLOptionElement).value)).toEqual(['',
       'national_id_card', 'international_passport', 'drivers_licence', 'voters_card'])
-    const written = screen.getByRole('group', { name: 'As written on the document' })
-    // Today's limits, and nothing typed offered to the browser's autofill or spelling service.
+    const written = screen.getByRole('group', { name: 'Type the details exactly as they are on the ID.' })
+    // Classic's limits, and nothing typed offered to the browser's autofill or spelling service.
     for (const name of ['First name', 'Last name']) {
       const control = within(written).getByRole('textbox', { name })
       expect(control.getAttribute('maxlength')).toBe('100')
@@ -239,11 +255,11 @@ describe('the blue in-person check (hid-system #85, ADR-063)', () => {
     expect(dateOfBirth().type).toBe('date')
     expect(dateOfBirth().required).toBe(false)
     expect(dateOfBirth().getAttribute('autocomplete')).toBe('off')
-    expect(screen.getByText('A check without it does not match a NIN record that has one.')).toBeTruthy()
-    // The design's checkbox list: each statement a box before its words, in today's order.
+    expect(screen.getByText('If the ID shows one. Without it, the check may not match.')).toBeTruthy()
+    // The design's checkbox list: each statement a box before its words, in classic's order.
     const statements = screen.getByRole('group', { name: 'Confirm each statement' })
     expect(within(statements).getAllByRole('checkbox').map(box => box.closest('label')?.textContent)).toEqual(ATTESTATIONS)
-    expect(screen.getByRole('button', { name: 'Check the details' }).getAttribute('type')).toBe('submit')
+    expect(screen.getByRole('button', { name: CHECK }).getAttribute('type')).toBe('submit')
   })
 
   it('sends the desk code as the phone shows it, the typed names and each statement, with a submission key', async () => {
@@ -286,17 +302,17 @@ describe('the blue in-person check (hid-system #85, ADR-063)', () => {
   })
 
   it.each([
-    ['no desk code', { code: '' }, 'Desk code', DESK_CODE_ENTRY],
-    ['a desk code with a U', { code: '7K3M9Q2XWU' }, 'Desk code', DESK_CODE_ENTRY],
-    ['a short desk code', { code: '7K3M9' }, 'Desk code', DESK_CODE_ENTRY],
-    ['no document', { type: '' }, 'Document checked', 'Choose the document you checked.'],
-    ['no first name', { first: '  ' }, 'First name', 'Enter the first name as written on the document.'],
-    ['no last name', { last: '' }, 'Last name', 'Enter the last name as written on the document.'],
-  ])('refuses %s at its field before sending', async (_label, values, field, message) => {
+    ['no desk code', { code: '' }, 'in-person-desk-code', DESK_CODE_ENTRY],
+    ['a desk code with a U', { code: '7K3M9Q2XWU' }, 'in-person-desk-code', DESK_CODE_ENTRY],
+    ['a short desk code', { code: '7K3M9' }, 'in-person-desk-code', DESK_CODE_ENTRY],
+    ['no ID', { type: '' }, 'in-person-document-type', 'Choose which ID you looked at.'],
+    ['no first name', { first: '  ' }, 'in-person-first-name', 'Type the first name as it is on the ID.'],
+    ['no last name', { last: '' }, 'in-person-last-name', 'Type the last name as it is on the ID.'],
+  ])('refuses %s at its field before sending, in classic’s words', async (_label, values, field, message) => {
     renderPage()
     fill(values)
     submit()
-    const control = screen.getByLabelText(new RegExp(`^${field}`))
+    const control = document.getElementById(field)!
     await waitFor(() => expect(document.activeElement).toBe(control))
     expect(control.getAttribute('aria-invalid')).toBe('true')
     expect(errorOf(control)).toBe(message)
@@ -312,7 +328,7 @@ describe('the blue in-person check (hid-system #85, ADR-063)', () => {
     submit()
     await waitFor(() => expect(document.activeElement).toBe(date))
     expect(date.getAttribute('aria-invalid')).toBe('true')
-    expect(errorOf(date)).toBe('Enter the whole date of birth as written on the document, or clear the field if the document shows none.')
+    expect(errorOf(date)).toBe('Type the full date as it is on the ID, or leave it empty if there isn’t one.')
     expect(api.assistedVerification).not.toHaveBeenCalled()
   })
 
@@ -324,7 +340,7 @@ describe('the blue in-person check (hid-system #85, ADR-063)', () => {
     await waitFor(() => expect(document.activeElement).toBe(fourth))
     const statements = screen.getByRole('group', { name: 'Confirm each statement' })
     expect(document.getElementById(statements.getAttribute('aria-describedby')!)?.textContent)
-      .toBe('Confirm all five statements. If any is not true, do not check this patient.')
+      .toBe('Tick all five. If any isn’t true, stop here.')
     expect(api.assistedVerification).not.toHaveBeenCalled()
   })
 
@@ -335,24 +351,24 @@ describe('the blue in-person check (hid-system #85, ADR-063)', () => {
     submit()
     const heading = await screen.findByRole('heading', { level: 2, name: VERIFIED })
     await waitFor(() => expect(document.activeElement).toBe(heading))
-    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('In-person check')
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(PAGE_TITLE)
     expect(screen.getByText(VERIFIED_NEXT)).toBeTruthy()
     // The design's record view: the status, the outcome's facts beside "Available actions".
     expect(document.querySelector('.hid-ehr-dept-context .hid-ehr-badge')?.textContent).toBe('verified')
     const outcome = screen.getByRole('region', { name: VERIFIED })
     expect([...outcome.querySelectorAll('dt')].map(term => `${term.textContent}: ${term.nextElementSibling?.textContent}`)).toEqual([
-      'Method: Original government photo ID, checked in person', 'Document checked: National ID card'])
+      'ID checked: National ID card'])
     const actions = screen.getByRole('region', { name: 'Available actions' })
     expect(within(actions).getAllByRole('button').map(button => button.textContent)).toEqual(['Check another patient'])
     // No live page to go on to here: no "Next steps".
     expect(screen.queryByRole('heading', { name: 'Next steps' })).toBeNull()
-    expect(screen.queryByRole('textbox', { name: 'Desk code' })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: 'Code' })).toBeNull()
     expect(document.body.textContent).not.toMatch(new RegExp(`${FIRST}|${LAST}|${CODE_SENT}|1990-04-02`))
     fireEvent.click(screen.getByRole('button', { name: 'Check another patient' }))
     const form = await screen.findByRole('heading', { name: 'Check a patient' })
     await waitFor(() => expect(document.activeElement).toBe(form))
     expect(deskCode().value).toBe('')
-    expect((screen.getByRole('combobox', { name: 'Document checked' }) as HTMLSelectElement).value).toBe('')
+    expect(documentType().value).toBe('')
     expect((screen.getByRole('checkbox', { name: ATTESTATIONS[0]! }) as HTMLInputElement).checked).toBe(false)
     // The answer ended that submission: the same details typed again are a new check, under a new key.
     fill()
@@ -399,15 +415,17 @@ describe('the blue in-person check (hid-system #85, ADR-063)', () => {
     renderPage()
     fill()
     submit()
-    const heading = await screen.findByRole('heading', { name: 'The details do not match the NIN record' })
+    const heading = await screen.findByRole('heading', { name: MISMATCH })
     await waitFor(() => expect(document.activeElement).toBe(heading))
     const results = screen.getByRole('list', { name: 'Result for each detail' })
     expect(within(results).getAllByRole('listitem').map(item => item.textContent)).toEqual([
       'First name: matches',
-      'Last name: does not match',
-      'Date of birth: not on the NIN record, so not compared',
+      'Last name: doesn’t match',
+      'Date of birth: not on their NIN, so not checked',
     ])
     expect(screen.getByText(MISMATCH_NEXT)).toBeTruthy()
+    // Classic's note says nothing of a daily limit.
+    expect(document.body.textContent).not.toContain('daily limit')
     // The typed details stay for correction.
     expect((screen.getByRole('textbox', { name: 'Last name' }) as HTMLInputElement).value).toBe(LAST)
     fill({ last: `${LAST}-Two` })
@@ -441,7 +459,7 @@ describe('the blue in-person check (hid-system #85, ADR-063)', () => {
     submit()
     const results = await screen.findByRole('list', { name: 'Result for each detail' })
     expect(within(results).getAllByRole('listitem')[2]!.textContent)
-      .toBe('Date of birth: does not match. None was typed; type the date of birth on the document.')
+      .toBe('Date of birth: doesn’t match. None was typed; type the date on the ID.')
   })
 
   it.each([
@@ -457,11 +475,12 @@ describe('the blue in-person check (hid-system #85, ADR-063)', () => {
     api.assistedVerification.mockRejectedValueOnce(failure).mockResolvedValueOnce({ outcome: 'verified' })
     renderPage()
     fill()
-    const button = screen.getByRole('button', { name: 'Check the details' })
+    const button = screen.getByRole('button', { name: CHECK })
     button.focus()
     fireEvent.click(button)
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toBe(guidance)
+    expect(alertText(alert)).toBe(guidance)
+    expect(alert.querySelector('.hid-ehr-dept-notice-title')?.textContent).toBe(ERROR_TITLE)
     // The design's ErrorBox, in the form above its submit.
     expect(alert.closest('form')).not.toBeNull()
     // Focus stays on the button the check was sent from, which now says to check again.
@@ -481,14 +500,14 @@ describe('the blue in-person check (hid-system #85, ADR-063)', () => {
     submit()
     await screen.findByRole('alert')
     fill({ first: 'Demo' })
-    expect(screen.getByRole('button', { name: 'Check the details' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: CHECK })).toBeTruthy()
     submit()
     await screen.findByRole('heading', { name: VERIFIED })
     const [first, second] = sentKeys()
     expect(second).not.toBe(first)
   })
 
-  it('keeps the same key when only a statement is ticked again after a 503, as today', async () => {
+  it('keeps the same key when only a statement is ticked again after a 503, as classic', async () => {
     api.assistedVerification.mockRejectedValueOnce(problem(503, 'ASSISTED_VERIFICATION_UNAVAILABLE', 'Try again.'))
       .mockResolvedValueOnce({ outcome: 'verified' })
     renderPage()
@@ -513,7 +532,7 @@ describe('the blue in-person check (hid-system #85, ADR-063)', () => {
     const box = screen.getByRole('checkbox', { name: ATTESTATIONS[2]! })
     fireEvent.click(box)
     expect(screen.queryByRole('button', { name: 'Check again' })).toBeNull()
-    expect(screen.getByRole('button', { name: 'Check the details' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: CHECK })).toBeTruthy()
     fireEvent.click(box)
     expect(screen.getByRole('button', { name: 'Check again' })).toBeTruthy()
   })
@@ -529,12 +548,12 @@ describe('the blue in-person check (hid-system #85, ADR-063)', () => {
     renderPage()
     fill()
     submit()
-    await screen.findByRole('heading', { name: 'The details do not match the NIN record' })
+    await screen.findByRole('heading', { name: MISMATCH })
     submit()
-    expect((await screen.findByRole('alert')).textContent).toBe('The daily limit of in-person checks has been reached. Try again later.')
-    expect(screen.queryByRole('heading', { name: 'The details do not match the NIN record' })).toBeNull()
+    expect(alertText(await screen.findByRole('alert'))).toBe('The daily limit of in-person checks has been reached. Try again later.')
+    expect(screen.queryByRole('heading', { name: MISMATCH })).toBeNull()
     submit()
-    await waitFor(() => expect(errorOf(deskCode())).toBe('No registration is waiting for this desk code. Ask the patient to show the code on their phone again.'))
+    await waitFor(() => expect(errorOf(deskCode())).toBe(DESK_CODE_NOT_FOUND))
     expect(screen.queryByRole('alert')).toBeNull()
     fill({ code: 'ABCDEFGHJK' })
     submit()
@@ -552,19 +571,19 @@ describe('the blue in-person check (hid-system #85, ADR-063)', () => {
     fill()
     submit()
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toBe('Registration at a facility is not available. Nothing was recorded.')
+    expect(alertText(alert)).toBe('Registration at a facility is not available. Nothing was recorded.')
     // A final answer: nothing suggests checking again, and the next check is a new submission.
-    expect(screen.getByRole('button', { name: 'Check the details' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: CHECK })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Check again' })).toBeNull()
     expect(session.signOut).not.toHaveBeenCalled()
   })
 
-  it('says the route is closed in today’s own words when Identity gives none', async () => {
+  it('says the route is closed in classic’s own words when Identity gives none', async () => {
     api.assistedVerification.mockRejectedValueOnce(problem(503, 'ASSISTED_REGISTRATION_DISABLED', ''))
     renderPage()
     fill()
     submit()
-    expect((await screen.findByRole('alert')).textContent).toBe('Registration at a facility is not available. Nothing was recorded.')
+    expect(alertText(await screen.findByRole('alert'))).toBe('Registration at a facility is not available. Nothing was recorded.')
   })
 
   it('sends a check after the route was closed as a new submission', async () => {
@@ -581,17 +600,19 @@ describe('the blue in-person check (hid-system #85, ADR-063)', () => {
   })
 
   it.each([
+    // Identity gives one answer for four causes (INTERFACE_CONTRACT.md at f9dbaf0): classic sends them to Health ID support.
     ['ASSISTED_REGISTRATION_NOT_AUTHORIZED', 'You cannot register patients in person at this facility.',
-      // Identity gives one answer for four causes (INTERFACE_CONTRACT.md at f9dbaf0): each is named.
-      'You cannot register patients in person at this facility. Ask a platform administrator: the facility must take part, and you need an active account, a sign-in confirmed with your authenticator, an attested clinical grant and an active membership here.'],
+      'You can’t check patients in person here. Ask Health ID support to set you up.'],
     ['PERMISSION_DENIED', 'Required permission is missing',
-      'Your role at this facility cannot check patients in person. Ask a platform administrator.'],
-  ])('explains 403 %s without signing out', async (code, detail, shown) => {
+      'Your role here can’t check patients in person. Ask your administrator.'],
+  ])('explains 403 %s in classic’s words without signing out', async (code, detail, shown) => {
     api.assistedVerification.mockRejectedValueOnce(problem(403, code, detail))
     renderPage()
     fill()
     submit()
-    expect((await screen.findByRole('alert')).textContent).toBe(shown)
+    const alert = await screen.findByRole('alert')
+    expect(alertText(alert)).toBe(shown)
+    expect(alert.textContent).not.toMatch(/permission|platform administrator/i)
     expect(session.signOut).not.toHaveBeenCalled()
   })
 
@@ -601,16 +622,18 @@ describe('the blue in-person check (hid-system #85, ADR-063)', () => {
     renderPage()
     fill({ type: 'international_passport' })
     submit()
-    const heading = await screen.findByRole('heading', { level: 2, name: 'This person already has a Health ID' })
+    const heading = await screen.findByRole('heading', { level: 2, name: REGISTERED })
     await waitFor(() => expect(document.activeElement).toBe(heading))
     // Identity's own words and its reference are never shown (owner's rule, 1 Nov 2026).
     expect(screen.queryByText(detail)).toBeNull()
     expect(document.body.textContent).not.toContain('corr-original')
     expect(screen.getByText(REGISTERED_NEXT)).toBeTruthy()
     expect(document.querySelector('.hid-ehr-dept-context .hid-ehr-badge')?.textContent).toBe('already registered')
-    const outcome = screen.getByRole('region', { name: 'This person already has a Health ID' })
+    const outcome = screen.getByRole('region', { name: REGISTERED })
     expect(within(outcome).getByText('International passport')).toBeTruthy()
-    expect(screen.queryByRole('textbox', { name: 'Desk code' })).toBeNull()
+    // Identity sends no detail for it, so no empty line stands for one: only the next step is said.
+    expect([...outcome.querySelectorAll('p')].map(line => line.textContent)).toEqual([REGISTERED_NEXT])
+    expect(screen.queryByRole('textbox', { name: 'Code' })).toBeNull()
     expect(document.body.textContent).not.toMatch(new RegExp(`HID-|${FIRST}|${LAST}|${CODE_SENT}`))
     fireEvent.click(screen.getByRole('button', { name: 'Check another patient' }))
     await screen.findByRole('heading', { name: 'Check a patient' })
@@ -618,10 +641,8 @@ describe('the blue in-person check (hid-system #85, ADR-063)', () => {
   })
 
   it.each([
-    ['404 DESK_CODE_NOT_FOUND', problem(404, 'DESK_CODE_NOT_FOUND', 'Identity: no assisted registration for code'),
-      'No registration is waiting for this desk code. Ask the patient to show the code on their phone again.'],
-    ['404 DESK_CODE_NOT_FOUND with no detail', problem(404, 'DESK_CODE_NOT_FOUND', ''),
-      'No registration is waiting for this desk code. Ask the patient to show the code on their phone again.'],
+    ['404 DESK_CODE_NOT_FOUND', problem(404, 'DESK_CODE_NOT_FOUND', 'Identity: no assisted registration for code'), DESK_CODE_NOT_FOUND],
+    ['404 DESK_CODE_NOT_FOUND with no detail', problem(404, 'DESK_CODE_NOT_FOUND', ''), DESK_CODE_NOT_FOUND],
     ['400 DESK_CODE_INVALID', problem(400, 'DESK_CODE_INVALID', 'deskCode must match /^[A-Z0-9]{10}$/'), DESK_CODE_ENTRY],
     ['400 DESK_CODE_INVALID with no detail', problem(400, 'DESK_CODE_INVALID', ''), DESK_CODE_ENTRY],
     ['409 ASSISTED_VERIFICATION_STALE', problem(409, 'ASSISTED_VERIFICATION_STALE', 'Stale.'), STALE],
@@ -645,14 +666,14 @@ describe('the blue in-person check (hid-system #85, ADR-063)', () => {
     ['429 ASSISTED_VERIFICATION_LIMITED', problem(429, 'ASSISTED_VERIFICATION_LIMITED', 'Assisted verification rate limit exceeded'),
       'The daily limit of in-person checks has been reached. Try again later.'],
     ['409 IDEMPOTENCY_KEY_REUSED', problem(409, 'IDEMPOTENCY_KEY_REUSED', 'This retry key belongs to a different request'),
-      'This check was already sent with other details. Check the details, then send them again.'],
+      'This was already sent with different details. Check them and try again.'],
     ['a refusal with no detail', problem(409, 'SOMETHING_ELSE', ''), 'The check could not be completed.'],
   ])('reports %s and sends the next check with a new key', async (_label, failure, shown) => {
     api.assistedVerification.mockRejectedValueOnce(failure).mockResolvedValueOnce({ outcome: 'verified' })
     renderPage()
     fill()
     submit()
-    expect((await screen.findByRole('alert')).textContent).toBe(shown)
+    expect(alertText(await screen.findByRole('alert'))).toBe(shown)
     if (failure.message) expect(document.body.textContent).not.toContain(failure.message)
     submit()
     await screen.findByRole('heading', { name: VERIFIED })
@@ -667,7 +688,7 @@ describe('the blue in-person check (hid-system #85, ADR-063)', () => {
     renderPage()
     fill()
     submit()
-    expect((await screen.findByRole('alert')).textContent).toBe(SAID_FIELDS_REFUSED)
+    expect(alertText(await screen.findByRole('alert'))).toBe(SAID_FIELDS_REFUSED)
     expect(document.body.textContent).not.toMatch(/firstName|First name must be|Some details were refused/)
     const first = screen.getByRole('textbox', { name: 'First name' })
     expect(first.getAttribute('aria-invalid')).toBe('true')
@@ -683,7 +704,7 @@ describe('the blue in-person check (hid-system #85, ADR-063)', () => {
     renderPage()
     fill()
     submit()
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Check the details' }).getAttribute('aria-busy')).toBeNull())
+    await waitFor(() => expect(screen.getByRole('button', { name: CHECK }).getAttribute('aria-busy')).toBeNull())
     expect(api.assistedVerification).toHaveBeenCalledOnce()
     expect(screen.queryByRole('alert')).toBeNull()
   })
@@ -738,7 +759,7 @@ describe('the blue in-person check (hid-system #85, ADR-063)', () => {
     renderPage()
     expect(deskCode().value).toBe('')
     expect((screen.getByRole('textbox', { name: 'First name' }) as HTMLInputElement).value).toBe('')
-    expect(screen.getByRole('button', { name: 'Check the details' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: CHECK })).toBeTruthy()
     fill()
     submit()
     await screen.findByRole('heading', { name: VERIFIED })

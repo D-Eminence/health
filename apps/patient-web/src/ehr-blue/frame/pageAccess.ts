@@ -22,7 +22,12 @@ export function pageAllowed(page: EhrBluePage, session: StaffSession | null, vie
   if (!session || !pageShownHere(page, session)) return false
   if (page.status === 'sample') return samplePageOpen(page, designRolesOf(session, viewing))
   const permissions = session.actor.facility?.permissions ?? []
-  return !page.permission || permissions.includes(page.permission)
+  return !page.permission || pagePermissions(page).some(code => permissions.includes(code))
+}
+
+/** The facility permissions any one of which opens a page: its `permission`, then its `orPermissions`. None: no permission of its own. */
+export function pagePermissions(page: Pick<EhrBluePage, 'permission' | 'orPermissions'>): readonly string[] {
+  return page.permission ? [page.permission, ...(page.orPermissions ?? [])] : []
 }
 
 /**

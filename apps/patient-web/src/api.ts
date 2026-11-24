@@ -537,6 +537,13 @@ export interface AccessRequest {
   deniedReason: string | null
   /** The purpose of use (hid-system 0104 D5), when Identity sends it: 'healthcare-operations' is records processing. */
   purpose?: string
+  /**
+   * Who asked (hid-system 0128, identity-api at 4c843270): the requesting staff member's name and their role at the
+   * request's facility (a role code such as `doctor` or `nurse`). Each null when Identity could not read it; both left
+   * out by an Identity before 0128.
+   */
+  requesterName?: string | null
+  requesterRole?: string | null
 }
 
 export interface PatientNotification {

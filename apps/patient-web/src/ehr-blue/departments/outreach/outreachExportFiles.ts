@@ -164,12 +164,13 @@ export async function docxBytes(table: ExportTable, meta: ExportMeta): Promise<U
 
 /**
  * What the PDF's font draws: Noto Sans (SIL Open Font License 1.1, fonts/OFL.txt), cut down to Latin with its extended
- * letters (ọ ẹ ṣ, ɓ ɗ ƙ ƴ), the combining tone marks, general punctuation, ₦ and €. These are the ranges it was cut to
- * (pyftsubset --unicodes, with no layout features or hinting).
+ * letters (ọ ẹ ṣ, ɓ ɗ ƙ ƴ), the combining tone marks, general punctuation, ₦ and €. These are the characters it has: the
+ * ranges it was cut to (pyftsubset --unicodes, with no layout features or hinting), less those the font has no glyph
+ * for (U+2065, and the arrows ← ↑ → ↓), which would print as nothing at all. A test reads the font to keep them so.
  */
 const FONT_RANGES: ReadonlyArray<readonly [number, number]> = [
-  [0x20, 0x7e], [0xa0, 0x2ff], [0x300, 0x36f], [0x1e00, 0x1eff], [0x2000, 0x206f], [0x20a6, 0x20a6], [0x20ac, 0x20ac],
-  [0x2122, 0x2122], [0x2190, 0x2193], [0xfffd, 0xfffd],
+  [0x20, 0x7e], [0xa0, 0x2ff], [0x300, 0x36f], [0x1e00, 0x1eff], [0x2000, 0x2064], [0x2066, 0x206f], [0x20a6, 0x20a6],
+  [0x20ac, 0x20ac], [0x2122, 0x2122], [0xfffd, 0xfffd],
 ]
 
 /**

@@ -145,7 +145,7 @@ describe('the live pages that lead into point of care, at a real facility', () =
     const sent = serve({ [SESSION]: [sessionAt(pharmacy, [pharmacy])], [PHARMACY_WORK]: [() => json({ items: [] }), () => json({ items: [] })] })
     await openStaffApp('/provider/pharmacy/prescriptions/paper')
     await waitFor(() => expect(where()).toBe('/provider/pharmacy/prescriptions'))
-    expect(await screen.findByText('Nothing waiting to dispense')).toBeDefined()
+    expect(await screen.findByText('No accepted prescriptions')).toBeDefined()
     expect(screen.queryByRole('link', { name: 'Paper prescription' })).toBeNull()
     expect(screen.queryByRole('heading', { name: 'Paper prescription' })).toBeNull()
     await act(async () => {})

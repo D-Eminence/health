@@ -1,11 +1,12 @@
 /*
  * The slip for a person registered at an outreach (OutreachSlip.tsx). It is on the page only while it prints, as a
  * child of <body>, and is never shown on screen. In print the rest of the page is display: none, so only the slip
- * prints: black on white, A6 or a narrow slip printer, whatever the screen's theme.
+ * prints: black on white, A6 or a narrow slip printer, whatever the screen's theme. The page has no margin, so the
+ * browser prints no web address, title or date of its own round the slip (print.css); the slip's padding is its margin.
  */
 [data-outreach-slip] { display: none; }
 
-@page outreach-slip { size: A6 portrait; margin: 8mm; }
+@page outreach-slip { size: A6 portrait; margin: 0; }
 
 @media print {
   html:has(> body > [data-outreach-slip]), body:has(> [data-outreach-slip]) {
@@ -17,6 +18,9 @@
     display: block !important;
     position: static !important;
     page: outreach-slip;
+    padding: 8mm !important;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
     background: #fff !important;
     color: #000 !important;
     font: 11pt/1.4 system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif !important;
@@ -25,8 +29,8 @@
 
 .hid-outreach-slip { display: flex; flex-direction: column; gap: 3mm; max-width: 100mm; color: #000; background: #fff; }
 .hid-outreach-slip h1, .hid-outreach-slip h2, .hid-outreach-slip p, .hid-outreach-slip dl, .hid-outreach-slip dd { margin: 0; }
-.hid-outreach-slip-head { border-bottom: 1.5pt solid #000; padding-bottom: 2mm; }
-.hid-outreach-slip-group { font-size: 13pt; font-weight: 700; }
+.hid-outreach-slip > .hid-ehr.hid-outreach-slip-brand { margin: 0; }
+.hid-outreach-slip-head { border-bottom: .5pt solid #666; padding-bottom: 2mm; }
 .hid-outreach-slip-facts { display: grid; grid-template-columns: auto 1fr; column-gap: 4mm; row-gap: 1mm; }
 .hid-outreach-slip-facts dt { font-weight: 600; }
 .hid-outreach-slip-big { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 18pt; font-weight: 700; letter-spacing: .06em; overflow-wrap: anywhere; }

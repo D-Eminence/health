@@ -38,24 +38,37 @@ export const PAGE_GUIDES: Readonly<Record<string, PageGuide>> = {
     tips: [
       'On the patient’s page: Open chart for their consultations, Start a consultation, or Record vitals.',
       'Ask about this patient answers questions from their record, within your access.',
-      'End my access closes the record when you’ve finished.',
+      'Close my grant closes the record when you’ve finished.',
     ],
   },
   registration: {
     purpose: 'Register a new patient at the front desk so they get a Health ID.',
     steps: [
-      'Check that NIN checks are working (Verification availability). Select Check again if not.',
+      'If NIN checks are not working, the page says so. Select Check again, or Try again, to check them again.',
       'Select Create record and follow the steps: the NIN check, then the patient’s details.',
-      'To carry on a registration started earlier, enter its reference and select Load case.',
+      'To carry on a registration started earlier, enter its Registration ID and select Open.',
     ],
     tips: ['When the patient has their Health ID, find them on Patients to open their record.'],
   },
   'in-person-check': {
     purpose: 'Check a patient who is registering on their own phone but can’t receive the code sent to the phone on their NIN record.',
     steps: [
-      'Enter the desk code shown on the patient’s phone (10 letters and digits).',
-      'Choose the original photo ID you checked, and copy the name and date of birth as written on it.',
-      'Select Check the details. Health ID compares them with the NIN record; you never see the record.',
+      'Type the code shown on the patient’s phone (10 letters and numbers).',
+      'Choose which original photo ID you looked at, and type the name and date of birth as they are on it.',
+      'Tick all five statements, then select Check details. Health ID compares them with their NIN; you never see the record.',
+    ],
+  },
+  'waiting-list': {
+    purpose: 'Check patients in as they arrive and see where each one is: waiting, in triage, ready to be seen or being seen.',
+    steps: [
+      'Under Check in a patient, enter the full name and date of birth, or the Health ID with the last name, and select Find patient.',
+      'Select Check in on the right patient’s card. A search result can be used for 10 minutes.',
+      'Move each patient on with the button on their card: Start triage, Ready to be seen, Call in to be seen, Finished.',
+      'Select Change to set the triage level, who will see them, or to take them off the list if they left.',
+    ],
+    tips: [
+      'Level 1 is the most urgent: patients are listed by triage level, then by when they checked in.',
+      'Checking a patient in does not open their chart: open it from Patients as usual. “Chart cannot be opened” means the patient has not allowed this facility to see it.',
     ],
   },
   triage: {
@@ -159,9 +172,11 @@ export const PAGE_GUIDES: Readonly<Record<string, PageGuide>> = {
     purpose: 'Bring a patient’s paper records into Health ID by scanning them.',
     steps: [
       'Open the patient first (Find a patient): their documents can then be captured here.',
-      'Select Create record to read a document, then check what was read before it’s saved.',
+      'The front desk, nurses and clinicians start a reading: select Create record, or Extract with OCR on a document.',
+      'Doctors, nurses and clinicians check what was read before it’s saved. Doctors select Find its reading on a document to open its reading.',
       'To reopen a job, enter its document ID and select Find job.',
     ],
+    tips: ['The front desk sees the documents it uploaded and how their readings are going, not what was read.'],
   },
   outreach: {
     purpose: 'Community outreach: people registered in the field and the campaigns they came from.',

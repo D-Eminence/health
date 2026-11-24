@@ -2,7 +2,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { onFacilityStaffChanged } from '../../../../staff/staffAccess'
-import { administrator, expectGenericToasts, hospital, memberRow, openPage, pending, staff, watchToasts } from './staffFixtures'
+import { administrator, expectGenericToasts, hospital, memberRow, openPage, pageNotice, pending, staff, watchToasts } from './staffFixtures'
 
 /**
  * Staff & access: who may open it (today's Novu-only route, workforce.manage, a self-signed-up facility), how it loads
@@ -182,7 +182,9 @@ describe('before Health ID support’s check', () => {
     fireEvent.change(number, { target: { value: ' rn  4321 ' } })
     fireEvent.click(within(card).getByRole('button', { name: 'Save licence' }))
     await waitFor(() => expect(api.recordAdministratorLicence).toHaveBeenCalledWith('98d00002-0000-4000-8000-000000000001', 'NMCN', 'RN 4321'))
-    await waitFor(() => expect(toasts.success).toHaveBeenCalledWith('Licence saved'))
+    // The classic Staff page's sentence (3.3-73), in the banner, with no toast: what was saved, and who checks it.
+    await waitFor(() => expect(pageNotice()).toBe('Saved: NMCN ending 4321. Health ID support checks it when it reviews Demo Hospital.'))
+    expect(toasts.success).not.toHaveBeenCalled()
     expect(changed).toHaveBeenCalledTimes(1)
     expect(await screen.findByText('Saved: NMCN ending 4321. You can change it until Health ID support’s check.')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Save new licence' })).toBeTruthy()

@@ -323,6 +323,8 @@ describe('New nursing observations', () => {
     expect(await screen.findByText(READ_ONLY)).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Save record' })).toBeNull()
     view.unmount()
+    // The write check is asked once per open patient (chart.tsx): another grant is a patient opened again.
+    staff.activePatient = activePatient()
     api.consentStatus.mockResolvedValue({ patientId: PATIENT_ID, facilityId: FACILITY_ID, purpose: 'direct-care', readAllowed: true, writeAllowed: true })
     staff.permissions = ['ehr.vital.read', 'ehr.note.read']
     open('/new')
@@ -570,6 +572,8 @@ describe('Nursing observation record', () => {
     expect(screen.queryByRole('button', { name: 'More actions' })).toBeNull()
     view.unmount()
     api.noteRevisions.mockImplementation(async () => revisions)
+    // The write check is asked once per open patient (chart.tsx): a read-only grant is a patient opened again.
+    staff.activePatient = activePatient()
     api.consentStatus.mockResolvedValue({ patientId: PATIENT_ID, facilityId: FACILITY_ID, purpose: 'direct-care', readAllowed: true, writeAllowed: false })
     view = open(RECORD)
     expect(await screen.findByText(READ_ONLY)).toBeTruthy()

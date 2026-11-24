@@ -25,7 +25,7 @@ function chartWith(permissions: string[], canWrite = true): Chart {
   return {
     facilityId: FACILITY_ID, facilityName: 'Demo Hospital', patientId: PATIENT_ID, purpose: 'direct-care', canWrite,
     writeNotice: null, can: (...wanted: string[]) => wanted.every(permission => permissions.includes(permission)),
-    verify: vi.fn(async () => undefined), endAccess: vi.fn(), patient: {} as never, facts: { name: 'Ada Example' } as never,
+    verify: vi.fn(async () => undefined), checked: vi.fn(async () => undefined), endAccess: vi.fn(), patient: {} as never, facts: { name: 'Ada Example' } as never,
   }
 }
 

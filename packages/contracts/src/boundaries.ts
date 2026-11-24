@@ -185,8 +185,12 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'enrollment.outreachOrganiserActivate', 'enrollment.outreachInvitationAccept'],
     identity: ['identity.patientLookup', 'identity.authorization', 'identity.consentStatus',
       'identity.facilityAudit',
+      // Staff patient search and emergency search, and opening this facility's own patient (Release A, 0131 and 0132).
+      'identity.patientSearch', 'identity.patientEmergencySearch', 'identity.ownFacilityAccess',
       'identity.registrationCapabilities', 'identity.resolveNin', 'identity.registrationCase',
       'identity.registrationApprove', 'identity.registrationEnroll', 'identity.registrationLink',
+      // hid-system 0130: registration at the desk without a NIN.
+      'identity.registrationWithoutNin',
       'identity.organizationVerifyCac',
       // The in-person check of facility-assisted registration (hid-system #85, ADR-063).
       'identity.assistedVerifications',
@@ -198,6 +202,8 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'identity.facilitySettings', 'identity.facilityOnePersonLab',
       // The facility's details, read and saved by Facility setup's administrator (hid-system 0114; Novu only).
       'identity.facilityProfile',
+      // Who accepted a prescription, by name, on Pharmacy (hid-system SX-9; ORD-4 "Accepted by <name>").
+      'identity.facilityStaffNames',
       // The directory of laboratories and pharmacies at other facilities an order can be sent to (P4c; Novu only).
       'identity.orderDestinations',
       // Patients who shared their record with the clinician, and invitations to share by email, with Accept (hid-system
@@ -212,6 +218,8 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'ehr.importedRecords', 'ehr.importedAttachment', 'ehr.emergencyRecords', 'ehr.encounters', 'ehr.encounter', 'ehr.vitals', 'ehr.vital',
       'ehr.vitalCorrections', 'ehr.notes', 'ehr.note', 'ehr.noteRevisions', 'ehr.diagnoses',
       'ehr.diagnosis', 'ehr.prescriptions', 'ehr.prescription', 'ehr.prescriptionPharmacy',
+      // "Send to pharmacy" for the prescriber (hid-system 0133; Novu only).
+      'ehr.prescriptionOwnPharmacySend',
       'ehr.labRequests', 'ehr.labRequest', 'ehr.labRequestLabWorkItem',
       // Sending an order to another facility, its routes and their withdrawal, and the clinician's attestation (P4c; Novu only).
       'ehr.labRequestOrderRoutes', 'ehr.labRequestOrderRouteWithdraw', 'ehr.prescriptionOrderRoutes',
@@ -222,7 +230,12 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'ehr.patientReportedHealthProfile',
       // Allergies on the chart and the allergy check at prescribing (hid-system 0117; 404 until served, which the chart
       // takes as not offered). Without these the staff client refuses the calls before they are sent.
-      'ehr.allergies', 'ehr.allergyEnteredInError', 'ehr.allergyCheck'],
+      'ehr.allergies', 'ehr.allergyEnteredInError', 'ehr.allergyCheck',
+      // New consultation's one-call save (EHR-C5; 404 before it, when the page saves with the separate routes).
+      'ehr.consultations',
+      // The waiting list: check-in by a search's matchRef, the list, and each row's stage, triage level and who will see
+      // the patient (hid-system 0135, EHR-C7, Release A; a backend before it answers 404).
+      'ehr.visitQueue', 'ehr.visitQueueCheckIn', 'ehr.visitQueueEntry'],
     // Facility billing (docs/BILLING_SPEC.md; proposed routes) and the price catalogue it shows. Not demo requests.
     commercial: ['commercial.pricing', 'commercial.subscription', 'commercial.subscriptionTrial',
       'commercial.subscriptionCheckout', 'commercial.invoices',

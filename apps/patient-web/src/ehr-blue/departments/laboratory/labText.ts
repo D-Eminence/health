@@ -99,3 +99,60 @@ export function stampText(iso: string | null | undefined): string {
   if (Number.isNaN(date.getTime())) return iso ?? ''
   return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date)
 }
+
+/*
+ * The classic Laboratory page's words for each step on a request (staff/routes/Operations.tsx AccessionForm,
+ * SpecimenAction, ExecutionCard, ExecutionPanel, ResultEntry and ResultGovernance), word for word: the blue steps send the
+ * same requests and say the same thing when they are done or refused (parity rows 10, 12, 12a, 3.3-67, 3.3-68). Only the
+ * word classic used for a result not yet verified is said as "not yet verified" (house rule: never that word on screen).
+ */
+
+/** Registering the sample (classic: create a specimen accession). The reason starts empty, as on classic. */
+export const ACCESSION_WORDS = {
+  type: 'Specimen type',
+  reason: 'Reason',
+  missing: 'Enter a specimen type and clinical reason.',
+  button: 'Create accession',
+  failed: 'Accession could not be created.',
+} as const
+
+/** What classic says once an accession is created. */
+export function accessionCreatedText(accessionNumber: string): string {
+  return `Accession ${accessionNumber} created.`
+}
+
+/** A specimen's custody steps (classic SpecimenAction): collect or receive it, or reject it, before or after collection. */
+export const SPECIMEN_WORDS = {
+  collect: 'Mark collected',
+  receive: 'Mark received',
+  reject: 'Reject specimen',
+  notes: 'Notes or condition',
+  rejectReason: 'Rejection reason',
+  rejectMissing: 'Enter a rejection reason.',
+  collected: 'Specimen marked collected.',
+  received: 'Specimen marked received.',
+  rejected: 'Specimen rejected.',
+  failed: 'Specimen could not be updated. Refresh and try again.',
+} as const
+
+/** Starting and finishing a test (classic: an analytical execution). */
+export const EXECUTION_WORDS = {
+  started: 'Analytical execution started.',
+  startFailed: 'Execution could not be started. Refresh the specimen first.',
+  completed: 'Analytical execution was completed.',
+  completeFailed: 'Execution could not be completed. Refresh before retrying.',
+} as const
+
+/** Entering or correcting a result. */
+export const RESULT_WORDS = {
+  entered: 'A result was recorded, not yet verified.',
+  corrected: 'A new result revision was recorded, not yet verified.',
+  failed: 'Result could not be recorded. Refresh before retrying.',
+} as const
+
+/** Verifying or releasing a result (classic ResultGovernance). */
+export const DECISION_WORDS = {
+  failed: 'Decision could not be recorded. Refresh before retrying.',
+  verified: 'This exact result version was verified.',
+  released: 'This exact verified result version was released.',
+} as const

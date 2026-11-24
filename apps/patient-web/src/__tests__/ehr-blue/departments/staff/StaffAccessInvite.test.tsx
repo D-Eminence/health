@@ -134,8 +134,9 @@ describe('inviting', () => {
     expect(input).toEqual({ name: 'Demo Doctor', email: 'demo.doctor@example.test', role: 'doctor', licenceBody: 'MDCN',
       licenceNumber: 'MDCN/777', currentPassword: 'demo password' })
     expect(key).toMatch(/^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$/)
-    await waitFor(() => expect(toasts.success).toHaveBeenCalledWith('Invitation created'))
-    expect(pageNotice()).toBe('')
+    // The classic Staff page's delivery sentence (3.3-73), in the banner, with no toast.
+    await waitFor(() => expect(pageNotice()).toBe('Invitation sent to demo.doctor@example.test.'))
+    expect(toasts.success).not.toHaveBeenCalled()
     await waitFor(() => expect(api.read).toHaveBeenCalledTimes(2))
     // The card closes, as on the target, and focus goes back to the button that opened it.
     expect(screen.queryByRole('heading', { name: 'Invite a staff member' })).toBeNull()
@@ -224,7 +225,7 @@ describe('inviting', () => {
     ['definitive_failure', 'The invitation to demo.doctor@example.test couldn’t be delivered. Check the address: if it’s wrong, revoke '
       + 'this invitation and invite the right one.'],
     ['unknown', 'The invitation was created, but we couldn’t confirm that the email to demo.doctor@example.test was delivered. If it '
-      + 'doesn’t arrive, resend it in a minute.'],
+      + 'doesn’t arrive, send it again in a minute.'],
   ])('says in a caution banner, with no toast, when the email was %s', async (outcome, text) => {
     api.invite.mockResolvedValueOnce({ invitationId: 'i-2', version: 1, expiresAt: null, deliveryOutcome: outcome, replayed: false })
     const card = await openInvite()

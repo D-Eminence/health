@@ -85,7 +85,7 @@ async function uploadOne(label: string, chooseType?: string) {
   const file = new File([PDF_BYTES], 'demo-referral.pdf', { type: 'application/pdf' })
   fireEvent.change(within(card()).getByLabelText(labelled(label)), { target: { files: [file] } })
   await act(async () => { fireEvent.click(within(card()).getByRole('button', { name: 'Upload document' })) })
-  expect(await within(card()).findByText('Uploaded. It can be opened once the virus check is done.')).toBeTruthy()
+  expect(await within(card()).findByText('Document uploaded. It can be opened once its virus scan is clean.')).toBeTruthy()
   return file
 }
 

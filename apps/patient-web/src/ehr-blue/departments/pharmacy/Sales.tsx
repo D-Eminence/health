@@ -13,6 +13,7 @@ import { TakePayment } from '../commerce/TakePayment'
 import { useCommerceRead } from '../commerce/useCommerceRead'
 import { useDeptAccess } from '../parts/access'
 import { canGiveHealthId, GiveHealthId } from './saleAfter'
+import { printReceipt } from '../../../print/printPaper'
 
 const LIST = '/provider/pharmacy/sales'
 type When = 'today' | 'all'
@@ -177,7 +178,7 @@ function SaleRecord({ billId }: { readonly billId: string }) {
     {canGiveHealthId(bill, permissions) ? <GiveHealthId idBase="sale-hid" facilityId={facilityId} bill={bill} onAttached={read.replace} /> : null}
     <FormActions>
       {canRefund ? <Button variant="danger" icon={RotateCcw} onClick={() => setRefunding(true)}>Refund</Button> : null}
-      <Button variant={canPay ? 'secondary' : 'primary'} size={canPay ? 'md' : 'lg'} icon={Printer} onClick={() => window.print()}>Print receipt</Button>
+      <Button variant={canPay ? 'secondary' : 'primary'} size={canPay ? 'md' : 'lg'} icon={Printer} onClick={event => printReceipt(event.currentTarget)}>Print receipt</Button>
       {canPay ? <Button variant="primary" size="lg" icon={Wallet} onClick={() => setPaying(true)}>Take payment <span className="tabular">{naira(bill.dueKobo)}</span></Button> : null}
     </FormActions>
     <TakePayment open={paying} bill={bill} onPaid={read.replace} onClose={() => setPaying(false)} />

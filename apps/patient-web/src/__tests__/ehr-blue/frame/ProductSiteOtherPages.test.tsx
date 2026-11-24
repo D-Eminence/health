@@ -157,38 +157,48 @@ const SITES: readonly (readonly [string, string, string, string])[] = [
 /** The EHR's own pages, each with its permission: a role holding them still works on a product site as that product. */
 const EHR_PAGES = ['identity.registration.write', 'ehr.encounter.read']
 
+/** Home, the Overview, with classic's greeting (staff/routes/Dashboard.tsx). */
+const HOME = { where: '/provider', heading: 'Good to see you, Demo.' }
+
 describe('a product site opens only its own pages and those every product keeps', () => {
-  it.each(SITES)('%s: Patient registration, typed, opens the product’s Home and asks nothing', async (site, own, home, heading) => {
-    expect(await settle(site, [own, ...EHR_PAGES], '/provider/registration')).toEqual({ where: home, heading })
+  // A page the product does not open goes to /provider, which stays Home (the Overview), as classic's Shell sent such a
+  // page to its Overview on every site (staff/App.tsx; parity report 3.3-53). Only the address the browser opened
+  // lands on the product's own page.
+  it.each(SITES)('%s: Patient registration, typed, opens Home and asks nothing', async (site, own) => {
+    expect(await settle(site, [own, ...EHR_PAGES], '/provider/registration')).toEqual(HOME)
     expect(registrationAsked()).toBe(false)
   })
 
-  it.each(SITES)('%s: Patient registration, as a sign-in’s return address, opens the product’s Home and asks nothing', async (site, own, home, heading) => {
+  it.each(SITES)('%s: Patient registration, as a sign-in’s return address, opens Home and asks nothing', async (site, own) => {
     expect(await settle(site, [own, ...EHR_PAGES], `/provider/sign-in?returnTo=${encodeURIComponent('/provider/registration')}`))
-      .toEqual({ where: home, heading })
+      .toEqual(HOME)
     expect(registrationAsked()).toBe(false)
   })
 
-  it.each(SITES)('%s: Consultation, typed, opens the product’s Home without mounting', async (site, own, home, heading) => {
-    expect(await settle(site, [own, ...EHR_PAGES], '/provider/clinical')).toEqual({ where: home, heading })
+  it.each(SITES)('%s: Consultation, typed, opens Home without mounting', async (site, own) => {
+    expect(await settle(site, [own, ...EHR_PAGES], '/provider/clinical')).toEqual(HOME)
     expect(mounted).toEqual([])
   })
 
-  it('a sign-in returning to Consultation on lab. opens the lab’s Home', async () => {
+  it.each(SITES)('%s: /provider opened by the browser still lands on the product’s own page', async (site, own, home, heading) => {
+    expect(await settle(site, [own], '/provider')).toEqual({ where: home, heading })
+  })
+
+  it('a sign-in returning to Consultation on lab. opens Home', async () => {
     expect(await settle('lab.healthidentitydirectory.com', ['lab.work-item.read', ...EHR_PAGES], `/provider/sign-in?returnTo=${encodeURIComponent('/provider/clinical')}`))
-      .toEqual({ where: '/provider/laboratory/work', heading: 'Work list (stand-in)' })
+      .toEqual(HOME)
     expect(mounted).toEqual([])
   })
 
-  it('a sample page (Appointments, open to a doctor) opens the product’s Home', async () => {
+  it('a sample page (Appointments, open to a doctor) opens Home', async () => {
     staff.roles = ['doctor']
     expect(await settle('pharmacy.healthidentitydirectory.com', ['pharmacy.work-item.read'], '/provider/appointments'))
-      .toEqual({ where: '/provider/pharmacy/prescriptions', heading: 'Prescriptions (stand-in)' })
+      .toEqual(HOME)
   })
 
   it('the page turned away replaces its place in history: Back returns to the page before it', async () => {
     expect(await settle('lab.healthidentitydirectory.com', ['lab.work-item.read', 'audit.read', ...EHR_PAGES], '/provider/registration', ['/provider/audit']))
-      .toEqual({ where: '/provider/laboratory/work', heading: 'Work list (stand-in)' })
+      .toEqual(HOME)
     fireEvent.click(screen.getByRole('button', { name: 'Back (test)' }))
     await vi.waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/provider/audit'))
     expect(await landed()).toEqual({ where: '/provider/audit', heading: 'Audit (stand-in)' })
