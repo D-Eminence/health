@@ -63,6 +63,23 @@ describe('c4b5445 route registry', () => {
     }
   })
 
+  it('registers "Verify NIN later" (hid-system 0138, ID-6) for staff only, with the NIN in the body and never the path', () => {
+    const path = '/api/v1/identity/patients/:patientId/nin'
+    expect(findEndpoint('identity.linkPatientNin')).toMatchObject({ service: 'identity', path, methods: ['POST'],
+      auth: { kind: 'authenticated' }, permissions: { POST: ['identity.registration.write'] }, status: 'surface-verified' })
+    expect(path).not.toMatch(/:nin\b/)
+    const note = findEndpoint('identity.linkPatientNin')?.note ?? ''
+    for (const term of ['Idempotency-Key', 'healthcare-operations', '{ nin, purpose: healthcare-operations }', 'NIN_VERIFICATION_FAILED',
+      'UPSTREAM_UNAVAILABLE', 'nin.available']) expect(note).toContain(term)
+    const sent = '/api/v1/identity/patients/a0000000-0000-4000-8000-0000000000f1/nin'
+    expect(assertRegisteredBrowserRequest('POST', sent).name).toBe('identity.linkPatientNin')
+    expect(() => assertRegisteredBrowserRequest('GET', sent)).toThrow(BrowserRouteError)
+    expect(() => assertEndpointAllowed('staff-web', 'identity.linkPatientNin')).not.toThrow()
+    for (const app of ['patient-web', 'admin-web', 'public-web'] as const) {
+      expect(() => assertEndpointAllowed(app, 'identity.linkPatientNin'), app).toThrow(BoundaryViolationError)
+    }
+  })
+
   it('records distinct RBAC permissions per EHR method', () => {
     const encounters = findEndpoint('ehr.encounters')
     expect(encounters?.permissions?.GET).toEqual(['ehr.encounter.read'])

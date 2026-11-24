@@ -427,12 +427,16 @@ describe('a registration without a NIN, as an approver reads it', () => {
     expect(screen.queryByText('No possible existing patients reported.')).toBeNull()
   })
 
-  it('registered without a NIN: offers no patient account, and says when one can be set up', async () => {
+  it('registered without a NIN: offers no patient account, and says one cannot be set up from it', async () => {
     api.registrationCase.mockResolvedValue({ caseId: CASE, status: 'approved_new_identity', version: 1, candidateCount: 0,
       identityEvidence: 'none', ninStatus: 'not_verified', patient: { patientId: PATIENT, hid: 'HID-ZDEMAAB2' } })
     await findCase()
     expect(within(actions()).queryByRole('button', { name: 'Create their account' })).toBeNull()
-    expect(within(actions()).getByText(NEEDS_NIN)).toBeTruthy()
+    // 0032 sets up an account only for the NIN checked on the registration itself, so a NIN added later (ID-6) is not
+    // promised to open one.
+    expect(within(actions()).getByText('A patient account can’t be set up from a registration made without a NIN, '
+      + 'even after a NIN is added.')).toBeTruthy()
+    expect(within(actions()).queryByText(NEEDS_NIN)).toBeNull()
     expect(within(actions()).queryByText('Nothing else to do here.')).toBeNull()
     expect(api.enrollRegistration).not.toHaveBeenCalled()
   })
