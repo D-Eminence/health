@@ -54,11 +54,10 @@ describe(SITE, () => {
     expect(opened).not.toHaveBeenCalled()
   })
 
-  it.each(['/provider/registration', '/provider/clinical'])('opens Home in place of the Hospital EHR’s %s, signed in, on this site', async path => {
+  // As before website release C (owner's decision of 24 November 2026): the product's own page, not Home.
+  it.each(['/provider/registration', '/provider/clinical'])('opens the Pharmacy’s Home in place of the Hospital EHR’s %s, signed in, on this site', async path => {
     await openPortalSignedInOn(SITE, path, { id: PHARMACY_DEMO, name: 'Demo Pharmacy' }, EVERY_PERMISSION)
-    await waitFor(() => expect(address()).toBe('/provider'))
-    // Classic's Shell sent such a page to its Overview (staff/App.tsx); blue's Home is that Overview (parity report 3.3-53).
-    expect(await screen.findByRole('heading', { level: 1, name: /^Good to see you, / })).toBeTruthy()
+    await waitFor(() => expect(address()).toMatch(/^\/provider\/pharmacy(\/|$)/))
     expect(screen.queryByText(/Opening it there/)).toBeNull()
     expect(opened).not.toHaveBeenCalled()
   })

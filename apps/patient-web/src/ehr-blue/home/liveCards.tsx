@@ -20,6 +20,7 @@ import { loginOpensSite, siteOf, siteServing, SITE_PRODUCT_NAMES } from '../../p
 import { Badge, Button, Card, CardHeader, ListRow } from '../../kasuwa/ui'
 import { ChevronRight, Hospital, LayoutGrid, ScanText } from 'lucide-react'
 import { withdrawnReasonOf } from '../departments/pharmacy/pharmacyText'
+import { OCR_JOB_READ, OCR_JOB_READ_OWN } from '../../scanAccess'
 
 /**
  * Home's live cards. Each reads what today's Overview or work pages read, under the same permissions, with the same
@@ -311,16 +312,18 @@ export function ActiveFacilityCard({ facility }: { readonly facility: Facility }
 
 /**
  * The classic Overview's workspaces, each under the permission it lists by (Dashboard.tsx `modules`, copied: that list
- * is not exported). Only the permission decides, as there; which of them open on this site is the caller's.
+ * is not exported), or any of `orPermissions`. Only these decide, as there; which of them open on this site is the
+ * caller's. Document OCR also lists for the front desk's own readings (ocr.job.read-own, hid-system 0136), as Scan paper
+ * records opens to them (departments/migrate/page.tsx; owner's decision of 24 November 2026, "Migrate works as before").
  */
-export const WORKSPACES = [
+export const WORKSPACES: readonly { title: string; to: string; permission: string; orPermissions?: readonly string[]; detail: string }[] = [
   { title: 'Patient access', to: '/provider/patients', permission: 'identity.patient.read', detail: 'Look up a Health ID after consent, patient PIN, or emergency authorization.' },
   { title: 'Clinical record', to: '/provider/clinical', permission: 'ehr.encounter.read', detail: 'Document encounters, observations, diagnoses, prescriptions, and lab requests.' },
   { title: 'Laboratory', to: '/provider/laboratory', permission: 'lab.work-item.read', detail: 'Review accepted test work and create specimen accessions.' },
   { title: 'Pharmacy', to: '/provider/pharmacy', permission: 'pharmacy.work-item.read', detail: 'Review accepted prescriptions and confirm dispensing.' },
-  { title: 'Document OCR', to: '/provider/ocr', permission: 'ocr.job.read', detail: 'Follow extraction jobs for governed clinical documents.' },
+  { title: 'Document OCR', to: '/provider/ocr', permission: OCR_JOB_READ, orPermissions: [OCR_JOB_READ_OWN], detail: 'Follow extraction jobs for governed clinical documents.' },
   { title: 'Outreach', to: '/provider/outreach', permission: 'outreach.registration.read', detail: 'Review facility campaign registration work.' },
-] as const
+]
 
 /**
  * "Workspaces": the classic Overview's grid of the workspaces this role holds that open on this site (`opens`), with
@@ -333,7 +336,7 @@ export function WorkspacesCard({ permissions, products, opens }: {
   readonly products: unknown
   readonly opens: (path: string) => boolean
 }) {
-  const held = WORKSPACES.filter(workspace => permissions.includes(workspace.permission))
+  const held = WORKSPACES.filter(workspace => [workspace.permission, ...(workspace.orPermissions ?? [])].some(code => permissions.includes(code)))
   const here = held.filter(workspace => opens(workspace.to.replace(/^\/provider\/?/, '')))
   const hostname = window.location.hostname
   const elsewhere = held.some(workspace => {
@@ -360,8 +363,8 @@ export function WorkspacesCard({ permissions, products, opens }: {
 }
 
 /**
- * "Health ID Migrate": the classic Overview's card for a role that reads document jobs (ocr.job.read), where this site
- * opens Document OCR. No role holds it at launch (hid-system 0091), so it shows nowhere yet.
+ * "Health ID Migrate": the classic Overview's card for a role that follows document readings (ocr.job.read, or the front
+ * desk's ocr.job.read-own since hid-system 0136: scanAccess followsReadings), where this site opens Scan paper records.
  */
 export function MigrateCard() {
   return <Card aria-labelledby="hid-ehr-blue-migrate">

@@ -3,8 +3,10 @@ import { isHidApiError, plainErrorText } from '@hid/http'
 import { getEnvironment } from '../../../staff/env'
 import type { StaffSession } from '../../../staff/api'
 import { loadTurnstileScript, turnstileSize } from '../../../Turnstile'
-import { resolveStaffProductHostname, STAFF_JOIN_PATH, staffLoginAction } from '../../../productHostname'
+import { resolveStaffProductHostname, STAFF_JOIN_PATH, STAFF_PRODUCT_ROUTES, staffLoginAction } from '../../../productHostname'
 import { staffLandingPath } from '../../../staff/navigation'
+import { facilityChoiceNeeded } from '../../../staff/facilitySelection'
+import { scanAccess } from '../../../scanAccess'
 import { staffReturnPath } from '../../../staff/session'
 import { STAFF_MFA_FACTOR_UNPROVEN, STAFF_MFA_UNAVAILABLE } from '../../../staff/routes/StaffMfaSteps'
 import { usesNovuBackend } from '../../../backendContract'
@@ -44,7 +46,20 @@ export function getStaffLandingPath(search: string, session: StaffSession): stri
   const product = resolveStaffProductHostname(window.location.hostname)?.route
   const returnTo = staffReturnPath(new URLSearchParams(search).get('returnTo'))
   if (returnTo && returnTo !== product) return returnTo
-  return product ? staffLandingPath(product, session) : '/provider'
+  return product ? blueLandingPath(product, session) : '/provider'
+}
+
+/**
+ * The product host's own page a blue sign-in lands on: classic's rule (staff/navigation.ts staffLandingPath), except
+ * Scan paper records (/provider/ocr), which opens to everyone who follows readings, the front desk included
+ * (ocr.job.read-own since hid-system 0136), as the page itself does (departments/migrate/page.tsx). Classic's sidebar
+ * list (PROVIDER_NAVIGATION) keeps its own rule. Owner's decision (24 November 2026, "Migrate works as before"): the
+ * front desk signing in on Health ID Migrate lands on Scan paper records, not on Home.
+ */
+function blueLandingPath(wanted: string, session: StaffSession): string {
+  const facility = session.actor.facility
+  if (wanted !== STAFF_PRODUCT_ROUTES.migrate || !facility || facilityChoiceNeeded(session)) return staffLandingPath(wanted, session)
+  return scanAccess(facility.permissions).followsReadings ? wanted : '/provider'
 }
 
 const CHALLENGE_UNAVAILABLE = 'Human verification could not load. Refresh the page and try again.'

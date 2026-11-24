@@ -85,12 +85,13 @@ export function inProduct(product: Product, path: string): boolean {
 /**
  * Whether this product's workspace offers a page: the frame lists only these (each still under its own permission), and
  * What's left shows only these, so a lab's, pharmacy's, outreach team's or migration site never offers the hospital's
- * pages (Patient registration is the EHR's alone). Home is listed on every site, as the classic portal listed its
- * Overview on every site (staff/navigation.ts; parity report 3.3-53). A sign-in on a product's site still lands on the
- * product's own first page (BlueFrame.tsx), as the classic sign-in landed there (staff/navigation.ts staffLandingPath).
+ * pages (Patient registration is the EHR's alone). A single product has no Home: its first page is its own. (The frame
+ * lists Home there only to a session that cannot use that page, as /provider stays on Home for it: BlueFrame.tsx.)
+ * Owner's decision (24 November 2026, "Migrate works as before"): this is how the product sites worked before website
+ * release C, and it beats parity report 3.3-53's Home on every site there.
  */
 export function productLists(product: Product, path: string): boolean {
-  return path === '' || inProduct(product, path)
+  return inProduct(product, path) && (product === 'ehr' || path !== '')
 }
 
 /**

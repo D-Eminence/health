@@ -23,6 +23,7 @@ import { Alert, Badge, Button, Card, CardHeader, EmptyState, IconChip, ListRow, 
 import { Drawer } from '../../kasuwa/interactive'
 import { LoadingRows } from '../../kasuwa/parts'
 import { RoleDashboard } from './RoleDashboard'
+import { scanAccess } from '../../scanAccess'
 import { fromHere } from '../clinical/parts/cameFrom'
 import { HomeBillingCard, HomePeopleCard } from './adminCards'
 
@@ -244,7 +245,8 @@ export function BlueHome() {
         {/* Classic's Workspaces grid and its notes, then its Health ID Migrate card (Dashboard.tsx; parity report 3.3-56,
             3.3-57). */}
         <WorkspacesCard permissions={permissions} products={session.actor.products} opens={opens} />
-        {permissions.includes('ocr.job.read') && opens('ocr') ? <MigrateCard /> : null}
+        {/* For everyone who follows readings, the front desk's own (ocr.job.read-own) included, as Scan paper records opens. */}
+        {scanAccess(permissions).followsReadings && opens('ocr') ? <MigrateCard /> : null}
       </div>
 
       <div className="flex flex-col gap-6">

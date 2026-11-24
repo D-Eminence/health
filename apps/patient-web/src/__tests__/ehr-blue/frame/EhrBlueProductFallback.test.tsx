@@ -133,21 +133,26 @@ describe('a product site whose own page this session may open', () => {
     expect(screen.queryByRole('heading', { level: 1, name: homeHeading() })).toBeNull()
   })
 
-  it('keeps its first tab on the product\'s own page, under the product\'s name, and lists Home too, as classic listed its Overview', async () => {
+  // As before website release C (owner's decision of 24 November 2026, over parity report 3.3-53): a product site whose
+  // own page this session can use lists no Home; its first item is its own page.
+  it('keeps its first tab on the product\'s own page, under the product\'s name, and lists no Home', async () => {
     await openOn('lab.healthidentitydirectory.com', ['lab.work-item.read'], { [LAB_WORK]: many(() => json({ items: [] })) })
     await waitFor(() => expect(where()).toBe('/provider/laboratory/work'))
-    // Parity report 3.3-53: Home is in every site's menu, and opens Home, not the product's page.
-    expect(menuLink('Home')?.getAttribute('href')).toBe('/provider')
+    expect(menuLink('Home')).toBeNull()
     expect(firstTab().getAttribute('href')).toBe('/provider/laboratory')
     expect(firstTab().textContent).toBe('Lab')
   })
 
-  it('opens Home from the menu and stays there, as classic\'s Overview did on a product site', async () => {
-    await openOn('lab.healthidentitydirectory.com', ['lab.work-item.read'], { [LAB_WORK]: many(() => json({ items: [] })) })
-    await waitFor(() => expect(where()).toBe('/provider/laboratory/work'))
-    fireEvent.click(menuLink('Home')!)
-    expect(await screen.findByRole('heading', { level: 1, name: homeHeading() })).toBeDefined()
+  it.each([
+    ['lab.healthidentitydirectory.com', ['lab.work-item.read'], 'Lab', '/provider/laboratory/work', { [LAB_WORK]: many(() => json({ items: [] })) }],
+    ['migrate.healthidentitydirectory.com', ['ocr.job.read'], 'Migrate', '/provider/ocr', {}],
+  ] as const)('on %s, the brand leads back to the product\'s own page, not to Home', async (host, permissions, name, page, routes) => {
+    await openOn(host, permissions, routes)
+    await waitFor(() => expect(where()).toBe(page))
+    fireEvent.click(screen.getAllByRole('link', { name: `Health ID ${name} home` })[0]!)
+    await waitFor(() => expect(where()).toBe(page))
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)) })
-    expect(where()).toBe('/provider')
+    expect(where()).toBe(page)
+    expect(screen.queryByRole('heading', { level: 1, name: homeHeading() })).toBeNull()
   })
 })

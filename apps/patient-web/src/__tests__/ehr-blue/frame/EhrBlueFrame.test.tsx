@@ -217,9 +217,9 @@ describe('the blue frame', () => {
     expect(document.querySelector('.hid-ehr-blue-page')!.textContent).not.toMatch(/what|not-a-page/i)
   })
 
-  // A lab on its own lists Home too, as classic listed its Overview on every site: the way back is the overview, as
-  // classic's catch-all said it (parity report 21, 3.3-53).
-  it('says Page not found in a single product\'s workspace, with classic\'s one way back to the overview', async () => {
+  // The way back is classic's catch-all's (parity report 21): the overview, /provider, which on a lab's own site opens
+  // the lab's own page, as before website release C (owner's decision of 24 November 2026).
+  it('says Page not found in a single product\'s workspace, with classic\'s one way back, which opens its own first page', async () => {
     const lab = facility(DEMO_LABORATORY, 'Demo Laboratory', ['lab.work-item.read'])
     serve({ [SESSION]: [sessionAt(lab, [lab])], [LAB_WORK]: [() => json({ items: [] })] })
     await openStaffApp('/provider/not-a-page')
@@ -231,8 +231,8 @@ describe('the blue frame', () => {
     expect(within(page).getAllByRole('link')).toEqual([back])
     expect(back.getAttribute('href')).toBe('/provider')
     fireEvent.click(back)
-    await waitFor(() => expect(where()).toBe('/provider'))
-    expect(await screen.findByRole('heading', { level: 1, name: homeHeading() })).toBeDefined()
+    await waitFor(() => expect(where()).toMatch(/^\/provider\/laboratory(\/|$)/))
+    expect(screen.queryByRole('heading', { level: 1, name: homeHeading() })).toBeNull()
   })
 
   it('says Page not found at a facility that is not a demo one, with the same way Home', async () => {
@@ -278,10 +278,10 @@ describe('the blue frame', () => {
     expect(where()).toBe('/provider/whats-left')
     expect(screen.queryByRole('heading', { level: 1, name: 'Switch facility' })).toBeNull()
     switchFacilityTo('Demo Hospital', 'Demo Laboratory')
-    // After a switch the overview opens, as classic's did (navigate('/provider')): Home, even where the product's
-    // own page is its sign-in landing.
-    await waitFor(() => expect(where()).toBe('/provider'))
-    expect(await screen.findByRole('heading', { level: 1, name: homeHeading() })).toBeDefined()
+    // Demo Laboratory holds only the laboratory's permission: it is the Lab product, whose home is its queue, as before
+    // website release C (owner's decision of 24 November 2026).
+    await waitFor(() => expect(where()).toMatch(/^\/provider\/laboratory(\/|$)/))
+    expect(screen.queryByRole('heading', { level: 1, name: homeHeading() })).toBeNull()
     expect(sent.filter(call => call.route === FACILITY).map(call => call.body)).toEqual([{ facilityId: DEMO_LABORATORY }, { facilityId: DEMO_LABORATORY }])
   })
 
