@@ -51,12 +51,12 @@ export function priorityText(value: unknown): string {
 
 /**
  * Classic's detail line under an order in the encounter's list (staff/routes/Clinical.tsx recordDetail :427-428): a
- * prescription's frequency, a lab request's priority (in words). Classic also shows a lab request's test code (LOINC,
- * for example); the row leaves it out, as the house rule keeps codes off facility screens (commit 1122e8a2): the test
- * is named in the row's title. The status is the row's badge.
+ * prescription's frequency, a lab request's test code and priority (in words), "TC-0001 · Routine". The test code is
+ * the clinical code classic shows; the house rule that keeps codes off facility screens is about permission, error,
+ * media and scan codes, not a test's code. The status is the row's badge.
  */
 export function orderDetail(kind: OrderKind, record: ClinicalRecord): string {
-  const parts = kind === 'pharmacy' ? [text(record.frequency)] : [priorityText(record.priority)]
+  const parts = kind === 'pharmacy' ? [text(record.frequency)] : [text(record.testCode), priorityText(record.priority)]
   return parts.map(part => part.trim()).filter(Boolean).join(' · ')
 }
 

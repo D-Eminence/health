@@ -187,7 +187,7 @@ describe('rows 3 and 3b: the Vitals card on the consultation page', () => {
 
   it('offers no correction without vitals write, under a read-only grant, or for vitals entered in error', async () => {
     await openVisit()
-    await card('Vitals').findByText('120/80')
+    await card('Vitals').findByText(/^BP 120\/80 mmHg/)
     expect(card('Vitals').queryByRole('button', { name: 'Correct these vitals' })).toBeNull()
     cleanup()
     staff.permissions = ['ehr.encounter.read', 'ehr.vital.read', 'ehr.vital.write']
@@ -223,25 +223,40 @@ function stubObserver() {
 const EVERY_LIST = ['ehr.encounter.read', 'ehr.vital.read', 'ehr.note.read', 'ehr.diagnosis.read', 'ehr.prescription.read', 'ehr.lab-request.read', 'ehr.document.read']
 
 describe('row 25: a visit reads each record list only once its card is in view', () => {
-  it('reads the lab requests and documents when their card comes into view, not when the visit opens', async () => {
-    const watched = stubObserver()
-    staff.permissions = EVERY_LIST
-    await openVisit()
-    await card('Vitals').findByText('120/80')
-    await act(async () => {})
-    // The top of the page is read at once, the prescriptions "Print prescription" prints with it; the lab requests and
-    // documents are not.
-    expect(readsOf('vitals')).toHaveLength(1)
-    expect(readsOf('clinical-notes')).toHaveLength(1)
-    expect(readsOf('diagnoses')).toHaveLength(1)
-    expect(readsOf('prescriptions')).toHaveLength(1)
-    expect(readsOf('lab-requests')).toHaveLength(0)
-    expect(api.documents).not.toHaveBeenCalled()
-    const seen = (title: string) => {
+  /** Says the observed part of the page holding the card with this title came into view. */
+  function seenWith(watched: ReturnType<typeof stubObserver>) {
+    return (title: string) => {
       const section = screen.getByRole('heading', { level: 2, name: title }).closest('section')!
       const entry = watched.find(item => item.element.contains(section))!
       act(() => entry.callback([{ isIntersecting: true, target: entry.element } as IntersectionObserverEntry], entry.observer))
     }
+  }
+
+  it('reads only the notes as the visit opens, as classic reads its first tab; every other list once its part of the page is in view', async () => {
+    const watched = stubObserver()
+    const seen = seenWith(watched)
+    staff.permissions = EVERY_LIST
+    await openVisit()
+    await waitFor(() => expect(readsOf('clinical-notes')).toHaveLength(1))
+    await act(async () => {})
+    // Classic reads only the open tab's list (Clinical.tsx:1316, :1350-1371), its first tab being Notes.
+    expect(readsOf('vitals')).toHaveLength(0)
+    expect(readsOf('diagnoses')).toHaveLength(0)
+    expect(readsOf('prescriptions')).toHaveLength(0)
+    expect(readsOf('lab-requests')).toHaveLength(0)
+    expect(api.documents).not.toHaveBeenCalled()
+    // The Vitals card in view reads the vitals.
+    seen('Vitals')
+    await waitFor(() => expect(readsOf('vitals')).toHaveLength(1))
+    expect(await card('Vitals').findByText(/^BP 120\/80 mmHg/)).toBeTruthy()
+    // The Diagnoses card in view reads the diagnoses only.
+    seen('Diagnoses')
+    await waitFor(() => expect(readsOf('diagnoses')).toHaveLength(1))
+    expect(readsOf('prescriptions')).toHaveLength(0)
+    // The Note and Actions cards in view read the prescriptions "Print prescription" prints.
+    seen('Actions')
+    await waitFor(() => expect(readsOf('prescriptions')).toHaveLength(1))
+    expect(readsOf('diagnoses')).toHaveLength(1)
     seen('Documents')
     await waitFor(() => expect(api.documents).toHaveBeenCalledTimes(1))
     expect(readsOf('lab-requests')).toHaveLength(0)
@@ -250,8 +265,24 @@ describe('row 25: a visit reads each record list only once its card is in view',
     expect(readsOf('prescriptions')).toHaveLength(1)
   })
 
-  it('offers both print actions before the Orders card is in view: the prescription at once, the discharge summary in one press', async () => {
-    stubObserver()
+  it('reads the consultation note’s revisions only once the Note card is in view', async () => {
+    const watched = stubObserver()
+    const seen = seenWith(watched)
+    staff.permissions = EVERY_LIST
+    const note = { id: 'note-1', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T08:10:00.000Z', status: 'draft', noteType: 'Consultation', title: 'Consultation note', rowVersion: 1 }
+    api.records.mockImplementation(async (_f: string, _p: string, _e: string, kind: string) => ({ items: kind === 'clinical-notes' ? [note] : [], nextCursor: null }))
+    api.noteRevisions.mockResolvedValue([{ id: 'rev-1', revisionNo: 1, content: 'Cough for three days (fictional).', changeReason: 'Initial draft', createdAt: '2026-10-30T08:10:00.000Z' }])
+    await openVisit()
+    await waitFor(() => expect(readsOf('clinical-notes')).toHaveLength(1))
+    await act(async () => {})
+    expect(api.noteRevisions).not.toHaveBeenCalled()
+    seen('Note')
+    await waitFor(() => expect(api.noteRevisions).toHaveBeenCalledTimes(1))
+    expect((await screen.findAllByText('Cough for three days (fictional).')).length).toBeGreaterThan(0)
+    expect(readsOf('diagnoses')).toHaveLength(1)
+  })
+
+  it('offers both print actions before the Orders card is in view: the prescription with the Actions card, the discharge summary in one press', async () => {
     staff.permissions = EVERY_LIST
     const rx = { id: 'rx-1', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T08:40:00.000Z', status: 'active', medicationDisplay: 'Paracetamol', frequency: 'Daily' }
     const lab = { id: 'lab-1', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T08:45:00.000Z', status: 'active', testDisplay: 'Malaria smear' }
@@ -266,9 +297,13 @@ describe('row 25: a visit reads each record list only once its card is in view',
       papers.push(`${paper?.getAttribute('data-clinical-print')}: ${paper?.textContent ?? ''}`)
     })
     try {
+      const watched = stubObserver()
       await openVisit()
       const actions = card('Actions')
-      // "Print prescription" is there as the visit opens, with no scrolling.
+      // "Print prescription" is there once the Actions card is in view, with no scrolling to Orders.
+      const section = screen.getByRole('heading', { level: 2, name: 'Actions' }).closest('section')!
+      const entry = watched.find(item => item.element.contains(section))!
+      act(() => entry.callback([{ isIntersecting: true, target: entry.element } as IntersectionObserverEntry], entry.observer))
       fireEvent.click(await actions.findByRole('button', { name: 'Print prescription' }))
       expect(printSpy).toHaveBeenCalledTimes(1)
       expect(papers[0]).toMatch(/^prescription: .*Paracetamol/)
@@ -382,7 +417,7 @@ describe('row 3.3-39: adding a diagnosis', () => {
     const save = await diagnoses.findByRole('button', { name: 'Save record' })
     expect(diagnoses.queryByRole('button', { name: 'Add diagnosis' })).toBeNull()
     fireEvent.click(save)
-    const display = diagnoses.getByLabelText(labelled('Diagnosis')) as HTMLInputElement
+    const display = diagnoses.getByLabelText(labelled('Display')) as HTMLInputElement
     expect(display.validationMessage).not.toBe('')
     expect(diagnoses.getAllByText(display.validationMessage).length).toBe(3)
     expect(diagnoses.queryByText('Complete this field.')).toBeNull()

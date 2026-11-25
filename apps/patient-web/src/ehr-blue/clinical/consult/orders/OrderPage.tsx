@@ -304,11 +304,12 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
   const taken = sent !== null && sent.to === (lab ? 'lab' : 'pharmacy') ? sent : null
   // Send to pharmacy for the prescriber (0133): this hospital's own pharmacy, at the version shown.
   const sendOwnPharmacy = !lab && ownSendOffered({ record, actor, facilityId: chart.facilityId, canWrite: chart.canWrite && chart.can('ehr.prescription.write'),
-    routed, handoff })
-  // Today's pharmacist hand-off, never beside Send to pharmacy, which does the same for the prescriber, and only while this
-  // hospital's pharmacy has not received the prescription (it refuses the hand-off once it holds it, as after the
-  // automatic send on activation).
-  const sendPharmacy = !lab && status === 'active' && chart.canWrite && chart.can('pharmacy.work-item.accept') && !routed && !taken && !sendOwnPharmacy
+    routed, handoff }) && !taken
+  // Today's pharmacist hand-off (staff/routes/Clinical.tsx:1865), offered on every active prescription not sent elsewhere
+  // to a role that may accept pharmacy work, beside the prescriber's Send to pharmacy where that is offered too, as
+  // classic offers it; only while this hospital's pharmacy has not received the prescription (it refuses the hand-off
+  // once it holds it, as after the automatic send on activation).
+  const sendPharmacy = !lab && status === 'active' && chart.canWrite && chart.can('pharmacy.work-item.accept') && !routed && !taken
     && pharmacistHandoffOffered(record, handoff)
   const sendLab = lab && status === 'active' && canWrite && rights.canSendToLab && !routed && !taken
   const results = lab && status !== 'draft' && chart.can('lab.result.released.read') && !routed

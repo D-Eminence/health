@@ -171,7 +171,7 @@ describe('Send to pharmacy on the prescription page', () => {
   it('sends the prescription with its row version, says it was sent, and does not offer it again', async () => {
     api.ownPharmacySend.mockResolvedValueOnce({ pharmacyHandoff: { status: 'sent', message: 'Sent to this hospital\'s pharmacy.' } })
     await openPrescription()
-    // Today's pharmacist hand-off is not offered beside it.
+    // This role may not accept pharmacy work, so today's pharmacist hand-off is not offered.
     expect(screen.queryByRole('button', { name: 'Send to Pharmacy' })).toBeNull()
     fireEvent.click(sendButton()!)
     const form = within(actionsCard()).getAllByRole('button', { name: 'Send to pharmacy' }).at(-1)!.closest('form')!
@@ -339,6 +339,33 @@ describe('Today’s pharmacist hand-off beside the automatic send', () => {
     await openPrescription()
     expect(handoffButton()).toBeNull()
     expect(sendButton()).toBeNull()
+  })
+
+  it('is offered beside the prescriber’s own Send to pharmacy, as classic offers it on every active prescription (Clinical.tsx:1865)', async () => {
+    list = [prescription()]
+    await openPrescription()
+    expect(sendButton()).toBeTruthy()
+    expect(handoffButton()).toBeTruthy()
+    // Each opens its own form: the hand-off's reason, the send's confirmation.
+    fireEvent.click(handoffButton()!)
+    expect(screen.getByRole('button', { name: 'Send to Pharmacy', expanded: true })).toBeTruthy()
+  })
+
+  it('once the hand-off is accepted, offers neither send: the pharmacy holds the prescription now', async () => {
+    list = [prescription()]
+    api.acceptPrescription.mockResolvedValueOnce({ id: 'pw-1', sourceEhrPrescriptionVersion: 4, status: 'accepted',
+      acceptedAt: '2026-11-20T09:10:00.000Z', dispensing: null })
+    await openPrescription()
+    fireEvent.click(handoffButton()!)
+    const reason = screen.getByLabelText(/^Reason/)
+    fireEvent.change(reason, { target: { value: 'Patient waiting at the pharmacy' } })
+    fireEvent.submit(reason.closest('form')!)
+    expect(await screen.findByText('Pharmacy accepted this exact prescription version.')).toBeTruthy()
+    expect(api.acceptPrescription).toHaveBeenCalledTimes(1)
+    expect(handoffButton()).toBeNull()
+    // The prescriber's own send would ask the pharmacy for what it already holds.
+    expect(sendButton()).toBeNull()
+    expect(api.ownPharmacySend).not.toHaveBeenCalled()
   })
 
   it.each([
