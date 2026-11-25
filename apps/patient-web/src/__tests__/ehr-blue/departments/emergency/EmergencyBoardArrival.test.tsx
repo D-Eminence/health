@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
+import type * as StaffApi from '../../../../staff/api'
 
 /*
  * "Add to the emergency board" on the emergency summary (hid-system ED-1 route 1, basis emergency, Q-ED-3 A): only for
@@ -10,7 +11,7 @@ import { MemoryRouter } from 'react-router-dom'
 const { arrive } = vi.hoisted(() => ({ arrive: vi.fn() }))
 vi.mock('../../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
 vi.mock('../../../../staff/api', async importOriginal => ({
-  ...await importOriginal<typeof import('../../../../staff/api')>(),
+  ...await importOriginal<typeof StaffApi>(),
   edBoardApi: { arrive: (...args: unknown[]) => arrive(...args) },
 }))
 
