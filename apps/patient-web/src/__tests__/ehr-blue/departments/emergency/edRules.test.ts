@@ -3,6 +3,7 @@ import { HidApiError } from '@hid/http'
 import {
   ADMIT_DEPARTMENTS, ED_REFUSALS, NOT_AVAILABLE, arrivalMoment, canArrive, canDecide, canRead, canTriage, cardName, complaintProblem,
   complaintText, historyText, lagosTime, leaveLabel, minutesText, notServed, reasonProblem, refusalWords, statusWords, unknownRefusal,
+  visitAttempt,
 } from '../../../../ehr-blue/departments/emergency/edRules'
 import { TRIAGE_LEVELS, triageText, triageTone } from '../../../../ehr-blue/departments/parts/triageLevels'
 import { triageText as waitingTriageText } from '../../../../ehr-blue/departments/waiting/waitingRules'
@@ -95,5 +96,20 @@ describe('emergency board rules', () => {
     for (const words of Object.values(ED_REFUSALS)) expect(words).not.toMatch(/permission/i)
     expect(unknownRefusal(refused(403, 'FORBIDDEN'))).toBe('Your role here can’t make an unknown patient’s record. Ask the front desk.')
     expect(unknownRefusal(refused(404, 'NOT_FOUND'))).toBe('Unknown patient records are not available yet. Try again later.')
+  })
+
+  it('keeps one start time and key body per attempt to link the visit, so a retry is the same request (review fix)', () => {
+    const times = new Map<string, string>()
+    const card = { attendanceId: 'e0000000-0000-4000-8000-0000000000e1', patientId: 'b0000000-0000-4000-8000-0000000000f1', encounterId: null }
+    const first = visitAttempt(card, times, () => new Date('2026-12-03T08:20:00.123Z'))
+    expect(first.startedAt).toBe('2026-12-03T08:20:00.000Z')
+    // Tried again a minute later (after a 412 and a reload, or Refresh): the same body, so the same Idempotency-Key.
+    const retry = visitAttempt(card, times, () => new Date('2026-12-03T08:21:30.000Z'))
+    expect(retry).toEqual(first)
+    expect(JSON.stringify(retry.keyBody)).toBe(JSON.stringify(first.keyBody))
+    // Link again once a visit is linked: a new attempt with its own start time and key body.
+    const again = visitAttempt({ ...card, encounterId: 'c0000000-0000-4000-8000-0000000000c1' }, times, () => new Date('2026-12-03T09:00:00.000Z'))
+    expect(again.startedAt).toBe('2026-12-03T09:00:00.000Z')
+    expect(again.keyBody).not.toEqual(first.keyBody)
   })
 })

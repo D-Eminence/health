@@ -254,15 +254,21 @@ function WaitingCard({ card, facilityId, membershipId, canSee, today, onChanged 
           <div><dt>Seen by</dt><dd>{assigneeText(card, membershipId)}</dd></div>
         </dl>
       </div>
-      <div className="hid-ehr-dept-waiting-actions">
-        {next ? (
-          <EhrButton size="sm" busy={busy} onClick={() => void send({ stage: next.stage },
-            `${card.fullName}: ${STAGE_WORDS[next.stage].toLowerCase()}.`)}>{next.label}</EhrButton>
-        ) : null}
-        <EhrButton size="sm" variant="secondary" aria-expanded={editing !== null} aria-controls={`${headingId}-change`}
-          onClick={() => setEditing(value => value === null ? card : null)}>{editing ? 'Close' : 'Change'}</EhrButton>
-      </div>
-      {editing ? (
+      {card.edAttendanceId ? (
+        // hid-system 0168: while the patient is on the emergency department board, their stage, triage level, who sees
+        // them and when they leave are changed on the board only (it keeps who did each step, and its own rules).
+        <p className="hid-ehr-dept-waiting-hint">Their stage, triage level and who sees them are changed on the emergency board.</p>
+      ) : (
+        <div className="hid-ehr-dept-waiting-actions">
+          {next ? (
+            <EhrButton size="sm" busy={busy} onClick={() => void send({ stage: next.stage },
+              `${card.fullName}: ${STAGE_WORDS[next.stage].toLowerCase()}.`)}>{next.label}</EhrButton>
+          ) : null}
+          <EhrButton size="sm" variant="secondary" aria-expanded={editing !== null} aria-controls={`${headingId}-change`}
+            onClick={() => setEditing(value => value === null ? card : null)}>{editing ? 'Close' : 'Change'}</EhrButton>
+        </div>
+      )}
+      {editing && !card.edAttendanceId ? (
         <ChangeForm id={`${headingId}-change`} card={editing} membershipId={membershipId} canSee={canSee} busy={busy}
           onSave={(change, done) => void send(change, done, editing)} onCancel={() => setEditing(null)} />
       ) : null}

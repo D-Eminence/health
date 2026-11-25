@@ -384,9 +384,32 @@ describe('Waiting list in the frame', () => {
     expect(within(board).getByText('Level 1: most urgent')).toBeDefined()
     expect(within(board).getByRole('link', { name: 'Open on the emergency board' }).getAttribute('href'))
       .toBe('/provider/emergency-department/e0000000-0000-4000-8000-0000000000e1')
+    // Its stage, triage level and who sees them are changed on the board only (hid-system 0168's guard): no next-step
+    // button and no Change form here.
+    expect(within(board).getByText('Their stage, triage level and who sees them are changed on the emergency board.')).toBeDefined()
+    expect(within(board).queryByRole('button')).toBeNull()
     const other = screen.getByRole('listitem', { name: 'Other Queueperson' })
     expect(within(other).queryByText('Emergency department')).toBeNull()
     expect(within(other).queryByRole('link', { name: 'Open on the emergency board' })).toBeNull()
+    expect(within(other).getByRole('button', { name: 'Start triage' })).toBeDefined()
+    expect(within(other).getByRole('button', { name: 'Change' })).toBeDefined()
+  })
+
+  it('says plainly when a row went onto the emergency board meanwhile (VISIT_QUEUE_ON_ED_BOARD), and loads the list again', async () => {
+    const desk = facility(REAL_FACILITY, 'Fictional Clinic', FRONT_DESK, ['receptionist'])
+    const sent = serve({
+      [SESSION]: [sessionAt(desk, [desk])],
+      [LIST]: [listOf(card()), listOf(card({ stage: 'ready', triageLevel: 1, rowVersion: 4, edAttendanceId: 'e0000000-0000-4000-8000-0000000000e1' }))],
+      [PATCH]: [() => problem(409, 'VISIT_QUEUE_ON_ED_BOARD', 'This patient is on the emergency department board. Make this change on the board.')],
+    })
+    await openStaffApp('/provider/waiting-list')
+    const row = await screen.findByRole('listitem', { name: 'Testa Queueperson' })
+    fireEvent.click(within(row).getByRole('button', { name: 'Start triage' }))
+    expect(await screen.findByText('This patient is on the emergency department board. Make this change on the board. The list has been loaded again.')).toBeDefined()
+    await waitFor(() => expect(sent.filter(call => call.route === LIST)).toHaveLength(2))
+    const again = await screen.findByRole('listitem', { name: 'Testa Queueperson' })
+    await waitFor(() => expect(within(again).getByText('Emergency department')).toBeDefined())
+    expect(within(again).queryByRole('button', { name: 'Change' })).toBeNull()
   })
 
 })

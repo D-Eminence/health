@@ -133,6 +133,24 @@ export function departmentText(code: string | null | undefined): string {
 export const REASON_MIN = 8
 export const REASON_MAX = 500
 export const COMPLAINT_MAX = 120
+
+/**
+ * The emergency visit request of one attempt to link today's visit (route 6, after EHR-C1's visit create with
+ * `reuseOpenVisit`). An attempt is this record and the visit it has linked now: its start time is taken once and kept
+ * in `startedAtFor` while the page is open, so a retry (after a lost answer, a 412 or Refresh) sends the same body,
+ * which with the same Idempotency-Key ehr-api answers with the first visit again instead of IDEMPOTENCY_KEY_REUSED.
+ * "Link again" once a visit is linked is a new attempt, with a start time and key of its own.
+ */
+export function visitAttempt(card: Pick<EdCard, 'attendanceId' | 'encounterId' | 'patientId'>, startedAtFor: Map<string, string>,
+  now: () => Date = () => new Date()): { readonly startedAt: string; readonly keyBody: { attempt: string; patientId: string; startedAt: string } } {
+  const attempt = `${card.attendanceId}:${card.encounterId ?? ''}`
+  let startedAt = startedAtFor.get(attempt)
+  if (!startedAt) {
+    startedAt = now().toISOString().replace(/\.\d{3}Z$/, '.000Z')
+    startedAtFor.set(attempt, startedAt)
+  }
+  return { startedAt, keyBody: { attempt, patientId: card.patientId, startedAt } }
+}
 export const FACILITY_NAME_MIN = 2
 export const FACILITY_NAME_MAX = 120
 // Control characters, which the server refuses in the complaint.

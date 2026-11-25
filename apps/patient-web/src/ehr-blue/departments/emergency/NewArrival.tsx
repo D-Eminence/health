@@ -49,7 +49,7 @@ export function NewArrival({ facilityId }: { readonly facilityId: string }) {
   const [details, setDetails] = useState<Details>(EMPTY_DETAILS)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [done, setDone] = useState<{ readonly arrived: EdArrived; readonly wristband: UnknownPatientMade | null } | null>(null)
+  const [done, setDone] = useState<Done | null>(null)
   const triages = canTriage(permissions)
   const searches = canSearch(permissions)
 
@@ -119,7 +119,8 @@ export function NewArrival({ facilityId }: { readonly facilityId: string }) {
       }
       const arrived = await edBoardApi.arrive(facilityId, patient, input, keyFor('arrive', { patient, input }))
       learnFrom()
-      setDone({ arrived, wristband })
+      // Whether a triage level or complaint went with the arrival: an answer of already_on_board saves neither.
+      setDone({ arrived, wristband, triageSent: input.triageLevel !== undefined || input.presentingComplaint !== undefined })
       focus('ed-arrived-title')
     } catch (caught) {
       if (isHidApiError(caught) && caught.code === 'REQUEST_CANCELLED') return
@@ -199,22 +200,39 @@ export function NewArrival({ facilityId }: { readonly facilityId: string }) {
   )
 }
 
-/** What the arrival answered, with the unknown patient's Health ID once, for the wristband. */
+interface Done {
+  readonly arrived: EdArrived
+  readonly wristband: UnknownPatientMade | null
+  /** A triage level or complaint was sent with the arrival. */
+  readonly triageSent: boolean
+}
+
+/**
+ * What the arrival answered, with the unknown patient's Health ID once, for the wristband. A patient already on the
+ * board keeps their record as it was: a triage level or complaint entered here is not saved (hid-system ED-1 route 1),
+ * so the page says so plainly, shows the level the board has, and points to the record to triage them.
+ */
 function Arrived({ done, onAnother }: {
-  readonly done: { readonly arrived: EdArrived; readonly wristband: UnknownPatientMade | null }
+  readonly done: Done
   readonly onAnother: () => void
 }) {
   const navigate = useNavigate()
   const card = done.arrived.attendance
   const name = cardName(card)
-  const said = done.arrived.outcome === 'already_on_board' ? `${name} is already on the board.`
+  const already = done.arrived.outcome === 'already_on_board'
+  const said = already ? `${name} is already on the board.`
     : done.arrived.outcome === 'moved_from_waiting_list' ? `${name} was moved from the waiting list to the board.`
       : `${name} is on the board.`
   return (
     <DeptPage eyebrow={EYEBROW} title="New arrival" onBack={() => navigate(BASE)} backLabel="Back to the board">
-      <DeptNotice tone="positive" variant="box" role="status">
+      <DeptNotice tone={already ? 'info' : 'positive'} variant="box" role="status">
         <span id="ed-arrived-title" tabIndex={-1}>{said}</span>
       </DeptNotice>
+      {already && done.triageSent ? (
+        <DeptNotice tone="caution" variant="box" role="alert" title="The triage level and complaint you entered were not saved">
+          The board still shows {name} as: {triageText(card.triageLevel)}. To change it, open their record and select Triage.
+        </DeptNotice>
+      ) : null}
       {done.wristband ? (
         <DeptSection title="Wristband" headingId="ed-wristband" className="hid-ehr-dept-emergency-wristband">
           <p className="hid-ehr-dept-waiting-hint">Write or print this on the patient’s wristband now. It is shown only once.</p>
