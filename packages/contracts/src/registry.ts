@@ -118,6 +118,16 @@ const RELEASE_A = 'Served by hid-system staging-novu-ci-20261005 from Release A 
   + 'main, which answers 404. '
 const ACCOUNT_DELETION_NOTE = 'Novu: hid-system 0096; 404 before'
 /**
+ * Provider reports, operations figures first (hid-system REP-1, migrations 0203 and 0204, provisional; Release D). Built on
+ * claude/sprint-reports-backend and not live: an ehr-api before it answers 404, and at a real facility both routes answer
+ * 503 REPORTS_NOT_AVAILABLE while the service flag REPORTS_ENABLED is off (the sealed demo and QA facilities always have
+ * them). Healthcare operations at the X-Facility-ID facility only, never another's. Totals only: no patient id, Health ID
+ * or NIN in any address, body or answer.
+ */
+const REP_1 = 'hid-system REP-1 (0203-0204, Release D; claude/sprint-reports-backend, not live): 404 before it, 503 '
+  + 'REPORTS_NOT_AVAILABLE while REPORTS_ENABLED is off at a real facility. X-Facility-ID, healthcare-operations; '
+  + 'Cache-Control: no-store. Totals only, for this facility alone.'
+/**
  * "Notifications on this device" (B6, contract b6-contract.md §3): payload-free Web Push, the subscription stored by
  * Identity. Served by Novu from hid-system 0097, and only once the owner has configured the push keys: before that, and
  * on a backend before 0097, each route answers 404, which the portal takes as not offered (the section is hidden).
@@ -986,6 +996,25 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     one('PATCH','ehr.encounter.read','ehr.encounter.write'),
     `${RELEASE_A} X-Facility-ID, direct-care. Body { expectedRowVersion, stage?, triageLevel? (null clears), `
     + 'assignedMembershipId? (null clears) }. 200 the card; 409 VISIT_QUEUE_ENTRY_CHANGED or VISIT_QUEUE_ENTRY_CLOSED.')),
+  // Provider reports (hid-system REP-1, 0203 and 0204, Release D; on claude/sprint-reports-backend, not live): the
+  // facility's operations figures for a range of Lagos days, and a recorded download with small counts hidden. While a
+  // route answers 404 or 503 REPORTS_NOT_AVAILABLE, Reports & Analytics keeps the demo's sample and says "Reports are not
+  // available yet." elsewhere.
+  { ...proposed(r('ehr.reportsOperations','ehr','/api/v1/ehr/reports/operations',G,false,one('GET','reports.read'),
+    `${REP_1} Query exactly from and to (Lagos days YYYY-MM-DD, both included): from on or before to, to today or `
+    + 'earlier, from within 2 years, at most 92 days; any other query 400 VALIDATION_FAILED. 200 { report: operations, '
+    + 'facilityId, from, to, days, previousFrom, previousTo, includesToday, timeZone, generatedAt, definitions { version, '
+    + 'signedOff }, sections: waitingList, registrations, visits, lab, pharmacy, each figure { key, kind: count | '
+    + 'median_minutes, current, previous, daily[], sampleSize?, coverage?, byReason? } }. 400 REPORT_RANGE_INVALID, '
+    + 'REPORT_RANGE_TOO_LONG; 403 REPORTS_NOT_ALLOWED; 503 REPORT_TOO_SLOW (15 s).')),
+  requiredQuery: { GET: ['from', 'to'] } },
+  proposed(r('ehr.reportsOperationsExports','ehr','/api/v1/ehr/reports/operations/exports',P,false,
+    one('POST','reports.read','reports.export'),
+    `${REP_1} Body exactly { from, to, format: csv | pdf } with the read's range rules. No Idempotency-Key: each call is `
+    + 'one download and one audit row (the 48.x pattern). 200 the report with every count from 1 to 4, and every median '
+    + 'of fewer than 5, null and marked suppressed, plus export { format, minimumCount: 5, suppressedValues, recordedAt }. '
+    + 'The browser builds the CSV or PDF from this answer only. 403 REPORTS_EXPORT_NOT_ALLOWED; 503 '
+    + 'REPORTS_EXPORT_NOT_AVAILABLE while REPORTS_EXPORT_ENABLED (or REPORTS_ENABLED) is off at a real facility.')),
   r('ehr.vitals','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals',GP,false,{GET:['ehr.vital.read'],POST:['ehr.vital.write']}),
   r('ehr.vital','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals/:vitalId',G,false,one('GET','ehr.vital.read')),
   r('ehr.vitalCorrections','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals/:vitalId/corrections',GP,false,{GET:['ehr.vital.read'],POST:['ehr.vital.write']}),
