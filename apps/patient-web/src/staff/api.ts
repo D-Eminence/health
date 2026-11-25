@@ -1021,6 +1021,24 @@ export interface PharmacyWorkItem {
    * A code a page branches on, never shown as sent; pharmacy-api leaves it out (or null) for any other value.
    */
   withdrawnReason?: string | null
+  /**
+   * Present only on a dispensed item (reversed or not) whose prescription the prescribing team changed after its first
+   * dispensing (hid-system 0148, Q132 A): put on hold, cancelled, entered in error, edited or resumed. Read through
+   * changedAfterDispensingOf, and said only through pharmacyText.ts changedAfterOf. Absent means nothing to say.
+   */
+  changedAfterDispensing?: PharmacyChangedAfterDispensing
+}
+
+/** hid-system 0148 (Q132 A): the latest change the prescribing team made to a prescription after it was dispensed. */
+export type PharmacyChangeAfterDispensing = 'entered_in_error' | 'cancelled' | 'on_hold' | 'edited' | 'resumed'
+/**
+ * A dispensed item's `changedAfterDispensing` (hid-system 0148): `change` is the latest change, left out when it is one
+ * this page does not know; `changedAt` when it was made; `changeCount` how many changes there have been (1 or more).
+ */
+export interface PharmacyChangedAfterDispensing {
+  change?: PharmacyChangeAfterDispensing
+  changedAt: string
+  changeCount: number
 }
 
 /** hid-system ORD-4: a pharmacy work item's step. */
@@ -1070,6 +1088,28 @@ export function pharmacyStepsOf<T extends object>(answer: T): T {
     pharmacistAcceptance: { acceptedAt, acceptedByMembershipId, acceptedWith: acceptedWith as PharmacistAcceptedWith } }
 }
 
+const CHANGES_AFTER_DISPENSING: ReadonlySet<string> = new Set<PharmacyChangeAfterDispensing>(['entered_in_error', 'cancelled', 'on_hold', 'edited', 'resumed'])
+
+/**
+ * An item's `changedAfterDispensing` by INTERFACE_CONTRACT 0148 (Q132 A), as @hid/api-client reads it. Absent, it is left
+ * out (nothing to say). It is a safety notice, so one that can't be read fails the whole list as an unreadable answer,
+ * never dropped in silence: a value that is not an object (null or an array included), a `changedAt` that is not a time,
+ * a `changeCount` that is not a whole number of 1 or more, or a `change` that is not a string. A `change` this page does
+ * not know (a newer pharmacy-api) is left out and the notice is kept, in its general words; other fields are left out.
+ */
+export function changedAfterDispensingOf<T extends object>(answer: T): T {
+  const { changedAfterDispensing: value, ...rest } = answer as T & { changedAfterDispensing?: unknown }
+  const bare = rest as T
+  if (value === undefined) return bare
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw stepsNotRead()
+  const { change, changedAt, changeCount } = value as Record<string, unknown>
+  if (!filled(changedAt) || Number.isNaN(Date.parse(changedAt))) throw stepsNotRead()
+  if (typeof changeCount !== 'number' || !Number.isSafeInteger(changeCount) || changeCount < 1) throw stepsNotRead()
+  if (change !== undefined && typeof change !== 'string') throw stepsNotRead()
+  const known = typeof change === 'string' && CHANGES_AFTER_DISPENSING.has(change)
+  return { ...bare, changedAfterDispensing: { ...(known ? { change: change as PharmacyChangeAfterDispensing } : {}), changedAt, changeCount } }
+}
+
 /**
  * One member of the working facility, past or present, by membership (hid-system SX-9, GET
  * /identity/facility-staff-names). `name` is null for a member whose login was deleted: the screen then says "Former
@@ -1098,9 +1138,13 @@ export function facilityStaffNamesOf(answer: unknown): FacilityStaffNames {
   return { facilityId: record.facilityId, staff, complete: record.complete }
 }
 
-/** A Pharmacy work list with each item's steps read (pharmacyStepsOf); a list in another shape is left as it came. */
+/**
+ * A Pharmacy work list with each item's steps (pharmacyStepsOf) and changes after dispensing (changedAfterDispensingOf)
+ * read; a list in another shape is left as it came.
+ */
 function pharmacyListOf(list: WorkList<PharmacyWorkItem>): WorkList<PharmacyWorkItem> {
-  return Array.isArray(list?.items) ? { ...list, items: list.items.map(item => item && typeof item === 'object' ? pharmacyStepsOf(item) : item) } : list
+  return Array.isArray(list?.items) ? { ...list, items: list.items.map(item => item && typeof item === 'object'
+    ? changedAfterDispensingOf(pharmacyStepsOf(item)) : item) } : list
 }
 
 /**
