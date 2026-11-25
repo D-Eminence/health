@@ -135,13 +135,34 @@ export function formatTimeOrDateTime(value: Moment, now: Moment = Date.now(), fa
   return sameLagosDay(value, now) ? formatTime(value, fallback) : formatDateTime(value, fallback)
 }
 
+/** A date and time with its zone written ("1991-03-03T23:00:00Z", "1991-03-04 00:00:00+01"): an instant, not a day. */
+const ZONED_TIME = /^(\d{4}-\d{2}-\d{2})[Tt ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?\s*(?:[Zz]|([+-])(\d{2}):?(\d{2})?)$/
+
 /**
- * Whole years from a date of birth ("1991-03-04", or an ISO time whose first ten characters are the day) to the Lagos
- * day of `now`; null when the date is missing, not a date, in the future or over 150 years ago.
+ * The day someone was born, from a date of birth as it arrives. A calendar day ("1991-03-04") is that day. A time with
+ * its zone is the Lagos day it falls on: "1991-03-03T23:00:00Z" is midnight in Lagos on 4 March, so 4 March, the day
+ * formatDate shows for it. A time with no zone ("1991-03-04T00:00:00") keeps the day as written, as the device's zone
+ * would otherwise move it.
+ */
+function birthDay(dateOfBirth: string): LagosClock | null {
+  const written = dateOfBirth.trim()
+  const zoned = ZONED_TIME.exec(written)
+  const day = calendarDay(zoned ? zoned[1]! : written.slice(0, 10))
+  if (!zoned || !day) return day
+  const [hour, minute, second] = [Number(zoned[2]), Number(zoned[3]), Number(zoned[4] ?? 0)]
+  if (hour > 23 || minute > 59 || second > 59) return null
+  const offsetMinutes = zoned[5] ? (zoned[5] === '-' ? -1 : 1) * (Number(zoned[6]) * 60 + Number(zoned[7] ?? 0)) : 0
+  return lagosClock(Date.UTC(day.year, day.month - 1, day.day, hour, minute, second) - offsetMinutes * 60 * 1000)
+}
+
+/**
+ * Whole years from a date of birth to the Lagos day of `now`; null when the date is missing, not a date, in the future
+ * or over 150 years ago. The date of birth is a calendar day ("1991-03-04") or a time (see birthDay): one sent as
+ * midnight in Lagos ("1991-03-03T23:00:00Z") counts from 4 March, never from the 3rd.
  */
 export function ageInYears(dateOfBirth: string | null | undefined, now: Moment = Date.now()): number | null {
   if (!dateOfBirth) return null
-  const born = calendarDay(dateOfBirth.slice(0, 10))
+  const born = birthDay(dateOfBirth)
   const today = lagosClock(now)
   if (!born || !today) return null
   let age = today.year - born.year

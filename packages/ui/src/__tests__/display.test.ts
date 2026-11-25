@@ -88,6 +88,32 @@ describe('Lagos time on every device (Q181 A)', () => {
     expect(ageInYears('', '2026-03-04T12:00:00Z')).toBeNull()
     expect(ageInYears('unknown', '2026-03-04T12:00:00Z')).toBeNull()
   })
+
+  for (const zone of DEVICE_ZONES) {
+    it(`counts age from the Lagos day of a date of birth sent as a time, on a device in ${zone}`, () => {
+      onDevice(zone)
+      // Midnight in Lagos on 4 Mar 1991, sent in UTC: born on the 4th, as formatDate shows, so not 35 until 4 Mar 2026.
+      expect(formatDate('1991-03-03T23:00:00Z')).toBe('4 Mar 1991')
+      expect(ageInYears('1991-03-03T23:00:00Z', '2026-03-03T12:00:00Z')).toBe(34)
+      expect(ageInYears('1991-03-03T23:00:00.000Z', '2026-03-03T22:30:00Z')).toBe(34)
+      expect(ageInYears('1991-03-03T23:00:00Z', '2026-03-03T23:00:00Z')).toBe(35)
+      expect(ageInYears('1991-03-03T23:00:00Z', '2026-03-04T12:00:00Z')).toBe(35)
+      // The same instant written with its offset, or as Postgres writes it.
+      expect(ageInYears('1991-03-04T00:00:00+01:00', '2026-03-03T12:00:00Z')).toBe(34)
+      expect(ageInYears('1991-03-04T00:00:00+0100', '2026-03-03T12:00:00Z')).toBe(34)
+      expect(ageInYears('1991-03-03 23:00:00+00', '2026-03-03T12:00:00Z')).toBe(34)
+      expect(ageInYears('1991-03-04 00:00:00+01', '2026-03-04T12:00:00Z')).toBe(35)
+      // Midnight UTC is 01:00 the same day in Lagos.
+      expect(ageInYears('1991-03-04T00:00:00Z', '2026-03-03T12:00:00Z')).toBe(34)
+      expect(ageInYears('1991-03-04T00:00:00Z', '2026-03-04T12:00:00Z')).toBe(35)
+      // A time with no zone keeps the day as written, wherever the device is.
+      expect(ageInYears('1991-03-04T00:00:00', '2026-03-03T12:00:00Z')).toBe(34)
+      expect(ageInYears('1991-03-04T00:00:00', '2026-03-04T12:00:00Z')).toBe(35)
+      // Not a time: no age.
+      expect(ageInYears('1991-02-30T23:00:00Z', '2026-03-04T12:00:00Z')).toBeNull()
+      expect(ageInYears('1991-03-03T25:00:00Z', '2026-03-04T12:00:00Z')).toBeNull()
+    })
+  }
 })
 
 describe('one date format (Q182 A)', () => {
