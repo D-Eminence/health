@@ -103,6 +103,12 @@ describe('the words', () => {
     expect(changedAfterOf(withdrawn)).toBeNull()
   })
 
+  it('keeps the notice on a dispensed item even if it also says withdrawn, as a dispensed item is never withdrawn', () => {
+    const both: PharmacyWorkItem = { ...changedItem(), withdrawn: true, withdrawnReason: 'changed' }
+    expect(statusOf(both, false)).toBe('dispensed')
+    expect(changedAfterOf(both)?.text).toBe('Changed after dispensing: cancelled by the prescribing team')
+  })
+
   it('names the facility that sent it, or “the ordering facility” with no name', () => {
     expect(changedAfterOf(routedDispensed({ changedAfterDispensing: change({ change: 'on_hold' }) }))?.text)
       .toBe('Changed after dispensing: put on hold by Demo Hospital')
@@ -110,6 +116,14 @@ describe('the words', () => {
       .toBe('Changed after dispensing by Demo Hospital (changed 2 times)')
     expect(changedAfterOf(routedDispensed({ orderRoute: routeCard({ orderingFacilityName: null }), changedAfterDispensing: change() }))?.text)
       .toBe('Changed after dispensing: cancelled by the ordering facility')
+  })
+
+  it('says “the ordering facility” on work sent from another facility whose card could not be read', () => {
+    const cardless = routedDispensed({ orderRoute: undefined, patient: undefined, changedAfterDispensing: change() })
+    expect(changedAfterOf(cardless)?.text).toBe('Changed after dispensing: cancelled by the ordering facility')
+    expect(changedAfterOf({ ...cardless, sourceEhrPrescriptionId: null })?.text).toBe('Changed after dispensing: cancelled by the ordering facility')
+    expect(changedAfterOf({ ...cardless, sourceEhrPrescriptionId: 'prescription-9' })?.text)
+      .toBe('Changed after dispensing: cancelled by the prescribing team')
   })
 
   it('says the last change on Lagos time, with its day, whatever the device’s zone', () => {

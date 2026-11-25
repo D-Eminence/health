@@ -994,6 +994,12 @@ export interface PharmacyWorkItem {
   /** How much to hand over, as the prescriber wrote it (proposed 0107). The pharmacist still confirms it. */
   quantityToDispense?: number | null
   quantityUnit?: string | null
+  /**
+   * The prescription this facility's own EHR sent to Pharmacy: on own work only (pharmacy-api leaves it out of work
+   * another facility sent). An id the page never shows; with no `orderRoute` either, the item came from another facility
+   * whose card could not be read (pharmacyText.ts changedAfterOf).
+   */
+  sourceEhrPrescriptionId?: string | null
   /** Novu since P4c, only on work from a prescription another facility sent here. */
   orderRoute?: WorkItemOrderRoute
   /**

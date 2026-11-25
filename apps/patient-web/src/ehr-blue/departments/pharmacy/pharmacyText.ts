@@ -148,16 +148,28 @@ export function lastChangeText(changedAt: string): string {
 }
 
 /**
- * Q132 A's notice on a dispensed item (reversed or not) whose prescription the prescribing team changed afterwards, or
- * null: with no `changedAfterDispensing` nothing is said, as before 0148. Who changed it is "the prescribing team" on
- * this facility's own work; on work another facility sent, that facility by name, else "the ordering facility". A
- * change this page does not know reads "Changed after dispensing by ...". With more than one change, " (changed n
- * times)". A withdrawn item never carries it (the two never meet), and an item not dispensed never says it.
+ * Who changed a dispensed prescription (Q132 A): "the prescribing team" on this facility's own work, which carries the
+ * prescription it came from; on work another facility sent, that facility by name, else "the ordering facility",
+ * including work with neither the prescription nor a route card (sent from another facility, its card not read).
  */
-export function changedAfterOf(item: Pick<PharmacyWorkItem, 'changedAfterDispensing' | 'dispensing' | 'withdrawn' | 'orderRoute'>): ChangedAfterNotice | null {
+function changedByText(item: Pick<PharmacyWorkItem, 'orderRoute' | 'sourceEhrPrescriptionId'>): string {
+  if (item.orderRoute) return item.orderRoute.orderingFacilityName?.trim() || 'the ordering facility'
+  return item.sourceEhrPrescriptionId?.trim() ? 'the prescribing team' : 'the ordering facility'
+}
+
+/**
+ * Q132 A's notice on a dispensed item (reversed or not) whose prescription the prescribing team changed afterwards, or
+ * null: with no `changedAfterDispensing` nothing is said, as before 0148. Who changed it is said by changedByText. A
+ * change this page does not know reads "Changed after dispensing by ...". With more than one change, " (changed n
+ * times)". An item not dispensed never says it; a dispensed item is never withdrawn (withdrawnReasonOf), so the notice
+ * is never hidden by a `withdrawn` sent with it.
+ */
+export function changedAfterOf(
+  item: Pick<PharmacyWorkItem, 'changedAfterDispensing' | 'dispensing' | 'orderRoute' | 'sourceEhrPrescriptionId'>,
+): ChangedAfterNotice | null {
   const changed = item.changedAfterDispensing
-  if (!changed || !item.dispensing || item.withdrawn === true) return null
-  const who = item.orderRoute ? item.orderRoute.orderingFacilityName?.trim() || 'the ordering facility' : 'the prescribing team'
+  if (!changed || !item.dispensing) return null
+  const who = changedByText(item)
   const what = changed.change && Object.hasOwn(CHANGE_WORDS, changed.change) ? `: ${CHANGE_WORDS[changed.change]}` : ''
   const times = changed.changeCount > 1 ? ` (changed ${changed.changeCount} times)` : ''
   return { text: `Changed after dispensing${what} by ${who}${times}`, when: lastChangeText(changed.changedAt) }
