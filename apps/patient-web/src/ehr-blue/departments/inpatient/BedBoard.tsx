@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { EhrBadge, EhrButton, EhrEmptyState, EhrField, EhrTextarea } from '@hid/ui/ehr'
 import { inpatientApi, type BedBoard, type BedBoardBed, type BedStatus, type WardType } from '../../../staff/api'
+import { useFocusById } from '../../../staff/focus'
 import { useDeptAccess } from '../parts/access'
 import { DeptNotice, type DeptNoticeTone } from '../parts/DeptNotice'
 import { DeptSection } from '../parts/DeptPage'
@@ -45,6 +46,8 @@ export function BedBoardView({ facilityId, which, headingId, recordBase = INPATI
 }) {
   const { permissions } = useDeptAccess()
   const keyFor = useIdempotencyKeys()
+  const focus = useFocusById()
+  const noticeId = `${headingId}-notice`
   const wardId = 'wardId' in which ? which.wardId : ''
   const wardType = 'wardType' in which ? which.wardType : ''
   const loader = useCallback((id: string) => inpatientApi.bedBoard(id, wardId ? { wardId } : { wardType: wardType as WardType })
@@ -84,7 +87,12 @@ export function BedBoardView({ facilityId, which, headingId, recordBase = INPATI
       learnFrom(caught)
       if (isHidApiError(caught) && RELOAD_AFTER.has(caught.code)) { setOpen(null); void refresh() }
       setNotice({ tone: 'critical', text: refusalWords(caught, 'The bed could not be changed. Try again.', 'Say why the bed is out of use in 8 to 300 characters.') })
-    } finally { setBusy(false) }
+    } finally {
+      setBusy(false)
+      // The button pressed goes once the bed's status changes (and the maintenance form closes): focus goes to what
+      // happened, never to the page's top.
+      focus(noticeId)
+    }
   }
 
   if (unavailable || (error && board.value === null)) {
@@ -96,7 +104,7 @@ export function BedBoardView({ facilityId, which, headingId, recordBase = INPATI
   return (
     <>
       {error ? <DeptNotice role="alert" tone="critical">{error}</DeptNotice> : null}
-      {notice ? <DeptNotice role={notice.tone === 'critical' ? 'alert' : 'status'} tone={notice.tone} variant="box">{notice.text}</DeptNotice> : null}
+      {notice ? <DeptNotice id={noticeId} tabIndex={-1} role={notice.tone === 'critical' ? 'alert' : 'status'} tone={notice.tone} variant="box">{notice.text}</DeptNotice> : null}
       {wards.length === 0 ? (
         <DeptSection title="Beds" headingId={headingId}>
           <EhrEmptyState title={wardType === 'icu' ? 'This facility has no ICU ward yet.' : 'This ward has no beds yet.'}

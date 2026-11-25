@@ -68,8 +68,14 @@ describe('Wards & Beds', () => {
         () => json({ bed: { bedId: BED_9, name: 'Extra mattress 1', kind: 'overflow', status: 'maintenance', statusSince: null, rowVersion: 2 }, replayed: false })],
     })
     await openStaffApp('/provider/wards')
-    fireEvent.click(await screen.findByRole('button', { name: 'Complete bed turnover: Bed 1' }))
-    expect(await screen.findByText('Bed 1 is available again.')).toBeDefined()
+    const turnoverButton = await screen.findByRole('button', { name: 'Complete bed turnover: Bed 1' })
+    turnoverButton.focus()
+    fireEvent.click(turnoverButton)
+    const done = await screen.findByText('Bed 1 is available again.')
+    // The button pressed goes with the bed's new status: focus goes to the result, never to the top of the page.
+    const doneNotice = done.closest('[role="status"]') as HTMLElement
+    await waitFor(() => expect(document.activeElement).toBe(doneNotice))
+    expect(doneNotice.getAttribute('tabindex')).toBe('-1')
     const turnover = sentTo(sent, status(BED_1))[0]!
     expect(turnover.body).toEqual({ expectedRowVersion: 7, status: 'available' })
     expect(purposeOf(turnover)).toBe('direct-care')
@@ -86,7 +92,9 @@ describe('Wards & Beds', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Place in maintenance: Extra mattress 1' }))
     fireEvent.change(screen.getByRole('textbox', { name: 'Why is the bed out of use?' }), { target: { value: 'Mattress torn, waiting for a new one' } })
     fireEvent.click(screen.getAllByRole('button', { name: 'Place in maintenance' }).at(-1)!)
-    expect(await screen.findByText('Extra mattress 1 is under maintenance.')).toBeDefined()
+    const maintained = await screen.findByText('Extra mattress 1 is under maintenance.')
+    // The maintenance form closes on success: focus goes to what happened.
+    await waitFor(() => expect(document.activeElement).toBe(maintained.closest('[role="status"]')))
     expect(sentTo(sent, status(BED_9)).at(-1)!.body).toEqual({ expectedRowVersion: 1, status: 'maintenance', note: 'Mattress torn, waiting for a new one' })
   })
 
@@ -216,6 +224,73 @@ describe('Ward configuration', () => {
     const team = sentTo(sent, `PUT /api/v1/ehr/wards/${WARD_FEMALE}/staff`)[0]!
     expect(team.body).toEqual({ expectedRowVersion: 4, membershipIds: ['m0000000-0000-4000-8000-000000000001', 'm0000000-0000-4000-8000-000000000002'] })
     expect(purposeOf(team)).toBe('healthcare-operations')
+  })
+
+  it('drops team members who no longer hold a ward role (or left), says who, and saves the rest', async () => {
+    const admin = facility(REAL_FACILITY, 'Fictional Hospital', ADMIN, ['admin'])
+    // Tolu's role is now a cashier's (no longer a ward role); ...0009's membership ended (the staff list no longer has them).
+    const stale = () => json({ items: [
+      { ...ward(WARD_FEMALE, 'Female Medical Ward', { takes: 'female' }), beds: [], staffMembershipIds: [
+        'm0000000-0000-4000-8000-000000000002', 'M0000000-0000-4000-8000-000000000003', 'm0000000-0000-4000-8000-000000000009'] },
+    ] })
+    const sent = serve({
+      [SESSION]: [sessionAt(admin, [admin])], [WARDS]: many(stale, 4), ['GET /api/v1/identity/facility-staff']: [staff],
+      [`PUT /api/v1/ehr/wards/${WARD_FEMALE}/staff`]: [() => json({ ward: ward(WARD_FEMALE, 'Female Medical Ward'), replayed: false })],
+    })
+    await openStaffApp('/provider/ward-config')
+    const section = (await screen.findByRole('heading', { name: 'Female Medical Ward' })).closest('section')!
+    fireEvent.click(within(section).getByRole('button', { name: 'Ward team' }))
+    expect(await within(section).findByRole('checkbox', { name: 'Dr Femi Fiction' })).toHaveProperty('checked', true)
+    expect(within(section).getByRole('checkbox', { name: 'Nurse Bisi Fiction' })).toHaveProperty('checked', false)
+    expect(within(section).getByText('Cashier Tolu Fiction and 1 former staff member no longer work here as nurses, clinicians or doctors. Saving the team takes them off it.')).toBeDefined()
+    fireEvent.click(within(section).getByRole('button', { name: 'Save team' }))
+    expect(await screen.findByText('Female Medical Ward’s team is saved.')).toBeDefined()
+    // Only those the backend takes (WARD_STAFF_INVALID otherwise, for the whole list).
+    expect(sentTo(sent, `PUT /api/v1/ehr/wards/${WARD_FEMALE}/staff`)[0]!.body).toEqual({ expectedRowVersion: 4,
+      membershipIds: ['m0000000-0000-4000-8000-000000000002'] })
+    expect(document.body.textContent).not.toContain('m0000000-0000-4000-8000-000000000009')
+  })
+
+  it('cannot change a team while the staff list cannot be read, so no one is dropped by mistake', async () => {
+    const admin = facility(REAL_FACILITY, 'Fictional Hospital', ADMIN, ['admin'])
+    const sent = serve({
+      [SESSION]: [sessionAt(admin, [admin])], [WARDS]: many(configured, 4),
+      // Not retried (a 4xx): the page itself must offer the read again.
+      ['GET /api/v1/identity/facility-staff']: [() => problem(404, 'NOT_FOUND', 'x'), staff],
+    })
+    await openStaffApp('/provider/ward-config')
+    const section = (await screen.findByRole('heading', { name: 'Female Medical Ward' })).closest('section')!
+    fireEvent.click(within(section).getByRole('button', { name: 'Ward team' }))
+    expect(await within(section).findByText('The staff list could not be loaded, so the team cannot be changed now. Select Refresh to try again.')).toBeDefined()
+    expect(within(section).getByRole('button', { name: 'Save team' })).toHaveProperty('disabled', true)
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    expect(await within(section).findByRole('checkbox', { name: 'Nurse Bisi Fiction' })).toHaveProperty('checked', true)
+    expect(within(section).getByRole('button', { name: 'Save team' })).toHaveProperty('disabled', false)
+    expect(sent.filter(call => call.route.startsWith('PUT'))).toEqual([])
+  })
+
+  it('adds a bed again under a name used before as a new request, with a key of its own', async () => {
+    const admin = facility(REAL_FACILITY, 'Fictional Hospital', ADMIN, ['admin'])
+    const beds = `POST /api/v1/ehr/wards/${WARD_FEMALE}/beds`
+    const sent = serve({
+      [SESSION]: [sessionAt(admin, [admin])], [WARDS]: many(configured, 6), ['GET /api/v1/identity/facility-staff']: [staff],
+      [beds]: [() => json({ bedId: BED_9, ward: ward(WARD_FEMALE, 'Female Medical Ward'), replayed: false }, 201),
+        () => json({ bedId: 'c0000000-0000-4000-8000-0000000000c8', ward: ward(WARD_FEMALE, 'Female Medical Ward'), replayed: false }, 201)],
+    })
+    await openStaffApp('/provider/ward-config')
+    const section = (await screen.findByRole('heading', { name: 'Female Medical Ward' })).closest('section')!
+    for (let round = 0; round < 2; round += 1) {
+      fireEvent.click(within(section).getByRole('button', { name: 'Add bed' }))
+      fireEvent.change(within(section).getByRole('textbox', { name: 'Bed name' }), { target: { value: 'Bed 7' } })
+      fireEvent.click(within(section).getAllByRole('button', { name: 'Add bed' }).at(-1)!)
+      await waitFor(() => expect(sentTo(sent, beds)).toHaveLength(round + 1))
+      expect(await screen.findByText('Bed 7 is added to Female Medical Ward.')).toBeDefined()
+      await waitFor(() => expect(within(section).queryByRole('textbox', { name: 'Bed name' })).toBeNull())
+    }
+    // Same body, but the first was answered: the second is a new bed (renamed or taken out of use in between), not a replay.
+    const [first, second] = sentTo(sent, beds)
+    expect(second!.body).toEqual(first!.body)
+    expect(second!.headers.get('Idempotency-Key')).not.toBe(first!.headers.get('Idempotency-Key'))
   })
 
   it('closes a ward only when empty, and says so in plain words', async () => {

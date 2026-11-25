@@ -39,6 +39,43 @@ export function WardConfigUnavailable() {
 
 interface Notice { readonly tone: DeptNoticeTone; readonly text: string }
 
+/**
+ * The facility's staff for the team form: `members` are those who may be on a ward's team (a nurse, clinician or doctor
+ * role), `names` every member's name (a team member whose role changed is still named). 'failed': the list could not be
+ * read, and the team cannot be changed until it is.
+ */
+export type TeamStaff =
+  | { readonly state: 'loading' }
+  | { readonly state: 'failed' }
+  | { readonly state: 'ready'; readonly members: readonly FacilityStaffMember[]; readonly names: ReadonlyMap<string, string> }
+
+export function teamStaffOf(staff: readonly FacilityStaffMember[]): TeamStaff {
+  return {
+    state: 'ready',
+    members: staff.filter(member => member.roles.some(role => WARD_TEAM_ROLES.has(role))),
+    names: new Map(staff.map(member => [member.membershipId.toLowerCase(), member.name])),
+  }
+}
+
+/**
+ * A ward's team as the form may save it: only ids of members who may be on a team now. The ward keeps a member whose
+ * membership ended or whose role changed (nothing takes them off), and the backend refuses the whole list with them in
+ * it (WARD_STAFF_INVALID): they are dropped, and `gone` says who, so the form can tell the admin.
+ */
+export function teamChoice(wardIds: readonly string[] | undefined, chosen: ReadonlySet<string>, staff: Extract<TeamStaff, { state: 'ready' }>) {
+  const offered = new Set(staff.members.map(member => member.membershipId.toLowerCase()))
+  const gone = [...new Set((wardIds ?? []).map(id => id.toLowerCase()))].filter(id => !offered.has(id))
+  return { send: [...chosen].filter(id => offered.has(id)), gone }
+}
+
+/** "Nurse Bisi Fiction and 1 former staff member": who the save takes off the team, never by id. */
+export function goneText(gone: readonly string[], names: ReadonlyMap<string, string>): string {
+  const named = gone.map(id => names.get(id)).filter((name): name is string => Boolean(name))
+  const unnamed = gone.length - named.length
+  const parts = [...named, ...(unnamed > 0 ? [`${unnamed} former staff ${unnamed === 1 ? 'member' : 'members'}`] : [])]
+  return parts.length <= 1 ? parts.join('') : `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}`
+}
+
 function WardConfigDesk({ facilityId }: { readonly facilityId: string }) {
   const { permissions } = useDeptAccess()
   const keyFor = useIdempotencyKeys()
@@ -46,7 +83,8 @@ function WardConfigDesk({ facilityId }: { readonly facilityId: string }) {
   const loader = useCallback((id: string) => inpatientApi.wards(id, { includeInactive: true, includeBeds: true, purpose: 'healthcare-operations' })
     .then(answer => { learnFrom(); return answer }, caught => { learnFrom(caught); throw caught }), [])
   const wards = useFacilityRead<{ items: Ward[] }>(facilityId, true, loader, 'The wards could not be loaded.')
-  const [members, setMembers] = useState<FacilityStaffMember[] | null>(null)
+  const [staff, setStaff] = useState<TeamStaff>({ state: 'loading' })
+  const [staffRound, setStaffRound] = useState(0)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<Notice | null>(null)
   const [adding, setAdding] = useState(false)
@@ -57,11 +95,11 @@ function WardConfigDesk({ facilityId }: { readonly facilityId: string }) {
   useEffect(() => {
     if (!readsStaff) return
     let live = true
-    void facilityStaffApi.read(facilityId).then(staff => {
-      if (live) setMembers(staff.members.filter(member => member.roles.some(role => WARD_TEAM_ROLES.has(role))))
-    }, () => { if (live) setMembers([]) })
+    void facilityStaffApi.read(facilityId).then(answer => {
+      if (live) setStaff(teamStaffOf(answer.members))
+    }, () => { if (live) setStaff({ state: 'failed' }) })
     return () => { live = false }
-  }, [facilityId, readsStaff])
+  }, [facilityId, readsStaff, staffRound])
 
   /** One write with its own key per body; a stale ward reloads the list. */
   async function write(name: string, body: unknown, send: (key: string) => Promise<WardWritten>, done: string, invalid: string) {
@@ -69,6 +107,8 @@ function WardConfigDesk({ facilityId }: { readonly facilityId: string }) {
     setBusy(true)
     try {
       await send(keyFor(name, body))
+      // Done: the same body sent again later (a bed added again under a name used before) is a new request.
+      keyFor.forget(name, body)
       setNotice({ tone: 'positive', text: done })
       void wards.refresh()
       return true
@@ -89,7 +129,10 @@ function WardConfigDesk({ facilityId }: { readonly facilityId: string }) {
     <DeptPage eyebrow="Settings" title={WARD_CONFIG_TITLE}
       description="Wards, their beds and overflow spaces, who each ward takes, and its team. ICU is a ward type."
       primaryAction={!unavailable ? <EhrButton aria-expanded={adding} onClick={() => setAdding(value => !value)}>New ward</EhrButton> : undefined}
-      secondaryActions={<EhrButton variant="secondary" onClick={() => void wards.refresh()} busy={wards.loading && wards.value !== null}>Refresh</EhrButton>}>
+      secondaryActions={<EhrButton variant="secondary" busy={wards.loading && wards.value !== null} onClick={() => {
+        void wards.refresh()
+        if (staff.state === 'failed') { setStaff({ state: 'loading' }); setStaffRound(round => round + 1) }
+      }}>Refresh</EhrButton>}>
       {notice ? <DeptNotice id="ward-config-notice" tabIndex={-1} role={notice.tone === 'critical' ? 'alert' : 'status'} tone={notice.tone} variant="box">{notice.text}</DeptNotice> : null}
       {error ? <DeptNotice role="alert" tone={unavailable ? 'info' : 'critical'}>{error}</DeptNotice> : null}
       {adding && !unavailable ? (
@@ -102,7 +145,7 @@ function WardConfigDesk({ facilityId }: { readonly facilityId: string }) {
       {wards.value === null && wards.loading && !error ? <p className="hid-ehr-state-message" role="status">Loading the wards…</p> : null}
       {wards.value !== null && items.length === 0 ? <EhrEmptyState title="No wards yet." message="Select New ward to set up the first one." /> : null}
       {items.map(ward => (
-        <WardSection key={ward.wardId} facilityId={facilityId} ward={ward} members={members} readsStaff={readsStaff} busy={busy} write={write} />
+        <WardSection key={ward.wardId} facilityId={facilityId} ward={ward} staff={staff} readsStaff={readsStaff} busy={busy} write={write} />
       ))}
     </DeptPage>
   )
@@ -154,10 +197,10 @@ function WardForm({ ward, busy, onCancel, onSave }: {
   )
 }
 
-function WardSection({ facilityId, ward, members, readsStaff, busy, write }: {
+function WardSection({ facilityId, ward, staff, readsStaff, busy, write }: {
   readonly facilityId: string
   readonly ward: Ward
-  readonly members: FacilityStaffMember[] | null
+  readonly staff: TeamStaff
   readonly readsStaff: boolean
   readonly busy: boolean
   readonly write: Write
@@ -206,7 +249,7 @@ function WardSection({ facilityId, ward, members, readsStaff, busy, write }: {
         }} />
       ) : null}
       {open === 'team' ? (
-        <TeamForm ward={ward} members={members} busy={busy} onCancel={() => setOpen(null)} onSave={async ids => {
+        <TeamForm ward={ward} staff={staff} busy={busy} onCancel={() => setOpen(null)} onSave={async ids => {
           if (await write(`team:${ward.wardId}:${ward.rowVersion}`, ids, key => inpatientApi.setWardStaff(facilityId, ward, ids, key),
             `${ward.name}’s team is saved.`, 'Choose nurses, clinicians and doctors who work at this facility.')) setOpen(null)
         }} />
@@ -306,24 +349,34 @@ function BedRow({ facilityId, bed, busy, write }: {
   )
 }
 
-function TeamForm({ ward, members, busy, onCancel, onSave }: {
+function TeamForm({ ward, staff, busy, onCancel, onSave }: {
   readonly ward: Ward
-  readonly members: FacilityStaffMember[] | null
+  readonly staff: TeamStaff
   readonly busy: boolean
   readonly onCancel: () => void
   readonly onSave: (ids: string[]) => Promise<unknown>
 }) {
   const [chosen, setChosen] = useState<ReadonlySet<string>>(() => new Set((ward.staffMembershipIds ?? []).map(id => id.toLowerCase())))
+  const members = staff.state === 'ready' ? staff.members : []
+  const choice = staff.state === 'ready' ? teamChoice(ward.staffMembershipIds, chosen, staff) : null
   return (
     <form className="hid-ehr-dept-inpatient-form" noValidate aria-labelledby={`team-${ward.wardId}-title`}
-      onSubmit={event => { event.preventDefault(); void onSave([...chosen]) }}>
+      onSubmit={event => { event.preventDefault(); if (choice) void onSave(choice.send) }}>
       <h3 id={`team-${ward.wardId}-title`}>{`${ward.name}’s team`}</h3>
       <p className="hid-ehr-dept-inpatient-hint">Nurses, clinicians and doctors who work on this ward. Being on the team never opens a patient’s record by itself.</p>
-      {members === null ? <p className="hid-ehr-state-message" role="status">Loading the staff…</p> : null}
-      {members !== null && members.length === 0 ? <p className="hid-ehr-dept-inpatient-hint">No nurses, clinicians or doctors work here yet.</p> : null}
+      {staff.state === 'loading' ? <p className="hid-ehr-state-message" role="status">Loading the staff…</p> : null}
+      {staff.state === 'failed' ? (
+        <DeptNotice role="alert" tone="critical">The staff list could not be loaded, so the team cannot be changed now. Select Refresh to try again.</DeptNotice>
+      ) : null}
+      {staff.state === 'ready' && members.length === 0 ? <p className="hid-ehr-dept-inpatient-hint">No nurses, clinicians or doctors work here yet.</p> : null}
+      {choice && choice.gone.length > 0 && staff.state === 'ready' ? (
+        <DeptNotice tone="caution" title="No longer on the ward roles">
+          {`${goneText(choice.gone, staff.names)} no longer ${choice.gone.length === 1 ? 'works here as a nurse, clinician or doctor' : 'work here as nurses, clinicians or doctors'}. Saving the team takes them off it.`}
+        </DeptNotice>
+      ) : null}
       <fieldset className="hid-ehr-dept-inpatient-choices">
         <legend>Team</legend>
-        {(members ?? []).map(member => (
+        {members.map(member => (
           <label key={member.membershipId}>
             <input type="checkbox" checked={chosen.has(member.membershipId.toLowerCase())} onChange={event => setChosen(previous => {
               const next = new Set(previous)
@@ -336,7 +389,7 @@ function TeamForm({ ward, members, busy, onCancel, onSave }: {
         ))}
       </fieldset>
       <div className="hid-ehr-dept-form-actions">
-        <EhrButton type="submit" busy={busy} disabled={members === null}>Save team</EhrButton>
+        <EhrButton type="submit" busy={busy} disabled={staff.state !== 'ready'}>Save team</EhrButton>
         <EhrButton variant="quiet" onClick={onCancel}>Cancel</EhrButton>
       </div>
     </form>

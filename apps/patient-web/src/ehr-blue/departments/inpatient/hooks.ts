@@ -2,23 +2,34 @@ import { useEffect, useRef, useState } from 'react'
 import { FACILITY_STAFF_NAMES_MAX_IDS, staffApi } from '../../../staff/api'
 import { newKey } from './inpatientRules'
 
+export interface IdempotencyKeys {
+  (action: string, body: unknown): string
+  /**
+   * Lets go of a request's key once its answer came: the same body sent later is a new request (a bed added again under
+   * a name used before), not a retry, and gets a key of its own. A retry after a lost answer keeps its key.
+   */
+  readonly forget: (action: string, body: unknown) => void
+}
+
 /**
  * One Idempotency-Key per request body: the same body sent again (a retry after a lost answer) carries the same key, so
  * the server answers its first answer ("replayed") and records nothing twice; any other body gets a key of its own, as
  * the server refuses a key reused for another body (IDEMPOTENCY_KEY_REUSED). In memory for the page's life only.
  */
-export function useIdempotencyKeys(): (action: string, body: unknown) => string {
+export function useIdempotencyKeys(): IdempotencyKeys {
   const [keyFor] = useState(() => {
     const keys = new Map<string, string>()
-    return (action: string, body: unknown) => {
-      const signature = `${action}\n${JSON.stringify(body)}`
+    const signatureOf = (action: string, body: unknown) => `${action}\n${JSON.stringify(body)}`
+    const forget = (action: string, body: unknown) => { keys.delete(signatureOf(action, body)) }
+    return Object.assign((action: string, body: unknown) => {
+      const signature = signatureOf(action, body)
       let key = keys.get(signature)
       if (!key) {
         key = newKey()
         keys.set(signature, key)
       }
       return key
-    }
+    }, { forget })
   })
   return keyFor
 }
