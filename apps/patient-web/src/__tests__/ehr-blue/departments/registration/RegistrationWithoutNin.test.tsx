@@ -441,6 +441,14 @@ describe('a registration without a NIN, as an approver reads it', () => {
     expect(api.enrollRegistration).not.toHaveBeenCalled()
   })
 
+  it('a NIN case whose NIN no longer reads verified still says an account can be set up once the NIN is checked', async () => {
+    api.registrationCase.mockResolvedValue({ caseId: CASE, status: 'approved_new_identity', version: 2, candidateCount: 0,
+      identityEvidence: 'nin', ninStatus: 'not_verified', patient: { patientId: PATIENT, hid: 'HID-ZDEMAAB2' } })
+    await findCase()
+    expect(within(actions()).getByText(NEEDS_NIN)).toBeTruthy()
+    expect(within(actions()).queryByText(/made without a NIN/)).toBeNull()
+  })
+
   it('a NIN case’s enrollment refused as PATIENT_ENROLLMENT_CONFLICT is said in its own words, not as "changed somewhere else"', async () => {
     api.registrationCase.mockResolvedValue({ caseId: CASE, status: 'approved_new_identity', version: 2, candidateCount: 0,
       identityEvidence: 'nin', ninStatus: 'verified', patient: { patientId: PATIENT, hid: 'HID-ZDEMAAB2' } })

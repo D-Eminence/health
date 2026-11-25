@@ -124,6 +124,18 @@ describe('Verify NIN on a registration without a NIN', () => {
     expect(within(actions()).queryByRole('button', { name: 'Verify NIN' })).toBeNull()
   })
 
+  it('clears the number as it is sent, says it is still checking after a few seconds, and keeps the record while it waits', async () => {
+    api.linkPatientNin.mockReturnValue(new Promise(() => {}))
+    await openForm()
+    await send(NIN)
+    expect(ninField().value).toBe('')
+    expect(within(form()).getByRole('button', { name: 'Checking…' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Back to list' }).getAttribute('aria-disabled')).toBe('true')
+    await waitFor(() => expect(within(form()).getByText('Still checking the NIN. This can take up to a minute.')).toBeTruthy(),
+      { timeout: 6_000 })
+    expect(api.linkPatientNin).toHaveBeenCalledTimes(1)
+  })
+
   it('says so when the NIN was already on the record', async () => {
     api.linkPatientNin.mockResolvedValue({ ...LINKED, outcome: 'already_linked', replayed: true })
     await openForm()
@@ -223,6 +235,9 @@ describe('Verify NIN on a registration without a NIN', () => {
     [403, 'NIN_LINK_NOT_PERMITTED', null,
       'You can add a NIN only for this facility’s own patients. The patient can add their NIN on their own Health ID profile.'],
     [404, 'PATIENT_NOT_FOUND', null, 'We can’t find this patient’s record. Refresh and try again.'],
+    [400, 'IDEMPOTENCY_KEY_REQUIRED', null, 'That didn’t go through. Try again.'],
+    [400, 'PURPOSE_OF_USE_REQUIRED', null, 'That didn’t go through. Try again.'],
+    [504, 'QOREID_TIMEOUT', null, 'The NIN check is taking longer than usual. Try again in a minute.'],
     [409, 'PATIENT_ALREADY_HAS_NIN', 'This patient\'s earlier records hold a different NIN. Ask Health ID support to review it.',
       'This patient’s earlier records hold a different NIN. Ask Health ID support to review it.'],
     [409, 'PATIENT_NOT_IDENTIFIED', null, 'Identify this patient before adding a NIN.'],
@@ -256,6 +271,13 @@ describe('when Verify NIN is not offered', () => {
     expect(within(actions()).queryByRole('button', { name: 'Verify NIN' })).toBeNull()
     await act(async () => { fireEvent.click(within(actions()).getByRole('button', { name: 'Check again' })) })
     await waitFor(() => expect(within(actions()).getByRole('button', { name: 'Verify NIN' })).toBeTruthy())
+  })
+
+  it('offers nothing while NIN checks are still being read, and says so', async () => {
+    api.registrationCapabilities.mockReturnValue(new Promise(() => {}))
+    await findCase()
+    expect(within(actions()).getByText('Checking NIN checks are working…')).toBeTruthy()
+    expect(within(actions()).queryByRole('button', { name: 'Verify NIN' })).toBeNull()
   })
 
   it('is not offered for a patient whose NIN is verified', async () => {

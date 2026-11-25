@@ -264,6 +264,13 @@ export const ENROLL_FAILED = 'We couldn’t create the account. They may already
  */
 export const ENROLL_NEEDS_NIN = 'A patient account can be set up once the patient’s NIN has been checked.'
 /**
+ * The same, on a registration made without a NIN (hid-system 0130). 0032 sets up an account only for the NIN checked on
+ * the registration itself (an identifier with this case's registration_case_id and lookup), and a NIN added later
+ * (0138, ID-6, "Verify NIN later") is linked by its own record, not the case. So no account is promised once a NIN is
+ * added: the words say so, before and after.
+ */
+export const ENROLL_WITHOUT_NIN = 'A patient account can’t be set up from a registration made without a NIN, even after a NIN is added.'
+/**
  * 409 PATIENT_ENROLLMENT_CONFLICT (identity-api nin-registration.service.ts enroll): the patient has an account already,
  * the case changed, or its NIN is not a checked one. Not the shared "changed somewhere else" words, which name one cause.
  */
