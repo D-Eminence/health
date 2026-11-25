@@ -39,6 +39,39 @@ export const ENCOUNTER_TRANSITIONS: Readonly<Record<string, readonly StatusOptio
     { value: 'entered_in_error', label: 'Mark as entered in error' }],
 }
 
+/**
+ * EHR-C8a (Novu, Release A): a completed consultation may be marked entered in error, never moved otherwise. The
+ * route refuses it for the visit holding the imported paper records, so it is not offered there; an earlier backend
+ * has no such move.
+ */
+export const COMPLETED_ENTERED_IN_ERROR: StatusOption = { value: 'entered_in_error', label: 'Mark as entered in error' }
+
+/** The status changes offered on this consultation, by its status. */
+export function encounterTransitions(encounter: Pick<Encounter, 'status' | 'importedPaperRecords'>): readonly StatusOption[] {
+  if (encounter.status === 'completed') {
+    return usesNovuBackend() && encounter.importedPaperRecords !== true ? [COMPLETED_ENTERED_IN_ERROR] : []
+  }
+  return ENCOUNTER_TRANSITIONS[encounter.status] ?? []
+}
+
+/**
+ * What marking a completed consultation entered in error does, said in its form and its dialog: it changes none of the
+ * visit's records itself, and the route refuses it while orders are open or notes are signed.
+ */
+export const COMPLETED_ERROR_WARNING = 'Use this only for a consultation recorded by mistake, for example on the wrong patient. It then leaves the patient’s record, nothing more can be added to it, and this can’t be undone. First cancel or stop its prescriptions and lab requests, drafts included, and mark its signed notes as entered in error.'
+
+/** Each refusal of a consultation status change that names what to do, in plain words (EHR-C8a's 409s first). */
+export const OPEN_ORDERS = 'Nothing was changed. Cancel or stop this consultation’s prescriptions and lab requests, drafts included, before marking it as entered in error.'
+export const SIGNED_NOTES = 'Nothing was changed. Mark this consultation’s signed notes as entered in error before marking the consultation as entered in error.'
+export const IMPORTED_VISIT = 'Nothing was changed. The visit that holds the imported paper records can’t be marked as entered in error.'
+export const ENCOUNTER_NOT_FOUND = 'Nothing was changed. This consultation was not found. Go back to the list and open it again.'
+export const GO_TO_ORDERS = 'Go to Orders'
+export const GO_TO_NOTES = 'Go to Notes'
+/** A change the patient has not approved (403 CONSENT_REQUIRED), in New consultation's words. */
+export const NO_CONSENT = 'Nothing was changed. The patient has not approved changes to their record by this facility. Ask them to approve a read-and-write request first.'
+/** A change sent without its purpose of use (400 PURPOSE_OF_USE_REQUIRED): opening the patient again sets it. */
+export const OPEN_PATIENT_AGAIN = 'Nothing was changed. Open the patient again, then try again.'
+
 /** The changes that also change the encounter's records (today's CLOSING_STATUSES). */
 export const CLOSING_STATUSES: ReadonlySet<string> = new Set(['cancelled', 'entered_in_error'])
 

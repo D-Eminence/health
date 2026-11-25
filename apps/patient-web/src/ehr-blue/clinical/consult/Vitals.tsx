@@ -14,10 +14,12 @@ import { useWorkspaceHref } from '../parts/Workspace'
 import { RELOAD_FAILED, recordKey, refusedFieldErrors } from '../triage/records'
 import { Readings } from '../triage/TriageList'
 import {
-  CHANGED_SINCE, CLOSE_CORRECTION, CORRECTION_FAILED, CORRECTION_HINT, CORRECTION_SAVED, CORRECTION_UNREAD, CORRECT_LABEL, LOADING_CORRECTION,
-  RELOAD_FIRST, RETRACTED_SINCE, RETRACTED_TEXT, SAVE_CORRECTION, VITAL_FIELDS, correctionNumber, currentValues, isRetracted, reloadSentence,
-  useCorrections, vitalName, vitalStatus, type Corrections,
+  CHANGED_SINCE, CLOSE_CORRECTION, CORRECTION_FAILED, CORRECTION_HINT, CORRECTION_SAVED, CORRECTION_UNREAD, CORRECT_LABEL, EIE_ALREADY, EIE_CHANGED,
+  EIE_CLOSE, EIE_DONE, EIE_LABEL, LOADING_CORRECTION, RELOAD_FIRST, RETRACTED_SINCE, RETRACTED_TEXT, SAVE_CORRECTION, VITAL_FIELDS, WITHDRAWN_CODES,
+  correctionNumber, currentValues, isRetracted, reloadSentence, useCorrections, vitalName, vitalStatus, type Corrections,
 } from '../triage/vitals'
+import { EnteredInErrorForm, canWithdraw, type Withdrawal } from '../triage/EnteredInError'
+import { ActionList } from '../parts/Detail'
 import { VitalsForm, type VitalsInput } from '../triage/VitalsForm'
 import { rowVersion } from './encounters'
 import { ListPaging } from './Notes'
@@ -37,8 +39,9 @@ export const RECORD_VITALS = 'Record vitals'
  * recorded; one whose correction can't be read says so and shows what was first recorded. Each opens its own page in
  * Triage & Vitals. Each row also has classic's inline "Correct these vitals" / "Close correction" (VitalPanel,
  * Clinical.tsx:760-796), for a role that may write vitals under a grant that allows changes, on a vital whose current
- * values are known and that was not entered in error. Nothing is read here but a vital's corrections: the list is the
- * encounter page's own, read again after a correction.
+ * values are known and that was not entered in error, and, on Novu, EHR-C8b's "Mark as entered in error" for the whole
+ * reading. Nothing is read here but a vital's corrections: the list is the encounter page's own (with the readings
+ * entered in error, each struck through), read again after either change.
  */
 export function VitalsCard({ chart, encounterId, list, canRecord }: {
   chart: Chart
@@ -77,26 +80,26 @@ export function VitalsCard({ chart, encounterId, list, canRecord }: {
                   <span>
                     <strong><Link className="hid-ehr-clinical-link" to={href.to('triage', recordKey(encounterId, vital.id))}>{vitalName(vital)}</Link></strong>
                     {retracted ? <span className="hid-ehr-clinical-cell-sub">{RETRACTED_TEXT}</span> : null}
-                    {correctionNumber(vital) === 0 ? <span className="hid-ehr-clinical-cell-sub"><Readings values={vital} /></span> : null}
+                    {correctionNumber(vital) === 0 ? <span className="hid-ehr-clinical-cell-sub"><Readings values={vital} withdrawn={retracted} /></span> : null}
                     {read.state === 'loading' ? <span className="hid-ehr-clinical-cell-sub" role="status">{LOADING_CORRECTION}</span> : null}
                     {latest ? (
                       <>
-                        <span className="hid-ehr-clinical-cell-sub">Corrected (correction {latest.correctionNo}): <Readings values={latest.replacementValues} /></span>
+                        <span className="hid-ehr-clinical-cell-sub">Corrected (correction {latest.correctionNo}): <Readings values={latest.replacementValues} withdrawn={retracted} /></span>
                         <span className="hid-ehr-clinical-cell-sub">Reason: {latest.reason}</span>
                         {formatWhen(latest.createdAt) ? <span className="hid-ehr-clinical-cell-sub">Corrected at: {formatWhen(latest.createdAt)}</span> : null}
                       </>
                     ) : null}
                     {read.state === 'failed' ? <span className="hid-ehr-clinical-cell-sub" role="alert">{`${CORRECTION_UNREAD} ${read.message}`}</span> : null}
-                    {correctionNumber(vital) > 0 ? <span className="hid-ehr-clinical-cell-sub">Originally recorded: <Readings values={vital} /></span> : null}
+                    {correctionNumber(vital) > 0 ? <span className="hid-ehr-clinical-cell-sub">Originally recorded: <Readings values={vital} withdrawn={retracted} /></span> : null}
                     {recorded ? <span className="hid-ehr-clinical-cell-sub">Recorded: {recorded}</span> : null}
                   </span>
                   {/* Today's warning badge for vitals entered in error; the shared status map has no tone for it. */}
                   {retracted ? <Badge size="sm" tone="warn">Entered in error</Badge> : <StatusBadge status={vitalStatus(vital)} />}
                 </div>
-                {canCorrect && !retracted ? (
-                  <VitalCorrection
+                {(canCorrect && !retracted) || canWithdraw(chart, vital) ? (
+                  <VitalActions
                     key={`${vital.id}-${String(vital.rowVersion)}`}
-                    chart={chart} encounterId={encounterId} vital={vital} corrections={read} list={list}
+                    chart={chart} encounterId={encounterId} vital={vital} corrections={read} list={list} canCorrect={canCorrect && !retracted}
                     onSaid={(text, error) => setSaid(text ? { text, error } : null)}
                   />
                 ) : null}
@@ -111,27 +114,41 @@ export function VitalsCard({ chart, encounterId, list, canRecord }: {
 
 
 /**
- * Classic's inline correction under one vital (VitalPanel and correctVital, staff/routes/Clinical.tsx:760-796,
- * :1738-1760): "Correct these vitals" opens the triage vitals form with the current values, "Close correction" closes
- * it. A save re-checks access, appends the correction with one key per attempt, and reads the visit's vitals again;
- * one refused because the vital changed (412) or was entered in error (409 VITAL_NOT_AMENDABLE) reads them again and
- * says so in classic's words, as the vital now reads (a 412 for one now entered in error says RETRACTED_SINCE).
- * Offered only once the current values are known: nothing is corrected from values not seen.
+ * The actions under one vital, one form open at a time. Classic's inline correction (VitalPanel and correctVital,
+ * staff/routes/Clinical.tsx:760-796, :1738-1760): "Correct these vitals" opens the triage vitals form with the current
+ * values, "Close correction" closes it. A save re-checks access, appends the correction with one key per attempt, and
+ * reads the visit's vitals again; one refused because the vital changed (412) or was entered in error (409
+ * VITAL_NOT_AMENDABLE, Novu's VITAL_ENTERED_IN_ERROR) reads them again and says so in classic's words, as the vital now
+ * reads (a 412 for one now entered in error says RETRACTED_SINCE). The correction is offered only once the current
+ * values are known: nothing is corrected from values not seen. Beside it, on Novu, "Mark as entered in error"
+ * (EHR-C8b, EnteredInErrorForm), after which the visit's vitals are read again too.
  */
-function VitalCorrection({ chart, encounterId, vital, corrections, list, onSaid }: {
+function VitalActions({ chart, encounterId, vital, corrections, list, canCorrect, onSaid }: {
   chart: Chart
   encounterId: string
   vital: ClinicalRecord
   corrections: Corrections
   list: RecordList<ClinicalRecord>
+  canCorrect: boolean
   onSaid: (text: string, error: boolean) => void
 }) {
-  const [open, setOpen] = useState(false)
+  const [opened, setOpened] = useState<'correct' | 'withdraw' | null>(null)
+  const open = opened === 'correct'
   const attempt = useRef<{ signature: string; key: string } | null>(null)
-  const current = currentValues(vital, corrections)
-  if (!current) return null
-  // While the visit's vitals are read again a closed correction does not open (classic's disabled={recordsLoading}).
-  const locked = list.loading && !open
+  const current = canCorrect ? currentValues(vital, corrections) : null
+  const withdrawable = canWithdraw(chart, vital)
+  if (!current && !withdrawable) return null
+  // While the visit's vitals are read again a closed action does not open (classic's disabled={recordsLoading}).
+  const locked = (action: 'correct' | 'withdraw') => list.loading && opened !== action
+  const toggle = (action: 'correct' | 'withdraw') => { if (!locked(action)) setOpened(value => value === action ? null : action) }
+
+  const withdrawn = async (outcome: Withdrawal) => {
+    setOpened(null)
+    onSaid(outcome === 'changed' ? '' : outcome === 'done' ? EIE_DONE : EIE_ALREADY, false)
+    const failed = await list.reload()
+    if (outcome === 'changed') onSaid(`${EIE_CHANGED}${reloadSentence(failed === null ? { items: [] } : { failed }, 'vitals', true)}`, true)
+    else if (failed !== null) onSaid(`${RELOAD_FAILED} ${failed}`.trim(), true)
+  }
 
   const amend = async ({ values, reason }: VitalsInput): Promise<SubmitOutcome> => {
     const expectedRowVersion = rowVersion(vital.rowVersion)
@@ -143,16 +160,16 @@ function VitalCorrection({ chart, encounterId, vital, corrections, list, onSaid 
       await chart.verify()
       await staffApi.correctVital(chart.facilityId, chart.patientId, encounterId, vital.id, { expectedRowVersion, changeReason: reason, replacementValues: values }, attempt.current.key)
     } catch (caught) {
-      if (isHidApiError(caught) && (caught.status === 412 || caught.code === 'VITAL_NOT_AMENDABLE')) {
+      if (isHidApiError(caught) && (caught.status === 412 || WITHDRAWN_CODES.has(caught.code))) {
         attempt.current = null
         const failed = await list.reload()
         const items = failed === null ? list.latest() ?? [] : []
         const reloaded = failed === null ? { items } : { failed }
         // What is said follows the vital as read again, as classic's (Clinical.tsx:1754-1756): a 412 for a vital now
         // entered in error says so, not that it changed.
-        const nowRetracted = caught.code === 'VITAL_NOT_AMENDABLE' || items.some(item => item.id === vital.id && isRetracted(item))
+        const nowRetracted = WITHDRAWN_CODES.has(caught.code) || items.some(item => item.id === vital.id && isRetracted(item))
         onSaid(`${nowRetracted ? RETRACTED_SINCE : CHANGED_SINCE}${reloadSentence(reloaded, 'vitals', true)}`, true)
-        setOpen(false)
+        setOpened(null)
         return
       }
       return {
@@ -164,7 +181,7 @@ function VitalCorrection({ chart, encounterId, vital, corrections, list, onSaid 
       }
     }
     attempt.current = null
-    setOpen(false)
+    setOpened(null)
     onSaid(CORRECTION_SAVED, false)
     const failed = await list.reload()
     if (failed !== null) onSaid(`${RELOAD_FAILED} ${failed}`.trim(), true)
@@ -172,9 +189,17 @@ function VitalCorrection({ chart, encounterId, vital, corrections, list, onSaid 
 
   return (
     <div className="hid-ehr-clinical-consult-edit">
-      <EhrButton variant="secondary" size="sm" aria-expanded={open} aria-disabled={locked || undefined}
-        onClick={() => { if (!locked) setOpen(value => !value) }}>{open ? CLOSE_CORRECTION : CORRECT_LABEL}</EhrButton>
-      {open ? (
+      <ActionList>
+        {current ? (
+          <EhrButton variant="secondary" size="sm" aria-expanded={open} aria-disabled={locked('correct') || undefined}
+            onClick={() => toggle('correct')}>{open ? CLOSE_CORRECTION : CORRECT_LABEL}</EhrButton>
+        ) : null}
+        {withdrawable ? (
+          <EhrButton variant="secondary" size="sm" aria-expanded={opened === 'withdraw'} aria-disabled={locked('withdraw') || undefined}
+            onClick={() => toggle('withdraw')}>{opened === 'withdraw' ? EIE_CLOSE : EIE_LABEL}</EhrButton>
+        ) : null}
+      </ActionList>
+      {open && current ? (
         <VitalsForm
           mode="correct"
           current={current}
@@ -184,6 +209,7 @@ function VitalCorrection({ chart, encounterId, vital, corrections, list, onSaid 
           onSubmit={amend}
         />
       ) : null}
+      {opened === 'withdraw' && withdrawable ? <EnteredInErrorForm chart={chart} encounterId={encounterId} vital={vital} onWithdrawn={withdrawn} /> : null}
     </div>
   )
 }

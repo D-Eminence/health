@@ -254,6 +254,11 @@
   .hid-ehr .hid-ehr-clinical-list-table.hid-ehr-table-stack-lg .hid-ehr-clinical-row-actions > * { display: inline-flex; min-height: 44px; align-items: center; }
 }
 
+/* A vitals reading entered in error (EHR-C8b): its values struck through; the row says "Entered in error" in words. */
+.hid-ehr .hid-ehr-clinical-readings-withdrawn {
+  text-decoration: line-through;
+}
+
 /* Record cell: link, then the short id on its own line. */
 .hid-ehr .hid-ehr-clinical-record-id,
 .hid-ehr .hid-ehr-clinical-cell-sub {

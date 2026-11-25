@@ -69,6 +69,18 @@ describe('c4b5445 route registry', () => {
     expect(encounters?.permissions?.POST).toEqual(['ehr.encounter.write'])
   })
 
+  it('lets a vitals writer mark one reading entered in error (EHR-C8b), and no patient application reach it', () => {
+    const path = '/api/v1/ehr/patients/patient-1/encounters/encounter-1/vitals/vital-1'
+    expect(findEndpoint('ehr.vital')).toMatchObject({ methods: ['GET', 'PATCH'], permissions: { GET: ['ehr.vital.read'], PATCH: ['ehr.vital.write'] } })
+    expect(findEndpoint('ehr.vital')?.note).toMatch(/VITAL_ALREADY_ENTERED_IN_ERROR/)
+    expect(findEndpoint('ehr.vitals')?.note).toMatch(/includeEnteredInError=true/)
+    expect(assertRegisteredBrowserRequest('PATCH', path).name).toBe('ehr.vital')
+    expect(() => assertRegisteredBrowserRequest('DELETE', path)).toThrow(BrowserRouteError)
+    expect(() => assertEndpointAllowed('staff-web', 'ehr.vital')).not.toThrow()
+    expect(() => assertEndpointAllowed('ehr-web', 'ehr.vital')).not.toThrow()
+    expect(() => assertEndpointAllowed('patient-web', 'ehr.vital')).toThrow(BoundaryViolationError)
+  })
+
   it('routes provider facility audit to the Identity service', () => {
     expect(findEndpoint('identity.facilityAudit')?.path).toBe('/api/v1/audit/events')
     expect(findEndpoint('identity.facilityAudit')?.permissions?.GET).toEqual(['audit.read'])

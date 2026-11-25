@@ -67,7 +67,7 @@ function VitalsTable({ chart }: { chart: Chart }) {
       id: recordKey(encounter.id, record.id),
       name: vitalName(record),
       context: readings ? vitalSummary(readings) : '',
-      summary: readings ? <Readings values={readings} /> : null,
+      summary: readings ? <Readings values={readings} withdrawn={isRetracted(record)} /> : null,
       status: vitalStatus(record),
       statusNote: number > 0 ? `Corrected (correction ${number})` : undefined,
       updated: read.state === 'shown' ? read.latest.createdAt : recordedAt(record),
@@ -82,10 +82,13 @@ function VitalsTable({ chart }: { chart: Chart }) {
     noRecords="No vitals for this encounter." />
 }
 
-/** A row's readings, each with its unit and, outside the adult range, its flag (also the encounter page's Vitals card). */
-export function Readings({ values }: { values: VitalValues }) {
+/**
+ * A row's readings, each with its unit and, outside the adult range, its flag (also the encounter page's Vitals card).
+ * A reading entered in error is struck through, as the contract shows one (EHR-C8b); its row says so in words too.
+ */
+export function Readings({ values, withdrawn = false }: { values: VitalValues; withdrawn?: boolean }) {
   return (
-    <span className="hid-ehr-clinical-readings">
+    <span className={withdrawn ? 'hid-ehr-clinical-readings hid-ehr-clinical-readings-withdrawn' : 'hid-ehr-clinical-readings'}>
       {measurementItems(values).map(item => <span key={item.label}><span className="hid-ehr-clinical-cell-sub-inline">{item.label}</span> {item.value}</span>)}
     </span>
   )

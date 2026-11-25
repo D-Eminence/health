@@ -26,7 +26,8 @@ import { vitalStatus } from '../triage/vitals'
 import { DiagnosesCard } from './Diagnoses'
 import { DocumentsCard } from './Documents'
 import {
-  AMEND_LABEL, CLOSING_STATUSES, EDIT_DRAFT_LABEL, ENCOUNTER_CHANGED, ENCOUNTER_CREATED, ENCOUNTER_STATUS_UPDATED, ENCOUNTER_TRANSITIONS, ENCOUNTERS_FAILED,
+  AMEND_LABEL, CLOSING_STATUSES, COMPLETED_ERROR_WARNING, EDIT_DRAFT_LABEL, ENCOUNTER_CHANGED, ENCOUNTER_CREATED, ENCOUNTER_NOT_FOUND, ENCOUNTER_STATUS_UPDATED,
+  ENCOUNTERS_FAILED, GO_TO_NOTES, GO_TO_ORDERS, IMPORTED_VISIT, NO_CONSENT, OPEN_ORDERS, OPEN_PATIENT_AGAIN, REASON_SHORT, SIGNED_NOTES, encounterTransitions,
   NEW_DIAGNOSIS_FIELDS, NEW_DIAGNOSIS_INITIAL, NEW_DIAGNOSIS_REFUSED, NOTES_ARE_DRAFTS, NOTE_EIE_LABEL, NOTE_ON_LATER_PAGE, NOTE_STATUS_ON_LATER_PAGE, NOTE_STATUS_UPDATED, NO_COMPLAINT, NO_WRITE, REASON_FIELD, RECORD_NOT_SAVED, RECORD_SAVED, RELOAD_FAILED, RELOAD_NOTE,
   RELOAD_RECORD, REVISION_FAILED, REVISION_REASON_FIELD, REVISION_RECORDED, SAVE_DRAFT, SIGN_LABEL, STATUS_FAILED, TITLE, UPDATING,
   WRITE_NOTE_LABEL, consultationNote, contentCheck, encounterClosesRecords, encounterTitle, encounterTypeLabel, field,
@@ -169,6 +170,21 @@ const NO_ERROR: PageError = { text: '', again: {} }
 const DISCHARGE_WAIT = 'The discharge summary can be printed once the visit’s diagnoses, note, tests and medicines have loaded. If one could not be loaded, try again.'
 /** The lists a cancel or entered in error changes, each read again after it. */
 const CLOSED_LISTS = ['notes', 'diagnoses', 'vitals', 'prescriptions', 'labs', 'documents'] as const
+/** Where a refusal that names the Orders or Notes card takes the user (focus, never the address). */
+const ORDERS_ANCHOR = 'consult-orders'
+const NOTES_ANCHOR = 'consult-notes'
+
+/** A link to a card further down this page: it scrolls there and moves focus to it, and the address stays as it is. */
+function JumpLink({ to, children }: { to: string; children: ReactNode }) {
+  return (
+    <a className="hid-ehr-clinical-link" href={`#${to}`} onClick={event => {
+      event.preventDefault()
+      const target = document.getElementById(to)
+      target?.scrollIntoView?.({ block: 'start' })
+      target?.focus()
+    }}>{children}</a>
+  )
+}
 
 /**
  * A list whose read after a change failed keeps what was last read, and the page says the change was saved, once
@@ -233,6 +249,8 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
     notes: chart.canWrite && chart.can('ehr.note.write'), encounter: chart.canWrite && chart.can('ehr.encounter.write'),
     diagnoses: chart.canWrite && chart.can('ehr.diagnosis.write'), documents: chart.canWrite && chart.can('ehr.document.write'),
   }
+  // The Orders card shows only where it has something to show: this visit's orders, or the demo facilities' samples.
+  const showsOrders = chart.can(KINDS.pharmacy.read) || chart.can(KINDS.laboratory.read) || (chart.canWrite && isDemoFacility(chart.facilityId))
   // A diagnosis typed with a note change is added as today's Diagnoses tab adds one: that tab needs the read as well as
   // the write (Clinical.tsx:28, 1853), so a role that can't see the diagnoses doesn't add one unseen.
   const addsDiagnosis = writes.diagnoses && reads.diagnoses
@@ -403,6 +421,17 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
     await reloaded({ notes: on => on.notes.reload(true) })
   }
 
+  /** The plain words for a status change refused for a reason the user can act on, or null for the other refusals. */
+  const statusRefusal = (code: string): ReactNode => {
+    if (code === 'VISIT_HAS_OPEN_ORDERS') return <>{OPEN_ORDERS}{showsOrders ? <> <JumpLink to={ORDERS_ANCHOR}>{GO_TO_ORDERS}</JumpLink></> : null}</>
+    if (code === 'VISIT_HAS_SIGNED_NOTES') return <>{SIGNED_NOTES}{reads.notes ? <> <JumpLink to={NOTES_ANCHOR}>{GO_TO_NOTES}</JumpLink></> : null}</>
+    if (code === 'IMPORTED_VISIT_NOT_ENTERED_IN_ERROR') return IMPORTED_VISIT
+    if (code === 'ENCOUNTER_NOT_FOUND') return ENCOUNTER_NOT_FOUND
+    if (code === 'CONSENT_REQUIRED') return NO_CONSENT
+    if (code === 'PURPOSE_OF_USE_REQUIRED') return OPEN_PATIENT_AGAIN
+    return null
+  }
+
   const encounterStatus = (status: string) => async (values: FormValues): Promise<SubmitOutcome> => {
     const expectedRowVersion = rowVersion(encounter.rowVersion)
     if (expectedRowVersion === null) return { formError: 'Reload the consultation before changing it.' }
@@ -417,6 +446,12 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
       if (isHidApiError(caught) && caught.status === 403 && caught.code === 'ENCOUNTER_RETRACTION_NOT_PERMITTED') {
         return { formError: retractionNotPermitted(status) }
       }
+      // A completed visit marked entered in error (EHR-C8a) is refused while something on it is still open: nothing
+      // changed, so the form stays with its reason, and the refusal says what to do first, with the way to it.
+      const refused = isHidApiError(caught) ? statusRefusal(caught.code) : null
+      if (refused) return { formError: refused }
+      if (isHidApiError(caught) && caught.code === 'CHANGE_REASON_REQUIRED') return { fieldErrors: { reason: REASON_SHORT } }
+      // A stale version (412), or a move the status no longer allows (409 INVALID_ENCOUNTER_TRANSITION): read it again.
       if (isHidApiError(caught) && (caught.status === 409 || caught.status === 412)) {
         const read = ++encounterReads.current
         let fresh: Encounter
@@ -479,8 +514,10 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
     actions.push({ id: 'write-note', label: WRITE_NOTE_LABEL, fields: WRITE_FIELDS, hint: NOTES_ARE_DRAFTS, submit: SAVE_DRAFT, nativeRequired: true, validate: writeCheck, run: writeNote })
   }
   if (writes.encounter) {
-    const warning = encounterClosesRecords()
-    for (const transition of ENCOUNTER_TRANSITIONS[encounter.status] ?? []) {
+    // A completed visit's only change is EHR-C8a's entered in error, which changes none of its records itself: it says
+    // its own warning, not the one about closing a visit's records.
+    const warning = encounter.status === 'completed' ? COMPLETED_ERROR_WARNING : encounterClosesRecords()
+    for (const transition of encounterTransitions(encounter)) {
       more.push({
         id: `encounter-${transition.value}`, label: transition.label, fields: [REASON_FIELD], validate: reasonCheck, busy: UPDATING,
         // The dialog's button is the one that sends a cancel or entered in error, so it says the warning too.
@@ -693,10 +730,10 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
         </EhrCard>
       </DetailGrid>
       {reads.notes ? (
-        <NotesCard
+        <div id={NOTES_ANCHOR} className="hid-ehr-clinical-consult-focus" tabIndex={-1}><NotesCard
           chart={chart} encounterId={encounterId} list={notes} canWrite={writes.notes} onSaved={setSuccess} onError={setPageError}
           onReloadFailed={(failure, first) => addFailed(reloadFailed(failure, { notes: on => on.notes.reload(first) }))}
-        />
+        /></div>
       ) : null}
       {reads.diagnoses ? (
         <DiagnosesCard
@@ -707,9 +744,9 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
       {/* Only where it has something to show: this visit's orders (each create sits with its list, as in classic), or
           the demo facilities' sample radiology and referral steps. A role that may add orders but read none sees no
           empty card. */}
-      {chart.can(KINDS.pharmacy.read) || chart.can(KINDS.laboratory.read) || (chart.canWrite && isDemoFacility(chart.facilityId)) ? (
+      {showsOrders ? (
         <div ref={ordersRef}>
-          <EhrCard title="Orders"><EncounterOrders chart={chart} encounter={encounter} lists={{ pharmacy: prescriptions, laboratory: labs }} /></EhrCard>
+          <EhrCard title={<span id={ORDERS_ANCHOR} className="hid-ehr-clinical-consult-focus" tabIndex={-1}>Orders</span>}><EncounterOrders chart={chart} encounter={encounter} lists={{ pharmacy: prescriptions, laboratory: labs }} /></EhrCard>
         </div>
       ) : null}
       {reads.documents ? (
