@@ -79,17 +79,19 @@ export function LoadingRows({ rows = 3, label = 'Loading' }: { rows?: number; la
 /** The Button, typed to take a ref (React 19 passes it as a prop, and Button spreads it onto its <button>). */
 const RefButton = Button as (props: ComponentProps<typeof Button> & { ref?: Ref<HTMLButtonElement> }) => ReactNode
 
-export function PageState({ loading, error, hasData, onRetry, retryLabel = 'Try again', retryRef, what, empty, children, rows }: {
+export function PageState({ loading, error, hasData, onRetry, retryLabel = 'Try again', retryRef, what, errorTitle, empty, children, rows }: {
   loading: boolean; error: string | null | undefined; hasData: boolean; onRetry?: () => void; retryLabel?: string
   /** The Retry button, for a page that moves focus to it when the read fails again (useRetryFocus's `button`). */
   retryRef?: Ref<HTMLButtonElement>
   /** What is being read, for the error title: "your records". */
   what: string
+  /** The error's title; by default "Couldn’t load {what}". Null: the error alone, as a page whose classic said no title. */
+  errorTitle?: string | null
   empty?: { icon?: Icon; illustration?: IllustrationName; title: string; description?: ReactNode; action?: ReactNode } | null
   children: ReactNode; rows?: number
 }) {
   if (loading && !hasData) return <LoadingRows rows={rows} label={`Loading ${what}`} />
-  if (error) return <Alert intent="error" title={`Couldn’t load ${what}`} action={onRetry ? <RefButton ref={retryRef} size="sm" icon={RotateCcw} onClick={onRetry}>{retryLabel}</RefButton> : undefined}>{error}</Alert>
+  if (error) return <Alert intent="error" title={errorTitle === null ? undefined : errorTitle ?? `Couldn’t load ${what}`} action={onRetry ? <RefButton ref={retryRef} size="sm" icon={RotateCcw} onClick={onRetry}>{retryLabel}</RefButton> : undefined}>{error}</Alert>
   if (empty) return <EmptyState compact icon={empty.icon} illustration={empty.illustration} title={empty.title} description={empty.description} action={empty.action} />
   return <>{children}</>
 }

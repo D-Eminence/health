@@ -487,7 +487,7 @@ describe('Dispense', () => {
     await confirmPatient('Dispense')
     await waitFor(() => expect(recorded()).toBe('Dispensing recorded.'))
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toContain('Couldn’t refresh prescriptions')
+    expect(alert.textContent).not.toContain('Couldn’t refresh prescriptions')
     expect(alert.textContent).toContain(`${SAID_UNAVAILABLE} What is shown may be out of date.`)
     expect(document.body.textContent).not.toContain('Pharmacy work is temporarily unavailable.')
     expect(document.body.textContent).not.toContain('PHARMACY_SERVICE_UNAVAILABLE')
