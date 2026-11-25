@@ -216,7 +216,8 @@ describe('Medicine round in the frame', () => {
       [ROUND]: many(() => json({ wardId: WARD, wardName: 'Female Medical Ward', wardType: 'general', window: 'now', at: '2026-12-03T13:20:00.000Z',
         items: [
           { admissionId: ADMISSION, patient: card(), bedName: 'Bed 4', chartShown: true, medicinesHidden: false,
-            counts: { due: 1, late: 1, upcoming: 0 }, doses: [
+            counts: { due: 1, late: 2, upcoming: 0 }, doses: [
+              { prescriptionId: 'f1', medicationDisplay: 'Amoxicillin', strength: '500 mg', scheduledFor: '2026-12-02T13:00:00.000Z', state: 'late' },
               { prescriptionId: 'f1', medicationDisplay: 'Amoxicillin', strength: '500 mg', scheduledFor: '2026-12-03T13:00:00.000Z', state: 'late' },
               { prescriptionId: 'f2', medicationDisplay: 'Paracetamol', strength: '1 g', scheduledFor: '2026-12-03T14:00:00.000Z', state: 'due' },
             ] },
@@ -228,8 +229,10 @@ describe('Medicine round in the frame', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Medicine round' })).toBeDefined()
     expect(screen.getByText('Do not show this list on a screen patients or visitors can see.')).toBeDefined()
     const first = await screen.findByRole('listitem', { name: 'Ada Wardone' })
-    expect(within(first).getByText('1 late')).toBeDefined()
+    expect(within(first).getByText('2 late')).toBeDefined()
     expect(within(first).getByText('1 due')).toBeDefined()
+    // The round reads doses from 24 hours back: yesterday's late dose carries its date, today's the time only.
+    expect(within(first).getByText('2 Dec 2026, 14:00')).toBeDefined()
     expect(within(first).getByText('14:00')).toBeDefined()
     expect(within(first).getByText('Amoxicillin 500 mg')).toBeDefined()
     expect(within(first).getByRole('link', { name: 'Ada Wardone' }).getAttribute('href')).toBe(`/provider/ward-patient/${ADMISSION}/medicines`)

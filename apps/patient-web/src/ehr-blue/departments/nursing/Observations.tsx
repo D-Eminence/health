@@ -8,8 +8,8 @@ import { DeptSection } from '../parts/DeptPage'
 import { useFacilityRead } from '../parts/useFacilityRead'
 import { useIdempotencyKeys, useStaffNames } from './hooks'
 import {
-  AVPU_WORDS, FLAG_WORDS, OXYGEN_DEVICE_WORDS, balanceText, canWriteVitals, isChartAccessRefusal, lagosInput, lagosInputToIso,
-  lagosTime, lagosWhen, learning, memberText, notServed, observationLines, refusalWords,
+  AVPU_WORDS, FLAG_PART_WORDS, FLAG_WORDS, OXYGEN_DEVICE_WORDS, balanceText, canWriteVitals, isChartAccessRefusal, lagosInput,
+  lagosInputToIso, lagosWhen, learning, memberText, notServed, observationLines, refusalWords,
 } from './nursingRules'
 import { ChartAccessNotice } from './parts'
 
@@ -71,7 +71,8 @@ export function ObservationChart({ facilityId, admission }: { readonly facilityI
                   const inHour = readings.filter(reading => hour.readingIds.includes(reading.vitalId))
                   return (
                     <tr key={hour.hourStart}>
-                      <th scope="row">{lagosTime(hour.hourStart)}</th>
+                      {/* The grid runs 24 hours back: an hour not on today's Lagos day carries its date. */}
+                      <th scope="row">{lagosWhen(hour.hourStart)}</th>
                       <td>{inHour.length === 0 ? '—' : inHour.flatMap(reading => observationLines(reading.values).map(line => `${line.label} ${line.text}`)).join('; ')}</td>
                       <td>{`${hour.fluidInMl} mL`}</td>
                       <td>{`${hour.fluidOutMl} mL`}</td>
@@ -104,12 +105,17 @@ function ReadingRow({ reading, by }: { readonly reading: ObservationReading; rea
         ) : null}
         <dl className="hid-ehr-dept-waiting-facts">
           {lines.map(line => {
-            // A reading entered in error is shown with its status and no flag.
-            const flag = inError ? undefined : reading.flags.find(candidate => line.measures.includes(candidate.measure))
+            // A reading entered in error is shown with its status and no flag. Each value's own flag is shown, so a line of
+            // two values (blood pressure) says each of its flags by its part.
+            const flags = inError ? [] : line.measures.flatMap(measure => reading.flags.filter(candidate => candidate.measure === measure))
             return (
               <div key={line.label}>
                 <dt>{line.label}</dt>
-                <dd>{line.text}{flag ? <> <EhrBadge tone={flag.level === 'far_outside_usual' ? 'critical' : 'caution'}>{FLAG_WORDS[flag.level] ?? 'Check this value'}</EhrBadge></> : null}</dd>
+                <dd>{line.text}{flags.map((flag, index) => (
+                  <span key={`${flag.measure}-${index}`}> <EhrBadge tone={flag.level === 'far_outside_usual' ? 'critical' : 'caution'}>
+                    {`${flags.length > 1 && FLAG_PART_WORDS[flag.measure] ? `${FLAG_PART_WORDS[flag.measure]}: ` : ''}${FLAG_WORDS[flag.level] ?? 'Check this value'}`}
+                  </EhrBadge></span>
+                ))}</dd>
               </div>
             )
           })}

@@ -65,16 +65,33 @@ describe('the observation chart', () => {
     noIdentityInAddresses()
   })
 
-  it('asks for the hourly grid on a general ward, and shows the ICU grid with fluid and running balance', async () => {
+  it('asks for the hourly grid on a general ward, and shows the ICU grid with fluid, running balance and each hour’s day', async () => {
     const member = nurse()
+    // The grid runs 24 hours back: this hour, and the same clock hour yesterday.
+    const thisHour = Math.floor(Date.now() / HOUR) * HOUR
+    const yesterday = new Date(thisHour - 24 * HOUR).toISOString()
+    const today = new Date(thisHour).toISOString()
+    const hour = (hourStart: string, runningBalanceMl: number) => ({ hourStart, readingIds: [], fluidInMl: 120, fluidOutMl: 300, runningBalanceMl })
     serve({ [SESSION]: [sessionAt(member, [member])], [ADMISSION_READ]: [() => json({ admission: card(), movements: [] })],
-      [CHART]: [chartOf(), ...many(chartOf({ hours: [{ hourStart: '2026-12-03T06:00:00.000Z', readingIds: ['v1'], fluidInMl: 120, fluidOutMl: 300, runningBalanceMl: -180 }] }))] })
+      [CHART]: [chartOf(), ...many(chartOf({ hours: [hour(yesterday, -180), hour(today, -4500)] }))] })
     await openStaffApp(`${BASE}/observations`)
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Hourly grid' }))
     const grid = await screen.findByRole('region', { name: 'Hours' })
-    expect(within(grid).getByText('07:00')).toBeDefined()
+    expect(within(grid).getAllByRole('rowheader').map(cell => cell.textContent)).toEqual([formatDateTime(yesterday), formatTime(today)])
     expect(within(grid).getByText('−180 mL')).toBeDefined()
     expect(vi.mocked(fetch).mock.calls.some(([address]) => String(address).includes('view=hourly'))).toBe(true)
+  })
+
+  it('shows each of a blood pressure’s flags by its part, so a diastolic entry to check is never hidden', async () => {
+    const member = nurse()
+    serve({ [SESSION]: [sessionAt(member, [member])], [ADMISSION_READ]: [() => json({ admission: card(), movements: [] })],
+      [CHART]: many(chartOf({ readings: [{ vitalId: 'v3', recordedAt: '2026-12-03T06:00:00.000Z', status: 'recorded', corrected: false,
+        values: { systolicMmhg: 195, diastolicMmhg: 205 }, recordedByMembershipId: null, rowVersion: 1,
+        flags: [{ measure: 'systolicMmhg', level: 'outside_usual' }, { measure: 'diastolicMmhg', level: 'check_entry' }] }] })) })
+    await openStaffApp(`${BASE}/observations`)
+    const reading = await screen.findByRole('listitem', { name: '3 Dec 2026, 07:00' })
+    expect(within(reading).getByText('Systolic: Outside the usual range')).toBeDefined()
+    expect(within(reading).getByText('Diastolic: Check this entry')).toBeDefined()
   })
 
   it('records observations with the new fields on the stay’s visit, and checks the oxygen and GCS rules first', async () => {

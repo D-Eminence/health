@@ -326,6 +326,11 @@ export const OXYGEN_DEVICE_WORDS: Readonly<Record<string, string>> = {
 export const FLAG_WORDS: Readonly<Record<string, string>> = {
   outside_usual: 'Outside the usual range', far_outside_usual: 'Far outside the usual range', check_entry: 'Check this entry',
 }
+/** The part a flag is for, on a line of several values ("Diastolic: Check this entry"). */
+export const FLAG_PART_WORDS: Readonly<Record<string, string>> = {
+  systolicMmhg: 'Systolic', diastolicMmhg: 'Diastolic', oxygenDevice: 'Device', oxygenFlowLPerMin: 'Flow', fio2Percent: 'FiO2',
+  gcsEye: 'Eye', gcsVerbal: 'Verbal', gcsMotor: 'Motor',
+}
 export const MEASURE_WORDS: Readonly<Record<string, string>> = {
   systolicMmhg: 'Blood pressure', diastolicMmhg: 'Blood pressure', bloodPressure: 'Blood pressure', pulseBpm: 'Pulse',
   temperatureC: 'Temperature', respiratoryRate: 'Breathing rate', oxygenSaturationPercent: 'Oxygen saturation',
