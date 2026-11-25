@@ -4,9 +4,10 @@ import { Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EncounterOrderPages, orderPath } from '../../../ehr-blue/clinical/consult/orders'
 import {
-  handoffRetryable, ownSendOffered, pharmacistHandoffOffered, readPharmacyHandoff,
+  handoffRetryable, ownSendOffered, readPharmacyHandoff,
 } from '../../../ehr-blue/clinical/consult/orders/ownPharmacySend'
 import { ALLERGY_GO_AHEAD_ERROR } from '../../../ehr-blue/clinical/parts/allergyWarning'
+import { PHARMACY_ALREADY_HOLDS } from '../../../ehr-blue/clinical/consult/orders/words'
 import { ChartProvider } from '../../../ehr-blue/clinical/parts/chart'
 import { Workspace } from '../../../ehr-blue/clinical/parts/Workspace'
 import { forgetLateCorrectionServed } from '../../../lateCorrectionServed'
@@ -154,17 +155,6 @@ describe('pharmacyHandoff, read defensively', () => {
     expect(offered({ status: 'on_hold', ownPharmacyStaffed: undefined }, { status: 'pending', message: '' })).toBe(false)
   })
 
-  it('offers today’s pharmacist hand-off only while this hospital’s pharmacy has not received the prescription', () => {
-    const offered = (ownProgress: unknown, handoff: Parameters<typeof pharmacistHandoffOffered>[1] = null) =>
-      pharmacistHandoffOffered(prescription({ ownProgress }) as never, handoff)
-    expect(offered({ status: 'not_received' })).toBe(true)
-    // An EHR before ORD-3 sends no progress, and `unknown` is a pharmacy that could not be asked: offered, as before.
-    expect(offered(undefined)).toBe(true)
-    expect(offered({ status: 'unknown' })).toBe(true)
-    for (const status of ['received', 'dispensed', 'dispensing_reversed', 'withdrawn', 'sent_elsewhere']) expect(offered({ status }), status).toBe(false)
-    // Sent on this page (by Activate or Send to pharmacy) before the progress was read again.
-    expect(offered({ status: 'not_received' }, { status: 'sent', message: '' })).toBe(false)
-  })
 })
 
 describe('Send to pharmacy on the prescription page', () => {
@@ -331,14 +321,28 @@ describe('Today’s pharmacist hand-off beside the automatic send', () => {
   const colleagues = (extra: Record<string, unknown> = {}) =>
     prescription({ createdBy: COLLEAGUE.accountId, createdByMembershipId: COLLEAGUE.membershipId, ...extra })
 
+  // Parity "Live, Send to Pharmacy": classic offers it on every active prescription not sent elsewhere (Clinical.tsx:1865),
+  // whatever this hospital's pharmacy holds, and says Pharmacy's refusal afterwards. The prescriber's own send is not offered.
   it.each([
     ['the pharmacy has it already (sent by itself on activation)', RECEIVED],
     ['the pharmacy dispensed it', { status: 'dispensed', dispensedAt: '2026-11-20T10:00:00.000Z' }],
-  ])('is not offered when %s', async (_why, ownProgress) => {
+  ])('is still offered, as classic offers it, when %s', async (_why, ownProgress) => {
     list = [colleagues({ ownProgress })]
     await openPrescription()
-    expect(handoffButton()).toBeNull()
+    expect(handoffButton()).toBeTruthy()
     expect(sendButton()).toBeNull()
+  })
+
+  it('says classic’s words when the pharmacy already holds the prescription', async () => {
+    list = [colleagues({ ownProgress: RECEIVED })]
+    api.acceptPrescription.mockRejectedValueOnce(new HidApiError(409, 'Conflict', { code: 'IDEMPOTENCY_CONFLICT' }))
+    await openPrescription()
+    fireEvent.click(handoffButton()!)
+    const reason = screen.getByLabelText(/^Reason/)
+    fireEvent.change(reason, { target: { value: 'Patient waiting at the pharmacy' } })
+    fireEvent.submit(reason.closest('form')!)
+    expect(await screen.findByText(PHARMACY_ALREADY_HOLDS)).toBeTruthy()
+    expect(api.acceptPrescription).toHaveBeenCalledTimes(1)
   })
 
   it('is offered beside the prescriber’s own Send to pharmacy, as classic offers it on every active prescription (Clinical.tsx:1865)', async () => {
@@ -420,7 +424,7 @@ describe('Clinical paths of Send to pharmacy', () => {
     await waitFor(() => expect(sendButton()).toBeNull())
   })
 
-  it('Resume answers that the pharmacy holds an earlier version: the page says so and offers no send', async () => {
+  it('Resume answers that the pharmacy holds an earlier version: the page says so and offers no prescriber send', async () => {
     staff.permissions = [...READ_WRITE, 'pharmacy.work-item.accept']
     list = [prescription({ status: 'on_hold', rowVersion: 6, ownProgress: { status: 'withdrawn', receivedAt: '2026-11-20T09:05:00.000Z' } })]
     api.updateRecord.mockImplementationOnce(async () => {
@@ -433,7 +437,8 @@ describe('Clinical paths of Send to pharmacy', () => {
       + 'prescription, which it can no longer dispense.')).toBeTruthy()
     await waitFor(() => expect(screen.getByRole('button', { name: 'Put on hold' })).toBeTruthy())
     expect(sendButton()).toBeNull()
-    expect(handoffButton()).toBeNull()
+    // Today's pharmacist hand-off stays, as classic offers it on every active prescription (Clinical.tsx:1865).
+    expect(handoffButton()).toBeTruthy()
     expect(api.ownPharmacySend).not.toHaveBeenCalled()
     expect(document.body.textContent).not.toContain('whatever the server says')
   })
