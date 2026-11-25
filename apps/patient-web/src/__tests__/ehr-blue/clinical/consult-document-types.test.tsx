@@ -45,7 +45,7 @@ const ENCOUNTER = {
   id: ENCOUNTER_ID, patientId: PATIENT_ID, facilityId: FACILITY_ID, encounterType: 'ambulatory', status: 'in_progress',
   startedAt: '2026-10-30T08:00:00.000Z', chiefComplaint: 'Fever for two days', rowVersion: 3,
 }
-// Today's document: no type (a clinical document).
+// Today's document: no type (not named, as classic).
 const LETTER = {
   id: 'doc-1', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, fileName: 'referral-letter.pdf', mediaType: 'application/pdf',
   sizeBytes: '20480', status: 'available', scanStatus: 'clean', createdAt: '2026-10-30T08:30:00.000Z',
@@ -189,9 +189,12 @@ describe('Consultation documents with types: once served', () => {
     expect(within(card()).queryByText(NO_UPLOAD_HERE)).toBeNull()
   })
 
-  it('names each listed document’s type: none given is a clinical document, one not known is not named', async () => {
+  it('row 3.3-40: names a listed document’s type only when it has one, as classic’s typeOf (Clinical.tsx:1010-1011)', async () => {
+    api.documents.mockResolvedValue(listed([LETTER, LAB, SHEET, LATER, { ...LETTER, id: 'doc-5', fileName: 'discharge-letter.pdf', documentType: 'clinical_document' }], true))
     await openDocuments()
-    expect(line('referral-letter.pdf')).toBe('Clinical document · PDF document · 20 KB · Checked')
+    expect(line('discharge-letter.pdf')).toBe('Clinical document · PDF document · 20 KB · Checked')
+    // None given is not named (classic names a type only when the document has one), nor is one not known.
+    expect(line('referral-letter.pdf')).toBe('PDF document · 20 KB · Checked')
     expect(line('full-blood-count.jpg')).toBe('Lab result · JPEG image · 20 KB · Checked')
     expect(line('prescription.png')).toBe('Prescription sheet · PNG image · 20 KB · Being checked for viruses')
     expect(line('imaging.pdf')).toBe('PDF document · 20 KB · Checked')
@@ -256,7 +259,7 @@ describe('Consultation documents with types: once served', () => {
     expect(api.uploadDocument.mock.calls[0]).toHaveLength(4)
     expect(api.documents).toHaveBeenCalledTimes(2)
     expect(await within(card()).findByLabelText('Document type')).toBeTruthy()
-    expect(line('referral-letter.pdf')).toBe('Clinical document · PDF document · 20 KB · Checked')
+    expect(line('referral-letter.pdf')).toBe('PDF document · 20 KB · Checked')
   })
 
   it('stays served once learned, even when a later answer says nothing of the types', async () => {
@@ -264,7 +267,7 @@ describe('Consultation documents with types: once served', () => {
     api.documents.mockResolvedValue(listed([LETTER]))
     await openDocuments()
     expect(typeField()).toBeTruthy()
-    expect(line('referral-letter.pdf')).toBe('Clinical document · PDF document · 20 KB · Checked')
+    expect(line('referral-letter.pdf')).toBe('PDF document · 20 KB · Checked')
   })
 
   it('offers no type without document write, nor under a read-only grant', async () => {

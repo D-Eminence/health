@@ -7,7 +7,7 @@
  * - What was read, its check and its publication (`.../extractions`, `.../validations`, `.../publications`): still
  *   `ocr.job.read` alone.
  * - Starting or retrying a reading (`POST /ocr/jobs`, `POST /ocr/jobs/:jobId/retry`): `ocr.job.write` and
- *   `ocr.job.start` (front desk, nurses, clinicians; doctors keep `ocr.job.write` for checking, not `ocr.job.start`).
+ *   `ocr.job.start` (front desk, nurses, clinicians, and doctors again since hid-system 0150, owner decision Q141 B).
  * - Listing and opening documents (`GET /ehr/documents`, `.../download`): `ehr.document.read`, or
  *   `ehr.document.read-own` (the front desk), which lists and opens only the documents this login uploaded here.
  * - Uploading: `ehr.document.write`, unchanged.
@@ -54,10 +54,10 @@ export function scanAccess(held: readonly string[] | ((code: string) => boolean)
 }
 
 /**
- * Said where "Extract with OCR" or Create record would be, to someone who follows readings but may not start one (a
- * doctor since 0136): who starts them, so there is never a button that only answers with a refusal.
+ * Said where "Extract with OCR" or Create record would be, to someone who follows readings but may not start one (no
+ * doctor since 0150): who starts them, so there is never a button that only answers with a refusal.
  */
-export const STARTS_WITH_OTHERS = 'Readings of scanned pages are started by the front desk, a nurse or a clinician at this facility.'
+export const STARTS_WITH_OTHERS = 'Readings of scanned pages are started by the front desk, a doctor, a nurse or a clinician at this facility.'
 
 /** Said on a reading to someone who sees only its progress (the front desk): who sees what was read. */
 export const TEXT_WITH_CHECKERS = 'What was read is shown to the doctors, nurses and clinicians who check it.'

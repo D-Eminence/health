@@ -83,7 +83,7 @@ export function SharedWithYouCard({ facilityId, permissions, openUnavailable, bu
   const [error, setError] = useState('')
   const [accepted, setAccepted] = useState('')
   const [moved, setMoved] = useState(0)
-  const errorRef = useRef<HTMLDivElement>(null)
+  const errorRef = useRef<HTMLParagraphElement>(null)
   const resultRef = useRef<HTMLParagraphElement>(null)
   useEffect(() => { setError(''); setAccepted('') }, [facilityId])
   useLayoutEffect(() => {
@@ -147,18 +147,22 @@ export function SharedWithYouCard({ facilityId, permissions, openUnavailable, bu
         {waiting.map(item => (
           <li key={item.invitationId} className="flex items-center gap-3 px-5 py-3">
             <span aria-hidden="true" className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-violet-soft text-violet-ink"><Mail className="size-4" /></span>
-            <span className="min-w-0 flex-1"><span className="block text-sm font-medium text-ink">Invitation{item.reference ? ` ${item.reference}` : ''} · waiting for you</span>
+            <span className="min-w-0 flex-1"><span className="block text-sm font-medium text-ink">{item.reference ? `Invitation ${item.reference}` : 'Invitation'}</span>
               {/* Who it was sent to and when, as classic says them (SharedPatients.tsx:150-152). */}
               {item.inviteeName ? <span className="block truncate text-[12px] text-ink-3">To {item.inviteeName}</span> : null}
               <span className="block text-[12px] text-ink-3">{DURATION_LABELS[item.duration]} · sent {shareDay(item.createdAt)} · open until {shareDay(item.expiresAt)}</span></span>
             <Badge size="sm" tone="violet">{shareLevelLabel(item.level) ?? item.level}</Badge>
-            <Button size="sm" loading={accepting === item.invitationId} disabled={!acceptAllowed || (accepting !== null && accepting !== item.invitationId)}
+            {/* Today's Accept (SharedPatients.tsx:153-156): busy, it stays focusable (aria-disabled, not disabled), so focus is not
+                lost while it is sent, and a second press sends nothing (accept returns while one is on its way). */}
+            <Button size="sm" disabled={!acceptAllowed || (accepting !== null && accepting !== item.invitationId)}
+              aria-disabled={accepting === item.invitationId || undefined} aria-busy={accepting === item.invitationId || undefined}
               aria-label={item.reference ? `Accept invitation ${item.reference}` : 'Accept invitation'} onClick={() => void accept(item)}>
               {accepting === item.invitationId ? 'Accepting…' : 'Accept'}</Button>
           </li>
         ))}
       </ul> : null}
-      {error ? <div ref={errorRef} tabIndex={-1} className="p-5 outline-none"><Alert intent="error" title="Couldn’t accept">{error}</Alert></div> : null}
+      {/* Today's refusal is the sentence alone, said at once (SharedPatients.tsx:158): no title of its own. */}
+      {error ? <p ref={errorRef} tabIndex={-1} role="alert" className="m-0 px-5 py-4 text-[13px] font-medium text-danger-ink outline-none">{error}</p> : null}
       <div role="status" className="empty:hidden">{accepted ? <p ref={resultRef} tabIndex={-1} className="m-0 px-5 py-4 text-[13px] text-ink-2 outline-none">{accepted}</p> : null}</div>
     </Card>
   )

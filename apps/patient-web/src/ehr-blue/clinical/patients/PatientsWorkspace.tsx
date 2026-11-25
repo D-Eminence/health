@@ -11,6 +11,7 @@ import { formatWhen } from '../parts/format'
 import { opensInProduct, productOf } from '../../frame/product'
 import { RecordNotFound } from '../parts/Notices'
 import { patientFacts } from '../parts/PatientHeader'
+import { segmentOf } from '../parts/segments'
 import { Workspace, useClinical, useWorkspaceHref } from '../parts/Workspace'
 import type { EhrBluePageStatus } from '../types'
 import {
@@ -108,17 +109,34 @@ function NotFound() {
   return <RecordNotFound backHref={href()} />
 }
 
+/** What a page hands Find a patient in location state: a Health ID to look up, or what just happened (`notice`). */
+type Handed = { hid?: unknown; notice?: unknown } | null
+
 /**
  * A Health ID handed over in location state (Registration, or the top-bar search) starts a fresh form, even when Find
- * a patient is already open, so the handed one is what the field shows.
+ * a patient is already open, so the handed one is what the field shows. So does what the patient's page hands over as
+ * it closes the grant ("Access was closed.", parity 23b).
+ *
+ * The notice is said once, as today's (Patients.tsx:243 keeps it in the page's state only): it is kept here, in memory,
+ * and taken out of the history entry at once, so Back to this entry, or a reload, does not say it again.
  */
 function HandedPatientList() {
   const location = useLocation()
-  const handed = (location.state as { hid?: unknown } | null)?.hid
-  return <PatientList key={typeof handed === 'string' ? location.key : 'list'} />
+  const navigate = useNavigate()
+  const handed = location.state as Handed
+  const handedNotice = handed?.notice === ACCESS_CLOSED ? handed.notice : null
+  // The entry that carried the notice, and the notice: the form keeps that entry's key once the state is cleared, so it
+  // is not started again.
+  const [carried, setCarried] = useState<{ key: string; notice: string } | null>(null)
+  if (handedNotice && carried?.key !== location.key) setCarried({ key: location.key, notice: handedNotice })
+  useEffect(() => {
+    if (handedNotice) navigate({ pathname: location.pathname, search: location.search, hash: location.hash }, { replace: true, state: null })
+  }, [handedNotice, location.key, location.pathname, location.search, location.hash, navigate])
+  const key = typeof handed?.hid === 'string' ? location.key : handedNotice ? location.key : carried ? carried.key : 'list'
+  return <PatientList key={key} notice={handedNotice ?? (carried && carried.key === key ? carried.notice : '')} />
 }
 
-function PatientList() {
+function PatientList({ notice: handedNotice }: { notice: string }) {
   const { facility, permissions, can, activePatient, setActivePatient } = useClinical()
   const href = useWorkspaceHref()
   const navigate = useNavigate()
@@ -147,7 +165,9 @@ function PatientList() {
   // available here still answers 404 NOT_FOUND (or 403), shown as a refused lookup with the ways in.
   const [unknown, setUnknown] = useState<string | null>(null)
   const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
+  // What the patient's page said as it closed the grant (parity 23b): today's sentence, said here, as today's Close my
+  // grant stays on Patients and says it (Patients.tsx:243-244).
+  const [notice, setNotice] = useState(handedNotice)
   // Whether the Health ID in the field arrived whole at once (pasted, or scanned in one burst): only then is it looked up
   // by itself.
   // A Health ID typed, or handed over from Registration, waits for Find or Enter.
@@ -168,7 +188,8 @@ function PatientList() {
   // Today's Close my grant on the open record's card (Patients.tsx:239-248, 252), with its reason when the role cannot.
   const closeUnavailable = actionUnavailable(CLOSE_GRANT, permissions, administrator)
   const grantId = activePatient?.lookup.authorization.consentGrantId ?? null
-  const [closed, setClosed] = useState(0)
+  // Arriving with a closed grant's notice counts as a close here: focus goes to the page heading (parity 23b).
+  const [closed, setClosed] = useState(() => (notice ? 1 : 0))
   const [closeError, setCloseError] = useState('')
   // Closing takes the card, and its button, away: focus goes to the page heading unless the user moved it (today's
   // focus('patients-title', true)).
@@ -186,15 +207,21 @@ function PatientList() {
 
   /**
    * Today's openPatient from a typed or shared Health ID: an allowed lookup opens the patient's page, with the chart
-   * summary, for every role (owner decision Q139 B; see useOpenedPatientHref).
+   * summary, for every role (owner decision Q139 B; see useOpenedPatientHref). A shared record's Open that fails says
+   * only why, as today's openShared does (Patients.tsx:231-236, 271): the field and the ways in stay as they were
+   * (parity 13c).
    */
-  async function open(candidate: string) {
+  async function open(candidate: string, shared = false) {
     setBusy(true)
     try {
       if (await openPatient(candidate, 'direct-care')) navigate(landing('direct-care'))
     } catch (caught) {
       // No grant yet says how to get one; a lab or pharmacy role's 404 says the record isn't open to it here.
       const message = lookupRefusal(caught, facility?.roles ?? [])
+      if (shared) {
+        setError(message)
+        return
+      }
       // The refused Health ID goes in the field (a refused share's too), so "Obtain access" hands over the patient the
       // panel names.
       if (isHidApiError(caught) && caught.status === 404 && caught.code === 'PATIENT_NOT_FOUND') {
@@ -292,7 +319,7 @@ function PatientList() {
   function openShared(sharedHid: string) {
     if (busy) return
     clearFeedback()
-    void open(sharedHid)
+    void open(sharedHid, true)
   }
 
   /** Today's closeGrant (Patients.tsx:239-248): the open record's grant ends here, and the page stays. */
@@ -332,6 +359,23 @@ function PatientList() {
     navigate(target === 'request' ? href.to('consent', 'new') : target === 'pin' ? href('pin') : href.to('emergency'))
   }
 
+  /**
+   * The open record's link, as today's card has it (Patients.tsx:252): to the chart, or under emergency access to the
+   * read-only emergency summary, and only on a site that opens the chart (today's clinicalHere). A role that may not
+   * open the emergency summary is sent to the chart, which says so with today's link (ChartGate). Q139 B covers where
+   * Find, the PIN and a share land, not this card (parity 3.3-1).
+   */
+  const chartHere = opensInProduct(product, segmentOf('consult'))
+  const recordHref = !activePatient || !chartHere ? null
+    : activePatient.purpose === 'emergency' && opensInProduct(product, segmentOf('emergency')) && can('identity.break-glass.write')
+      ? href.to('emergency', 'summary') : href.to('consult')
+  // A role that may not look a patient up is told so at Find, in today's words for the same lookup (OPEN_SHARED,
+  // Patients.tsx:55, 77), and is offered the ways in at once, each with today's note (Patients.tsx:255-262): Find can
+  // never be refused for it, so they would otherwise never show (parity 3.3-50, its Patients part).
+  const lookupUnavailable = facility && !can('identity.patient.read') ? openSharedUnavailable : null
+  const showWays = refused !== null || lookupUnavailable !== null
+  // "Open as this facility’s patient" acts on the refused Health ID only (openOwnFacility).
+  const ownsRefused = ownFacility && refused !== null
   const open_ = activePatient ? patientFacts(activePatient) : null
   const expires = activePatient?.lookup.authorization.expiresAt
   const hidError = problem ? (problem.alert ? <span key={attempt} role="alert">{problem.message}</span> : problem.message) : null
@@ -358,9 +402,11 @@ function PatientList() {
               }} className="h-11 font-medium tracking-[.06em] uppercase" /></div>
             {/* Busy (aria-busy), it stays focusable (aria-disabled, not disabled), as today's Verify access: focus is not lost
                 while the lookup runs, and a second press looks nothing up (search() returns while one is on its way). */}
-            <Button type="submit" variant="primary" icon={Search} disabled={!canLook} aria-busy={busy || undefined} aria-disabled={busy || undefined} className="h-11">Find</Button>
+            <Button type="submit" variant="primary" icon={Search} disabled={!canLook} aria-busy={busy || undefined} aria-disabled={busy || undefined} className="h-11"
+              aria-describedby={lookupUnavailable ? 'patient-lookup-unavailable' : undefined}>Find</Button>
           </div>
           <p id="patient-hid-hint" className="m-0 text-[12px] text-ink-3">It’s on the patient’s Health ID card. {HID_FORMAT}</p>
+          {lookupUnavailable ? <p id="patient-lookup-unavailable" className="m-0 text-[13px] text-ink-3">{lookupUnavailable}</p> : null}
           {hidError ? <p id="patient-hid-problem" className="m-0 text-[13px] font-medium text-danger-ink">{hidError}</p> : null}
         </form>
 
@@ -385,18 +431,18 @@ function PatientList() {
         </div> : null}
 
         {/* The ways in, offered only once Find was refused, so a patient this facility may open opens at once with nothing
-            to pick (owner, 17 Nov 2026). The Access PIN leads, for the patient who is with you; asking them is next;
-            emergency access last. Each is for the Health ID in the field. */}
-        {refused ? <div role="group" aria-labelledby="patients-other-access" className="border-t border-line p-5 pt-0">
+            to pick (owner, 17 Nov 2026), or at once to a role Find refuses always. The Access PIN leads, for the patient who
+            is with you; asking them is next; emergency access last. Each is for the Health ID in the field. */}
+        {showWays ? <div role="group" aria-labelledby="patients-other-access" className={cx('border-t border-line p-5', refused ? 'pt-0' : '')}>
           <h2 id="patients-other-access" className="sr-only">Obtain access</h2>
           {/* A way the role cannot take is not offered as a dead end: it is turned off, with today's reason. */}
           {pinUnavailable ? <p id="other-pin-unavailable" className="m-0 mb-2 text-[13px] text-ink-3">{pinUnavailable}</p> : null}
           {requestUnavailable ? <p id="request-access-unavailable" className="m-0 mb-2 text-[13px] text-ink-3">{requestUnavailable}</p> : null}
           {offersEmergency && emergencyUnavailable ? <p id="other-emergency-unavailable" className="m-0 mb-2 text-[13px] text-ink-3">{emergencyUnavailable}</p> : null}
-          <ul className={`m-0 grid list-none gap-1.5 rounded-2xl bg-tray p-1.5 ${offersEmergency && !ownFacility ? '@xl:grid-cols-3' : '@xl:grid-cols-2'}`}>
-            {ownFacility ? <AccessWay icon={Building2} title={OWN_FACILITY_TITLE} hint={OWN_FACILITY_HINT} primary busy={busy}
+          <ul className={`m-0 grid list-none gap-1.5 rounded-2xl bg-tray p-1.5 ${offersEmergency && !ownsRefused ? '@xl:grid-cols-3' : '@xl:grid-cols-2'}`}>
+            {ownsRefused ? <AccessWay icon={Building2} title={OWN_FACILITY_TITLE} hint={OWN_FACILITY_HINT} primary busy={busy}
               onClick={() => void openOwnFacility()} /> : null}
-            <AccessWay icon={KeyRound} title="Use their Access PIN" hint="If they’re with you and have set one." primary={!ownFacility} busy={busy}
+            <AccessWay icon={KeyRound} title="Use their Access PIN" hint="If they’re with you and have set one." primary={!ownsRefused} busy={busy}
               unavailableId={pinUnavailable ? 'other-pin-unavailable' : undefined} onClick={() => otherWay('pin')} />
             <AccessWay icon={Send} title="Ask the patient" hint="They approve on their phone. You’re told the moment they do." busy={busy}
               unavailableId={requestUnavailable ? 'request-access-unavailable' : undefined} onClick={() => otherWay('request')} />
@@ -404,7 +450,8 @@ function PatientList() {
               unavailableId={emergencyUnavailable ? 'other-emergency-unavailable' : undefined} onClick={() => otherWay('emergency')} /> : null}
           </ul>
         </div> : null}
-        {error ? <div className="border-t border-line p-5"><Alert intent="error" title="Couldn’t check access">{error}</Alert></div> : null}
+        {/* Today's error is the sentence alone (Patients.tsx:271): no title of its own (parity 13c). */}
+        {error ? <div className="border-t border-line p-5"><Alert intent="error">{error}</Alert></div> : null}
         {/* Mounted throughout, so what an access step says is announced. */}
         <div role="status" className="empty:hidden">{notice ? <p className="m-0 border-t border-line px-5 py-3 text-[13px] text-ink-2">{notice}</p> : null}</div>
       </Card>
@@ -424,7 +471,7 @@ function PatientList() {
               <p className="m-0 mt-0.5 text-[13px] text-ink-3"><span className="font-medium tracking-[.06em] text-ink-2">{open_.hid}</span>{expires ? ` · until ${formatWhen(expires)}` : ''}</p>
             </div>
             <Badge tone={activePatient.purpose === 'emergency' ? 'danger' : 'success'} size="sm">{accessLabel(activePatient)}</Badge>
-            <Button to={landing(activePatient.purpose)} iconRight={ArrowRight}>Open</Button>
+            {recordHref ? <Button to={recordHref} iconRight={ArrowRight}>{activePatient.purpose === 'emergency' ? 'Open read-only emergency summary' : 'Open clinical record'}</Button> : null}
           </div>
           {grantId ? <div className="flex flex-col items-start gap-1.5 border-t border-line px-5 py-3">
             {closeUnavailable ? <p id="close-grant-unavailable" className="m-0 text-[12px] text-ink-3">{closeUnavailable}</p> : null}

@@ -12,6 +12,7 @@ import { ACKNOWLEDGE } from '../../../ehr-blue/clinical/emergency/BreakGlass'
 import { SUMMARY_LEDE } from '../../../ehr-blue/clinical/emergency/EmergencySummary'
 import { NOTICE_BEFORE, emergencyNotice } from '../../../ehr-blue/clinical/emergency/access'
 import { WrongPatientForm } from '../../../staff/routes/WrongPatient'
+import { accessRequestsError } from '../../../staff/routes/AccessRequests'
 import { REAL_FACILITY, facility } from './blueHarness'
 
 /**
@@ -103,19 +104,26 @@ describe('Home and the bell: access requests wait for the patient', () => {
     expect(screen.queryByText(/No requests waiting/)).toBeNull()
   })
 
-  it('says the requests are loading on their card, not in Needs attention', () => {
+  // Parity report 28b: while the card's read is on its way Needs attention waits for it too, and says no "All clear".
+  it('says the requests are loading on their card, and Needs attention waits for that read without naming it', () => {
     vi.mocked(staffApi.listAccessRequests).mockReturnValue(new Promise(() => {}))
     const card = home(PERMISSIONS)
     expect(within(screen.getByLabelText('Access requests')).getByText('Loading requests…')).toBeDefined()
-    expect(card.queryByRole('status')).toBeNull()
+    expect(card.getByRole('status', { name: 'Loading what needs attention' })).toBeDefined()
+    expect(card.queryByText('All clear')).toBeNull()
     expect(card.queryByText(/request/)).toBeNull()
   })
 
-  it('says a failed read on the requests card, and Needs attention says nothing of the requests', async () => {
-    vi.mocked(staffApi.listAccessRequests).mockRejectedValue(new HidApiError(503, 'Unavailable', { code: 'UNAVAILABLE' }))
+  // Parity report 15b, 28 and 28b: the card says classic's error sentence alone, and Needs attention does not say all clear.
+  it('says a failed read on the requests card, and Needs attention says nothing of the requests and no all clear', async () => {
+    const failure = new HidApiError(503, 'Unavailable', { code: 'UNAVAILABLE' })
+    vi.mocked(staffApi.listAccessRequests).mockRejectedValue(failure)
     const card = home(PERMISSIONS)
-    expect(await within(screen.getByLabelText('Access requests')).findByText('Couldn’t load access requests')).toBeDefined()
+    expect(await within(screen.getByLabelText('Access requests')).findByText(accessRequestsError(failure))).toBeDefined()
+    expect(screen.queryByText('Couldn’t load access requests')).toBeNull()
     await waitFor(() => expect(card.queryByRole('status')).toBeNull())
+    expect(card.getByText('We couldn’t check everything that needs attention just now.')).toBeDefined()
+    expect(card.queryByText('All clear')).toBeNull()
     expect(card.queryByText(/request/)).toBeNull()
     expect(card.queryByText(/No requests waiting/)).toBeNull()
   })

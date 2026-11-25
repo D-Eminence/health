@@ -116,7 +116,8 @@ describe('a page that fails to render', () => {
     await openDemo('/provider/broken')
     const alert = screen.getByRole('alert')
     expect(within(alert).getByRole('button', { name: 'Reload' })).toBeDefined()
-    expect(within(alert).getByRole('button', { name: 'Go to your overview' })).toBeDefined()
+    // A link to the site's root, as AppErrorBoundary's (parity report 3.3-52).
+    expect(within(alert).getByRole('link', { name: 'Go to your overview' }).getAttribute('href')).toBe('/')
     expect(within(alert).queryByRole('button', { name: 'Use the classic EHR' })).toBeNull()
     expect(where()).toBe('/provider/broken')
   })

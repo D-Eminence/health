@@ -152,12 +152,13 @@ function othersText(others: SentWrongPatientOrderRoutes['others'], own: number):
 }
 
 /**
- * `consultation`: whether this site opens Consultation, where an order is found. A lab's, outreach team's or migration
- * site does not (the frame sends it back Home), so there the card still tells what happened, with no way to open the
- * order that would only come back.
+ * Shown only where the site opens Consultation, as classic shows it (`&& clinicalHere`, staff/routes/Dashboard.tsx:275):
+ * BlueHome renders it nowhere else, so a lab's, outreach team's or migration site neither reads nor shows it. Every
+ * order here therefore offers its way in: opened in Consultation when its patient's record is the one open, otherwise
+ * through Patients.
  */
-export function WrongPatientOrdersCard({ facilityId, facilityName, consultation = true }: { readonly facilityId: string
-  readonly facilityName: string; readonly consultation?: boolean }) {
+export function WrongPatientOrdersCard({ facilityId, facilityName }: { readonly facilityId: string
+  readonly facilityName: string }) {
   const { activePatient } = useStaff()
   const lateServed = useLateCorrectionServed() === true
   const [answer, setAnswer] = useState<SentWrongPatientOrderRoutes | 'failed' | 'missing' | null>(null)
@@ -201,7 +202,7 @@ export function WrongPatientOrdersCard({ facilityId, facilityName, consultation 
           <strong>{what.charAt(0).toUpperCase()}{what.slice(1)}{item.reference ? ` · Ref ${item.reference}` : ''} · {patient}</strong>
           <p>{reportedText(item, receiving, patient)}</p>
           {(item.late !== true || withdrewSomething(item)) && <p>{withdrawnText(item, patient)}</p>}
-          {link && consultation && (openPatient === link.patientId
+          {link && (openPatient === link.patientId
             ? <Link to="/provider/clinical" state={{ order: link }} className="hid-ehr-blue-link">Open the {what} →</Link>
             : <p className="hid-ehr-blue-muted">To see it, open {patient}’s record from <Link to="/provider/patients"
               className="hid-ehr-blue-link">Patients</Link>, then the {what}{item.reference ? ` with reference ${item.reference}` : ''}.</p>)}

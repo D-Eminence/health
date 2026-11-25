@@ -1,8 +1,8 @@
 /*
  * In-person check (departments/inperson): the few looks departments.css does not have, from the design's form
- * (application.css: .form-grid labels, the facility onboarding's statement checkboxes, .error) and record view
- * (workflows.tsx: "Next steps", one step per line). Every rule sits under .hid-ehr and names hid-ehr-dept-inperson-*
- * classes, so nothing reaches today's provider workspace; values come from the --ehr-* tokens.
+ * (application.css: .form-grid labels, the facility onboarding's statement checkboxes, .error). Every rule sits under
+ * .hid-ehr and names hid-ehr-dept-inperson-* classes, so nothing reaches today's provider workspace; values come from the
+ * --ehr-* tokens.
  */
 
 /* A field's hint and error sit 6px under its control, as a field's parts do: not a section paragraph's 10px apart. */
@@ -148,16 +148,6 @@
 
 .hid-ehr .hid-ehr-dept-inperson-result[data-result='match'] {
   color: var(--ehr-success-600);
-}
-
-/* The outcome's facts, under its words. */
-.hid-ehr .hid-ehr-dept-inperson-facts {
-  margin-top: 18px;
-}
-
-/* "Next steps": one step per line at its own width (the design's p > button). */
-.hid-ehr .hid-ehr-dept-inperson-step {
-  margin: 0 0 12px;
 }
 
 @media (max-width: 768px) {

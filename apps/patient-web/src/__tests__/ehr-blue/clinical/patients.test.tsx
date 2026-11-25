@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type * as Contracts from '@hid/contracts'
 import { HidApiError } from '@hid/http'
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { dropOfferedHealthId, offeredHealthId } from '../../../ehr-blue/clinical/consent/access'
 import { AUTO_LOOKUP_MS, PatientsWorkspace, fieldClock, patientsStatus } from '../../../ehr-blue/clinical/patients/PatientsWorkspace'
@@ -478,7 +478,8 @@ describe('Find a patient', () => {
     api.lookupPatient.mockRejectedValue(new HidApiError(503, 'Identity is unavailable', { code: 'SERVICE_UNAVAILABLE' }))
     fireEvent.click(findButton())
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toContain('Couldn’t check access')
+    // Today's error is the sentence alone (Patients.tsx:271): no title of its own (parity 13c).
+    expect(alert.textContent).not.toContain('Couldn’t check access')
     expect(alert.textContent).toContain(SAID_UNAVAILABLE)
     expect(alert.textContent).not.toContain('Identity is unavailable')
     expect(screen.queryByText(`You don’t have access to ${PATIENT_HID} yet`)).toBeNull()
@@ -493,7 +494,29 @@ describe('Find a patient', () => {
     expect(api.lookupPatient).not.toHaveBeenCalled()
   })
 
-  it('shows the open patient under today’s heading, with Open to their page (not the chart, Q139 B) and Close my grant (parity 3.3-1)', () => {
+  it('parity 3.3-50: a role that cannot look a patient up is told why at Find, and offered the ways in at once, each with today’s note', () => {
+    staff.permissions = ['identity.consent.write']
+    open()
+    // Today's words for the lookup (Patients.tsx:55, 77), naming no permission.
+    expect(describedBy(findButton())).toBe('Your role at this facility can’t open a patient’s record. Ask your facility administrator.')
+    expect(document.body.textContent).not.toMatch(/identity\.|permission/i)
+    // Today's Obtain access card shows every method with its note (Patients.tsx:255-262), with no lookup first.
+    const group = accessGroup()
+    expect(within(group).getByText('Your role at this facility can’t verify a patient’s PIN. Ask your facility administrator.')).toBeTruthy()
+    expect(tile(group, 'Use their Access PIN').disabled).toBe(true)
+    expect(tile(group, 'Ask the patient').disabled).toBe(false)
+    expect(screen.queryByText(/You don’t have access to/)).toBeNull()
+    expect(api.lookupPatient).not.toHaveBeenCalled()
+  })
+
+  it('parity 3.3-50: a role that can look a patient up sees no lookup note, and no ways in until Find is refused', () => {
+    open()
+    expect(findButton().getAttribute('aria-describedby')).toBeNull()
+    expect(screen.queryByText('Your role at this facility can’t open a patient’s record. Ask your facility administrator.')).toBeNull()
+    expect(screen.queryByRole('group', { name: 'Obtain access' })).toBeNull()
+  })
+
+  it('shows the open patient under today’s heading, with today’s Open clinical record to the chart and Close my grant (parity 3.3-1)', () => {
     staff.activePatient = activePatient()
     open()
     const now = screen.getByRole('region', { name: 'Current authorized record' })
@@ -501,24 +524,33 @@ describe('Find a patient', () => {
     expect(within(now).getByText(PATIENT_NAME)).toBeTruthy()
     expect(within(now).getByText(PATIENT_HID)).toBeTruthy()
     expect(within(now).getByText('Access allowed')).toBeTruthy()
-    expect(within(now).getByRole('link', { name: 'Open' }).getAttribute('href')).toBe('/provider/patients/open')
+    // Today's link (Patients.tsx:252) to the chart: Q139 B covers Find, the PIN and a share, not this card.
+    expect(within(now).getByRole('link', { name: 'Open clinical record' }).getAttribute('href')).toBe('/provider/clinical')
+    expect(within(now).queryByRole('link', { name: 'Open' })).toBeNull()
     expect(within(now).getByRole('button', { name: 'Close my grant' })).toBeTruthy()
   })
 
-  it('opens the patient’s page from the card for a role that can’t open the chart too (parity 3.3-1)', () => {
+  it('links the card to the chart for a role that can’t open it too, as today’s link does (parity 3.3-1)', () => {
     staff.permissions = ALL.filter(permission => permission !== 'ehr.encounter.read')
     staff.activePatient = activePatient()
     open()
     const now = screen.getByRole('region', { name: 'Current authorized record' })
-    expect(within(now).getByRole('link', { name: 'Open' }).getAttribute('href')).toBe('/provider/patients/open')
+    expect(within(now).getByRole('link', { name: 'Open clinical record' }).getAttribute('href')).toBe('/provider/clinical')
   })
 
-  it('names an emergency patient’s card as today does, and Open goes to the emergency summary (parity 3.3-1)', () => {
+  it('names an emergency patient’s card and link as today does, to the read-only emergency summary (parity 3.3-1)', () => {
     staff.permissions = [...ALL, 'identity.break-glass.write']
     staff.activePatient = activePatient('emergency')
     open()
     const now = screen.getByRole('region', { name: 'Current emergency summary' })
-    expect(within(now).getByRole('link', { name: 'Open' }).getAttribute('href')).toBe('/provider/emergency/summary')
+    expect(within(now).getByRole('link', { name: 'Open read-only emergency summary' }).getAttribute('href')).toBe('/provider/emergency/summary')
+  })
+
+  it('sends an emergency card to the chart, which links the summary, for a role that may not open the summary itself (parity 3.3-1)', () => {
+    staff.activePatient = activePatient('emergency')
+    open()
+    const now = screen.getByRole('region', { name: 'Current emergency summary' })
+    expect(within(now).getByRole('link', { name: 'Open read-only emergency summary' }).getAttribute('href')).toBe('/provider/clinical')
   })
 
   it('closes my grant from the card at once, with today’s reason, stays on Find a patient and says so (parity 3.3-1)', async () => {
@@ -606,7 +638,7 @@ describe('Find a patient', () => {
     expect(await screen.findByRole('alert')).not.toBe(alert)
   })
 
-  it('parity: says a refused shared patient at once (role="alert"), while focus stays on the share’s Open', async () => {
+  it('parity 13c: says a refused shared patient at once (role="alert"), the sentence alone, while focus stays on the share’s Open', async () => {
     api.sharedWithMe.mockResolvedValue([SHARE])
     api.lookupPatient.mockRejectedValue(new HidApiError(403, 'Patient access is not authorized', { code: 'PATIENT_ACCESS_DENIED' }))
     open()
@@ -614,7 +646,10 @@ describe('Find a patient', () => {
     openShare.focus()
     fireEvent.click(openShare)
     const alert = await screen.findByRole('alert')
-    expect(within(alert).getByText(`You don’t have access to ${PATIENT_HID} yet`)).toBeTruthy()
+    // Today's openShared says only the error (Patients.tsx:231-236, 271): no refused panel, no title.
+    expect(alert.textContent).toContain(NOT_GRANTED_SAID)
+    expect(alert.textContent).not.toContain('Couldn’t check access')
+    expect(screen.queryByText(`You don’t have access to ${PATIENT_HID} yet`)).toBeNull()
     expect(document.activeElement).toBe(openShare)
   })
 })
@@ -912,11 +947,13 @@ describe('The open patient’s page', () => {
     expect(nextSteps()).toEqual([])
   })
 
-  it('closes my grant at once, as today, then stays on the page, shows no open patient and says so (parity 23b, 3.3-2)', async () => {
+  it('closes my grant at once, as today, then returns to Find a patient, which says so with focus on its heading (parity 23b, 3.3-2)', async () => {
     staff.activePatient = activePatient()
     open('/open')
     expect(screen.queryByRole('button', { name: 'End my access' })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Close my grant' }))
+    const close = screen.getByRole('button', { name: 'Close my grant' })
+    close.focus()
+    fireEvent.click(close)
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(screen.queryByRole('alertdialog')).toBeNull()
     const said = await screen.findByText('Access was closed.')
@@ -924,10 +961,51 @@ describe('The open patient’s page', () => {
     expect(api.closeGrant).toHaveBeenCalledTimes(1)
     expect(api.closeGrant).toHaveBeenCalledWith(FACILITY_ID, 'grant-1', 'Clinician closed completed patient access')
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
-    // The page stays, as today's Close my grant keeps its page: no patient is open, and focus is on what it says.
-    expect(screen.queryByRole('heading', { level: 1, name: 'Find a patient' })).toBeNull()
-    expect(screen.getByText('Choose a patient first.')).toBeTruthy()
-    expect(document.activeElement).toBe(said.closest('[role="status"]'))
+    // Today's Close my grant leaves Patients with no record open and focuses its heading (Patients.tsx:243-244):
+    // Find a patient, not the patient page's "Choose a patient first.".
+    const heading = screen.getByRole('heading', { level: 1, name: 'Find a patient' })
+    expect(screen.queryByText('Choose a patient first.')).toBeNull()
+    expect(document.activeElement).toBe(heading)
+    expect(screen.queryByRole('region', { name: 'Current authorized record' })).toBeNull()
+    expect(document.body.textContent).not.toContain(PATIENT_HID)
+    expect(where()).toBeNull()
+  })
+
+  it('says "Access was closed." once: Back to Find a patient, or a reload, does not say it again (parity 23b)', async () => {
+    staff.activePatient = activePatient()
+    // The browser's history: what the current entry holds (what a reload reads) and its Back button.
+    function History() {
+      const location = useLocation()
+      const navigate = useNavigate()
+      return (
+        <>
+          <p data-testid="entry">{`${location.pathname} ${JSON.stringify(location.state ?? null)}`}</p>
+          <button type="button" onClick={() => navigate(-1)}>Browser back</button>
+        </>
+      )
+    }
+    render(
+      <MemoryRouter initialEntries={[`${BASE}/patients/open`]}>
+        <Routes><Route path={`${BASE}/patients/*`} element={<PatientsWorkspace />} /></Routes>
+        <History />
+      </MemoryRouter>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Close my grant' }))
+    expect(await screen.findByText('Access was closed.')).toBeTruthy()
+    // Said once, from memory: the history entry holds nothing, so a reload of Find a patient says nothing.
+    await waitFor(() => expect(screen.getByTestId('entry').textContent).toBe(`${BASE}/patients null`))
+    expect(screen.getByText('Access was closed.')).toBeTruthy()
+    expect(document.activeElement).toBe(screen.getByRole('heading', { level: 1, name: 'Find a patient' }))
+    // Another patient is found (a new entry), then Back: Find a patient again, with no closed-access sentence and no
+    // focus taken, while the patient just found is still open.
+    fireEvent.change(searchField(), { target: { value: PATIENT_HID } })
+    fireEvent.click(findButton())
+    await openedPatientPage()
+    fireEvent.click(screen.getByRole('button', { name: 'Browser back' }))
+    const heading = await screen.findByRole('heading', { level: 1, name: 'Find a patient' })
+    expect(screen.queryByText('Access was closed.')).toBeNull()
+    expect(document.activeElement).not.toBe(heading)
+    expect(screen.getByRole('region', { name: 'Current authorized record' })).toBeTruthy()
   })
 
   it('keeps the patient open and says why in today’s words when closing the grant is refused (parity 23b, 3.3-2)', async () => {
@@ -1122,13 +1200,14 @@ describe('Patient sharing', () => {
     expect(api.lookupPatient).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, 'direct-care')
   })
 
-  it('says today’s not-granted sentence when a shared record’s lookup is not allowed (parity 13c)', async () => {
+  it('says today’s not-granted sentence alone when a shared record’s lookup is not allowed (parity 13c)', async () => {
     api.sharedWithMe.mockResolvedValue([{ consentGrantId: 'grant-9', patientId: PATIENT_ID, hid: PATIENT_HID, fullName: PATIENT_NAME, level: 'view_only', duration: '7d', scope: 'read_records', startsAt: '2026-10-29T08:00:00.000Z', expiresAt: '2026-11-05T08:00:00.000Z' }])
     api.lookupPatient.mockResolvedValue(deniedLookup)
     open()
     fireEvent.click(await screen.findByRole('button', { name: `Open ${PATIENT_NAME}’s record` }))
-    const heading = await screen.findByText(`You don’t have access to ${PATIENT_HID} yet`)
-    expect(heading.nextElementSibling?.textContent).toBe(NOT_GRANTED_SAID)
+    const said = await screen.findByText(NOT_GRANTED_SAID)
+    expect(said.closest('[role="alert"]')).toBeTruthy()
+    expect(screen.queryByText(`You don’t have access to ${PATIENT_HID} yet`)).toBeNull()
     expect(document.body.textContent).not.toContain('Choose how to get it.')
   })
 
@@ -1357,14 +1436,27 @@ describe('Registration, sharing and the patient-reported allergies (#62, in this
     expect(staff.setActivePatient).not.toHaveBeenCalled()
   })
 
-  it('a refused share shows today’s ways in, as a refused search does', async () => {
+  it('parity 13c: a refused share says only why, as today’s openShared does: no refused panel and no ways in', async () => {
     api.sharedWithMe.mockResolvedValue([SHARE])
     api.lookupPatient.mockRejectedValue(new HidApiError(403, 'Patient access is not authorized', { code: 'PATIENT_ACCESS_DENIED' }))
     open()
     fireEvent.click(await screen.findByRole('button', { name: `Open ${PATIENT_NAME}’s record` }))
-    expect(await screen.findByText(`You don’t have access to ${PATIENT_HID} yet`)).toBeTruthy()
+    expect((await screen.findByRole('alert')).textContent).toContain(NOT_GRANTED_SAID)
+    expect(screen.queryByText(`You don’t have access to ${PATIENT_HID} yet`)).toBeNull()
+    expect(screen.queryByRole('group', { name: 'Obtain access' })).toBeNull()
     expect(api.lookupPatient).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, 'direct-care')
     expect(where()).toBeNull()
+  })
+
+  it('parity 13c: a share whose Health ID no patient has says only why, with no Register a new patient', async () => {
+    staff.permissions = [...ALL, 'identity.registration.write']
+    api.sharedWithMe.mockResolvedValue([SHARE])
+    api.lookupPatient.mockRejectedValue(new HidApiError(404, 'Not found', { code: 'PATIENT_NOT_FOUND' }))
+    open()
+    fireEvent.click(await screen.findByRole('button', { name: `Open ${PATIENT_NAME}’s record` }))
+    expect(await screen.findByRole('alert')).toBeTruthy()
+    expect(screen.queryByText(`No patient has the Health ID ${PATIENT_HID}`)).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Register a new patient' })).toBeNull()
   })
 
   it('while a lookup runs, a share’s Open says it is unavailable and a press does nothing', async () => {
@@ -1465,10 +1557,42 @@ describe('Registration, sharing and the patient-reported allergies (#62, in this
     open()
     fireEvent.click(await screen.findByRole('button', { name: 'Accept invitation AB12' }))
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toContain('Your role at this facility cannot receive patient records through Health ID.')
-    expect(document.activeElement?.contains(alert)).toBe(true)
+    // Today's refusal is the sentence alone, a role="alert" paragraph (SharedPatients.tsx:158): no title (parity 14b).
+    expect(alert.tagName).toBe('P')
+    expect(alert.textContent).toBe('Your role at this facility cannot receive patient records through Health ID.')
+    expect(document.body.textContent).not.toContain('Couldn’t accept')
+    expect(document.activeElement).toBe(alert)
     expect(api.acceptShareInvitation).toHaveBeenCalledWith(FACILITY_ID, 'inv-1')
     expect(screen.getByRole('button', { name: 'Accept invitation AB12' })).toBeTruthy()
+  })
+
+  it('parity 14b: an invitation is titled as today’s, “Invitation AB12”, with nothing added', async () => {
+    api.sharedWithMe.mockResolvedValue([])
+    api.staffShareInvitations.mockResolvedValue({ eligible: true, items: [INVITATION, { ...INVITATION, invitationId: 'inv-2', reference: '' }] })
+    open()
+    // Today's title (SharedPatients.tsx:149): the reference, or "Invitation" alone.
+    expect(await screen.findByText('Invitation AB12')).toBeTruthy()
+    expect(screen.getByText('Invitation')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/· waiting for you/)
+  })
+
+  it('parity 14b: Accept keeps focus while it is sent (aria-disabled and aria-busy, not disabled), says Accepting…, and a second press sends nothing', async () => {
+    api.staffShareInvitations.mockResolvedValue({ eligible: true, items: [INVITATION] })
+    let answer: (value: unknown) => void = () => {}
+    api.acceptShareInvitation.mockReturnValue(new Promise(resolve => { answer = resolve }))
+    open()
+    const button = await screen.findByRole('button', { name: 'Accept invitation AB12' }) as HTMLButtonElement
+    button.focus()
+    await act(async () => { fireEvent.click(button) })
+    expect(button.textContent).toBe('Accepting…')
+    expect(button.disabled).toBe(false)
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+    expect(button.getAttribute('aria-busy')).toBe('true')
+    expect(document.activeElement).toBe(button)
+    await act(async () => { fireEvent.click(button) })
+    expect(api.acceptShareInvitation).toHaveBeenCalledTimes(1)
+    await act(async () => { answer(ACCEPT_ANSWER) })
+    expect(await screen.findByText(ACCEPTED)).toBeTruthy()
   })
 
   it('an invitation that is gone leaves the list, with today’s words', async () => {
@@ -1815,18 +1939,17 @@ describe('PIN and emergency access offered as today’s portal offers them', () 
       expect(screen.queryByText(`You don’t have access to ${PATIENT_HID} yet`)).toBeNull()
     })
 
-    it('after a refused share, the field shows the share’s Health ID, and the group hands that one over', async () => {
+    it('parity 13c: after a refused share, the field keeps what it had and no ways in are offered, as today’s openShared', async () => {
       staff.permissions = [...WITH_ACCESS]
       api.sharedWithMe.mockResolvedValue([SHARE])
       api.lookupPatient.mockRejectedValue(new HidApiError(403, 'Patient access is not authorized', { code: 'PATIENT_ACCESS_DENIED' }))
       openTracked()
       expect(searchField().value).toBe('HID-')
       fireEvent.click(await screen.findByRole('button', { name: `Open ${PATIENT_NAME}’s record` }))
-      await screen.findByText(`You don’t have access to ${PATIENT_HID} yet`)
-      expect(searchField().value).toBe(PATIENT_HID)
-      fireEvent.click(groupTile('Emergency access'))
-      expect(address()).toBe('/provider/emergency')
-      expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe(PATIENT_HID)
+      expect((await screen.findByRole('alert')).textContent).toContain(NOT_GRANTED_SAID)
+      expect(searchField().value).toBe('HID-')
+      expect(screen.queryByRole('group', { name: 'Obtain access' })).toBeNull()
+      expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe('')
       expectNoHealthIdInAnyAddress()
     })
 
@@ -1992,7 +2115,7 @@ describe('PIN and emergency access offered as today’s portal offers them', () 
       expect(note.textContent).not.toMatch(/\d{4,}/)
       const hidField = screen.getByLabelText(labelled('Health ID'))
       // In the form's card, after the page's sentence on who knows the PIN and before the fields.
-      expect(screen.getByText('Ask the patient to type their PIN. Only they should know it.').compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      expect(screen.getByText('Only the patient should share their access PIN. Verification and grant creation happen on the server.').compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
       expect(note.closest('form')).toBe(hidField.closest('form'))
       expect(note.compareDocumentPosition(hidField) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
       await settle()

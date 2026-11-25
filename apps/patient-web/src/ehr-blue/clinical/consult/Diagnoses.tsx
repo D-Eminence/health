@@ -9,37 +9,29 @@ import { formatWhen, statusWords } from '../parts/format'
 import { codeText, MoreDetails } from '../parts/MoreDetails'
 import { ErrorBox, Loading } from '../parts/Notices'
 import { RecordForm, type FieldDef, type FieldErrors, type FormValues, type SubmitOutcome } from '../parts/RecordForm'
-import { StatusBadge } from '../parts/StatusBadge'
 import {
   DIAGNOSIS_CLINICAL_STATUSES, DIAGNOSIS_UPDATED, DIAGNOSIS_VERIFICATION_STATUSES, NO_WRITE, REASON_SHORT, RECORD_SAVED,
-  diagnosisStatus, field, refusedFieldErrors, rowVersion, text, type StatusOption,
+  field, refusedFieldErrors, rowVersion, text, type StatusOption,
 } from './encounters'
 import { ListPaging } from './Notes'
 import type { RecordList } from './records'
 import { codeOf, DIAGNOSES, namesOf } from '../parts/vocabulary'
 
-// Today's "Add diagnoses" fields, in its order and words (Clinical.tsx:566).
-// The diagnosis first, with suggestions as it is typed: picking one fills its ICD-10 code and code system (owner,
-// 18 Nov 2026). Today's "Display" (Clinical.tsx:568) is the record's field name; the form says what it is.
+// Today's "Add diagnoses" fields, in its words (Clinical.tsx:562-568): "Display", and the two status selects with no
+// blank choice. The diagnosis comes first, with suggestions as it is typed: picking one fills its ICD-10 code and code
+// system (owner, 18 Nov 2026).
 const ADD_FIELDS: readonly FieldDef[] = [
-  { key: 'display', label: 'Diagnosis', required: true, maxLength: 500, suggestions: namesOf(DIAGNOSES),
+  { key: 'display', label: 'Display', required: true, maxLength: 500, suggestions: namesOf(DIAGNOSES),
     hint: 'Start typing, then pick from the list to fill its ICD-10 code.',
     fills: value => { const code = codeOf(DIAGNOSES, value); return code ? { code, codeSystem: 'ICD-10' } : null } },
   { key: 'codeSystem', label: 'Code system', required: true, placeholder: 'ICD-10', maxLength: 255, row: 'code' },
   { key: 'code', label: 'Code', required: true, maxLength: 100, row: 'code' },
-  { key: 'clinicalStatus', label: 'Clinical status', choices: DIAGNOSIS_CLINICAL_STATUSES },
-  { key: 'verificationStatus', label: 'Verification', choices: DIAGNOSIS_VERIFICATION_STATUSES },
+  { key: 'clinicalStatus', label: 'Clinical status', choices: DIAGNOSIS_CLINICAL_STATUSES, blank: false },
+  { key: 'verificationStatus', label: 'Verification', choices: DIAGNOSIS_VERIFICATION_STATUSES, blank: false },
   { key: 'notes', label: 'Notes', type: 'textarea', maxLength: 4000 },
 ]
 const ADD_INITIAL: FormValues = { clinicalStatus: 'active', verificationStatus: 'unconfirmed' }
 
-/**
- * A refusal's sentences lead with the record's field name ("Display must be shorter than…"); the form calls that field
- * "Diagnosis", so a sentence led by it says so. Only a sentence's first word changes, and words without it are kept.
- */
-function asTheFormSays(said: string): string {
-  return said.replace(/(^|[.!?] )Display\b/g, '$1Diagnosis')
-}
 // Today's change selects open on the current values and offer no blank choice, so no empty status is ever sent
 // (Clinical.tsx DiagnosisUpdateForm).
 const VERIFICATION_CHOICES: readonly StatusOption[] = [...DIAGNOSIS_VERIFICATION_STATUSES, { value: 'entered_in_error', label: 'Entered in error' }]
@@ -102,10 +94,9 @@ export function DiagnosesCard({ chart, encounterId, list, canWrite, onSaved, onR
       await chart.verify()
       await staffApi.createRecord(facilityId, patientId, encounterId, 'diagnoses', body, attempt.current.key)
     } catch (caught) {
-      const fieldErrors = refusedFieldErrors(caught, { codeSystem: 'codeSystem', code: 'code', display: 'display', clinicalStatus: 'clinicalStatus', verificationStatus: 'verificationStatus', notes: 'notes' })
       return {
-        formError: asTheFormSays(refusalText(caught, 'Record could not be saved.')),
-        fieldErrors: fieldErrors.display ? { ...fieldErrors, display: asTheFormSays(fieldErrors.display) } : fieldErrors,
+        formError: refusalText(caught, 'Record could not be saved.'),
+        fieldErrors: refusedFieldErrors(caught, { codeSystem: 'codeSystem', code: 'code', display: 'display', clinicalStatus: 'clinicalStatus', verificationStatus: 'verificationStatus', notes: 'notes' }),
       }
     }
     attempt.current = null
@@ -175,8 +166,9 @@ export function DiagnosesCard({ chart, encounterId, list, canWrite, onSaved, onR
                       </MoreDetails>
                     ) : null}
                   </span>
-                  {/* Today's warning badge for a diagnosis entered in error; the shared status map has no tone for it. */}
-                  {retracted ? <Badge size="sm" tone="warn">Entered in error</Badge> : <StatusBadge status={diagnosisStatus(record)} />}
+                  {/* Today's warning badge for a diagnosis entered in error, the only badge classic's row has (Clinical.tsx:1851):
+                      the detail line already says every other status. */}
+                  {retracted ? <Badge size="sm" tone="warn">Entered in error</Badge> : null}
                 </div>
                 {canWrite && !retracted ? (
                   <EhrButton variant="secondary" size="sm" aria-expanded={open} onClick={() => setChanging(open ? null : record.id)}>
