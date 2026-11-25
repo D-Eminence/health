@@ -25,6 +25,23 @@ export function pageAllowed(page: EhrBluePage, session: StaffSession | null, vie
   return !page.permission || pagePermissions(page).some(code => permissions.includes(code))
 }
 
+/**
+ * The clinical pages classic opened for every role (staff/routes/Patients.tsx, Clinical.tsx:25-32): their sidebar entry
+ * follows the permission, but their address opens, and each card or method says what this role can't do there, in
+ * classic's per-method words, as the backend refuses each call on its own (parity report 3.3-50). Patients,
+ * Consultation, Triage & Vitals, Nursing observations and Emergency access, by their paths.
+ */
+const OPENS_FOR_EVERY_ROLE: ReadonlySet<string> = new Set(['patients', 'clinical', 'triage', 'nursing', 'emergency'])
+
+/**
+ * Whether a page's address opens for this session even where its permission does not (OPENS_FOR_EVERY_ROLE): a live or
+ * partial page of those five that shows at this facility. The frame then draws the page, not "<page> unavailable";
+ * pageAllowed still decides the sidebar, search and where a site lands.
+ */
+export function pageOpensForEveryRole(page: EhrBluePage, session: StaffSession | null): boolean {
+  return session !== null && page.status !== 'sample' && OPENS_FOR_EVERY_ROLE.has(basePath(page.path)) && pageShownHere(page, session)
+}
+
 /** The facility permissions any one of which opens a page: its `permission`, then its `orPermissions`. None: no permission of its own. */
 export function pagePermissions(page: Pick<EhrBluePage, 'permission' | 'orPermissions'>): readonly string[] {
   return page.permission ? [page.permission, ...(page.orPermissions ?? [])] : []

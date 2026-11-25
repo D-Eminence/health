@@ -124,7 +124,10 @@ describe('Audit trail: the event list', () => {
     api.facilityAudit.mockReturnValueOnce(first.promise)
     renderDept(<AuditCompliance />)
 
-    expect(screen.getByRole('status').textContent).toBe('Loading audit events')
+    // Classic's words, on screen (staff/routes/Audit.tsx; parity 3.3-74): one status, not visually hidden.
+    expect(screen.getAllByRole('status')).toHaveLength(1)
+    expect(screen.getByRole('status').textContent).toBe('Loading audit events…')
+    expect(screen.getByRole('status').className).not.toContain('sr-only')
     await act(async () => { first.resolve(pageOf([])) })
 
     expect(screen.getByText('No audit events')).toBeTruthy()
@@ -261,10 +264,10 @@ describe('Audit trail: search, outcome and refresh', () => {
     expect(refresh.getAttribute('aria-busy')).toBe('true')
     expect(document.activeElement).toBe(refresh)
     expect(screen.getByRole('list', { name: 'Audit events, page 1' }).getAttribute('aria-busy')).toBe('true')
-    // The list stays on screen, and a visually hidden status says it is being read again.
+    // The list stays on screen, and a status on screen says it is being read again, in classic's words (parity 3.3-74).
     const status = screen.getByRole('status')
-    expect(status.textContent).toBe('Loading audit events')
-    expect(status.className).toBe('hid-ehr-sr-only')
+    expect(status.textContent).toBe('Loading audit events…')
+    expect(status.className).not.toContain('sr-only')
     expect(screen.getByText('Tried to start a new visit')).toBeTruthy()
     fireEvent.click(refresh)
     expect(api.facilityAudit).toHaveBeenCalledTimes(2)
@@ -301,14 +304,15 @@ describe('Audit trail: older and newer pages', () => {
     expect(button('Older page').getAttribute('aria-busy')).toBe('true')
     expect(button('Older page').getAttribute('aria-disabled')).toBe('true')
     expect(document.activeElement).toBe(button('Older page'))
-    expect(screen.getByRole('status').textContent).toBe('Loading audit events')
+    expect(screen.getByRole('status').textContent).toBe('Loading audit events…')
     fireEvent.click(button('Older page'))
     expect(api.facilityAudit).toHaveBeenCalledTimes(2)
 
     await act(async () => { older.resolve(pageOf([event('49', { action: 'ehr.encounter.read' })])) })
     expect(screen.getByRole('list', { name: 'Audit events, page 2' })).toBeTruthy()
     expect(screen.getByText('Opened a patient\'s visit')).toBeTruthy()
-    expect(screen.getByText('Page 2 · 1 event')).toBeTruthy()
+    // Classic always says "events" (staff/routes/Audit.tsx; parity 3.3-74).
+    expect(screen.getByText('Page 2 · 1 events')).toBeTruthy()
     // The last page offers no older one: focus moves to Newer events.
     expect(screen.queryByRole('button', { name: 'Older page' })).toBeNull()
     expect(document.activeElement).toBe(button('Newer page'))
@@ -320,7 +324,7 @@ describe('Audit trail: older and newer pages', () => {
     await act(async () => { newer.resolve(pageOf([event('52', { action: 'identity.consent-grant.close' })], '52')) })
 
     expect(screen.getByText('Access to a patient\'s record ended')).toBeTruthy()
-    expect(screen.getByText('Page 1 · 1 event')).toBeTruthy()
+    expect(screen.getByText('Page 1 · 1 events')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Newer page' })).toBeNull()
     expect(document.activeElement).toBe(button('Older page'))
     onlyAuditRead()

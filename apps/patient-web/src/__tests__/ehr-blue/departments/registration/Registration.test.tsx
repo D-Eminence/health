@@ -154,6 +154,15 @@ async function findCase(caseId = CASE) {
   return screen.findByRole('heading', { level: 1, name: 'Earlier registration' })
 }
 const actions = () => screen.getByRole('heading', { name: 'Available actions' }).closest('section') as HTMLElement
+/** Classic's title over every refusal after a step or a read (Registration.tsx 301; parity 3.3-60 to 3.3-63). */
+const ERROR_TITLE = 'That didn’t work'
+/** A step's or a read's refusal: the words under classic's title, which it always carries. */
+function refusal(alert: HTMLElement) {
+  expect(alert.querySelector('.hid-ehr-dept-notice-title')?.textContent).toBe(ERROR_TITLE)
+  return alert.querySelector('.hid-ehr-dept-notice-body')?.textContent
+}
+/** Classic's summary that opens the account form (Registration.tsx 295), word for word (parity 3.3-63). */
+const ENROLL_OPENER = 'No phone or app? Create their account · optional'
 const savedRecord = () => screen.getByRole('heading', { name: 'Saved record' }).closest('section') as HTMLElement
 
 /**
@@ -307,7 +316,9 @@ describe('the list view', () => {
     expect(screen.queryByText(/NIN checks are/)).toBeNull()
     expect(screen.queryByRole('button', { name: 'Check again' })).toBeNull()
     expect(api.registrationCapabilities).toHaveBeenCalledWith(DEMO_HOSPITAL_ID)
-    expect(screen.getByRole('heading', { name: 'Find registration case' })).toBeTruthy()
+    // Parity 3.3-60: the card is classic's "Continue a registration" (Registration.tsx 221).
+    expect(screen.getByRole('heading', { name: 'Continue a registration' })).toBeTruthy()
+    expect(screen.queryByText('Find registration case')).toBeNull()
     // Classic's "Continue a registration" field, hint and button.
     expect(described(caseIdField())).toBe('Shown on the registration when it was started.')
     expect(openButton().textContent).toBe('Open')
@@ -411,16 +422,24 @@ describe('the new record form', () => {
     expect(screen.getByRole('button', { name: 'Check NIN' })).toBeTruthy()
   })
 
-  it('with NIN checks off, says so in classic\'s words and sends nothing', async () => {
+  it('with NIN checks off, shows no form, as classic, only its words with Check again, and sends nothing', async () => {
     api.registrationCapabilities.mockResolvedValue(DEFERRED)
-    const nin = await openNew()
-    expect(drawer().getByText('New registrations can’t start until they’re back on.')).toBeTruthy()
+    renderDept(<PatientRegistration />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Create record' }))
+    expect(await drawer().findByText('New registrations can’t start until they’re back on.')).toBeTruthy()
     expect(drawer().getByText('NIN checks are off')).toBeTruthy()
-    // The whole fieldset is disabled, so none of it can be used or sent.
-    expect(nin.matches(':disabled')).toBe(true)
-    expect(screen.getByLabelText(/^First name/).matches(':disabled')).toBe(true)
-    expect(screen.getByRole('button', { name: 'Check NIN' }).matches(':disabled')).toBe(true)
-    fireEvent.submit(nin.closest('form')!)
+    // Parity 3.3-61: classic shows no NIN form while NIN checks are off (Registration.tsx 230, 232), not a greyed one.
+    expect(drawer().queryByLabelText(/^NIN \(11 digits\)/)).toBeNull()
+    expect(drawer().queryByLabelText(/^First name/)).toBeNull()
+    expect(drawer().queryByRole('button', { name: 'Check NIN' })).toBeNull()
+    expect(drawer().queryByRole('group')).toBeNull()
+    expect(document.querySelector('fieldset')).toBeNull()
+    // Classic's Check again, which brings the form once NIN checks work again.
+    api.registrationCapabilities.mockResolvedValue(ENABLED)
+    await press(drawer().getByRole('button', { name: 'Check again' }))
+    expect(await drawer().findByLabelText(/^NIN \(11 digits\)/)).toBeTruthy()
+    expect(drawer().queryByText('NIN checks are off')).toBeNull()
+    expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Check their NIN' }))
     expect(api.resolveNin).not.toHaveBeenCalled()
   })
 
@@ -640,7 +659,7 @@ describe('the new record form', () => {
   })
 })
 
-describe('Find registration case', () => {
+describe('Continue a registration', () => {
   it('refuses an ID that is not a case ID, at its field, and sends nothing', async () => {
     renderDept(<PatientRegistration />)
     const field = await screen.findByRole('textbox', { name: 'Registration ID' })
@@ -659,7 +678,8 @@ describe('Find registration case', () => {
     renderDept(<PatientRegistration />)
     fireEvent.change(await screen.findByRole('textbox', { name: 'Registration ID' }), { target: { value: `  ${CASE} ` } })
     fireEvent.click(openButton())
-    expect((await screen.findByRole('alert')).textContent).toBe(words)
+    // Parity 3.3-60: under classic's title (Registration.tsx 301).
+    expect(refusal(await screen.findByRole('alert'))).toBe(words)
     expect(document.body.textContent).not.toContain(failure.message)
     expect(api.registrationCase).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, CASE)
     expect(heading().textContent).toBe('Patient registration')
@@ -797,7 +817,11 @@ describe('the case record', () => {
   it('says when a case to review has no candidate details, and offers no link', async () => {
     api.registrationCase.mockResolvedValue({ ...review, candidates: [] })
     await findCase()
-    expect(screen.getByText('Can’t show the matches. Refresh to try again.')).toBeTruthy()
+    // Parity 3.3-62: classic's warning, its title and its line (Registration.tsx 279).
+    const unavailable = screen.getByText('Can’t show the matches').closest('.hid-ehr-dept-notice') as HTMLElement
+    expect(unavailable.querySelector('.hid-ehr-dept-notice-title')?.textContent).toBe('Can’t show the matches')
+    expect(unavailable.querySelector('.hid-ehr-dept-notice-body')?.textContent).toBe('Refresh to try again.')
+    expect(unavailable.classList.contains('hid-ehr-dept-notice-caution')).toBe(true)
     expect(within(actions()).queryByRole('button', { name: 'Link to this person' })).toBeNull()
     expect(within(actions()).getByText('Nothing else to do here.')).toBeTruthy()
   })
@@ -810,7 +834,7 @@ describe('the case record', () => {
     session.permissions = [WRITE]
     api.registrationCase.mockResolvedValue(item)
     await findCase()
-    for (const name of ['Link to this person', 'Create Health ID', 'Create their account']) {
+    for (const name of ['Link to this person', 'Create Health ID', ENROLL_OPENER]) {
       expect(within(actions()).queryByRole('button', { name })).toBeNull()
     }
     expect(within(actions()).getByText('Nothing else to do here.')).toBeTruthy()
@@ -822,18 +846,18 @@ describe('the case record', () => {
   ])('offers no decision or enrollment on a %s case', async (state) => {
     api.registrationCase.mockResolvedValue({ caseId: CASE, status: state, version: 2, candidateCount: 0 })
     await findCase()
-    expect(within(actions()).queryByRole('button', { name: 'Create their account' })).toBeNull()
+    expect(within(actions()).queryByRole('button', { name: ENROLL_OPENER })).toBeNull()
     expect(within(actions()).getByText('Nothing else to do here.')).toBeTruthy()
   })
 
   it('draws the chosen action\'s form under all of its action buttons, as the design does', async () => {
     api.registrationCase.mockResolvedValue(approved)
     await findCase()
-    fireEvent.click(within(actions()).getByRole('button', { name: 'Create their account' }))
-    const form = screen.getByRole('form', { name: 'Create their account' })
+    fireEvent.click(within(actions()).getByRole('button', { name: ENROLL_OPENER }))
+    const form = screen.getByRole('form', { name: ENROLL_OPENER })
     const correct = within(actions()).getByRole('button', { name: 'Correct demographics' })
     expect(correct.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(within(actions()).getByRole('button', { name: 'Create their account' }).getAttribute('aria-expanded')).toBe('true')
+    expect(within(actions()).getByRole('button', { name: ENROLL_OPENER }).getAttribute('aria-expanded')).toBe('true')
   })
 
   it('a changed review gets a new key; a review reason of 7 characters is refused and one of 8 is sent', async () => {
@@ -849,7 +873,7 @@ describe('the case record', () => {
     expect(api.approveNewRegistration).not.toHaveBeenCalled()
     fireEvent.change(reason, { target: { value: '12345678' } })
     fireEvent.click(submit)
-    expect((await screen.findByRole('alert')).textContent).toBe('That didn’t save. Refresh and try again.')
+    expect(refusal(await screen.findByRole('alert'))).toBe('That didn’t save. Refresh and try again.')
     fireEvent.change(reason, { target: { value: 'x'.repeat(500) } })
     await press(submit)
     await waitFor(() => expect(api.approveNewRegistration).toHaveBeenCalledTimes(2))
@@ -877,7 +901,7 @@ describe('the case record', () => {
     fireEvent.change(reason, { target: { value: 'Identity match reviewed with patient' } })
     const submit = within(screen.getByRole('form', { name: 'Link to this person' })).getByRole('button', { name: 'Link to this person' })
     fireEvent.click(submit)
-    expect((await screen.findByRole('alert')).textContent).toBe('That didn’t save. Refresh and try again.')
+    expect(refusal(await screen.findByRole('alert'))).toBe('That didn’t save. Refresh and try again.')
     await press(submit)
     await waitFor(() => expect(api.linkExistingRegistration).toHaveBeenCalledTimes(2))
     const [first, second] = api.linkExistingRegistration.mock.calls
@@ -921,7 +945,8 @@ describe('the case record', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Why (for the record)' }), { target: { value: 'No candidate after verification' } })
     fireEvent.click(within(screen.getByRole('form', { name: 'Create Health ID' })).getByRole('button', { name: 'Create Health ID' }))
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toBe(SAID_CHANGED)
+    // Parity 3.3-62: a failed decision under classic's title (Registration.tsx 301).
+    expect(refusal(alert)).toBe(SAID_CHANGED)
     expect(document.body.textContent).not.toContain('The case changed. Refresh it.')
     expect(screen.getByRole('form', { name: 'Create Health ID' }).contains(alert)).toBe(true)
   })
@@ -931,11 +956,13 @@ describe('the case record', () => {
     api.enrollRegistration.mockRejectedValueOnce(new Error('lost'))
       .mockResolvedValueOnce({ patientId: PATIENT, hid: 'HID-ZDEMAAA2', contactVerificationRequired: true, replayed: false })
     await findCase()
-    fireEvent.click(within(actions()).getByRole('button', { name: 'Create their account' }))
-    expect(screen.getByText('No phone or app? They get an email to set a password. Use their own email, not yours.')).toBeTruthy()
+    fireEvent.click(within(actions()).getByRole('button', { name: ENROLL_OPENER }))
+    // Parity 3.3-63: classic's line under its summary, word for word (Registration.tsx 296).
+    expect(screen.getByText('They get an email to set a password. Use their own email, not yours.')).toBeTruthy()
+    expect(screen.queryByText(/^No phone or app\? They get an email/)).toBeNull()
     const email = screen.getByRole('textbox', { name: 'Their email' })
     const reason = screen.getByRole('textbox', { name: 'Why (for the record)' })
-    const submit = within(screen.getByRole('form', { name: 'Create their account' })).getByRole('button', { name: 'Create account' })
+    const submit = within(screen.getByRole('form', { name: ENROLL_OPENER })).getByRole('button', { name: 'Create account' })
     fireEvent.change(email, { target: { value: 'not an email' } })
     fireEvent.change(reason, { target: { value: 'Patient asked for an account' } })
     fireEvent.click(submit)
@@ -943,7 +970,7 @@ describe('the case record', () => {
     expect(api.enrollRegistration).not.toHaveBeenCalled()
     fireEvent.change(email, { target: { value: ' Patient.One@Example.TEST ' } })
     fireEvent.click(submit)
-    expect((await screen.findByRole('alert')).textContent).toBe('We couldn’t create the account. They may already have one.')
+    expect(refusal(await screen.findByRole('alert'))).toBe('We couldn’t create the account. They may already have one.')
     await press(submit)
     await waitFor(() => expect(api.enrollRegistration).toHaveBeenCalledTimes(2))
     const [first, second] = api.enrollRegistration.mock.calls
@@ -952,7 +979,7 @@ describe('the case record', () => {
     expect(await screen.findByText('Account created for HID-ZDEMAAA2. They’ll get an email to finish.')).toBeTruthy()
     expect(status().textContent).toBe('Account created. The patient will get an email to set their password.')
     expect(document.activeElement).toBe(heading())
-    expect(within(actions()).queryByRole('button', { name: 'Create their account' })).toBeNull()
+    expect(within(actions()).queryByRole('button', { name: ENROLL_OPENER })).toBeNull()
   })
 
   it('refuses an enrollment without an email, or with a reason under 8 characters, at its field, and a changed email gets a new key', async () => {
@@ -960,10 +987,10 @@ describe('the case record', () => {
     api.enrollRegistration.mockRejectedValueOnce(new Error('lost'))
       .mockResolvedValueOnce({ patientId: PATIENT, hid: 'HID-ZDEMAAA2', contactVerificationRequired: true, replayed: false })
     await findCase()
-    fireEvent.click(within(actions()).getByRole('button', { name: 'Create their account' }))
+    fireEvent.click(within(actions()).getByRole('button', { name: ENROLL_OPENER }))
     const email = screen.getByRole('textbox', { name: 'Their email' })
     const reason = screen.getByRole('textbox', { name: 'Why (for the record)' })
-    const submit = within(screen.getByRole('form', { name: 'Create their account' })).getByRole('button', { name: 'Create account' })
+    const submit = within(screen.getByRole('form', { name: ENROLL_OPENER })).getByRole('button', { name: 'Create account' })
     fireEvent.change(reason, { target: { value: 'Patient asked for an account' } })
     fireEvent.click(submit)
     await waitFor(() => expectRefused(email, 'Enter a valid email and an enrollment reason between 8 and 500 characters.'))
@@ -977,7 +1004,7 @@ describe('the case record', () => {
     expect(api.enrollRegistration).not.toHaveBeenCalled()
     fireEvent.change(reason, { target: { value: 'Patient asked for an account' } })
     fireEvent.click(submit)
-    expect((await screen.findByRole('alert')).textContent).toBe('We couldn’t create the account. They may already have one.')
+    expect(refusal(await screen.findByRole('alert'))).toBe('We couldn’t create the account. They may already have one.')
     fireEvent.change(email, { target: { value: 'patient.two@example.test' } })
     await press(submit)
     await waitFor(() => expect(api.enrollRegistration).toHaveBeenCalledTimes(2))
@@ -1000,7 +1027,7 @@ describe('the case record', () => {
     await act(async () => { fireEvent.click(button) })
     expect(api.registrationCase).toHaveBeenCalledTimes(2)
     await act(async () => { reading.reject(new Error('timeout')) })
-    expect((await screen.findByRole('alert')).textContent).toBe('We couldn’t open that registration.')
+    expect(refusal(await screen.findByRole('alert'))).toBe('We couldn’t open that registration.')
     expect(document.activeElement).toBe(button)
     expect(heading().textContent).toBe('Earlier registration')
   })
@@ -1020,11 +1047,35 @@ describe('the case record', () => {
     expect(screen.getByRole('textbox', { name: 'Why (for the record)' }).getAttribute('aria-invalid')).toBeNull()
   })
 
-  it('offers Next steps only where they lead to a live page: none outside the frame', async () => {
+  it('offers a step that leads to a page only where it is live: outside the frame, only Register someone else', async () => {
     api.registrationCase.mockResolvedValue(approved)
     await findCase()
-    expect(screen.queryByRole('heading', { name: 'Next steps' })).toBeNull()
+    // Parity 2.5: classic's "Register someone else" (Registration.tsx 291) needs no page; no link leads anywhere.
+    const next = screen.getByRole('heading', { name: 'Next steps' }).parentElement as HTMLElement
+    expect(within(next).getAllByRole('button').map(button => button.textContent)).toEqual(['Register someone else'])
     expect(screen.queryByRole('link')).toBeNull()
+  })
+
+  it('Register someone else starts a new registration from a completed case, as classic (parity 2.5)', async () => {
+    api.registrationCase.mockResolvedValue(approved)
+    await findCase()
+    fireEvent.click(screen.getByRole('button', { name: 'Register someone else' }))
+    expect(await screen.findByLabelText(/^NIN \(11 digits\)/)).toBeTruthy()
+    await waitFor(() => expect(heading().textContent).toBe('New patient registration'))
+    expect(document.activeElement).toBe(heading())
+    // Nothing of the case goes with it: a new, empty form.
+    expect((screen.getByLabelText(/^First name/) as HTMLInputElement).value).toBe('')
+    expect(api.resolveNin).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['a case to review', review],
+    ['a case awaiting approval', pending()],
+    ['a rejected case, even one with a patient', { ...linked, status: 'rejected' }],
+  ])('offers no Register someone else on %s, as classic offers it only once done', async (_name, item) => {
+    api.registrationCase.mockResolvedValue(item)
+    await findCase()
+    expect(screen.queryByRole('button', { name: 'Register someone else' })).toBeNull()
   })
 })
 
@@ -1068,7 +1119,7 @@ describe('what the page keeps', () => {
   })
 })
 
-describe('Open in Patients', () => {
+describe('Find … and open their chart', () => {
   // Patients as the clinical registry has it (clinical/pages.ts): live, with patient lookup.
   const PATIENTS: EhrBluePage = { path: 'patients/*', group: 'Clinical', label: 'Patients', permission: 'identity.patient.read', status: 'live', element: <p>Patients</p> }
   const READ = 'identity.patient.read'
@@ -1100,7 +1151,12 @@ describe('Open in Patients', () => {
     session.permissions = [WRITE, APPROVE, READ]
     api.registrationCase.mockResolvedValue(linked)
     await findCaseWith([PATIENTS])
-    const open = screen.getByRole('link', { name: 'Open in Patients' })
+    // Parity 2.5: classic's words and order (Registration.tsx 289-291), never the old "Open in Patients".
+    const next = screen.getByRole('heading', { name: 'Next steps' }).parentElement as HTMLElement
+    expect([...next.querySelectorAll('a, button')].map(control => control.textContent))
+      .toEqual(['Find HID-ZDEMAAA2 and open their chart', 'Register someone else'])
+    expect(screen.queryByText('Open in Patients')).toBeNull()
+    const open = screen.getByRole('link', { name: 'Find HID-ZDEMAAA2 and open their chart' })
     expect(open.getAttribute('href')).toBe('/provider/patients')
     fireEvent.click(open)
     expect(await screen.findByText('Patients was handed {"hid":"HID-ZDEMAAA2"}')).toBeTruthy()
@@ -1112,13 +1168,13 @@ describe('Open in Patients', () => {
     api.registrationCase.mockResolvedValue({ caseId: CASE, status: 'approved_new_identity', version: 2, candidateCount: 0 })
     api.enrollRegistration.mockResolvedValue({ patientId: PATIENT, hid: 'HID-ZDEMAAA2', contactVerificationRequired: true, replayed: false })
     await findCaseWith([PATIENTS])
-    expect(screen.queryByRole('link', { name: 'Open in Patients' })).toBeNull()
-    fireEvent.click(within(actions()).getByRole('button', { name: 'Create their account' }))
+    expect(screen.queryByRole('link', { name: 'Find HID-ZDEMAAA2 and open their chart' })).toBeNull()
+    fireEvent.click(within(actions()).getByRole('button', { name: ENROLL_OPENER }))
     fireEvent.change(screen.getByRole('textbox', { name: 'Their email' }), { target: { value: 'patient.one@example.test' } })
     fireEvent.change(screen.getByRole('textbox', { name: 'Why (for the record)' }), { target: { value: 'Patient asked for an account' } })
-    fireEvent.click(within(screen.getByRole('form', { name: 'Create their account' })).getByRole('button', { name: 'Create account' }))
+    fireEvent.click(within(screen.getByRole('form', { name: ENROLL_OPENER })).getByRole('button', { name: 'Create account' }))
     expect(await screen.findByText('Account created for HID-ZDEMAAA2. They’ll get an email to finish.')).toBeTruthy()
-    fireEvent.click(screen.getByRole('link', { name: 'Open in Patients' }))
+    fireEvent.click(screen.getByRole('link', { name: 'Find HID-ZDEMAAA2 and open their chart' }))
     expect(await screen.findByText('Patients was handed {"hid":"HID-ZDEMAAA2"}')).toBeTruthy()
   })
 
@@ -1126,20 +1182,20 @@ describe('Open in Patients', () => {
     session.permissions = [WRITE, APPROVE, READ]
     api.registrationCase.mockResolvedValue({ ...linked, status: 'rejected' })
     await findCaseWith([PATIENTS])
-    expect(screen.queryByRole('link', { name: 'Open in Patients' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Find HID-ZDEMAAA2 and open their chart' })).toBeNull()
   })
 
   it('is not offered to a role that cannot open Patients', async () => {
     session.permissions = [WRITE, APPROVE]
     api.registrationCase.mockResolvedValue(linked)
     await findCaseWith([PATIENTS])
-    expect(screen.queryByRole('link', { name: 'Open in Patients' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Find HID-ZDEMAAA2 and open their chart' })).toBeNull()
   })
 
   it('is not offered where this product\'s site does not open Patients', async () => {
     session.permissions = [WRITE, APPROVE, READ]
     api.registrationCase.mockResolvedValue(linked)
     await findCaseWith([])
-    expect(screen.queryByRole('link', { name: 'Open in Patients' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Find HID-ZDEMAAA2 and open their chart' })).toBeNull()
   })
 })

@@ -90,10 +90,20 @@ function RequestList() {
     setSettled(value => value + 1)
   }
 
+  /**
+   * Today's status filter (AccessRequests.tsx:114-115) only reads the list again: what a close said stays (the success
+   * sentence is kept, as today's notice is), and a refused close goes, as today's load() clears it (:79).
+   */
   function changeStatus(value: AccessRequestStatus | '') {
-    setNotice('')
     setFailure('')
     setStatus(value)
+  }
+
+  /** Today's Refresh (AccessRequests.tsx:120): reads the list again, which clears a refused close (:79). */
+  function refresh() {
+    if (loading) return
+    setFailure('')
+    void load()
   }
 
   const filters: readonly AccessRequestStatus[] = outcomesReported || (ACCESS_OUTCOME_FILTERS as readonly string[]).includes(status)
@@ -132,7 +142,7 @@ function RequestList() {
           </Select>
         </Field>
         {/* Focusable while the list is read, when a second press does nothing. */}
-        <Button icon={RotateCcw} aria-busy={loading || undefined} onClick={() => { if (!loading) void load() }}>Refresh</Button>
+        <Button icon={RotateCcw} aria-busy={loading || undefined} onClick={refresh}>Refresh</Button>
       </div>
       {/* Mounted throughout and only visually hidden while empty, so what a close says is announced. Today's says only
           the sentence (AccessRequests.tsx:122-124): no title, and nothing more when the open record's grant was the one closed. */}
@@ -140,7 +150,9 @@ function RequestList() {
         {notice ? <Alert intent="success" live={false}>{notice}</Alert> : null}
       </div>
       {failure ? <Alert intent="error">{failure}</Alert> : null}
-      {!facility ? null : <PageState loading={loading} error={error} hasData={requests !== null} onRetry={() => void load()} what="requests" empty={empty}>
+      {/* A refused close whose re-read failed too says only the refusal, as today's does: its close error replaces the
+          list's (AccessRequests.tsx:98-99, one error line). Refresh reads the list again. */}
+      {!facility || (failure && error) ? null : <PageState loading={loading} error={error} hasData={requests !== null} onRetry={() => void load()} what="requests" empty={empty}>
         <Card>
           <ul className="m-0 list-none divide-y divide-line p-0" aria-label="Access requests">
             {shown.map(request => <li key={request.accessRequestId} className="flex flex-wrap items-center">
@@ -149,9 +161,11 @@ function RequestList() {
               <ListRow className="min-w-0 flex-[1_1_18rem]" to={status ? `${href(request.accessRequestId)}?status=${status}` : href(request.accessRequestId)} title={request.reason}
                 subtitle={[patientContext(request), accessLevelLabel(request.scope), `requested ${formatWhen(request.requestedAt)}`, statusNote(request)].filter(Boolean).join(' · ')}
                 trailing={<><OutcomeBadge request={request} /><ChevronRight className="size-4 text-ink-3" aria-hidden /></>} />
-              {/* Today's row action (AccessRequests.tsx:127-129), beside the row's link rather than inside it. */}
+              {/* Today's row action (AccessRequests.tsx:130-132), beside the row's link rather than inside it, named as today's
+                  is. Busy, it stays focusable (aria-disabled, not disabled), as the request page's Close access does: focus is
+                  not lost while the close is sent, and a second press sends nothing (closeAccess returns meanwhile). */}
               {closable(request) && !closeUnavailable ? <div className="px-5 pb-3 @md:py-3 @md:pl-0">
-                <Button size="sm" aria-label={`${closing === request.accessRequestId ? 'Closing access' : 'Close access'}: ${request.reason}`} loading={closing === request.accessRequestId}
+                <Button size="sm" aria-disabled={closing === request.accessRequestId || undefined} aria-busy={closing === request.accessRequestId || undefined}
                   disabled={closing !== null && closing !== request.accessRequestId} onClick={() => void closeAccess(request)}>
                   {closing === request.accessRequestId ? 'Closing…' : 'Close access'}</Button>
               </div> : null}

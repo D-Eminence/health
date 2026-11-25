@@ -197,7 +197,3 @@ export function dateOfBirthUnfinished(form: HTMLFormElement): boolean {
   return control instanceof HTMLInputElement && control.validity.badInput
 }
 
-/** The label a document type is shown with. */
-export function documentLabel(type: AssistedDocumentType | ''): string {
-  return DOCUMENT_TYPES.find(([value]) => value === type)?.[1] ?? ''
-}

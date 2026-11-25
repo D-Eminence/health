@@ -156,8 +156,8 @@ describe('Audit trail: every event of the page loaded', () => {
     expect(api.facilityAudit).toHaveBeenLastCalledWith(DEMO_HOSPITAL_ID, undefined)
     expect(screen.getByRole('list', { name: 'Audit events, page 1' }).getAttribute('aria-busy')).toBe('true')
     const status = screen.getByRole('status')
-    expect(status.textContent).toBe('Loading audit events')
-    expect(status.className).toBe('hid-ehr-sr-only')
+    expect(status.textContent).toBe('Loading audit events…')
+    expect(status.className).not.toContain('sr-only')
     expect(screen.getByText('Tried to start a new visit')).toBeTruthy()
     expect(button('Older page').getAttribute('aria-busy')).toBe('true')
 

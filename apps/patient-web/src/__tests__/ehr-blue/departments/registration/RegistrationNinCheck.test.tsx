@@ -82,7 +82,9 @@ describe('the desk NIN check', () => {
     await openNew()
     fill()
     fireEvent.click(verifyButton())
-    expect((await screen.findByText(text)).getAttribute('role')).toBe('alert')
+    // Under classic's title (Registration.tsx 301; parity 3.3-61).
+    const alert = (await screen.findByText(text)).closest('[role="alert"]') as HTMLElement
+    expect(alert.querySelector('.hid-ehr-dept-notice-title')?.textContent).toBe('That didn’t work')
     expectNoCode()
   })
 
@@ -180,7 +182,8 @@ describe('a NIN QoreID has no record of, at the desk (owner Q117; hid-system #27
     await openNew()
     fill()
     fireEvent.click(verifyButton())
-    expect((await screen.findByText(NOT_VERIFIED)).getAttribute('role')).toBe('alert')
+    expect((await screen.findByText(NOT_VERIFIED)).closest('[role="alert"]')?.querySelector('.hid-ehr-dept-notice-title')?.textContent)
+      .toBe('That didn’t work')
     expect(document.body.textContent).not.toMatch(/NIN_NOT_VERIFIED|\b422\b/)
     await waitFor(() => expect(screen.getByLabelText(/^NIN \(11 digits\)/).getAttribute('aria-invalid')).toBe('true'))
     expect(screen.getByText(NIN_NUMBER_FIELD)).toBeTruthy()

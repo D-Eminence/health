@@ -17,7 +17,7 @@ beforeEach(() => {
     const frame = await import('../../../../ehr-blue/frame/pages')
     const home = await import('../../../../ehr-blue/home/pages')
     const { registrationPage } = await import('../../../../ehr-blue/departments/registration/page')
-    // Patients, where a registered patient is handed on to ("Open in Patients").
+    // Patients, where a registered patient is handed on to ("Find … and open their chart").
     const clinical = await import('../../../../ehr-blue/clinical/pages')
     const patients = clinical.pages.filter(page => page.path === 'patients/*')
     return {
@@ -129,16 +129,18 @@ describe('Patient registration in the frame', () => {
     expect(where()).not.toContain(CASE)
   })
 
-  it('offers no next step where none leads to a live page this session may open', async () => {
+  it('offers no step to another page where none is live to this session: only Register someone else', async () => {
     const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.registration.write', 'identity.registration.approve'], ['records_officer'])
     serve({ [SESSION]: [sessionAt(demo, [demo])], [CAPABILITIES]: many(enabled), [CASE_READ]: [approved] })
     await openStaffApp('/provider/registration')
     fireEvent.change(await screen.findByRole('textbox', { name: 'Registration ID' }), { target: { value: CASE } })
     fireEvent.click(screen.getByRole('button', { name: 'Open' }))
     expect(await screen.findByRole('heading', { level: 1, name: 'Earlier registration' })).toBeDefined()
-    expect(screen.queryByRole('heading', { name: 'Next steps' })).toBeNull()
+    // Parity 2.5: classic's "Register someone else" (Registration.tsx 291) leads to no other page, so it is always there.
+    const next = screen.getByRole('heading', { name: 'Next steps' }).parentElement as HTMLElement
+    expect([...next.querySelectorAll('a, button')].map(control => control.textContent)).toEqual(['Register someone else'])
     // Patients is not open to a role without patient lookup: no way there is offered.
-    expect(screen.queryByRole('link', { name: 'Open in Patients' })).toBeNull()
+    expect(screen.queryByRole('link', { name: /open their chart/ })).toBeNull()
   })
 
   it('hands a registered patient on to Patients with their Health ID filled in, where Patients is open to this session', async () => {
@@ -150,7 +152,8 @@ describe('Patient registration in the frame', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open' }))
     expect(await screen.findByRole('heading', { level: 1, name: 'Earlier registration' })).toBeDefined()
     expect(screen.getByRole('heading', { name: 'Next steps' })).toBeDefined()
-    const patients = screen.getByRole('link', { name: 'Open in Patients' })
+    // Parity 2.5: classic's words (Registration.tsx 290).
+    const patients = screen.getByRole('link', { name: 'Find HID-ZDEMAAA2 and open their chart' })
     expect(patients.getAttribute('href')).toBe('/provider/patients')
     fireEvent.click(patients)
     await waitFor(() => expect(where()).toBe('/provider/patients'))

@@ -17,6 +17,8 @@ import {
 import { PlainError, plainErrorText } from '@hid/http'
 
 export const PIN_PROBLEM = 'Enter the patient’s 4 to 8 digit access PIN.'
+/** Today's sentence above the PIN field (Patients.tsx:259), the page's description (parity 9c). */
+export const PIN_LEDE = 'Only the patient should share their access PIN. Verification and grant creation happen on the server.'
 /**
  * What a patient's Access PIN gives, said before it is used: all of their records, to see and add to, for 24 hours
  * (owner, 10 Nov 2026; hid-system grants write_records for 1440 minutes). The same roles may use it as before.
@@ -107,7 +109,7 @@ export function PinAccess({ backLabel = 'Back to access requests' }: { backLabel
   const hidId = `${id}-hid`
   const pinId = `${id}-pin`
   return (
-    <FormPage title="Use the patient’s Access PIN" description="Ask the patient to type their PIN. Only they should know it."
+    <FormPage title="Use the patient’s Access PIN" description={PIN_LEDE}
       back={{ to: href(), label: backLabel }}>
       <Card>
         <form noValidate className="flex flex-col gap-5 p-5" onSubmit={event => void submit(event)}>

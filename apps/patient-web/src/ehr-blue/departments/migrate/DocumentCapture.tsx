@@ -240,7 +240,7 @@ function EncounterDocuments({ facilityId, patientId, encounterId, canWrite, ocr,
   readonly facilityId: string; readonly patientId: string; readonly encounterId: string; readonly canWrite: boolean
   /**
    * What a clean document offers: 'start', "Extract with OCR" (OCR job write and start); 'follow', "Find its reading", which
-   * finds the reading someone else started, and a sentence saying who starts one (a doctor since hid-system 0136); null,
+   * finds the reading someone else started, and a sentence saying who starts one (no doctor since hid-system 0150); null,
    * nothing.
    */
   readonly ocr: 'start' | 'follow' | null

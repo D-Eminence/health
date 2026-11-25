@@ -589,8 +589,9 @@ describe('Consultation record', () => {
   it('does not say so when the role holds one record read', async () => {
     staff.permissions = ['ehr.encounter.read', 'ehr.vital.read']
     renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
-    // In the Vitals card and in History.
-    expect(await screen.findAllByRole('link', { name: `Vitals · ${formatWhen(VITAL.createdAt)}` })).toHaveLength(2)
+    // In the Vitals card (classic's title, row 3) and in History.
+    expect(await screen.findByRole('link', { name: 'Vitals recorded' })).toBeTruthy()
+    expect(screen.getByRole('link', { name: `Vitals · ${formatWhen(VITAL.createdAt)}` })).toBeTruthy()
     expect(screen.queryByText('Your role at this facility can’t open visit records. Ask your facility administrator.')).toBeNull()
   })
 
@@ -893,7 +894,8 @@ describe('Consultation record', () => {
     chooseMore(label)
     fireEvent.change(actions().getByLabelText(labelled('Reason for change')), { target: { value: 'Opened on the wrong patient' } })
     fireEvent.click(submitOf(label))
-    fireEvent.click(within(dialog()).getByRole('button', { name: label }))
+    // Only a cancel asks first (the design's CONFIRMED_ACTIONS); entered in error is sent in one press (row 18c).
+    if (status === 'cancelled') fireEvent.click(within(dialog()).getByRole('button', { name: label }))
     // Today's refusal, whole (staff/routes/Clinical.tsx:94-96), in the form, and never the service's own words.
     expect((await actions().findByRole('alert')).textContent).toBe(RETRACTION_REFUSED(change))
     expect(document.body.textContent).not.toContain('records you may not write')
@@ -911,7 +913,6 @@ describe('Consultation record', () => {
 
   it.each([
     ['main', 'Cancel consultation', '', MAIN_WARNING],
-    ['main', 'Mark as entered in error', '', MAIN_WARNING],
     ['Novu', 'Cancel consultation', 'novu-v1', NOVU_WARNING],
   ])('parity (%s): the dialog that sends "%s" says today’s whole warning, not only that the record changes', async (_backend, label, contract, warning) => {
     if (contract) vi.stubEnv('VITE_HID_BACKEND_CONTRACT', contract)
@@ -933,13 +934,22 @@ describe('Consultation record', () => {
     expect(within(dialog()).getByText(CONFIRM_BODY)).toBeTruthy()
     expect(within(dialog()).queryByText(MAIN_WARNING)).toBeNull()
     fireEvent.click(within(dialog()).getByRole('button', { name: 'Cancel' }))
-    // The note's own entered in error changes only the note: the design's sentence too.
-    chooseMore('Mark note entered in error')
-    fireEvent.change(actions().getByLabelText(labelled('Reason for change')), { target: { value: 'Wrong patient' } })
-    fireEvent.click(submitOf('Mark note entered in error'))
-    expect(within(dialog()).getByText(CONFIRM_BODY)).toBeTruthy()
-    expect(within(dialog()).queryByText(MAIN_WARNING)).toBeNull()
   })
+
+  it.each([['main', '', MAIN_WARNING], ['Novu', 'novu-v1', NOVU_WARNING]])(
+    'row 18c (%s): "Mark as entered in error" is sent in one press, as classic’s status form, its submit described by today’s warning', async (_backend, contract, warning) => {
+      if (contract) vi.stubEnv('VITE_HID_BACKEND_CONTRACT', contract)
+      api.updateEncounter.mockResolvedValue({ ...ENCOUNTER, status: 'entered_in_error', rowVersion: 4 })
+      await openEncounter()
+      chooseMore('Mark as entered in error')
+      fireEvent.change(actions().getByLabelText(labelled('Reason for change')), { target: { value: 'Opened on the wrong patient' } })
+      const submit = submitOf('Mark as entered in error')
+      expect(document.getElementById(submit.getAttribute('aria-describedby')!)!.textContent).toBe(warning)
+      fireEvent.click(submit)
+      await waitFor(() => expect(api.updateEncounter).toHaveBeenCalledTimes(1))
+      expect(screen.queryByRole('alertdialog')).toBeNull()
+      expect(api.updateEncounter).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, { expectedRowVersion: 3, changeReason: 'Opened on the wrong patient', status: 'entered_in_error' })
+    })
 
   it('re-reads an encounter that changed meanwhile and says so', async () => {
     api.updateEncounter.mockRejectedValueOnce(STALE)
@@ -1040,17 +1050,16 @@ describe('Consultation record: diagnoses', () => {
     // Today's "Add diagnoses" form, in its order and words (Clinical.tsx:561, 566).
     expect(diagnoses.getByRole('heading', { name: 'Add diagnoses' })).toBeTruthy()
     const form = diagnoses.getByRole('button', { name: 'Save record' }).closest('form') as HTMLFormElement
-    expect(Array.from(form.querySelectorAll('label'), label => label.textContent?.replace(/\s*\*$/, ''))).toEqual(['Diagnosis', 'Code system', 'Code', 'Clinical status', 'Verification', 'Notes'])
+    // Classic's label "Display" (row 3.3-39), first, with its suggestions (owner, 18 Nov 2026).
+    expect(Array.from(form.querySelectorAll('label'), label => label.textContent?.replace(/\s*\*$/, ''))).toEqual(['Display', 'Code system', 'Code', 'Clinical status', 'Verification', 'Notes'])
     fireEvent.change(diagnoses.getByLabelText(labelled('Code system')), { target: { value: 'ICD-10' } })
     fireEvent.change(diagnoses.getByLabelText(labelled('Code')), { target: { value: 'R50.9' } })
-    fireEvent.change(diagnoses.getByLabelText(labelled('Diagnosis')), { target: { value: 'Fever' } })
+    fireEvent.change(diagnoses.getByLabelText(labelled('Display')), { target: { value: 'Fever' } })
     fireEvent.click(diagnoses.getByRole('button', { name: 'Save record' }))
     expect((await diagnoses.findByRole('alert')).textContent).toBe(SAID_FIELDS_REFUSED)
     expect(document.body.textContent).not.toContain('request fields are invalid')
     expect(document.body.textContent).not.toContain('shorter than or equal to 500 characters')
-    // The field is named as the form names it, never by the record's field name.
-    expect(diagnoses.getByLabelText(labelled('Diagnosis')).getAttribute('aria-invalid')).toBe('true')
-    expect(card('Diagnoses').textContent).not.toContain('Display')
+    expect(diagnoses.getByLabelText(labelled('Display')).getAttribute('aria-invalid')).toBe('true')
 
     fireEvent.click(diagnoses.getByRole('button', { name: 'Save record' }))
     expect(await screen.findByText('Clinical record saved.')).toBeTruthy()
@@ -1140,7 +1149,7 @@ describe('Consultation record: diagnoses', () => {
       : Promise.resolve({ items: records[kind] ?? [], nextCursor: null }))
     fireEvent.change(diagnoses.getByLabelText(labelled('Code system')), { target: { value: 'ICD-10' } })
     fireEvent.change(diagnoses.getByLabelText(labelled('Code')), { target: { value: 'R50.9' } })
-    fireEvent.change(diagnoses.getByLabelText(labelled('Diagnosis')), { target: { value: 'Fever (fictional)' } })
+    fireEvent.change(diagnoses.getByLabelText(labelled('Display')), { target: { value: 'Fever (fictional)' } })
     fireEvent.click(diagnoses.getByRole('button', { name: 'Save record' }))
     await waitFor(() => expect(release).not.toBeNull())
     const update = change.getByRole('button', { name: 'Update diagnosis' }) as HTMLButtonElement
@@ -1310,8 +1319,9 @@ describe('Consultation record: documents', () => {
     expect(within(documents.getByText('referral-letter.pdf').closest('li') as HTMLElement).getByRole('link', { name: 'Extract with OCR' })).toBeTruthy()
   })
 
-  // hid-system 0136 (Q112 A): starting a reading needs ocr.job.start, which doctors no longer hold.
-  it('item 3: gives a doctor who may not start a reading Find its reading and a plain sentence, never Extract with OCR', async () => {
+  // hid-system 0136 (Q112 A): starting a reading needs ocr.job.start. Doctors hold it again since 0150 (Q141 B), so this is
+  // a role that follows readings without it.
+  it('item 3: gives a role that may not start a reading Find its reading and a plain sentence, never Extract with OCR', async () => {
     staff.permissions = [...ALL, 'ocr.job.read', 'ocr.job.write', 'ocr.validation.write']
     renderWithOcr()
     expect(await screen.findByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
@@ -1358,7 +1368,7 @@ describe('Consultation record: More actions, diagnoses with a note change, and v
     expect(menuLabels()).toEqual(['Resume consultation', 'Cancel consultation', 'Mark as entered in error', 'Mark note entered in error'])
   })
 
-  it('marks the consultation note entered in error from More actions, under a typed reason, with a plain confirm', async () => {
+  it('marks the consultation note entered in error from More actions, under a typed reason, in one press as classic (row 3.3-36)', async () => {
     await openEncounter()
     chooseMore('Mark note entered in error')
     expect(document.activeElement).toBe(moreButton())
@@ -1367,11 +1377,10 @@ describe('Consultation record: More actions, diagnoses with a note change, and v
     fireEvent.click(submitOf('Mark note entered in error'))
     expect(actions().getByText('Give a reason of at least 3 characters.')).toBeTruthy()
     fireEvent.change(actions().getByLabelText(labelled('Reason for change')), { target: { value: 'Wrong patient' } })
-    fireEvent.click(submitOf('Mark note entered in error'))
-    expect(within(dialog()).getByRole('heading', { name: 'Mark note entered in error?' })).toBeTruthy()
-    expect(within(dialog()).queryByLabelText(/Type .* to confirm/)).toBeNull()
     const checks = api.lookupPatient.mock.calls.length
-    fireEvent.click(within(dialog()).getByRole('button', { name: 'Mark note entered in error' }))
+    fireEvent.click(submitOf('Mark note entered in error'))
+    // No dialog: the design confirms no entered in error (CONFIRMED_ACTIONS), and classic sends it from its form.
+    expect(screen.queryByRole('alertdialog')).toBeNull()
     expect(await screen.findByText('Clinical note status updated.')).toBeTruthy()
     expect(api.updateRecord).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', 'note-1',
       { expectedRowVersion: 2, changeReason: 'Wrong patient', status: 'entered_in_error' })
@@ -1652,8 +1661,8 @@ describe('Consultation record: "Try again" after a change made in a card whose l
     const read = api.records.getMockImplementation()!
     api.records.mockRejectedValue(UNAVAILABLE())
     api.updateRecord.mockResolvedValue({ ...NOTE, status: 'entered_in_error', rowVersion: 3 })
+    // Sent in one press, as classic's status form (row 3.3-36).
     fireEvent.click(row().getAllByRole('button', { name: 'Mark entered in error' }).find(button => button.getAttribute('type') === 'submit')!)
-    fireEvent.click(within(dialog()).getByRole('button', { name: 'Mark entered in error' }))
     expect(await screen.findByText('Clinical note status updated.')).toBeTruthy()
     await waitFor(() => expect(sentence()).not.toBeNull())
     expect(row().getByText('Draft')).toBeTruthy()
@@ -1677,8 +1686,8 @@ describe('Consultation record: "Try again" after a change made in a card whose l
     const read = api.records.getMockImplementation()!
     api.records.mockRejectedValue(UNAVAILABLE())
     api.updateRecord.mockResolvedValue({ ...NOTE, status: 'entered_in_error', rowVersion: 3 })
+    // Sent in one press, as classic's status form (row 3.3-36).
     fireEvent.click(row().getAllByRole('button', { name: 'Mark entered in error' }).find(button => button.getAttribute('type') === 'submit')!)
-    fireEvent.click(within(dialog()).getByRole('button', { name: 'Mark entered in error' }))
     expect(await screen.findByText('Clinical note status updated.')).toBeTruthy()
     await waitFor(() => expect(sentence()).not.toBeNull())
     records['clinical-notes'] = [{ ...NOTE, status: 'entered_in_error', rowVersion: 3 }]
@@ -1737,7 +1746,7 @@ describe('Consultation record: "Try again" after a change made in a card whose l
     expect(screen.getByText('Clinical record saved.')).toBeTruthy()
   })
 
-  it('in the Documents card, after an upload whose list could not be read again, reads the documents again and focus goes to the file field', async () => {
+  it('row 3.3-41: in the Documents card, after an upload whose list could not be read again, says classic’s load error, with no Try again', async () => {
     await openEncounter()
     const documents = () => within(card('Documents'))
     const input = documents().getByLabelText(labelled('Clinical document')) as HTMLInputElement
@@ -1745,71 +1754,17 @@ describe('Consultation record: "Try again" after a change made in a card whose l
     api.documents.mockRejectedValue(UNAVAILABLE())
     fireEvent.click(documents().getByRole('button', { name: 'Upload document' }))
     expect(await documents().findByText('Document uploaded. It can be opened once its virus scan is clean.')).toBeTruthy()
-    await waitFor(() => expect(sentence()?.textContent).toBe(`${RELOAD_FAILED} ${SAID_UNAVAILABLE}Try again`))
-    // The sentence and its Try again are the card's own, as before, and the only ones on the page.
-    expect(card('Documents').contains(sentence())).toBe(true)
-    expect(screen.getAllByRole('button', { name: 'Try again' })).toEqual([within(sentence()!).getByRole('button', { name: 'Try again' })])
-    expect(documents().queryByText('scan.pdf')).toBeNull()
-    api.documents.mockResolvedValue({ items: [DOCUMENT, { ...DOCUMENT, id: 'doc-2', fileName: 'scan.pdf', scanStatus: 'pending' }], nextCursor: null })
-    const reads = api.documents.mock.calls.length
-    const checks = api.lookupPatient.mock.calls.length
-    const button = within(sentence()!).getByRole('button', { name: 'Try again' })
-    button.focus()
-    fireEvent.click(button)
-    await waitFor(() => expect(sentence()).toBeNull())
-    expect(api.documents.mock.calls.length).toBe(reads + 1)
-    expect(api.lookupPatient.mock.calls.length).toBe(checks)
-    expect(documents().getByText('scan.pdf')).toBeTruthy()
+    // Classic's Documents load error (Clinical.tsx:975): why it could not be read, not that the change was saved.
+    await waitFor(() => expect(documents().getByRole('alert').textContent).toBe(SAID_UNAVAILABLE))
+    expect(sentence()).toBeNull()
     expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
-    expect(document.activeElement).toBe(documents().getByLabelText(labelled('Clinical document')))
-  })
-
-  it('in the Documents card, keeps the sentence when Try again fails, said anew, and offers no Try again beside another failure', async () => {
-    await openEncounter()
-    const documents = () => within(card('Documents'))
-    const input = documents().getByLabelText(labelled('Clinical document')) as HTMLInputElement
-    fireEvent.change(input, { target: { files: [new File(['%PDF-1.4'], 'scan.pdf', { type: 'application/pdf' })] } })
-    api.documents.mockRejectedValue(UNAVAILABLE())
-    fireEvent.click(documents().getByRole('button', { name: 'Upload document' }))
-    await waitFor(() => expect(sentence()).not.toBeNull())
-    const before = sentence()!.querySelector('p')!
-    const button = within(sentence()!).getByRole('button', { name: 'Try again' })
-    fireEvent.click(button)
-    await waitFor(() => expect(sentence()!.querySelector('p')).not.toBe(before))
-    expect(sentence()!.querySelector('p')!.textContent).toBe(`${RELOAD_FAILED} ${SAID_UNAVAILABLE}`)
-    expect(within(sentence()!).getByRole('button', { name: 'Try again' })).toBe(button)
-    // An upload refused outright says only why, with no Try again.
+    // An upload refused outright says only why, too.
     fireEvent.change(input, { target: { files: [new File(['%PDF-1.4'], 'scan.pdf', { type: 'application/pdf' })] } })
     api.uploadDocument.mockRejectedValue(new HidApiError(503, 'Uploads are paused.', { code: 'UNAVAILABLE' }))
     fireEvent.click(documents().getByRole('button', { name: 'Upload document' }))
     await waitFor(() => expect(documents().getByRole('alert').textContent).toBe(SAID_UNAVAILABLE))
     expect(document.body.textContent).not.toContain('Uploads are paused')
-    expect(sentence()).toBeNull()
     expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
-  })
-
-  it('in the Documents card, keeps the outcome of an upload made while Try again reads', async () => {
-    await openEncounter()
-    const documents = () => within(card('Documents'))
-    const input = documents().getByLabelText(labelled('Clinical document')) as HTMLInputElement
-    fireEvent.change(input, { target: { files: [new File(['%PDF-1.4'], 'scan.pdf', { type: 'application/pdf' })] } })
-    api.documents.mockRejectedValue(UNAVAILABLE())
-    fireEvent.click(documents().getByRole('button', { name: 'Upload document' }))
-    await waitFor(() => expect(sentence()).not.toBeNull())
-    let release!: () => void
-    const held = new Promise<void>(resolve => { release = resolve })
-    api.documents.mockImplementation(async () => { await held; throw UNAVAILABLE() })
-    fireEvent.click(within(sentence()!).getByRole('button', { name: 'Try again' }))
-    await waitFor(() => expect(api.documents).toHaveBeenCalledTimes(3))
-    fireEvent.change(input, { target: { files: [new File(['%PDF-1.4'], 'scan.pdf', { type: 'application/pdf' })] } })
-    api.uploadDocument.mockRejectedValue(new HidApiError(503, 'Uploads are paused.', { code: 'UNAVAILABLE' }))
-    fireEvent.click(documents().getByRole('button', { name: 'Upload document' }))
-    await waitFor(() => expect(documents().getByRole('alert').textContent).toBe(SAID_UNAVAILABLE))
-    await act(async () => release())
-    await act(async () => {})
-    expect(documents().getByRole('alert').textContent).toBe(SAID_UNAVAILABLE)
-    expect(document.body.textContent).not.toContain('Uploads are paused')
-    expect(sentence()).toBeNull()
   })
 })
 

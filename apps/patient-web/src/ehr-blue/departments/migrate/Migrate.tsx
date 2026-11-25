@@ -52,9 +52,9 @@ interface StepFocus { readonly targets: readonly string[]; readonly notice?: str
 /**
  * The refusal for a role that follows no reading (neither OCR job read nor the front desk's read of its own uploads'
  * readings), on this page and at its address (page.tsx). Screens name no permission (the owner's rule), so it says
- * plainly who does this work since hid-system 0136 (Q112 A): the roles that start readings.
+ * plainly who does this work: the roles that start readings (hid-system 0136, Q112 A; doctors again since 0150, Q141 B).
  */
-export const NO_DOCUMENT_OCR = 'Scanning paper records is done by the front desk, nurses and clinicians here.'
+export const NO_DOCUMENT_OCR = 'Scanning paper records is done by the front desk, doctors, nurses and clinicians here.'
 
 /**
  * Whether OCR refused to make a job because the patient's own OK does not cover bringing in their paper records: its
@@ -345,7 +345,7 @@ export function Migrate() {
     openRequest.current += 1; setReading(false)
   }, [facilityId])
   // The clinical record's hand-off, exactly once. To someone who starts readings it is sent for reading at once; to
-  // someone who only follows them (a doctor since hid-system 0136, "Find its reading") its reading is looked up, and
+  // someone who only follows them (no doctor since hid-system 0150, "Find its reading") its reading is looked up, and
   // opened when it has one, or Find document job holds the document and says who starts readings. Declared after the
   // reset above, which also runs on mount, so the reset cannot wipe it. The router state it came in is spent above
   // (replaced with none), so Back, Forward and a reload bring nothing back; this ref stops a second run in the same mount.
@@ -625,7 +625,7 @@ export function Migrate() {
     nameDocument(documentId, fileName)
     setFindDocument(documentId); setSearched(false); setJob(null); setNotice(''); setProblem(null); setStepFocus(null)
     setError(''); setCreateError('')
-    // Someone who follows readings but may not start one (a doctor): the document's reading is looked up and opened, or
+    // Someone who follows readings but may not start one (no doctor since 0150): the document's reading is looked up and opened, or
     // the page says it has none yet and who starts one.
     if (!canWrite) {
       setReading(false)

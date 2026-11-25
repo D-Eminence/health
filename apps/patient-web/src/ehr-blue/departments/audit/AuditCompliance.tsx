@@ -191,9 +191,10 @@ export function AuditCompliance() {
               <p><EhrButton id={TRY_AGAIN} variant="secondary" size="sm" onClick={tryAgain}>Try again</EhrButton></p>
             </DeptNotice>
           )}
-          {loading && !page && <EhrSkeleton label="Loading audit events" />}
-          {/* A page already shown stays while it is read again; the read is still said, as today's page says every read. */}
-          {loading && page && <p role="status" className="hid-ehr-sr-only">Loading audit events</p>}
+          {/* Classic's words, on screen for every read (staff/routes/Audit.tsx; parity 3.3-74). A page already shown stays
+              while it is read again; on the first read the skeleton stands in for it, its own status hidden (said here). */}
+          {loading && <p role="status" className="hid-ehr-dept-muted">Loading audit events…</p>}
+          {loading && !page && <div aria-hidden="true"><EhrSkeleton /></div>}
           {!loading && page?.items.length === 0 && (page.nextBeforeSequenceId
             ? <EhrEmptyState title="Nothing to show on this page" message="This page held only request records, which aren’t shown here. Use Older page to look further back." />
             : <EhrEmptyState title="No audit events" message="The server returned no events for this page and facility." />)}
@@ -209,7 +210,7 @@ export function AuditCompliance() {
             <div className="hid-ehr-dept-audit-pager">
               {showNewer && <EhrButton id={NEWER} variant="secondary" size="sm" busy={busy} onClick={newer}>Newer page</EhrButton>}
               {showOlder && <EhrButton id={OLDER} variant="secondary" size="sm" busy={busy} onClick={older}>Older page</EhrButton>}
-              {page && <span className="hid-ehr-dept-audit-pager-note">Page {cursors.length} · {page.items.length} {page.items.length === 1 ? 'event' : 'events'}</span>}
+              {page && <span className="hid-ehr-dept-audit-pager-note">Page {cursors.length} · {page.items.length} events</span>}
             </div>
           )}
         </div>

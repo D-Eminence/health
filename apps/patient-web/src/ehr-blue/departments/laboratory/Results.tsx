@@ -129,7 +129,7 @@ function ResultView({ facilityId, item, permissions }: { readonly facilityId: st
           {released.map(({ execution, revision }) => <li key={execution.id} className="flex flex-col gap-0.5 py-3 first:pt-0 last:pb-0">
             <span className="text-[15px] font-medium text-ink">{execution.test.name}</span>
             <span className="text-[19px]"><Value value={revisionText(revision)} unit={revision.unit} flag={flagLevel(revision.abnormalFlag)} /></span>
-            <span className="text-caption text-ink-3">{[revision.referenceRange ? `Normal range ${revision.referenceRange}` : null,
+            <span className="text-caption text-ink-3">{[revision.referenceRange ? `Reference range ${revision.referenceRange}` : null,
               revision.releasedAt ? `Released ${stampText(revision.releasedAt)}` : null].filter(Boolean).join(' · ')}</span>
             {sameScientistCheck(revision) ? <span className="text-caption text-ink-2">{SAME_SCIENTIST}</span> : null}
           </li>)}

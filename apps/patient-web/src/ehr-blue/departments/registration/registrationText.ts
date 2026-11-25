@@ -7,8 +7,8 @@ import { birthDateText, dateText } from '../parts/format'
 /*
  * The classic Patient registration page (staff/routes/Registration.tsx as it is on main now), its rules and every word
  * it says, ported here word for word: that page is not exported in reusable pieces. Each constant names the line it
- * comes from (parity report 3.3-58 to 3.3-63). The words the design adds (its headings, "Create record", "Back to list")
- * are marked so.
+ * comes from (parity report 2.5, 3.3-58 to 3.3-63). The words the design adds (its headings, "Create record", "Back to
+ * list") are marked so.
  * Screens use plain words (the owner's rule): no server terms, no case id or version on screen, except the case's
  * reference under "More details", kept so a registration can be reopened on a later visit.
  */
@@ -29,6 +29,9 @@ export const COMPLETED: ReadonlySet<RegistrationCase['status']> = new Set<Regist
 export function safeError(error: unknown, fallback: string) {
   return registrationErrorText(error, fallback)
 }
+
+/** Registration.tsx 301: classic's title over every refusal after a step or a read ("That didn’t work"). */
+export const ERROR_TITLE = 'That didn’t work'
 
 /** The case's status in words (Registration.tsx 19-29). */
 export function statusLabel(status: RegistrationCase['status']) {
@@ -85,7 +88,10 @@ export const CAPABILITY_FAILED_TITLE = 'Can’t check NINs right now'
 export const CAPABILITY_FAILED = 'We couldn’t check whether NIN checks are working.'
 /** Whether NIN checks work, in plain words: never the server's own state for them. */
 export const NIN_OFF_TITLE = 'NIN checks are off'
-/** Only where Identity offers no registration without a NIN either (a backend before hid-system 0130). */
+/**
+ * Only where Identity offers no registration without a NIN either (a backend before hid-system 0130). As classic
+ * (Registration.tsx 230, 232), the NIN form is not shown then: only this line under NIN_OFF_TITLE, with Check again.
+ */
 export const NIN_NOT_ENABLED = 'New registrations can’t start until they’re back on.'
 /**
  * NIN checks are off and Identity takes a registration without a NIN (hid-system 0130): the desk is pointed to it.
@@ -212,8 +218,9 @@ export const REFERENCE_HINT = 'Note this down to reopen this registration on a l
 export const REVIEW_NOTICE = 'This person may already be on Health ID. Pick the right one to link them.'
 /** Why the design's "Register reviewed duplicate as distinct person" is off. */
 export const NO_OVERRIDE = 'A new Health ID cannot be given once a possible match has been found.'
-/** Registration.tsx 279: classic's "Can’t show the matches" alert, title and line. */
-export const CANDIDATES_UNAVAILABLE = 'Can’t show the matches. Refresh to try again.'
+/** Registration.tsx 279: classic's "Can’t show the matches" alert, its title and its line. */
+export const CANDIDATES_UNAVAILABLE_TITLE = 'Can’t show the matches'
+export const CANDIDATES_UNAVAILABLE = 'Refresh to try again.'
 /** Registration.tsx 278, 280. */
 export const candidateLine = (dateOfBirth: string | null) => `Born ${dateOfBirth ?? 'unknown'}`
 export const candidateOption = (fullName: string, dateOfBirth: string | null) => `${fullName} · ${dateOfBirth ?? 'date unknown'}`
@@ -248,9 +255,9 @@ export function reviewErrorText(caught: unknown): string {
   return safeError(caught, REVIEW_FAILED)
 }
 
-/** Registration.tsx 199, 207, 210, 295-298: "No phone or app? Create their account". */
-export const ENROLL_TITLE = 'Create their account'
-export const ENROLL_TEXT = 'No phone or app? They get an email to set a password. Use their own email, not yours.'
+/** Registration.tsx 199, 207, 210, 295-298: classic's summary, word for word, opens the form; then its line. */
+export const ENROLL_TITLE = 'No phone or app? Create their account · optional'
+export const ENROLL_TEXT = 'They get an email to set a password. Use their own email, not yours.'
 export const EMAIL_LABEL = 'Their email'
 export const ENROLL_REASON_LABEL = 'Why (for the record)'
 export const ENROLL = 'Create account'
@@ -263,15 +270,8 @@ export const ENROLL_FAILED = 'We couldn’t create the account. They may already
  * 0130): identity.enroll_registered_patient (0032) sets up an account only for a verified NIN, so none is offered.
  */
 export const ENROLL_NEEDS_NIN = 'A patient account can be set up once the patient’s NIN has been checked.'
-/**
- * 409 PATIENT_ENROLLMENT_CONFLICT (identity-api nin-registration.service.ts enroll): the patient has an account already,
- * the case changed, or its NIN is not a checked one. Not the shared "changed somewhere else" words, which name one cause.
- */
-export const ENROLL_CONFLICT = 'A patient account could not be set up for this registration. The patient may already have one, or their NIN has not been checked. Refresh this registration before trying again.'
-
-/** An enrollment's refusal in plain words, or ENROLL_FAILED. */
+/** An enrollment's refusal in plain words, or ENROLL_FAILED, as classic says it (Registration.tsx 210). */
 export function enrollErrorText(caught: unknown): string {
-  if (caught instanceof HidApiError && caught.code === 'PATIENT_ENROLLMENT_CONFLICT') return ENROLL_CONFLICT
   return safeError(caught, ENROLL_FAILED)
 }
 export const enrolledText = (hid: string) => `Account created for ${hid}. They’ll get an email to finish.`
@@ -285,8 +285,13 @@ export const NEW_TITLE = 'New patient registration'
 export const SAVED_RECORD = 'Saved record'
 export const NO_ACTIONS = 'Nothing else to do here.'
 export const NEXT_STEPS = 'Next steps'
-/** Goes to Patients with the patient's Health ID filled in, as classic registration's "Find … and open their chart". */
-export const OPEN_IN_PATIENTS = 'Open in Patients'
+/**
+ * Registration.tsx 289-291: classic's hand-off from a completed case, word for word. The first goes to Patients with the
+ * Health ID handed in navigation state (never the address), which lands on the patient's page with the chart summary
+ * (owner decision Q139 B); the second starts a new registration.
+ */
+export const findPatientText = (hid: string) => `Find ${hid} and open their chart`
+export const REGISTER_ANOTHER = 'Register someone else'
 /**
  * The desk's contact for the patient and the Health ID they say they have (hid-system 0114): named, required fields,
  * whose labels are collected/deskFields.ts DESK_LABELS. The design's allergies are left to clinical records and its
@@ -298,10 +303,11 @@ export const DISTINCT_PERSON = 'Register reviewed duplicate as distinct person'
 export const CORRECT_DEMOGRAPHICS = 'Correct demographics'
 export const NO_CORRECTION = 'Health ID does not take demographic corrections on a registration case yet.'
 /**
- * The "Find registration case" card: a registration by its Registration ID (one another member noted down, say), and
- * the registrations opened on this visit that the list above does not show.
+ * Registration.tsx 221: classic's "Continue a registration", the card's title. It opens a registration by its
+ * Registration ID (one another member noted down, say), and lists the registrations opened on this visit that the list
+ * above does not show.
  */
-export const FIND_TITLE = 'Find registration case'
+export const CONTINUE_TITLE = 'Continue a registration'
 export const VISIT_CAPTION = 'Opened on this visit'
 
 // ---- The registration list (SX-10, docs/INTERFACE_CONTRACT.md SX-10 "Screen change") ------------------------------

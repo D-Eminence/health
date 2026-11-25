@@ -13,17 +13,6 @@
   font-variant-numeric: lining-nums;
 }
 
-/* The design's ErrorBox. */
-.hid-ehr .hid-ehr-dept-registration-error {
-  margin: 16px 0;
-  padding: 12px 16px;
-  border: 1px solid var(--ehr-danger-300);
-  border-radius: var(--ehr-radius-md);
-  background: var(--ehr-danger-50);
-  color: var(--ehr-danger-text);
-  font-size: 14px;
-}
-
 /* A button that keeps its focus while it cannot be used (aria-disabled), dimmed as a disabled one. */
 .hid-ehr .hid-ehr-dept-registration-unavailable[aria-disabled='true'] {
   opacity: 0.55;
@@ -44,7 +33,7 @@
   margin: 0;
 }
 
-/* Find registration case: the case ID and Load case on one line, as the design's search field spans its card. */
+/* Continue a registration: the Registration ID and Open on one line, as the design's search field spans its card. */
 .hid-ehr .hid-ehr-dept-registration-find {
   margin: 16px 0 18px;
 }
@@ -194,7 +183,7 @@
   margin-top: 16px;
 }
 
-.hid-ehr .hid-ehr-dept-registration-more-rows .hid-ehr-dept-registration-error {
+.hid-ehr .hid-ehr-dept-registration-more-rows .hid-ehr-dept-notice-box {
   margin: 0;
 }
 

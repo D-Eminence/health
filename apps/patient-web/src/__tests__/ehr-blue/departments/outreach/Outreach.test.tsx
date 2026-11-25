@@ -263,20 +263,28 @@ describe('the list', () => {
     expect(loading.textContent).toBe('Loading registrations…')
   })
 
-  it('says when there are no cases yet, and offers the first registration', async () => {
+  it('says when there are no cases yet, in the classic Outreach section’s words, with its Refresh', async () => {
     api.outreachCases.mockResolvedValue([])
     renderPage()
-    // The classic Outreach section's words (parity report 3.3-72).
+    // The classic Outreach section's words (staff/routes/Operations.tsx ListState; parity report 3.3-72).
     expect(await screen.findByText('No registration cases')).toBeTruthy()
-    expect(screen.getByText('People you register in the field show here, with what each needs next.')).toBeTruthy()
-    expect(screen.getAllByRole('button', { name: 'New registration' })).toHaveLength(2)
+    expect(screen.getByText('Refresh to check for new work at this facility.')).toBeTruthy()
+    expect(screen.queryByText('People you register in the field show here, with what each needs next.')).toBeNull()
+    // New registration stays at the top of the page; the empty list offers Refresh, which reads the cases again.
+    expect(screen.getAllByRole('button', { name: 'New registration' })).toHaveLength(1)
+    const calls = api.outreachCases.mock.calls.length
+    const refresh = screen.getAllByRole('button', { name: 'Refresh' })
+    expect(refresh).toHaveLength(2)
+    fireEvent.click(refresh[1]!)
+    await waitFor(() => expect(api.outreachCases.mock.calls.length).toBe(calls + 1))
   })
 
   it.each([
     ['a refusal, in plain words', new HidApiError(403, 'This membership cannot read registration cases.', { code: 'FORBIDDEN' }), SAID_REFUSED],
     ['a module that is off', new HidApiError(404, 'Not found.', { code: 'API_ROUTE_NOT_FOUND' }), SAID_NOT_TURNED_ON],
     ['a fault between services', new HidApiError(503, 'Upstream.', { code: 'EHR_SERVICE_AUTH_UNAVAILABLE' }), SAID_TRY_SHORTLY],
-    ['an unknown failure', 'offline', 'Registration cases could not be loaded. Refresh to try again.'],
+    // Classic's words (staff/routes/Operations.tsx useFacilityRead; parity report 3.3-72).
+    ['an unknown failure', 'offline', 'Work could not be loaded.'],
   ])('says %s when cases cannot be read', async (_name, error, message) => {
     api.outreachCases.mockRejectedValue(error)
     renderPage()
@@ -286,17 +294,21 @@ describe('the list', () => {
     expect(screen.queryByText('No registration cases')).toBeNull()
   })
 
-  it('says when there are no campaigns, in the classic Outreach section\'s words', async () => {
+  it('says when there are no campaigns, in the classic Outreach section\'s words, with its Refresh', async () => {
     api.outreachCampaigns.mockResolvedValue([])
     renderPage()
     expect(await screen.findByText('No campaigns')).toBeTruthy()
     expect(screen.queryByText('No campaigns yet')).toBeNull()
+    expect(screen.getByText('Refresh to check for new work at this facility.')).toBeTruthy()
+    expect(screen.queryByText(/Campaigns this facility runs show here|Create a campaign to plan outreach work/)).toBeNull()
   })
 
-  it('says when campaigns cannot be read', async () => {
+  it('says when campaigns cannot be read, in classic’s words', async () => {
     api.outreachCampaigns.mockRejectedValue('offline')
     renderPage()
-    expect(await screen.findByText('Campaigns could not be loaded. Refresh to try again.')).toBeTruthy()
+    // Classic's words (staff/routes/Operations.tsx useFacilityRead; parity report 3.3-72).
+    await waitFor(() => expect(alertTexts().some(text => text.includes('Couldn’t load campaigns') && text.includes('Work could not be loaded.'))).toBe(true))
+    expect(document.body.textContent).not.toContain('Campaigns could not be loaded')
   })
 
   it('searches what is loaded without sending anything, and clears the search', async () => {
@@ -455,6 +467,13 @@ describe('campaigns, read only', () => {
     renderPage()
     await press(card(await campaignsList(), 'Demo screening week'))
     expect(await screen.findByText('No members')).toBeTruthy()
+    // The classic Outreach section's empty list (staff/routes/Operations.tsx ListState; parity report 3.3-72): its line and Refresh.
+    const members = screen.getByRole('heading', { name: 'Members' }).closest('section') as HTMLElement
+    expect(within(members).getByText('Refresh to check for new work at this facility.')).toBeTruthy()
+    expect(members.textContent).not.toContain('No facility memberships are listed for this campaign.')
+    const first = api.outreachCampaignMembers.mock.calls.filter(call => call[1] === 'campaign-1').length
+    await press(within(members).getByRole('button', { name: 'Refresh' }))
+    await waitFor(() => expect(api.outreachCampaignMembers.mock.calls.filter(call => call[1] === 'campaign-1')).toHaveLength(first + 1))
     await press(screen.getByRole('button', { name: 'Back to list' }))
     await press(card(await campaignsList(), 'Demo follow-up'))
     expect((await screen.findByRole('alert')).textContent).toContain(SAID_REFUSED)
@@ -462,6 +481,30 @@ describe('campaigns, read only', () => {
     const reads = api.outreachCampaignMembers.mock.calls.filter(call => call[1] === 'campaign-2').length
     await press(screen.getByRole('button', { name: 'Try again' }))
     await waitFor(() => expect(api.outreachCampaignMembers.mock.calls.filter(call => call[1] === 'campaign-2')).toHaveLength(reads + 1))
+  })
+})
+
+describe('the classic Outreach section’s words for a campaign’s lists (parity report 3.3-72)', () => {
+  it('says “Work could not be loaded.” when a campaign’s members cannot be read for an unknown reason', async () => {
+    api.outreachCampaignMembers.mockRejectedValue('offline')
+    renderPage()
+    await press(card(await campaignsList(), 'Demo screening week'))
+    await waitFor(() => expect(alertTexts().some(text => text.includes('Work could not be loaded.'))).toBe(true))
+    expect(document.body.textContent).not.toContain('Campaign members could not be loaded')
+  })
+
+  it('says a campaign with no registrations in classic’s words, with its Refresh', async () => {
+    api.outreachCasesPage.mockImplementation(async (_facilityId: string, query: { campaignId?: string } = {}) =>
+      ({ items: query.campaignId ? [] : await api.outreachCases(DEMO_HOSPITAL_ID), nextCursor: null }))
+    renderPage()
+    await press(card(await campaignsList(), 'Demo screening week'))
+    const registrations = (await screen.findByRole('heading', { name: 'Registrations' })).closest('section') as HTMLElement
+    expect(await within(registrations).findByText('No registration cases')).toBeTruthy()
+    expect(within(registrations).getByText('Refresh to check for new work at this facility.')).toBeTruthy()
+    expect(registrations.textContent).not.toContain('People registered into this campaign show here.')
+    const reads = api.outreachCasesPage.mock.calls.length
+    await press(within(registrations).getByRole('button', { name: 'Refresh' }))
+    await waitFor(() => expect(api.outreachCasesPage.mock.calls.length).toBeGreaterThan(reads))
   })
 })
 

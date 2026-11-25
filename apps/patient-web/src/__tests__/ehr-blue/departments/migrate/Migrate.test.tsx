@@ -43,7 +43,7 @@ vi.mock('../../../../staff/App', async () => {
 
 const ALL = ['ocr.job.read', 'ocr.job.write', 'ocr.job.start', 'ocr.validation.write', 'ocr.patient.confirm', 'ocr.publication.write']
 /** Document OCR's refusal, at its address and on the page: who scans paper records here (hid-system 0136), no permission named. */
-const OCR_REFUSAL = 'Scanning paper records is done by the front desk, nurses and clinicians here.'
+const OCR_REFUSAL = 'Scanning paper records is done by the front desk, doctors, nurses and clinicians here.'
 /** A permission's name, Identity's code or the old "membership needs … permission" words: none belongs on a screen. */
 const PERMISSION_WORDS = /permission|membership|OCR job read|ocr\.job\.read/i
 const PATIENT = 'a0000000-0000-4000-8000-000000000001'

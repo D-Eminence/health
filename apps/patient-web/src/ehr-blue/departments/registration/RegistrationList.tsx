@@ -13,11 +13,11 @@ import { ErrorBox, type FormProblems } from './registrationParts'
 import { offersWithoutNin } from './withoutNin'
 import {
   ALL_EMPTY, ALL_LOADED, ALL_STATUSES, ALL_TITLE, bornText, candidatesText, CAPABILITY_FAILED_TITLE, CAPABILITY_LOADING, CASE_ID_HINT,
-  CASE_ID_LABEL, caseTitle, caseWhen, CHECK_AGAIN, CHECKING, COMPLETED, CREATE_RECORD, DESCRIPTION, EVIDENCE_CHOICES, EVIDENCE_FILTER,
-  EYEBROW, FILTERED_EMPTY, FILTERED_EMPTY_TITLE, FIND_TITLE, LIST_CHOICE, LIST_EMPTY_TITLE, LIST_LOADING, LIST_TITLE, LOAD_CASE,
-  LOAD_MORE, LOADING, LOADING_MORE, MINE_EMPTY, MINE_TITLE, MORE_ADDED, NIN_FACT, NIN_NOT_ENABLED, NIN_OFF_TITLE, NIN_OFF_WITHOUT_NIN,
-  NO_HID_YET, ninStatusText, OPENING, STARTED_BY_YOU, STATUS_CHOICES, STATUS_FILTER, statusLabel, TITLE, TRY_AGAIN, UPDATED,
-  VISIT_CAPTION,
+  CASE_ID_LABEL, caseTitle, caseWhen, CHECK_AGAIN, CHECKING, COMPLETED, CONTINUE_TITLE, CREATE_RECORD, DESCRIPTION, ERROR_TITLE,
+  EVIDENCE_CHOICES, EVIDENCE_FILTER, EYEBROW, FILTERED_EMPTY, FILTERED_EMPTY_TITLE, LIST_CHOICE, LIST_EMPTY_TITLE, LIST_LOADING, LIST_TITLE,
+  LOAD_CASE, LOAD_MORE, LOADING, LOADING_MORE, MINE_EMPTY, MINE_TITLE, MORE_ADDED, NIN_FACT, NIN_NOT_ENABLED, NIN_OFF_TITLE,
+  NIN_OFF_WITHOUT_NIN, NO_HID_YET, ninStatusText, OPENING, STARTED_BY_YOU, STATUS_CHOICES, STATUS_FILTER, statusLabel, TITLE, TRY_AGAIN,
+  UPDATED, VISIT_CAPTION,
 } from './registrationText'
 
 /** The id of a list row's name button, by its place in the list (never its case ID): focus returns here from the record. */
@@ -30,8 +30,8 @@ export const visitRowId = (seq: number) => `registration-visit-${seq}-open`
 /**
  * The design's list view (patients-1-list) on today's page: its heading with "Create record", classic's notice when NIN
  * checks are not working, the registration list (SX-10: "My registrations", and "All registrations" for approvers) in
- * the design's table, and "Find registration case" under it, which opens a registration by its Registration ID and
- * lists the ones opened on this visit that the list does not show.
+ * the design's table, and classic's "Continue a registration" under it, which opens a registration by its Registration
+ * ID and lists the ones opened on this visit that the list does not show.
  */
 export function RegistrationList({ availability, cases, caseIdInput, onCaseIdInput, caseLoading, busy, problems, error, listError, message, visits,
   onFind, onNew, onOpen, onOpenListed }: {
@@ -90,7 +90,7 @@ export function RegistrationList({ availability, cases, caseIdInput, onCaseIdInp
       <AvailabilityNotice availability={availability} />
       {message ? <DeptNotice tone="positive">{message}</DeptNotice> : null}
       <CaseList cases={cases} caseLoading={caseLoading} busy={busy} error={listError} onOpen={onOpenListed} />
-      <DeptSection title={FIND_TITLE} className="hid-ehr-dept-list-card">
+      <DeptSection title={CONTINUE_TITLE} className="hid-ehr-dept-list-card">
         {/* Registration.tsx 219-226: classic's "Continue a registration", its field, hint, button and words. */}
         <form className="hid-ehr-dept-registration-find" noValidate onSubmit={event => { event.preventDefault(); onFind() }}>
           <EhrField label={CASE_ID_LABEL} controlId={FIELD.caseId} hint={CASE_ID_HINT} error={problems.error(FIELD.caseId)}>
@@ -196,7 +196,8 @@ function CaseList({ cases, caseLoading, busy, error, onOpen }: {
       <ErrorBox message={error} />
       {list.kind === 'loading' ? <p className="hid-ehr-dept-muted" role="status">{LIST_LOADING}</p> : null}
       {list.kind === 'error' ? (
-        <DeptNotice role="alert" tone="critical">
+        // Every refusal after a read carries classic's title (Registration.tsx 301).
+        <DeptNotice role="alert" tone="critical" title={ERROR_TITLE}>
           <div className="hid-ehr-dept-registration-availability-row">
             <p>{list.text}</p>
             <EhrButton variant="secondary" size="sm" onClick={reload}>{TRY_AGAIN}</EhrButton>
@@ -212,7 +213,7 @@ function CaseList({ cases, caseLoading, busy, error, onOpen }: {
       ) : null}
       {list.kind === 'ready' && (list.nextCursor || list.moreError) ? (
         <div className="hid-ehr-dept-registration-more-rows">
-          {list.moreError ? <p role="alert" className="hid-ehr-dept-registration-error">{list.moreError}</p> : null}
+          <ErrorBox message={list.moreError} />
           {list.nextCursor ? (
             // Unavailable while it reads, not disabled, so it keeps its focus as each page is added.
             <EhrButton variant="secondary" busy={list.moreLoading} className="hid-ehr-dept-registration-unavailable"
