@@ -1165,7 +1165,8 @@ describe('testing and results', () => {
     const result = publishedResult()
     api.labExecutions.mockResolvedValue({ items: [execution({ result })] })
     api.labResultHistory.mockResolvedValue({ ...result, revisions: [...result.revisions,
-      revision({ version: 2, numericValue: 7.4, correctionReason: 'Transcription error' })] })
+      revision({ version: 2, numericValue: 7.4, correctionReason: 'Transcription error' }),
+      revision({ version: 3, numericValue: 7.5, verificationStatus: 'verified', releaseStatus: 'verified_not_released', correctionReason: 'Recalibrated analyser' })] })
     await openReceived()
     const history = cardOf(/^Preserved versions & amendments/)
     expect(within(history).getByText('Every version of this result is kept. View the history to read them.')).toBeTruthy()
@@ -1177,6 +1178,14 @@ describe('testing and results', () => {
     expect(toggle.textContent).toBe('Hide result history')
     expect(await within(history).findByText('Version 1 · released')).toBeTruthy()
     expect(within(history).getByText('Version 2 · not released · Transcription error')).toBeTruthy()
+    // Classic's RevisionList words ('verified not released', 'verified', 'unverified'), the same words as the check
+    // badge above ('Verified, not released'), with 'Not verified' kept in place of 'unverified'.
+    expect(within(history).getByText('Version 3 · verified, not released · Recalibrated analyser')).toBeTruthy()
+    expect(within(history).getAllByText('Verification')).toHaveLength(3)
+    expect(within(history).getAllByText('Verified')).toHaveLength(2)
+    expect(within(history).getByText('Not verified')).toBeTruthy()
+    expect(within(history).queryByText(/checked/i)).toBeNull()
+    expect(within(history).queryByText(/unverified/i)).toBeNull()
     expect(api.labResultHistory).toHaveBeenCalledWith(DEMO_LABORATORY_ID, 'result-1')
     fireEvent.click(within(history).getByRole('button', { name: 'Refresh history' }))
     await waitFor(() => expect(api.labResultHistory).toHaveBeenCalledTimes(2))

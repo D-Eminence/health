@@ -621,10 +621,10 @@ function sameScientist(entry: LabResultRevision) {
 }
 
 const RELEASE_WORDS: Readonly<Record<LabResultRevision['releaseStatus'], string>> = {
-  not_released: 'not released', verified_not_released: 'checked, not released', released: 'released',
+  not_released: 'not released', verified_not_released: 'verified, not released', released: 'released',
 }
 const CHECK_WORDS: Readonly<Record<LabResultRevision['verificationStatus'], string>> = {
-  unverified: 'Not checked', verified: 'Checked', entered_in_error: 'Entered in error',
+  unverified: 'Not verified', verified: 'Verified', entered_in_error: 'Entered in error',
 }
 
 /**
@@ -679,7 +679,7 @@ export function ResultHistory({ facilityId, execution, onRefused }: {
           <div className="px-4 pb-3"><DescriptionList items={[
             ['Value', `${revisionText(entry)}${entry.unit ? ` ${entry.unit}` : ''} · ${FLAG_WORDS[entry.abnormalFlag]}`],
             ['Entered', dateText(entry.enteredAt)],
-            ['Checked', CHECK_WORDS[entry.verificationStatus]],
+            ['Verification', CHECK_WORDS[entry.verificationStatus]],
             entry.releasedAt ? ['Released', dateText(entry.releasedAt)] : null,
             entry.referenceRange ? ['Normal range', entry.referenceRange] : null,
             entry.correctionReason ? ['Reason', entry.correctionReason] : null,
