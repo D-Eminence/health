@@ -76,6 +76,16 @@ describe('page statuses', () => {
     expect(pageAllowed(entry, holder)).toBe(entry.visible?.(holder) ?? true)
   })
 
+  it('opens End of day to those who see every till day without one of their own (an administrator), as the backend serves them', () => {
+    const entry = page('end-of-day')
+    expect(entry.orPermissions).toEqual(['billing.shift.manage'])
+    const manager = sessionWith(['billing.shift.manage'])
+    // At a demo facility, where the billing pages always show.
+    expect(entry.visible?.(manager) ?? true).toBe(true)
+    expect(pageAllowed(entry, manager)).toBe(true)
+    expect(pageAllowed(entry, sessionWith(['billing.bill.read']))).toBe(false)
+  })
+
   // Parity report 3.3-74: Audit trail works on Health ID in the classic page's words throughout, so it is live, under
   // the same permission and with the same refusal at its address.
   it('labels Audit trail live, under the same permission', () => {

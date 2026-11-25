@@ -34,6 +34,8 @@ export const financeListed = (session: StaffSession) => {
 export const commercePages: EhrBluePage[] = [
   { path: 'payments', group: 'Finance', label: 'Payments', permission: 'billing.bill.read', status: 'partial', icon: icon(Wallet), element: <Payments />, listed: financeListed, visible: pointOfCareShown },
   { path: 'price-list', group: 'Finance', label: 'Price list', permission: 'billing.catalogue.read', status: 'partial', icon: icon(Tags), element: <PriceList />, listed: financeListed, visible: pointOfCareShown },
-  { path: 'end-of-day', group: 'Finance', label: 'End of day', permission: 'billing.shift.own', status: 'partial', icon: icon(CalendarCheck), element: <EndOfDay />, listed: financeListed, visible: pointOfCareShown },
+  // Opening and closing a day is billing.shift.own; those who see every day (billing.shift.manage, an administrator) see
+  // the overview even without a day of their own.
+  { path: 'end-of-day', group: 'Finance', label: 'End of day', permission: 'billing.shift.own', orPermissions: ['billing.shift.manage'], status: 'partial', icon: icon(CalendarCheck), element: <EndOfDay />, listed: financeListed, visible: pointOfCareShown },
   { path: 'payment-setup', group: 'Finance', label: 'Payment setup', permission: 'billing.settings.manage', status: 'partial', icon: icon(SlidersHorizontal), element: <PaymentSetup />, listed: financeListed, visible: pointOfCareShown },
 ]

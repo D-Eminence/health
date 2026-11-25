@@ -30,6 +30,9 @@ function takenOf(shift: Shift): number {
 }
 /** Today, the Lagos day. */
 const today = () => lagosDay()
+/** The most cash a day is opened or closed with (BILL-1 0165: 100,000,000 kobo). */
+const CASH_MAX_KOBO = 100_000_000
+const CASH_TOO_MUCH = `Type an amount up to ${naira(CASH_MAX_KOBO)}.`
 
 /** Whose day a panel shows: the facility's, the signed-in cashier's, or one till's. */
 type DayOf = { kind: 'facility' } | { kind: 'cashier' } | { kind: 'till'; till: Till }
@@ -39,8 +42,12 @@ const dayName = (of: DayOf) => of.kind === 'till' ? `${of.till.name}’s day` : 
  * End of day (docs/POINT_OF_CARE_SPEC.md §7): open the day with the cash in the drawer; through the day, totals by way of
  * paying; at close, count the cash, see the difference, and close through a confirmation. Payment setup says whose day it
  * is: the whole facility's (one day for everyone), each cashier's (their own, with an overview of all cashiers for those
- * who manage the days), or each till's (pick the till; every till's state is shown). Nothing here counts money for
- * anyone: the totals are what was recorded on Health ID.
+ * who manage the days), or each till's (pick the till; every till's state is shown to those who manage the days). Nothing
+ * here counts money for anyone: the totals are what was recorded on Health ID.
+ *
+ * Who sees what follows the backend: opening and closing a day is billing.shift.own; the overview of every day
+ * (GET shifts) is billing.shift.manage. Those who manage the days without a day of their own (an administrator) see the
+ * overview only.
  */
 export function EndOfDay() {
   const { facilityId, permissions } = useDeptAccess()
@@ -48,9 +55,11 @@ export function EndOfDay() {
   // A setup saved before this was asked has no `dayCloseBy`: one day for the whole facility, as before.
   const closeBy: DayCloseBy = settings.status === 'ready' ? settings.data.dayCloseBy ?? 'facility' : 'facility'
   const canManage = permissions.includes('billing.shift.manage')
-  const description = closeBy === 'cashier' ? 'Your day: what you took, by way of paying, and your cash count before you close.'
-    : closeBy === 'till' ? 'Each till has its own day. Pick a till to open it, or to count its cash and close it.'
-      : 'What was taken today, by way of paying, and the cash count before you close.'
+  const ownDay = permissions.includes('billing.shift.own')
+  const description = !ownDay ? 'Every day opened today, and what was taken in it. The staff who work a day count its cash and close it.'
+    : closeBy === 'cashier' ? 'Your day: what you took, by way of paying, and your cash count before you close.'
+      : closeBy === 'till' ? 'Each till has its own day. Pick a till to open it, or to count its cash and close it.'
+        : 'What was taken today, by way of paying, and the cash count before you close.'
 
   return (
     <div className="flex flex-col gap-5">
@@ -59,9 +68,10 @@ export function EndOfDay() {
         : settings.status === 'loading' && settings.data === null ? <LoadingRows rows={3} label="Loading today" />
         : settings.status === 'error' && settings.data === null
           ? <Alert intent="error" title="Couldn’t load today" action={<Button size="sm" onClick={settings.reload}>Try again</Button>}>{settings.error}</Alert>
-          : closeBy === 'cashier' ? <CashierDays canManage={canManage} />
-            : closeBy === 'till' && settings.data ? <TillDays tills={(settings.data.tills ?? []).filter(till => till.active !== false)} />
-              : <DayPanel of={{ kind: 'facility' }} />}
+          : closeBy === 'till' && settings.data ? <TillDays tills={(settings.data.tills ?? []).filter(till => till.active !== false)} canManage={canManage} ownDay={ownDay} />
+            : !ownDay ? <DaysToday title={closeBy === 'cashier' ? 'All cashiers today' : 'Today'} byCashier={closeBy === 'cashier'} />
+              : closeBy === 'cashier' ? <CashierDays canManage={canManage} />
+                : <DayPanel of={{ kind: 'facility' }} />}
     </div>
   )
 }
@@ -86,60 +96,88 @@ function DayPanel({ of, onChanged }: { readonly of: DayOf; readonly onChanged?: 
 
 /** Each cashier: your own day, and for those who manage the days, every cashier's today. */
 function CashierDays({ canManage }: { readonly canManage: boolean }) {
-  const { facilityId } = useDeptAccess()
   const [round, setRound] = useState(0)
-  const all = useCommerceRead<ListPage<Shift>>(canManage && facilityId ? `shifts:${facilityId}:${today()}:${round}` : null,
-    signal => commerce.shifts(facilityId!, { date: today() }, signal))
   return <>
     <section aria-labelledby="eod-yours" className="flex flex-col gap-4">
       <SectionHeader id="eod-yours" title="Your day" description="Opened and closed by you" />
       <DayPanel of={{ kind: 'cashier' }} onChanged={() => setRound(value => value + 1)} />
     </section>
-    {canManage ? <section aria-labelledby="eod-cashiers" className="flex flex-col gap-3">
-      <SectionHeader id="eod-cashiers" title="All cashiers today" count={all.data?.items.length ?? null} />
-      {all.status === 'off' ? null
-        : all.status === 'error' && all.data === null ? <Alert intent="error" title="Couldn’t load the cashiers" action={<Button size="sm" onClick={all.reload}>Try again</Button>}>{all.error}</Alert>
-          : all.data === null ? <LoadingRows rows={2} label="Loading the cashiers" />
-            : all.data.items.length === 0 ? <p className="m-0 text-sm text-ink-3">No one has opened a day yet today.</p>
-              : <ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,18rem),1fr))] gap-3 p-0">
-                {all.data.items.map(day => <DayCard key={day.id} title={day.cashierName ?? day.openedBy} shift={day} />)}
-              </ul>}
-    </section> : null}
+    {canManage ? <DaysToday title="All cashiers today" byCashier round={round} /> : null}
   </>
 }
 
-/** Each till: every till with its state, the one picked to open or close. */
-function TillDays({ tills }: { readonly tills: readonly Till[] }) {
+/** Every day opened today at the facility (GET shifts?date=, billing.shift.manage): each cashier's, or the facility's. */
+function DaysToday({ title, byCashier, round = 0 }: { readonly title: string; readonly byCashier: boolean; readonly round?: number }) {
+  const { facilityId } = useDeptAccess()
+  const all = useCommerceRead<ListPage<Shift>>(facilityId ? `shifts:${facilityId}:${today()}:${round}` : null,
+    signal => commerce.shifts(facilityId!, { date: today() }, signal))
+  const what = byCashier ? 'the cashiers' : 'today’s days'
+  return <section aria-labelledby="eod-days" className="flex flex-col gap-3">
+    <SectionHeader id="eod-days" title={title} count={all.data?.items.length ?? null} />
+    {all.status === 'off' ? <NotSwitchedOn message={BILLING_OFF} />
+      : all.status === 'error' && all.data === null ? <Alert intent="error" title={`Couldn’t load ${what}`} action={<Button size="sm" onClick={all.reload}>Try again</Button>}>{all.error}</Alert>
+        : all.data === null ? <LoadingRows rows={2} label={`Loading ${what}`} />
+          : all.data.items.length === 0 ? <p className="m-0 text-sm text-ink-3">No one has opened a day yet today.</p>
+            : <ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,18rem),1fr))] gap-3 p-0">
+              {all.data.items.map(day => <DayCard key={day.id} title={byCashier ? day.cashierName ?? day.openedBy : `Opened by ${day.openedBy}`} shift={day} />)}
+            </ul>}
+  </section>
+}
+
+/**
+ * Each till: every till, the one picked to open or close. Every till's state (GET shifts?status=open) is read only for
+ * those who manage the days, the only ones the backend shows it to; a cashier sees the picked till's own day. Those who
+ * manage the days without a day of their own see the tills' state only.
+ */
+function TillDays({ tills, canManage, ownDay }: { readonly tills: readonly Till[]; readonly canManage: boolean; readonly ownDay: boolean }) {
   const { facilityId, permissions } = useDeptAccess()
   const [round, setRound] = useState(0)
   const [picked, setPicked] = useState<string | null>(tills.length === 1 ? tills[0]!.id : null)
-  const open = useCommerceRead<ListPage<Shift>>(facilityId ? `shifts-open:${facilityId}:${round}` : null,
+  const open = useCommerceRead<ListPage<Shift>>(canManage && facilityId ? `shifts-open:${facilityId}:${round}` : null,
     signal => commerce.shifts(facilityId!, { status: 'open' }, signal))
   const openBy = new Map((open.data?.items ?? []).filter(day => day.tillId).map(day => [day.tillId!, day]))
-  const till = tills.find(entry => entry.id === picked) ?? null
+  const till = ownDay ? tills.find(entry => entry.id === picked) ?? null : null
   if (tills.length === 0) return <EmptyState icon={Store} title="No tills yet" description="Add the tills in Payment setup, then open a day on one."
     action={permissions.includes('billing.settings.manage') ? <Button to="/provider/payment-setup">Payment setup</Button> : undefined} />
+  const state = (entry: Till) => {
+    const day = openBy.get(entry.id)
+    return {
+      line: !canManage ? null : day ? <>Opened {clock(day.openedAt)} by {day.openedBy} · <span className="tabular">{naira(takenOf(day))}</span> taken</>
+        : open.data ? 'Not open' : open.status === 'off' || open.status === 'error' ? null : 'Checking…',
+      badge: canManage && open.data ? <Badge size="sm" tone={day ? 'success' : 'neutral'}>{day ? 'Open' : 'Closed'}</Badge> : null,
+    }
+  }
   return <>
     <section aria-labelledby="eod-tills" className="flex flex-col gap-3">
-      <SectionHeader id="eod-tills" title="Which till?" count={tills.length} />
-      {open.status === 'error' && open.data === null ? <Alert intent="error" size="sm" title="Couldn’t check which tills are open"
+      <SectionHeader id="eod-tills" title={ownDay ? 'Which till?' : 'Tills'} count={tills.length} />
+      {canManage && open.status === 'error' && open.data === null ? <Alert intent="error" size="sm" title="Couldn’t check which tills are open"
         action={<Button size="sm" onClick={open.reload}>Try again</Button>}>{open.error}</Alert> : null}
-      <div role="radiogroup" aria-labelledby="eod-tills" className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,18rem),1fr))] gap-2">
+      {ownDay ? <div role="radiogroup" aria-labelledby="eod-tills" className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,18rem),1fr))] gap-2">
         {tills.map(entry => {
-          const day = openBy.get(entry.id)
           const on = entry.id === picked
+          const { line, badge } = state(entry)
           return <button key={entry.id} type="button" role="radio" aria-checked={on} onClick={() => setPicked(entry.id)}
             className={cx('flex min-h-[44px] cursor-pointer items-start justify-between gap-3 rounded-xl border-0 bg-surface px-4 py-3 text-left ring-1 ring-inset',
               on ? 'ring-2 ring-brand' : 'ring-line hover:ring-line-strong')}>
             <span className="min-w-0">
               <span className="block text-[15px] font-semibold text-ink break-words">{entry.name}</span>
-              <span className="block text-[13px] text-ink-3">{day ? <>Opened {clock(day.openedAt)} by {day.openedBy} · <span className="tabular">{naira(takenOf(day))}</span> taken</>
-                : open.data ? 'Not open' : 'Checking…'}</span>
+              {line ? <span className="block text-[13px] text-ink-3">{line}</span> : null}
             </span>
-            {open.data ? <Badge size="sm" tone={day ? 'success' : 'neutral'}>{day ? 'Open' : 'Closed'}</Badge> : null}
+            {badge}
           </button>
         })}
-      </div>
+      </div> : <ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,18rem),1fr))] gap-2 p-0">
+        {tills.map(entry => {
+          const { line, badge } = state(entry)
+          return <li key={entry.id} className="flex min-h-[44px] items-start justify-between gap-3 rounded-xl bg-surface px-4 py-3 ring-1 ring-inset ring-line">
+            <span className="min-w-0">
+              <span className="block text-[15px] font-semibold text-ink break-words">{entry.name}</span>
+              {line ? <span className="block text-[13px] text-ink-3">{line}</span> : null}
+            </span>
+            {badge}
+          </li>
+        })}
+      </ul>}
     </section>
     {till ? <section aria-labelledby="eod-till-day" className="flex flex-col gap-4">
       <SectionHeader id="eod-till-day" title={till.name} />
@@ -175,12 +213,12 @@ function OpenTheDay({ of, onOpened }: { readonly of: DayOf; readonly onOpened: (
   const [key] = useState(() => crypto.randomUUID())
   const toast = useToast()
   const opening = text.trim() === '' ? 0 : parseNaira(text)
-  const error = opening === null ? 'Type an amount like 20,000 or 0.' : null
+  const error = opening === null ? 'Type an amount like 20,000 or 0.' : opening > CASH_MAX_KOBO ? CASH_TOO_MUCH : null
   const title = of.kind === 'till' ? `Open ${of.till.name}` : of.kind === 'cashier' ? 'Open your day' : 'Open the day'
 
   async function open() {
     setTried(true)
-    if (!facilityId || opening === null) return
+    if (!facilityId || opening === null || error) return
     setBusy(true); setProblem(null)
     const result = await commerce.openShift(facilityId, opening, of.kind === 'till' ? { tillId: of.till.id } : {}, key)
     setBusy(false)
@@ -217,7 +255,8 @@ function OpenDay({ of, shift, onClosed }: { readonly of: DayOf; readonly shift: 
   const toast = useToast()
   const counted = countedText.trim() === '' ? null : parseNaira(countedText)
   const difference = counted === null ? null : counted - shift.expectedCashKobo
-  const error = countedText.trim() === '' ? 'Count the cash in the drawer and type the amount.' : counted === null ? 'Type an amount like 45,500.' : null
+  const error = countedText.trim() === '' ? 'Count the cash in the drawer and type the amount.' : counted === null ? 'Type an amount like 45,500.'
+    : counted > CASH_MAX_KOBO ? CASH_TOO_MUCH : null
   // A count that differs from what was expected is closed with a note saying why (BILL-1 §6).
   const noteError = difference !== null && difference !== 0 && note.trim() === '' ? 'Say why the cash is over or short.'
     : note.trim().length > 500 ? 'Keep the note to 500 characters.' : null
@@ -228,7 +267,7 @@ function OpenDay({ of, shift, onClosed }: { readonly of: DayOf; readonly shift: 
   const taken = takenOf(shift)
 
   async function close() {
-    if (!facilityId || counted === null) return
+    if (!facilityId || counted === null || error) return
     setBusy(true); setProblem(null)
     const result = await commerce.closeShift(facilityId, shift.id, counted, note.trim() || null, shift.version ?? 0, key)
     setBusy(false); setAsking(false)

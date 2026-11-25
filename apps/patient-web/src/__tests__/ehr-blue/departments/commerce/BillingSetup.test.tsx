@@ -6,7 +6,7 @@ import { EndOfDay } from '../../../../ehr-blue/departments/commerce/EndOfDay'
 import { HomeBillingTodayCard } from '../../../../ehr-blue/home/adminCards'
 import type { CatalogueItem, Shift } from '../../../../ehr-blue/departments/commerce/api'
 import { DEMO_HOSPITAL_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
-import { HMO_ID, ITEM_ID, off, ok, refused, settingsOf } from './billingFixtures'
+import { HMO_ID, ITEM_ID, TILL_ID, off, ok, refused, settingsOf } from './billingFixtures'
 
 /**
  * The price list (the one item master, BILL-7, with Services as the Service catalogue), Payment setup (pay before
@@ -211,6 +211,85 @@ describe('End of day', () => {
     commerceApi.currentShift = async () => off()
     renderDept(<EndOfDay />)
     expect(await screen.findByText('Billing is not switched on at this facility yet.')).toBeTruthy()
+  })
+
+  it('refuses more than ₦1,000,000.00 of cash, to open or to close a day, before sending it', async () => {
+    commerceApi.currentShift = async () => ok(null)
+    const openShift = vi.fn()
+    commerceApi.openShift = openShift
+    const { unmount } = renderDept(<EndOfDay />)
+    fireEvent.change(await screen.findByLabelText('Cash in the drawer now'), { target: { value: '1,250,000' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Open day' }))
+    expect(await screen.findByText('Type an amount up to ₦1,000,000.00.')).toBeTruthy()
+    expect(openShift).not.toHaveBeenCalled()
+    unmount()
+    commerceApi.currentShift = async () => ok(openDay)
+    const closeShift = vi.fn()
+    commerceApi.closeShift = closeShift
+    renderDept(<EndOfDay />)
+    fireEvent.change(await screen.findByLabelText('Cash counted'), { target: { value: '1250000' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Close day' }))
+    expect(await screen.findByText('Type an amount up to ₦1,000,000.00.')).toBeTruthy()
+    expect(screen.queryByRole('dialog', { name: 'Close the day?' })).toBeNull()
+    expect(closeShift).not.toHaveBeenCalled()
+  })
+
+  const TILLS = { dayCloseBy: 'till' as const, tills: [{ id: TILL_ID, name: 'Front till', active: true }, { id: 'b3333333-3333-4333-8333-333333333333', name: 'Back till', active: true }] }
+  const CASHIER = ['billing.catalogue.read', 'billing.bill.read', 'billing.bill.create', 'billing.payment.record', 'billing.shift.own']
+
+  it('with a day per till, never asks a cashier’s session for every open day (billing.shift.manage), and opens the till picked', async () => {
+    as(CASHIER)
+    commerceApi.paymentSettings = async () => ok(settingsOf(TILLS))
+    const shifts = vi.fn(async () => refused('BILLING_NOT_ALLOWED', 'Your role here does not include this. Ask a billing officer or administrator.', 403))
+    commerceApi.shifts = shifts
+    const current = vi.fn(async (..._args: unknown[]) => ok(null))
+    commerceApi.currentShift = current
+    renderDept(<EndOfDay />)
+    fireEvent.click(await screen.findByRole('radio', { name: /Back till/ }))
+    expect(await screen.findByRole('button', { name: 'Open Back till' })).toBeTruthy()
+    expect(current.mock.calls[0]![1]).toEqual({ tillId: 'b3333333-3333-4333-8333-333333333333' })
+    expect(shifts).not.toHaveBeenCalled()
+    expect(screen.queryByText('Checking…')).toBeNull()
+    expect(screen.queryByText(/Couldn’t check which tills are open/)).toBeNull()
+    expect(screen.queryByText(/Your role here does not include this/)).toBeNull()
+  })
+
+  it('with a day per till, shows those who manage the days which tills are open', async () => {
+    commerceApi.paymentSettings = async () => ok(settingsOf(TILLS))
+    const shifts = vi.fn(async (..._args: unknown[]) => ok({ items: [{ ...openDay, scope: 'till', tillId: TILL_ID, tillName: 'Front till' }], nextPage: null }))
+    commerceApi.shifts = shifts
+    renderDept(<EndOfDay />)
+    const front = await screen.findByRole('radio', { name: /Front till/ })
+    await waitFor(() => expect(within(front).getByText('Open')).toBeTruthy())
+    expect(within(screen.getByRole('radio', { name: /Back till/ })).getByText('Closed')).toBeTruthy()
+    expect(shifts.mock.calls[0]![1]).toEqual({ status: 'open' })
+  })
+
+  it('opens to an administrator who sees every day but has none of their own: the overview only', async () => {
+    as(['billing.settings.manage', 'billing.catalogue.read', 'billing.bill.read', 'billing.shift.manage', 'billing.report.read'])
+    const current = vi.fn(async () => ok(null))
+    commerceApi.currentShift = current
+    const shifts = vi.fn(async (..._args: unknown[]) => ok({ items: [openDay], nextPage: null }))
+    commerceApi.shifts = shifts
+    renderDept(<EndOfDay />)
+    expect(await screen.findByText('Opened by Bola Cashier')).toBeTruthy()
+    expect(shifts.mock.calls[0]![1]).toEqual(expect.objectContaining({ date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) }))
+    expect(current).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: 'Open day' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Close day' })).toBeNull()
+  })
+
+  it('shows such an administrator every till’s state without a till to open', async () => {
+    as(['billing.settings.manage', 'billing.bill.read', 'billing.shift.manage'])
+    commerceApi.paymentSettings = async () => ok(settingsOf(TILLS))
+    const current = vi.fn(async () => ok(null))
+    commerceApi.currentShift = current
+    commerceApi.shifts = async () => ok({ items: [{ ...openDay, scope: 'till', tillId: TILL_ID, tillName: 'Front till' }], nextPage: null })
+    renderDept(<EndOfDay />)
+    const front = (await screen.findByText('Front till')).closest('li')!
+    await waitFor(() => expect(within(front).getByText('Open')).toBeTruthy())
+    expect(screen.queryByRole('radio')).toBeNull()
+    expect(current).not.toHaveBeenCalled()
   })
 })
 
