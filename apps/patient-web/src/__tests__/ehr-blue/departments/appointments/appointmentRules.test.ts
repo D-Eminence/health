@@ -115,6 +115,18 @@ describe('plain words', () => {
     expect(clinicianText('m-3', names, 'm-9')).toBe('A staff member here')
     expect(clinicianText('m-9', names, 'm-9')).toBe('You')
     expect(clinicianText(null, names, 'm-9')).toBe('Any clinician in the clinic')
+    expect(clinicianText(null, names, 'm-9', { inClinic: false })).toBe('Any clinician in the department')
+  })
+
+  it('says who inside a sentence in lower case, never a name changed', () => {
+    const names = new Map<string, string | null>([['m-1', 'Dr Fiction Ade'], ['m-2', null]])
+    const inSentence = { inSentence: true }
+    expect(`by ${clinicianText('m-9', names, 'm-9', inSentence)}`).toBe('by you')
+    expect(`by ${clinicianText('m-2', names, 'm-9', inSentence)}`).toBe('by a former staff member')
+    expect(`by ${clinicianText('m-3', names, 'm-9', inSentence)}`).toBe('by a staff member here')
+    expect(`by ${clinicianText('m-1', names, 'm-9', inSentence)}`).toBe('by Dr Fiction Ade')
+    expect(`Now with ${clinicianText(null, names, 'm-9', inSentence)}`).toBe('Now with any clinician in the clinic')
+    expect(`Now with ${clinicianText(null, names, 'm-9', { inSentence: true, inClinic: false })}`).toBe('Now with any clinician in the department')
   })
 })
 

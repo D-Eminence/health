@@ -91,7 +91,7 @@ function CallListPage({ facilityId, initialDay }: { readonly facilityId: string;
                   <td>{lagosTime(item.startsAt)}</td>
                   <th scope="row">{item.fullName}<span className="hid-ehr-dept-appointments-hint"> {healthIdEnding(item.healthIdLast4)}</span></th>
                   <td>{item.clinicName ?? '—'}</td>
-                  <td>{clinicianText(item.clinicianMembershipId, names, membershipId)}</td>
+                  <td>{clinicianText(item.clinicianMembershipId, names, membershipId, { inClinic: item.clinicName !== null })}</td>
                   <td>{item.phone ? <a href={`tel:${item.phone}`}>{formatPhone(item.phone)}</a> : 'No phone recorded'}</td>
                   <td className="hid-ehr-dept-appointments-called" aria-label="Called (tick on paper)" />
                 </tr>

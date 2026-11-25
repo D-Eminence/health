@@ -11,10 +11,10 @@ import { DeptPage, DeptSection } from '../parts/DeptPage'
 import { DeptFacts } from '../parts/DeptRecord'
 import { birthDateText } from '../parts/format'
 import {
-  BASE, CHANGE_REASON_MAX, CHECK_IN_CONFIRM, CHECK_IN_CONFIRM_LABEL, LENGTHS, NOT_AVAILABLE, RELOAD_AFTER, canCheckIn,
-  canSearch, canWrite, changeReasonProblem, checkInOffered, clinicianText, dayText, departmentText, hasStarted,
-  historyText, isDay, lagosParts, lagosStartsAt, learnFrom, refusalWords, statusText, statusTone, timeProblem,
-  timeRangeText, visitTypeText, whenText,
+  BASE, BOOKED_DONE, CANCELLED_DONE, CANCEL_HINT, CHANGE_REASON_MAX, CHECK_IN_CONFIRM, CHECK_IN_CONFIRM_LABEL, LENGTHS,
+  MOVED_DONE, NOT_AVAILABLE, RELOAD_AFTER, RESCHEDULE_REASON_HINT, canCheckIn, canSearch, canWrite, changeReasonProblem,
+  checkInOffered, clinicianText, dayText, departmentText, hasStarted, historyText, isDay, lagosParts, lagosStartsAt,
+  lagosToday, learnFrom, refusalWords, statusText, statusTone, timeProblem, timeRangeText, visitTypeText, whenText,
 } from './appointmentRules'
 import { Identity, useBookingChoices } from './Appointments'
 import { PatientFinder } from './PatientFinder'
@@ -45,7 +45,7 @@ export function AppointmentDetail({ facilityId, appointmentId }: { readonly faci
   const [loadError, setLoadError] = useState<{ text: string; missing: boolean } | null>(null)
   const [loading, setLoading] = useState(true)
   const booked = (location.state as { booked?: unknown } | null)?.booked === true
-  const [notice, setNotice] = useState<Notice | null>(booked ? { tone: 'positive', text: 'Appointment booked. The patient will get a notice.' } : null)
+  const [notice, setNotice] = useState<Notice | null>(booked ? { tone: 'positive', text: BOOKED_DONE } : null)
   const [open, setOpen] = useState<Open>(null)
   const [busy, setBusy] = useState(false)
 
@@ -109,6 +109,8 @@ export function AppointmentDetail({ facilityId, appointmentId }: { readonly faci
   const writes = canWrite(permissions) && card.status === 'booked'
   const checksIn = canCheckIn(permissions) && checkInOffered(card)
   const noShow = writes && hasStarted(card)
+  // "Any clinician in the clinic" only when the card names a clinic; else in the department (as "Clinic: No clinic" says).
+  const inClinic = card.clinicName !== null
   const toggle = (which: Exclude<Open, null>) => setOpen(value => value === which ? null : which)
 
   return (
@@ -129,11 +131,11 @@ export function AppointmentDetail({ facilityId, appointmentId }: { readonly faci
           { label: 'Length', value: `${card.lengthMinutes} minutes` },
           { label: 'Clinic', value: card.clinicName ?? 'No clinic' },
           { label: 'Department', value: departmentText(card.departmentCode) },
-          { label: 'With', value: clinicianText(card.clinicianMembershipId, names, membershipId) },
+          { label: 'With', value: clinicianText(card.clinicianMembershipId, names, membershipId, { inClinic }) },
           { label: 'Visit type', value: visitTypeText(card.visitType) },
           { label: 'Reason', value: card.reason?.trim() || 'None given' },
           { label: 'Found by', value: card.bookingBasis === 'own-facility' ? 'This facility’s patient' : 'A patient search' },
-          { label: 'Booked', value: `${whenText(card.bookedAt)} by ${clinicianText(card.bookedByMembershipId, names, membershipId)}` },
+          { label: 'Booked', value: `${whenText(card.bookedAt)} by ${clinicianText(card.bookedByMembershipId, names, membershipId, { inSentence: true })}` },
         ]} />
         {card.status === 'checked_in' ? (
           <p className="hid-ehr-dept-appointments-hint">Checked in to the waiting list. <Link to="/provider/waiting-list">Open the waiting list</Link></p>
@@ -160,17 +162,19 @@ export function AppointmentDetail({ facilityId, appointmentId }: { readonly faci
             <RescheduleForm facilityId={facilityId} card={card} busy={busy} onCancel={() => setOpen(null)}
               onSend={change => act('reschedule', () => appointmentsApi.reschedule(facilityId, card,
                 change, keyFor('reschedule', { card: [card.appointmentId, card.rowVersion], change })),
-              'Appointment moved. The patient will get a notice.')} />
+              MOVED_DONE)} />
           ) : null}
           {open === 'cancel' ? (
             <ReasonForm id="appointment-cancel" title="Cancel appointment" action="Cancel appointment" busy={busy} onCancel={() => setOpen(null)}
-              hint="Cancelling is final: book again if the patient needs another time. The patient will get a notice."
+              hint={CANCEL_HINT}
               onSend={reason => act('cancel', () => appointmentsApi.cancel(facilityId, card, reason,
-                keyFor('cancel', { card: [card.appointmentId, card.rowVersion], reason })), 'Appointment cancelled. The patient will get a notice.')} />
+                keyFor('cancel', { card: [card.appointmentId, card.rowVersion], reason })), CANCELLED_DONE)} />
           ) : null}
           {open === 'no-show' ? (
             <div className="hid-ehr-dept-form" role="group" aria-label="Mark no-show">
-              <p>Mark that {card.fullName} did not come? If they arrive later today, you can still check them in.</p>
+              <p>Mark that {card.fullName} did not come? {card.appointmentDay === lagosToday()
+                ? 'If they arrive later today, they can still be checked in.'
+                : 'To see them another day, book a new appointment.'}</p>
               <div className="hid-ehr-dept-form-actions">
                 <EhrButton variant="quiet" onClick={() => setOpen(null)}>Keep it booked</EhrButton>
                 <EhrButton busy={busy} onClick={() => void act('no-show', () => appointmentsApi.noShow(facilityId, card,
@@ -190,10 +194,10 @@ export function AppointmentDetail({ facilityId, appointmentId }: { readonly faci
               <li key={`${entry.kind}-${entry.at}-${index}`}>
                 <p><strong>{historyText(entry)}</strong></p>
                 <p className="hid-ehr-dept-appointments-hint">
-                  {whenText(entry.at)}{entry.byMembershipId ? `, by ${clinicianText(entry.byMembershipId, names, membershipId)}` : ''}
+                  {whenText(entry.at)}{entry.byMembershipId ? `, by ${clinicianText(entry.byMembershipId, names, membershipId, { inSentence: true })}` : ''}
                 </p>
                 {entry.kind === 'rescheduled' && entry.toClinicianMembershipId !== entry.fromClinicianMembershipId ? (
-                  <p className="hid-ehr-dept-appointments-hint">Now with {clinicianText(entry.toClinicianMembershipId, names, membershipId)}</p>
+                  <p className="hid-ehr-dept-appointments-hint">Now with {clinicianText(entry.toClinicianMembershipId, names, membershipId, { inSentence: true, inClinic })}</p>
                 ) : null}
                 {entry.reason ? <p className="hid-ehr-dept-appointments-hint">Reason: {entry.reason}</p> : null}
               </li>
@@ -321,13 +325,13 @@ function RescheduleForm({ facilityId, card, busy, onSend, onCancel }: {
         </EhrField>
         <EhrField label="Clinician" controlId="appointment-reschedule-clinician">
           <EhrSelect value={clinician} onChange={event => setClinician(event.target.value)}>
-            <option value={KEEP}>Keep: {clinicianText(card.clinicianMembershipId, names, membershipId)}</option>
+            <option value={KEEP}>Keep: {clinicianText(card.clinicianMembershipId, names, membershipId, { inClinic: card.clinicName !== null })}</option>
             {card.clinicianMembershipId ? <option value={NONE}>Any clinician</option> : null}
             {others.map(id => <option key={id} value={id}>{clinicianText(id, names, membershipId)}</option>)}
           </EhrSelect>
         </EhrField>
         <EhrField label="Reason for the change" controlId="appointment-reschedule-reason" className="hid-ehr-dept-full"
-          hint={`8 to ${CHANGE_REASON_MAX} characters. The patient gets a notice; it does not include the reason.`}>
+          hint={RESCHEDULE_REASON_HINT}>
           <EhrTextarea value={reason} onChange={event => setReason(event.target.value)} maxLength={CHANGE_REASON_MAX} rows={2} />
         </EhrField>
       </div>

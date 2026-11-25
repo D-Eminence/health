@@ -213,7 +213,7 @@ function DayCard({ card, names, membershipId }: {
         </div>
         <dl className="hid-ehr-dept-appointments-facts">
           <div><dt>Clinic</dt><dd>{card.clinicName ?? departmentText(card.departmentCode)}</dd></div>
-          <div><dt>With</dt><dd>{clinicianText(card.clinicianMembershipId, names, membershipId)}</dd></div>
+          <div><dt>With</dt><dd>{clinicianText(card.clinicianMembershipId, names, membershipId, { inClinic: card.clinicName !== null })}</dd></div>
           <div><dt>Visit</dt><dd>{visitTypeText(card.visitType)}</dd></div>
         </dl>
       </div>

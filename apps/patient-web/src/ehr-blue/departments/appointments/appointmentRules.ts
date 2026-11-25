@@ -195,6 +195,19 @@ export function changeReasonProblem(reason: string): string | null {
 export const CHECK_IN_CONFIRM = 'Confirm the patient’s name and date of birth with them before checking them in.'
 export const CHECK_IN_CONFIRM_LABEL = 'I have confirmed the patient’s name and date of birth with them'
 
+/**
+ * Who hears of a booking, a move or a cancel (0161): a patient with a Health ID account gets a notice (in their inbox,
+ * and by email to a verified address); one with no account gets nothing, and the staff card cannot tell them apart.
+ */
+export const NOTICE_WORDS = 'A patient with a Health ID account gets a notice. Call the patient if they may not have one.'
+export const BOOKED_DONE = `Appointment booked. ${NOTICE_WORDS}`
+export const MOVED_DONE = `Appointment moved. ${NOTICE_WORDS}`
+export const CANCELLED_DONE = `Appointment cancelled. ${NOTICE_WORDS}`
+export const CANCEL_HINT = `Cancelling is final: book again if the patient needs another time. ${NOTICE_WORDS}`
+/** The reschedule's reason hint: the notice never carries the reason. */
+export const RESCHEDULE_REASON_HINT = `8 to ${CHANGE_REASON_MAX} characters. A patient with a Health ID account gets a notice, without the reason. `
+  + 'Call the patient if they may not have one.'
+
 /** The printed call list's footer (DPO item, Q-APPT-7 A). */
 export const CALL_LIST_FOOTER = 'Contains patient phone numbers. Keep it at the desk and shred it after use.'
 
@@ -273,12 +286,28 @@ export function historyText(entry: AppointmentHistoryEntry): string {
   }
 }
 
-/** Who is booked to see the patient: "You" for the session's own membership; a name when the staff list gives one. */
-export function clinicianText(membershipId: string | null, names: ReadonlyMap<string, string | null>, me: string | undefined): string {
-  if (!membershipId) return 'Any clinician in the clinic'
-  if (me && membershipId.toLowerCase() === me.toLowerCase()) return 'You'
+export interface ClinicianWords {
+  /**
+   * Inside a sentence ("Booked … by you", "Now with a staff member here"): the words in lower case, as a sentence carries
+   * them. A staff member's name is always as the staff list gives it.
+   */
+  readonly inSentence?: boolean
+  /** Whether the appointment is in a clinic: with no clinician, any clinician in the clinic, else in the department. */
+  readonly inClinic?: boolean
+}
+
+/**
+ * Who is booked to see the patient, or who made a change: "You" for the session's own membership; a name when the staff
+ * list gives one. With no clinician, any clinician in the appointment's clinic, or its department when it has no clinic.
+ */
+export function clinicianText(membershipId: string | null, names: ReadonlyMap<string, string | null>, me: string | undefined,
+  { inSentence = false, inClinic = true }: ClinicianWords = {}): string {
+  const words = (text: string) => inSentence ? text.charAt(0).toLowerCase() + text.slice(1) : text
+  if (!membershipId) return words(`Any clinician in the ${inClinic ? 'clinic' : 'department'}`)
+  if (me && membershipId.toLowerCase() === me.toLowerCase()) return words('You')
   const name = names.get(membershipId.toLowerCase())
-  return name ?? (name === null ? 'Former staff member' : 'A staff member here')
+  if (name) return name
+  return words(name === null ? (inSentence ? 'A former staff member' : 'Former staff member') : 'A staff member here')
 }
 
 /** A whole Health ID is never shown: the last 4 characters, as the card gives them. */

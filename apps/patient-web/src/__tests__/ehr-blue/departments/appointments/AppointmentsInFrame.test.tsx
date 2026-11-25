@@ -3,7 +3,9 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import type * as BlueRoutes from '../../../../ehr-blue/routes'
 import { REAL_FACILITY, SESSION, facility, json, openStaffApp, problem, serve, sessionAt, where, type Sent } from '../../frame/blueHarness'
 import { lagosToday } from '../../../../ehr-blue/departments/waiting/waitingRules'
-import { forgetAppointmentsServed } from '../../../../ehr-blue/departments/appointments/appointmentRules'
+import {
+  BOOKED_DONE, CANCELLED_DONE, forgetAppointmentsServed,
+} from '../../../../ehr-blue/departments/appointments/appointmentRules'
 
 /*
  * Appointments (hid-system APPT-1, 0160 and 0161) inside the blue EHR's real frame, joined as departments/pages.ts joins
@@ -96,6 +98,8 @@ function directCare(sent: readonly Sent[], route: string) {
 }
 const keyOf = (sent: readonly Sent[], route: string, index = 0) => sent.filter(item => item.route === route)[index]!.headers.get('Idempotency-Key')
 const noPermissionWord = () => expect(document.body.textContent).not.toMatch(/permission/i)
+/** A fact's value on the appointment's card ("With", "Booked"). */
+const fact = (label: string) => screen.getByText(label, { selector: 'dt' }).nextElementSibling?.textContent
 
 describe('Appointments in the frame', () => {
   it('is listed under Front desk and shows the day in Lagos time, with the default statuses asked for', async () => {
@@ -104,7 +108,7 @@ describe('Appointments in the frame', () => {
       [SESSION]: [sessionAt(desk, [desk])],
       [CLINICS]: [clinics], [STAFF]: [staff], [NAMES]: [names],
       [LIST]: [listOf(card({ chartBlocked: true }), card({ appointmentId: 'a0000000-0000-4000-8000-00000000a002', fullName: 'Other Bookperson',
-        clinicianMembershipId: null, clinicName: null, departmentCode: 'maternity', status: 'checked_in',
+        clinicianMembershipId: null, clinicId: null, clinicName: null, departmentCode: 'maternity', status: 'checked_in',
         startsAt: '2026-12-03T09:15:00.000Z', endsAt: '2026-12-03T09:45:00.000Z' }))],
     })
     await openStaffApp('/provider/appointments')
@@ -122,7 +126,8 @@ describe('Appointments in the frame', () => {
     expect(within(second).getByText('10:15 to 10:45')).toBeDefined()
     expect(within(second).getByText('Checked in')).toBeDefined()
     expect(within(second).getByText('Maternity')).toBeDefined()
-    expect(within(second).getByText('Any clinician in the clinic')).toBeDefined()
+    // No clinic: any clinician in the department, not "in the clinic".
+    expect(within(second).getByText('Any clinician in the department')).toBeDefined()
     const query = urlsOf(LIST)[0]!.searchParams
     expect(query.get('day')).toBe(today())
     expect(query.get('status')).toBe('booked,checked_in')
@@ -240,7 +245,9 @@ describe('Appointments in the frame', () => {
     expect(keyOf(sent, BOOK, 1)).toBe(keyOf(sent, BOOK, 0))
     fireEvent.change(screen.getByLabelText('Time (Lagos)'), { target: { value: '09:30' } })
     fireEvent.click(screen.getByRole('button', { name: 'Book appointment' }))
-    expect(await screen.findByText('Appointment booked. The patient will get a notice.')).toBeDefined()
+    expect(await screen.findByText(BOOKED_DONE)).toBeDefined()
+    // Only a patient with a Health ID account is told; the desk is never promised a notice for everyone.
+    expect(BOOKED_DONE).toBe('Appointment booked. A patient with a Health ID account gets a notice. Call the patient if they may not have one.')
     expect(sent.filter(call => call.route === BOOK)[2]!.body).toMatchObject({ startsAt: '2026-12-03T08:30:00.000Z' })
     expect(keyOf(sent, BOOK, 2)).not.toBe(keyOf(sent, BOOK, 0))
     expect(keyOf(sent, BOOK, 2)).toMatch(/^[A-Za-z0-9-]{16,128}$/)
@@ -340,6 +347,8 @@ describe('Appointments in the frame', () => {
     // Opens on the appointment's own Lagos day and time.
     expect((within(form).getByLabelText('New day') as HTMLInputElement).value).toBe('2026-12-03')
     expect((within(form).getByLabelText('New time (Lagos)') as HTMLInputElement).value).toBe('09:00')
+    expect(form.textContent).toContain('A patient with a Health ID account gets a notice, without the reason. Call the patient if they may not have one.')
+    expect(document.body.textContent).not.toMatch(/The patient (will get|gets) a notice/)
     fireEvent.change(within(form).getByLabelText('New time (Lagos)'), { target: { value: '11:15' } })
     fireEvent.change(within(form).getByRole('textbox', { name: 'Reason for the change' }), { target: { value: 'short' } })
     fireEvent.click(within(form).getByRole('button', { name: 'Save new time' }))
@@ -366,7 +375,11 @@ describe('Appointments in the frame', () => {
     // Another day than today: no Check in.
     expect(screen.queryByRole('button', { name: 'Check in' })).toBeNull()
     fireEvent.click(await screen.findByRole('button', { name: 'Mark no-show' }))
-    fireEvent.click(within(screen.getByRole('group', { name: 'Mark no-show' })).getByRole('button', { name: 'Mark no-show' }))
+    // An earlier day's appointment can't be checked in today: the box says to book again, not "later today".
+    const box = screen.getByRole('group', { name: 'Mark no-show' })
+    expect(box.textContent).toContain('Mark that Testa Bookperson did not come? To see them another day, book a new appointment.')
+    expect(box.textContent).not.toMatch(/later today|check them in/)
+    fireEvent.click(within(box).getByRole('button', { name: 'Mark no-show' }))
     expect(await screen.findByText('Marked as a no-show.')).toBeDefined()
     expect(sent.find(call => call.route === NO_SHOW)!.body).toEqual({ expectedRowVersion: 1 })
     directCare(sent, NO_SHOW)
@@ -383,11 +396,13 @@ describe('Appointments in the frame', () => {
     await openStaffApp(`/provider/appointments/${APPOINTMENT}`)
     fireEvent.click(await screen.findByRole('button', { name: 'Cancel appointment' }))
     const form = screen.getByRole('form', { name: 'Cancel appointment' })
+    expect(within(form).getByText('Cancelling is final: book again if the patient needs another time. A patient with a Health ID account '
+      + 'gets a notice. Call the patient if they may not have one.')).toBeDefined()
     fireEvent.click(within(form).getByRole('button', { name: 'Cancel appointment' }))
     expect(within(form).getByText('Give a reason of at least 8 characters.')).toBeDefined()
     fireEvent.change(within(form).getByRole('textbox', { name: 'Reason' }), { target: { value: 'Patient travelled out of town' } })
     fireEvent.click(within(form).getByRole('button', { name: 'Cancel appointment' }))
-    expect(await screen.findByText('Appointment cancelled. The patient will get a notice.')).toBeDefined()
+    expect(await screen.findByText(CANCELLED_DONE)).toBeDefined()
     expect(sent.find(call => call.route === CANCEL)!.body).toEqual({ expectedRowVersion: 1, reason: 'Patient travelled out of town' })
     expect(keyOf(sent, CANCEL)).toBeTruthy()
     // Cancelled is final: no more actions.
@@ -426,6 +441,8 @@ describe('Appointments in the frame', () => {
     expect(within(table).getByRole('link', { name: '0800 000 0001' }).getAttribute('href')).toBe('tel:+2348000000001')
     expect(within(table).getByText('No phone recorded')).toBeDefined()
     expect(within(table).getByText('09:00')).toBeDefined()
+    expect(await within(table).findByText('Dr Fiction Adeyemi')).toBeDefined()
+    expect(within(table).getByText('Any clinician in the department')).toBeDefined()
     expect(screen.getAllByText('Contains patient phone numbers. Keep it at the desk and shred it after use.')).not.toHaveLength(0)
     expect(urlsOf(CALL_LIST)[0]!.searchParams.get('day')).toBe(today())
     directCare(sent, CALL_LIST)
@@ -434,6 +451,41 @@ describe('Appointments in the frame', () => {
     // Nothing here sends a text message: SMS reminders are built but switched off.
     expect(document.body.textContent).not.toMatch(/text message|SMS/i)
     noIdentityInAddresses()
+  })
+
+  it('says a patient seen today can still be checked in after a no-show', async () => {
+    const desk = deskAt()
+    serve({ [SESSION]: [sessionAt(desk, [desk])], [READ]: [readOf(todays())] })
+    await openStaffApp(`/provider/appointments/${APPOINTMENT}`)
+    fireEvent.click(await screen.findByRole('button', { name: 'Mark no-show' }))
+    expect(screen.getByRole('group', { name: 'Mark no-show' }).textContent)
+      .toContain('Mark that Testa Bookperson did not come? If they arrive later today, they can still be checked in.')
+  })
+
+  it('words who booked and who sees the patient as a sentence reads them, and a booking with no clinic as the department’s', async () => {
+    const desk = deskAt()
+    const me = `member-${REAL_FACILITY}`
+    serve({
+      [SESSION]: [sessionAt(desk, [desk])],
+      [NAMES]: [names],
+      [READ]: [readOf(card({ clinicId: null, clinicName: null, clinicianMembershipId: null, bookedByMembershipId: me }), [
+        { kind: 'booked', at: '2026-11-19T10:00:00.000Z', byMembershipId: me, fromStartsAt: null, toStartsAt: '2026-12-03T08:00:00.000Z',
+          fromClinicianMembershipId: null, toClinicianMembershipId: DOCTOR, reason: null },
+        { kind: 'rescheduled', at: '2026-11-20T10:00:00.000Z', byMembershipId: 'e0000000-0000-4000-8000-0000000000e9',
+          fromStartsAt: '2026-12-03T08:00:00.000Z', toStartsAt: '2026-12-03T08:00:00.000Z', fromClinicianMembershipId: DOCTOR,
+          toClinicianMembershipId: null, reason: 'Doctor away that day' },
+      ])],
+    })
+    await openStaffApp(`/provider/appointments/${APPOINTMENT}`)
+    expect(await screen.findByRole('heading', { level: 1, name: 'Testa Bookperson' })).toBeDefined()
+    expect(fact('Clinic')).toBe('No clinic')
+    expect(fact('With')).toBe('Any clinician in the department')
+    expect(fact('Booked')).toBe('Thursday 26 Nov 2026, 11:00 by you')
+    const history = screen.getByRole('list', { name: 'History' })
+    expect(history.textContent).toContain('Thursday 19 Nov 2026, 11:00, by you')
+    expect(history.textContent).toContain('Friday 20 Nov 2026, 11:00, by a staff member here')
+    expect(history.textContent).toContain('Now with any clinician in the department')
+    expect(document.body.textContent).not.toMatch(/by You|by A staff|by Former|with Any clinician|in the clinic/)
   })
 
   it('refuses the call list and New appointment to a nurse in plain words, reading nothing', async () => {
