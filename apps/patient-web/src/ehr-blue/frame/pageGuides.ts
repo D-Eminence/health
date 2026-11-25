@@ -71,6 +71,16 @@ export const PAGE_GUIDES: Readonly<Record<string, PageGuide>> = {
       'Checking a patient in does not open their chart: open it from Patients as usual. “Chart cannot be opened” means the patient has not allowed this facility to see it.',
     ],
   },
+  'ordered-by-me': {
+    purpose: 'See the tests and medicines you ordered here, and how far each one has got in this facility’s laboratory or pharmacy.',
+    steps: [
+      'Choose All, Lab or Prescriptions, and tick Open only to see just the orders still open.',
+      'The list shows the last 90 days and everything still open. Select Look further back to choose an earlier day, up to 2 years back.',
+      'Select Load more while it is shown: some orders may still be to come.',
+      'To open an order, open the patient’s record from Patients first, then select Open the lab request or Open the prescription here.',
+    ],
+    tips: ['Orders for patients whose records you can no longer open are counted under the list, not shown.'],
+  },
   triage: {
     purpose: 'Record and review vitals for the open patient: blood pressure, pulse, temperature, breathing, oxygen, weight and height.',
     steps: [

@@ -24,6 +24,8 @@ export const BLUE_RETURN_PATHS: readonly string[] = [
   '/provider/laboratory/new-walk-in', '/provider/reading-quality',
   // The waiting list (hid-system 0135) under Front desk.
   '/provider/waiting-list',
+  // Ordered by me (hid-system 0143, MY-1) under Care.
+  '/provider/ordered-by-me',
   // Open sign-up on outreach. (owner decision 5): "Start an outreach group" for a signed-in login.
   '/provider/start-outreach-group',
 ]

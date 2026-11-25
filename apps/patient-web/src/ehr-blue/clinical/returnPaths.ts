@@ -15,7 +15,7 @@ import type { AccessRequestStatus } from '../../staff/api'
  * `clinical`, External record access `requests`). Live workspaces come back to their list and their record pages;
  * sample workspaces to their list only, as a sample record does not outlive the page (sample/store.ts).
  */
-const LIVE = ['patients', 'triage', 'clinical', 'nursing', 'emergency', 'requests'] as const
+const LIVE = ['patients', 'triage', 'clinical', 'ordered-by-me', 'nursing', 'emergency', 'requests'] as const
 const SAMPLE = [
   'appointments', 'journey', 'inpatient', 'wards', 'maternity', 'surgery', 'icu', 'dental', 'nursing-tasks', 'radiology',
   'referrals', 'telemedicine', 'bloodbank', 'ward-config',

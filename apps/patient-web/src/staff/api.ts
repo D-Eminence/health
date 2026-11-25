@@ -3317,3 +3317,125 @@ export const visitQueueApi = {
     client.request<VisitQueueCard>({ method: 'PATCH', path: `/api/v1/ehr/visit-queue/${encodeURIComponent(entry.entryId)}`,
       body: { expectedRowVersion: entry.rowVersion, ...change }, headers: facilityHeaders(facilityId, 'direct-care') }),
 }
+
+/**
+ * "Ordered by me" (hid-system 0143, MY-1, INTERFACE_CONTRACT.md): the lab requests and prescriptions the signed-in
+ * member created at the working facility, newest first, each with its own laboratory or pharmacy progress (ORD-3's
+ * `ownProgress`) and, when it was read, its order route summary. Direct care only. No patient goes in the address or
+ * the query, and no full Health ID comes back: a row's patient card has the last 4 characters only. An order whose
+ * patient the member can no longer open is not listed; it is counted in `hiddenCount` (a lower bound when
+ * `hiddenCountComplete` is false). A page can hold fewer rows than asked for, or none, while `nextCursor` is still set.
+ */
+export type MyOrderKind = 'lab_request' | 'prescription'
+export type MyOrdersKindFilter = 'all' | 'lab' | 'prescription'
+
+export interface MyOrderPatient {
+  patientId: string
+  fullName: string
+  sex: string | null
+  dateOfBirth: string | null
+  healthIdLast4: string | null
+}
+
+export interface MyOrder {
+  kind: MyOrderKind
+  orderId: string
+  encounterId: string
+  patient: MyOrderPatient
+  /** The stored test or medicine name. */
+  display: string
+  status: string
+  priority: string | null
+  createdAt: string
+  updatedAt: string
+  /** ORD-3's shape, read leniently by the page (ehr-blue/clinical/consult/orders/progress.ts). */
+  ownProgress?: unknown
+  /** The order route summary: null when there is none; left out when it could not be read. */
+  orderRoute?: unknown
+}
+
+export interface MyOrdersPage {
+  items: MyOrder[]
+  hiddenCount: number
+  hiddenCountComplete: boolean
+  /** The day the list actually starts from (YYYY-MM-DD, Lagos), or '' when the answer did not say. */
+  since: string
+  nextCursor: string | null
+}
+
+export interface MyOrdersQuery {
+  kind?: MyOrdersKindFilter
+  /** true sends state=open: draft, active and on hold orders only. */
+  openOnly?: boolean
+  /** YYYY-MM-DD, a Lagos day, today or earlier and at most 2 years back. */
+  since?: string
+  limit?: number
+  cursor?: string
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null
+}
+
+/** One row as the page may use it, or null for a row without its ids. */
+function readMyOrder(value: unknown): MyOrder | null {
+  if (!value || typeof value !== 'object') return null
+  const item = value as Record<string, unknown>
+  const patient = item.patient && typeof item.patient === 'object' ? item.patient as Record<string, unknown> : null
+  const orderId = stringOrNull(item.orderId)
+  const encounterId = stringOrNull(item.encounterId)
+  const patientId = stringOrNull(patient?.patientId)
+  if (!orderId || !encounterId || !patient || !patientId) return null
+  if (item.kind !== 'lab_request' && item.kind !== 'prescription') return null
+  const healthIdLast4 = stringOrNull(patient.healthIdLast4)
+  return {
+    kind: item.kind,
+    orderId,
+    encounterId,
+    patient: {
+      patientId,
+      fullName: typeof patient.fullName === 'string' ? patient.fullName : '',
+      sex: stringOrNull(patient.sex),
+      dateOfBirth: stringOrNull(patient.dateOfBirth),
+      // Never more than its last 4 characters, whatever came back.
+      healthIdLast4: healthIdLast4 ? healthIdLast4.slice(-4) : null,
+    },
+    display: typeof item.display === 'string' ? item.display : '',
+    status: typeof item.status === 'string' ? item.status : '',
+    priority: stringOrNull(item.priority),
+    createdAt: typeof item.createdAt === 'string' ? item.createdAt : '',
+    updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : '',
+    ...(Object.hasOwn(item, 'ownProgress') ? { ownProgress: item.ownProgress } : {}),
+    ...(Object.hasOwn(item, 'orderRoute') ? { orderRoute: item.orderRoute } : {}),
+  }
+}
+
+/** The answer read defensively: rows without their ids are dropped, and the hidden count is a whole number from 0. */
+export function readMyOrdersPage(value: unknown): MyOrdersPage {
+  const answer = value && typeof value === 'object' ? value as Record<string, unknown> : {}
+  const items = Array.isArray(answer.items) ? answer.items.map(readMyOrder).filter((item): item is MyOrder => item !== null) : []
+  const hidden = typeof answer.hiddenCount === 'number' && Number.isFinite(answer.hiddenCount) ? Math.max(0, Math.floor(answer.hiddenCount)) : 0
+  return {
+    items,
+    hiddenCount: hidden,
+    // Only an answer that says it is not complete is taken as a lower bound.
+    hiddenCountComplete: answer.hiddenCountComplete !== false,
+    since: typeof answer.since === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(answer.since) ? answer.since : '',
+    nextCursor: stringOrNull(answer.nextCursor),
+  }
+}
+
+export const myOrdersApi = {
+  /** Read on opening the page and on the member's own action only: each read is audited per patient shown. */
+  list: (facilityId: string, request: MyOrdersQuery = {}) => {
+    const query: Record<string, string | number> = {}
+    if (request.kind && request.kind !== 'all') query.kind = request.kind
+    if (request.openOnly) query.state = 'open'
+    if (request.since) query.since = request.since
+    if (request.limit !== undefined) query.limit = request.limit
+    if (request.cursor) query.cursor = request.cursor
+    return client.get<unknown>('/api/v1/ehr/my-orders', {
+      headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false, ...(Object.keys(query).length > 0 ? { query } : {}),
+    }).then(readMyOrdersPage)
+  },
+}

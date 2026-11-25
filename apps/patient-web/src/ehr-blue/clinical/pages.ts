@@ -3,6 +3,8 @@ import { ConsentRefusal } from './consent/ConsentRefusal'
 import { ConsentWorkspace, consentStatus } from './consent/ConsentWorkspace'
 import { ConsultWorkspace, consultStatus } from './consult/ConsultWorkspace'
 import { EmergencyWorkspace, emergencyStatus } from './emergency/EmergencyWorkspace'
+import { OrderedByMe, OrderedByMeUnavailable } from './mine/OrderedByMe'
+import { LAB_READ, PRESCRIPTION_READ, TITLE as ORDERED_BY_ME } from './mine/myOrders'
 import { NursingWorkspace, nursingStatus } from './nursing/NursingWorkspace'
 import { ClinicalIcon, type ClinicalIconName } from './parts/icons'
 import { PatientsWorkspace, patientsStatus } from './patients/PatientsWorkspace'
@@ -26,6 +28,10 @@ export const pages: EhrBluePage[] = [
   { path: 'journey/*', group: 'Clinical', label: 'Patient visits', icon: icon('route'), status: 'sample', element: sample('journey') },
   { path: 'triage/*', group: 'Clinical', label: 'Triage & Vitals', icon: icon('activity'), permission: 'ehr.vital.read', status: triageStatus, element: createElement(TriageWorkspace) },
   { path: 'clinical/*', group: 'Clinical', label: 'Consultation', icon: icon('stethoscope'), permission: 'ehr.encounter.read', status: consultStatus, element: createElement(ConsultWorkspace) },
+  // "Ordered by me" (hid-system 0143, MY-1) under Care, beside Consultation: either kind's read permission opens it, as
+  // the backend lists whichever kinds the member holds. Live since Release C (d519e5d1).
+  { path: 'ordered-by-me', group: 'Clinical', label: ORDERED_BY_ME, icon: icon('clipboard'), permission: LAB_READ, orPermissions: [PRESCRIPTION_READ],
+    status: 'live', element: createElement(OrderedByMe), refusal: createElement(OrderedByMeUnavailable) },
   { path: 'inpatient/*', group: 'Clinical', label: 'Inpatient / Wards', icon: icon('bed'), status: 'sample', element: sample('inpatient') },
   { path: 'wards/*', group: 'Clinical', label: 'Wards & Beds', icon: icon('ward'), status: 'sample', element: sample('wards') },
   { path: 'nursing/*', group: 'Clinical', label: 'Nursing observations', icon: icon('notes'), permission: 'ehr.note.read', status: nursingStatus, element: createElement(NursingWorkspace) },

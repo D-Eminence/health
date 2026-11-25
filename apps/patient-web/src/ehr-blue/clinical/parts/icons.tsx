@@ -34,6 +34,7 @@ const SHAPES = {
   droplet: <path {...p} d="M12 3s6 5.7 6 10a6 6 0 0 1-12 0c0-4.3 6-10 6-10z" />,
   video: <> <rect {...p} x="2" y="6" width="13" height="12" rx="2" /> <path {...p} d="m22 8-5 4 5 4z" /> </>,
   lock: <> <rect {...p} x="4" y="10" width="16" height="11" rx="2" /> <path {...p} d="M8 10V7a4 4 0 0 1 8 0v3" /> </>,
+  clipboard: <> <rect {...p} x="5" y="4" width="14" height="17" rx="2" /> <path {...p} d="M9 4V3h6v1M9 10h6M9 14h6M9 18h3" /> </>,
   wardSettings: <> <path {...p} d="M3 21V3h14v9M7 7h2m4 0h1M7 11h2M7 15h2" /> <circle {...p} cx="17" cy="17" r="4" /> <path {...p} d="M17 11v2m0 8v2m-6-6h2m8 0h2" /> </>,
 } satisfies Record<string, ReactNode>
 
