@@ -1,0 +1,233 @@
+/*
+ * Inpatient admission, wards and beds (departments/inpatient): the looks departments.css does not have. Admission cards
+ * in the design's list card, the bed board's grid of beds with a status in words and a tone (never colour alone), the
+ * census counts, and the ward configuration's rows. On a phone everything wraps, so nothing scrolls sideways. Every rule
+ * sits under .hid-ehr and names hid-ehr-dept-inpatient-* classes; values come from the --ehr-* tokens.
+ */
+
+.hid-ehr .hid-ehr-dept-inpatient-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hid-ehr .hid-ehr-dept-inpatient-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--ehr-line);
+  border-radius: var(--ehr-radius-lg);
+  background: var(--ehr-surface);
+}
+
+.hid-ehr .hid-ehr-dept-inpatient-main {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 16rem;
+}
+
+.hid-ehr .hid-ehr-dept-inpatient-name {
+  margin: 0;
+  color: var(--ehr-ink);
+  font-size: 15px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-dept-inpatient-identity,
+.hid-ehr .hid-ehr-dept-inpatient-badges,
+.hid-ehr .hid-ehr-dept-inpatient-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin: 0;
+}
+
+.hid-ehr .hid-ehr-dept-inpatient-identity {
+  color: var(--ehr-muted);
+  font-size: 13px;
+}
+
+.hid-ehr .hid-ehr-dept-inpatient-badges { gap: 6px; }
+
+.hid-ehr .hid-ehr-dept-inpatient-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: 6px 16px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.hid-ehr .hid-ehr-dept-inpatient-facts div { min-width: 0; }
+.hid-ehr .hid-ehr-dept-inpatient-facts dt { color: var(--ehr-muted); font-size: 12px; }
+.hid-ehr .hid-ehr-dept-inpatient-facts dd { margin: 0; color: var(--ehr-ink); overflow-wrap: anywhere; }
+
+.hid-ehr .hid-ehr-dept-inpatient-counts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+  gap: 10px;
+  margin: 0 0 12px;
+}
+
+.hid-ehr .hid-ehr-dept-inpatient-counts div {
+  padding: 10px 12px;
+  border: 1px solid var(--ehr-line);
+  border-radius: var(--ehr-radius-md, 8px);
+  background: var(--ehr-surface);
+}
+
+.hid-ehr .hid-ehr-dept-inpatient-counts dt { color: var(--ehr-muted); font-size: 12px; }
+.hid-ehr .hid-ehr-dept-inpatient-counts dd { margin: 2px 0 0; color: var(--ehr-ink); font-size: 20px; font-weight: 600; }
+
+.hid-ehr .hid-ehr-dept-inpatient-beds {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hid-ehr .hid-ehr-dept-inpatient-bed {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  padding: 12px 14px;
+  border: 1px solid var(--ehr-line);
+  border-left-width: 4px;
+  border-radius: var(--ehr-radius-lg);
+  background: var(--ehr-surface);
+}
+
+.hid-ehr .hid-ehr-dept-inpatient-bed[data-status='available'] { border-left-color: var(--ehr-positive, #15803d); }
+.hid-ehr .hid-ehr-dept-inpatient-bed[data-status='occupied'] { border-left-color: var(--ehr-brand, #1d4ed8); }
+.hid-ehr .hid-ehr-dept-inpatient-bed[data-status='cleaning'] { border-left-color: var(--ehr-caution, #b45309); }
+.hid-ehr .hid-ehr-dept-inpatient-bed[data-status='maintenance'] { border-left-color: var(--ehr-muted, #64748b); }
+
+.hid-ehr .hid-ehr-dept-inpatient-bed-name {
+  margin: 0;
+  color: var(--ehr-ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-dept-inpatient-hint {
+  margin: 0;
+  color: var(--ehr-muted);
+  font-size: 13px;
+}
+
+.hid-ehr .hid-ehr-dept-inpatient-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 16px;
+  margin: 0 0 12px;
+}
+
+.hid-ehr .hid-ehr-dept-inpatient-controls .hid-ehr-field { min-width: 12rem; }
+
+.hid-ehr .hid-ehr-dept-inpatient-history {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+.hid-ehr .hid-ehr-dept-inpatient-history li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--ehr-line);
+}
+
+.hid-ehr .hid-ehr-dept-inpatient-history-when { color: var(--ehr-muted); min-width: 9.5rem; }
+
+.hid-ehr .hid-ehr-dept-inpatient-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.hid-ehr .hid-ehr-dept-inpatient-table-wrap { overflow-x: auto; max-width: 100%; }
+.hid-ehr .hid-ehr-dept-inpatient-table th,
+.hid-ehr .hid-ehr-dept-inpatient-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--ehr-line);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.hid-ehr .hid-ehr-dept-inpatient-choices {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  list-style: none;
+}
+
+.hid-ehr .hid-ehr-dept-inpatient-choices label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.hid-ehr .hid-ehr-dept-inpatient-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--ehr-line);
+  border-radius: var(--ehr-radius-lg);
+  background: var(--ehr-surface-subtle, var(--ehr-surface));
+}
+
+.hid-ehr .hid-ehr-dept-inpatient-form h3 { margin: 0; font-size: 15px; }
+
+/*
+ * The two papers: the discharge summary (A4) and the band. Each is on the page only while it prints, as a child of
+ * <body>, and is never shown on screen. In print the rest of the page is display: none, so only the paper prints, black
+ * on white whatever the screen's theme. The pages have no margin, so the browser prints no web address of its own
+ * (print.css); the paper's padding is its margin.
+ */
+[data-inpatient-print] { display: none; }
+
+@page inpatient-a4 { size: A4 portrait; margin: 0; }
+@page inpatient-band { size: 280mm 30mm; margin: 0; }
+
+@media print {
+  html:has(> body > [data-inpatient-print]), body:has(> [data-inpatient-print]) {
+    height: auto !important; min-height: 0 !important; max-height: none !important; overflow: visible !important;
+    margin: 0 !important; padding: 0 !important; background: #fff !important;
+  }
+  body:has(> [data-inpatient-print]) > :not([data-inpatient-print]) { display: none !important; }
+  body > [data-inpatient-print] {
+    display: block !important;
+    position: static !important;
+    width: auto !important;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+    background: #fff !important;
+    color: #000 !important;
+    font: 11pt/1.4 system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif !important;
+  }
+  body > [data-inpatient-print='discharge'] { page: inpatient-a4; padding: 14mm !important; }
+  body > [data-inpatient-print='band'] { page: inpatient-band; padding: 3mm 6mm !important; }
+}
+
+.hid-inpatient-band { display: flex; align-items: center; gap: 6mm; color: #000; background: #fff; font-size: 9pt; }
+.hid-inpatient-band p { margin: 0; }
+.hid-inpatient-band-name { font-size: 12pt; font-weight: 700; }
+.hid-inpatient-band-code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 10pt; font-weight: 700; letter-spacing: .04em; }
+.hid-inpatient-band-alert { border: 1pt solid #000; padding: .5mm 1.5mm; font-weight: 700; }

@@ -91,7 +91,7 @@ function pagePrint(paper: PaperPrint, pageMargins: boolean): PrintJob {
         const margin = PAGE_MARGIN_MM[paper.size]
         const style = document.createElement('style')
         style.dataset.printMargins = ''
-        style.textContent = ['', ' clinical-a5', ' clinical-a4', ' outreach-slip']
+        style.textContent = ['', ' clinical-a5', ' clinical-a4', ' outreach-slip', ' inpatient-a4', ' inpatient-band']
           .map(name => `@page${name} { margin: ${margin}mm !important; }`).join('\n')
         document.head.appendChild(style)
         undo.push(() => style.remove())

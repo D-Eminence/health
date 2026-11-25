@@ -744,6 +744,21 @@ describe('The open patient’s page', () => {
     expect(await screen.findByRole('button', { name: new RegExp(`^${consultationLabel(ENCOUNTER)}`) })).toBeTruthy()
   })
 
+  it('offers a doctor or clinician Request admission (hid-system ADT-1), and no one without the codes or a grant that allows changes', async () => {
+    staff.permissions = [...ALL, ...WRITES, 'ehr.admission.read', 'ehr.admission.decide']
+    staff.activePatient = activePatient()
+    const doctor = open('/open')
+    await waitFor(() => expect(nextSteps()).toEqual(['Start a consultation', 'Record vitals', 'Request admission']))
+    fireEvent.click(screen.getByRole('button', { name: /^Request admission/ }))
+    expect(where()).toBe(`${BASE}/inpatient/new`)
+    doctor.unmount()
+
+    // A nurse holds ehr.admission.read but not .decide: nurses give beds, doctors and clinicians admit (Q185 A).
+    staff.permissions = [...ALL, ...WRITES, 'ehr.admission.read']
+    open('/open')
+    await waitFor(() => expect(nextSteps()).toEqual(['Start a consultation', 'Record vitals']))
+  })
+
   it('hand-off 01: offers Open chart and the visits only with ehr.encounter.read, Consultation’s permission, and reads no encounters without it', async () => {
     staff.permissions = ['identity.patient.read', 'identity.consent.write']
     staff.activePatient = activePatient()

@@ -1,5 +1,5 @@
 import { ageInYears } from '@hid/ui/display'
-import { Activity, ChevronRight, FolderOpen, History, KeyRound, ListChecks, LogOut, RotateCcw, Send, ShieldCheck, Siren, Stethoscope, UserPlus } from 'lucide-react'
+import { Activity, BedDouble, ChevronRight, FolderOpen, History, KeyRound, ListChecks, LogOut, RotateCcw, Send, ShieldCheck, Siren, Stethoscope, UserPlus } from 'lucide-react'
 import { Alert, Badge, Button, Card, CardHeader, IconChip, ListRow, PageHeader } from '../../../kasuwa/ui'
 import { CardFace } from '../../../routes/HealthIdCard'
 import { isHidApiError, plainErrorText } from '@hid/http'
@@ -243,7 +243,11 @@ function PatientRecord({ chart, onClosed }: { chart: Chart; onClosed: () => void
   const showWalkIn = isDemoFacility(chart.facilityId) && sampleCan('journey', 'create') && opens('journey')
   const showEmergency = isDemoFacility(chart.facilityId) && emergencyUnavailable === null && opens('emergency')
   const showSummary = opens('emergency')
-  const noSteps = !showStart && !showVitals && !showWalkIn && !showEmergency
+  // Request admission (hid-system ADT-1 route 10): doctors and clinicians (ehr.admission.read and .decide) with a grant
+  // that allows changes, as the request needs write access to the chart. The new admission page reads this open patient.
+  const showAdmission = !readOnly && chart.can('ehr.encounter.write') && permissions.includes('ehr.admission.read')
+    && permissions.includes('ehr.admission.decide') && opens('inpatient')
+  const noSteps = !showStart && !showVitals && !showWalkIn && !showEmergency && !showAdmission
 
   /**
    * The access steps, as Find a patient takes them: under direct care at the demo facilities only, emergency access
@@ -313,6 +317,7 @@ function PatientRecord({ chart, onClosed }: { chart: Chart; onClosed: () => void
           <ul className="m-0 list-none divide-y divide-line p-0">
             {showStart ? <li><ListRow onClick={() => navigate(href.to('consult', 'new'), { state: fromPatient(href('open')) })} leading={<IconChip size="sm" icon={Stethoscope} />} title="Start a consultation" subtitle="Notes, diagnoses and orders in one place" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
             {showVitals ? <li><ListRow onClick={() => navigate(href.to('triage', 'new'), { state: fromPatient(href('open')) })} leading={<IconChip size="sm" icon={Activity} />} title="Record vitals" subtitle="Blood pressure, temperature, pulse, oxygen" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
+            {showAdmission ? <li><ListRow onClick={() => navigate('/provider/inpatient/new')} leading={<IconChip size="sm" icon={BedDouble} />} title="Request admission" subtitle="Ask for a bed on a ward, ICU included" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
             {/* Appointments and walk-in visits are samples: offered only at the demo facilities, and only to a design role
                 that may create there (sampleAccess.ts), as a role the sample is closed to would land on Home instead. */}
             {showWalkIn ? <li><ListRow onClick={() => navigate(href.to('journey', 'new'))} leading={<IconChip size="sm" icon={UserPlus} />} title="Register a walk-in visit" subtitle="Sample at demo facilities" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}

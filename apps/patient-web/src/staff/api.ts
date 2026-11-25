@@ -3317,3 +3317,352 @@ export const visitQueueApi = {
     client.request<VisitQueueCard>({ method: 'PATCH', path: `/api/v1/ehr/visit-queue/${encodeURIComponent(entry.entryId)}`,
       body: { expectedRowVersion: entry.rowVersion, ...change }, headers: facilityHeaders(facilityId, 'direct-care') }),
 }
+
+/**
+ * Inpatient admission, wards and beds, transfers and discharge (hid-system ADT-1, migrations 0170-0173, Release D;
+ * INTERFACE_CONTRACT.md "ADT-1"). Built on hid-system claude/sprint-inpatient-backend (hid-system#343), not live: an
+ * ehr-api before it answers 404, and while INPATIENT_ENABLED is off every route answers 503 INPATIENT_NOT_AVAILABLE.
+ * Direct care at the X-Facility-ID facility; ward setup (routes 2-6) is healthcare operations, and the ward list and a
+ * bed's status take either (the page sends healthcare operations for an admin, direct care for ward staff). Every write
+ * carries an Idempotency-Key the caller keeps per request body, and writes on a ward, bed or admission send the row
+ * version they read. Wards, beds, admissions and movements by UUID: no Health ID or NIN in any path or query. The one
+ * Health ID in any answer is the wristband print's, for printing only.
+ */
+export const WARD_TYPES = ['general', 'paediatric', 'maternity', 'icu', 'private', 'other'] as const
+export type WardType = (typeof WARD_TYPES)[number]
+export const WARD_TAKES = ['any', 'male', 'female'] as const
+export type WardTakes = (typeof WARD_TAKES)[number]
+export type BedKind = 'bed' | 'overflow'
+export type BedStatus = 'available' | 'occupied' | 'cleaning' | 'maintenance'
+export type AdmissionStatus = 'requested' | 'admitted' | 'discharge_ready' | 'discharged' | 'cancelled'
+export type AdmissionSource = 'ed' | 'consultation' | 'waiting_list' | 'direct'
+export const DISCHARGE_OUTCOMES = ['routine', 'dama', 'referred_out', 'absconded', 'died'] as const
+export type DischargeOutcome = (typeof DISCHARGE_OUTCOMES)[number]
+export const DISCHARGE_CONDITIONS = ['improved', 'unchanged', 'worse', 'not_applicable'] as const
+export type DischargeCondition = (typeof DISCHARGE_CONDITIONS)[number]
+export const REPRINT_REASONS = ['lost', 'damaged', 'details_changed', 'moved_ward'] as const
+export type ReprintReason = (typeof REPRINT_REASONS)[number]
+export type MovementKind = 'requested' | 'admitted' | 'transferred' | 'prepared' | 'discharged' | 'cancelled'
+  | 'details_changed' | 'wristband_printed'
+
+/** A bed or overflow space as the ward list (with beds) and a status change answer it. */
+export interface WardBed {
+  bedId: string
+  name: string
+  kind: BedKind
+  status: BedStatus
+  active?: boolean
+  statusSince?: string | null
+  rowVersion: number
+}
+
+/** Route 1: one ward with its counts (never a patient); with includeBeds, its beds and staff list. */
+export interface Ward {
+  wardId: string
+  name: string
+  wardType: WardType
+  takes: WardTakes
+  active: boolean
+  bedCount: number
+  overflowCount: number
+  occupied: number
+  available: number
+  cleaning: number
+  maintenance: number
+  overflowInUse: number
+  staffCount: number
+  rowVersion: number
+  beds?: WardBed[]
+  staffMembershipIds?: string[]
+}
+
+export interface AdmissionDischarge {
+  outcome: DischargeOutcome
+  dischargedAt: string
+  dischargedByMembershipId: string | null
+  summaryNoteId: string | null
+  referredToFacilityName: string | null
+  diedAt: string | null
+}
+
+/**
+ * The admission card (every answer; the bed board's patient and waitingForBed are the same card). Names on ward lists
+ * follow Q190 A: with the DPO's switch off, `fullName`, `dateOfBirth` and `healthIdLast4` come only for patients whose
+ * chart the member can read now, else `nameHidden` and the card shows `initials`, `sex` and `ageYears`.
+ */
+export interface AdmissionCard {
+  admissionId: string
+  admissionNumber: string
+  patientId: string
+  fullName: string | null
+  nameHidden: boolean
+  initials: string
+  recordKind: 'standard' | 'unknown'
+  unknownLabel: string | null
+  sex: string | null
+  dateOfBirth: string | null
+  dateOfBirthEstimated: boolean
+  ageYears: number | null
+  ageEstimated: boolean
+  healthIdLast4: string | null
+  ninStatus: 'verified' | 'not_verified' | null
+  chartBlocked: boolean
+  encounterId: string
+  status: AdmissionStatus
+  source: AdmissionSource
+  edAttendanceId: string | null
+  fromEncounterId: string | null
+  visitQueueEntryId: string | null
+  motherAdmissionId: string | null
+  reason: string | null
+  reasonHidden: boolean
+  careTeam: string | null
+  responsibleMembershipId: string | null
+  requestedWardId: string | null
+  requestedAt: string
+  requestedByMembershipId: string | null
+  admittedAt: string | null
+  admittedByMembershipId: string | null
+  daysAdmitted: number | null
+  wardId: string | null
+  wardName: string | null
+  bedId: string | null
+  bedName: string | null
+  expectedDischargeOn: string | null
+  preparedAt: string | null
+  dischargeReady: boolean
+  discharge: AdmissionDischarge | null
+  cancelledAt: string | null
+  deathRecorded: boolean
+  billId: string | null
+  rowVersion: number
+}
+
+export interface BedBoardBed extends WardBed {
+  statusSince: string | null
+  patient: AdmissionCard | null
+}
+export interface BedBoardWard {
+  wardId: string
+  name: string
+  wardType: WardType
+  takes: WardTakes
+  active: boolean
+  beds: BedBoardBed[]
+}
+export interface BedBoard { wards: BedBoardWard[]; waitingForBed: AdmissionCard[] }
+
+export interface CensusCounts {
+  beds: number
+  occupied: number
+  available: number
+  cleaning: number
+  maintenance: number
+  overflowInUse: number
+  admitted: number
+  transfersIn: number
+  transfersOut: number
+  discharged: number
+  died: number
+  waitingForBed: number
+  midnightCount: number
+}
+export interface Census {
+  date: string
+  facility: CensusCounts
+  wards: Array<CensusCounts & { wardId: string; name: string; wardType: WardType }>
+}
+
+export interface AdmissionMovement {
+  movementId: string
+  kind: MovementKind
+  at: string
+  byMembershipId: string | null
+  fromWardId: string | null
+  fromBedId: string | null
+  toWardId: string | null
+  toBedId: string | null
+  handoverRecorded: boolean
+  outcome: DischargeOutcome | null
+  printNumber: number | null
+  reprintReason: ReprintReason | null
+}
+export interface AdmissionRecord { admission: AdmissionCard; movements: AdmissionMovement[] }
+export interface AdmissionList { items: AdmissionCard[]; hasMore: boolean; limit: number }
+export interface AdmissionWritten { admission: AdmissionCard; replayed: boolean; summaryNoteId?: string | null }
+export interface WardWritten { ward: Ward; replayed: boolean; bedId?: string }
+
+export interface AdmissionRequestInput {
+  patientId: string
+  source: AdmissionSource
+  fromEncounterId?: string
+  edAttendanceId?: string
+  visitQueueEntryId?: string
+  reason: string
+  careTeam?: string
+  responsibleMembershipId?: string
+  requestedWardId?: string
+  motherAdmissionId?: string
+}
+export interface AdmissionChange {
+  careTeam?: string
+  responsibleMembershipId?: string
+  expectedDischargeOn?: string
+  reason?: string
+}
+export interface PrepareDischargeInput {
+  followUpPlan: string
+  expectedDischargeOn?: string
+  dischargeMedicineIds?: string[]
+}
+export interface DischargeSummaryInput {
+  presentingProblem: string
+  courseInHospital: string
+  proceduresDone?: string
+  conditionAtDischarge?: DischargeCondition
+  followUpPlan?: string
+  patientAdvice?: string
+}
+export interface DischargeInput {
+  outcome: DischargeOutcome
+  dischargedAt?: string
+  summary?: DischargeSummaryInput
+  referredToFacilityName?: string
+  diedAt?: string
+  signature: 'SIGN'
+}
+
+/** Route 19: the printable discharge summary, as signed (the Health ID's last 4 characters only). */
+export interface DischargeSummaryPrint {
+  facility: { name: string; address: string | null; phone: string | null }
+  patient: { fullName: string; sex: string | null; dateOfBirth: string | null; dateOfBirthEstimated: boolean;
+    healthId: null; healthIdLast4: string | null; ninStatus: 'verified' | 'not_verified' | null }
+  admissionNumber: string
+  admittedAt: string | null
+  dischargedAt: string | null
+  wards: string[]
+  responsibleDoctor: string | null
+  outcome: DischargeOutcome | null
+  referredToFacilityName: string | null
+  diedAt: string | null
+  summary: Partial<DischargeSummaryInput> | null
+  diagnoses: Array<{ display: string; code: string | null; codeSystem: string | null }>
+  medicinesOnDischarge: Array<{ prescriptionId: string; medicationDisplay: string | null; strength: string | null;
+    doseForm: string | null; dose: string | null; frequency: string | null; duration: string | null }>
+  signedBy: string | null
+  signedAt: string | null
+  printedAt: string
+}
+
+/** Routes 20 and 21: the band, with the Health ID for printing only (never kept, never in an address). */
+export interface WristbandPrint {
+  fullName: string | null
+  unknownLabel: string | null
+  sex: string | null
+  dateOfBirth: string | null
+  ageEstimated: boolean
+  healthId: string
+  admissionNumber: string
+  facilityName: string
+  wardName: string | null
+  allergyAlert: boolean
+  barcode: string
+  pairCode: string | null
+  printNumber: number
+  printedAt: string
+  replayed: boolean
+  motherName?: string | null
+  motherAdmissionNumber?: string | null
+  bornAt?: string | null
+}
+
+type Versioned = { readonly rowVersion: number }
+const wardPath = (wardId: string) => `/api/v1/ehr/wards/${encodeURIComponent(wardId)}`
+const bedPath = (bedId: string) => `/api/v1/ehr/beds/${encodeURIComponent(bedId)}`
+const admissionPath = (admissionId: string) => `/api/v1/ehr/admissions/${encodeURIComponent(admissionId)}`
+type WardPurpose = 'direct-care' | 'healthcare-operations'
+
+export const inpatientApi = {
+  /** Route 1: ward staff read it under direct care, an admin under healthcare operations (with the beds and staff). */
+  wards: (facilityId: string, options: { includeInactive?: boolean; includeBeds?: boolean; purpose?: WardPurpose } = {}) =>
+    client.get<{ items: Ward[] }>('/api/v1/ehr/wards', {
+      headers: facilityHeaders(facilityId, options.purpose ?? 'direct-care'), dedupe: false,
+      query: { ...(options.includeInactive ? { includeInactive: true } : {}), ...(options.includeBeds ? { includeBeds: true } : {}) } }),
+  createWard: (facilityId: string, input: { name: string; wardType: WardType; takes: WardTakes }, key: string) =>
+    client.post<WardWritten>('/api/v1/ehr/wards', input,
+      { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders(key) } }),
+  updateWard: (facilityId: string, ward: Pick<Ward, 'wardId' | 'rowVersion'>,
+    change: { name?: string; wardType?: WardType; takes?: WardTakes; active?: boolean }, key: string) =>
+    client.request<WardWritten>({ method: 'PATCH', path: wardPath(ward.wardId), body: { expectedRowVersion: ward.rowVersion, ...change },
+      headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders(key) } }),
+  createBed: (facilityId: string, wardId: string, input: { name: string; kind: BedKind }, key: string) =>
+    client.post<WardWritten>(`${wardPath(wardId)}/beds`, input,
+      { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders(key) } }),
+  updateBed: (facilityId: string, bed: Pick<WardBed, 'bedId' | 'rowVersion'>, change: { name?: string; active?: boolean }, key: string) =>
+    client.request<WardWritten>({ method: 'PATCH', path: bedPath(bed.bedId), body: { expectedRowVersion: bed.rowVersion, ...change },
+      headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders(key) } }),
+  setWardStaff: (facilityId: string, ward: Pick<Ward, 'wardId' | 'rowVersion'>, membershipIds: readonly string[], key: string) =>
+    client.request<WardWritten>({ method: 'PUT', path: `${wardPath(ward.wardId)}/staff`,
+      body: { expectedRowVersion: ward.rowVersion, membershipIds: [...membershipIds] },
+      headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders(key) } }),
+  /** Route 7: one ward's board, or every active ward of a type (wardType=icu for the ICU page). */
+  bedBoard: (facilityId: string, which: { wardId: string } | { wardType: WardType }) =>
+    client.get<BedBoard>('/api/v1/ehr/bed-board', { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false,
+      query: 'wardId' in which ? { wardId: which.wardId } : { wardType: which.wardType } }),
+  census: (facilityId: string, date?: string) =>
+    client.get<Census>('/api/v1/ehr/census', { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false,
+      ...(date ? { query: { date } } : {}) }),
+  setBedStatus: (facilityId: string, bed: Pick<WardBed, 'bedId' | 'rowVersion'>, status: Exclude<BedStatus, 'occupied'>,
+    note: string | undefined, key: string, purpose: WardPurpose = 'direct-care') =>
+    client.post<{ bed: WardBed; replayed: boolean }>(`${bedPath(bed.bedId)}/status`,
+      { expectedRowVersion: bed.rowVersion, status, ...(note ? { note } : {}) },
+      { headers: { ...facilityHeaders(facilityId, purpose), ...keyHeaders(key) } }),
+  requestAdmission: (facilityId: string, input: AdmissionRequestInput, key: string) =>
+    client.post<AdmissionWritten>('/api/v1/ehr/admissions', input,
+      { headers: { ...facilityHeaders(facilityId, 'direct-care'), ...keyHeaders(key) } }),
+  /** Route 11: open admissions and today's discharges by default; wardType=icu for the ICU page. */
+  admissions: (facilityId: string, filter: { status?: AdmissionStatus | 'open'; wardId?: string; wardType?: WardType } = {}) =>
+    client.get<AdmissionList>('/api/v1/ehr/admissions', { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false,
+      query: { ...(filter.status ? { status: filter.status } : {}), ...(filter.wardId ? { wardId: filter.wardId } : {}),
+        ...(filter.wardType ? { wardType: filter.wardType } : {}) } }),
+  admission: (facilityId: string, admissionId: string) =>
+    client.get<AdmissionRecord>(admissionPath(admissionId), { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false }),
+  admit: (facilityId: string, admission: Pick<AdmissionCard, 'admissionId'> & Versioned, bedId: string, confirmSexMismatch: boolean, key: string) =>
+    client.post<AdmissionWritten>(`${admissionPath(admission.admissionId)}/admit`,
+      { expectedRowVersion: admission.rowVersion, bedId, ...(confirmSexMismatch ? { confirmSexMismatch: true } : {}) },
+      { headers: { ...facilityHeaders(facilityId, 'direct-care'), ...keyHeaders(key) } }),
+  transfer: (facilityId: string, admission: Pick<AdmissionCard, 'admissionId'> & Versioned, bedId: string,
+    handover: string | undefined, confirmSexMismatch: boolean, key: string) =>
+    client.post<AdmissionWritten>(`${admissionPath(admission.admissionId)}/transfer`,
+      { expectedRowVersion: admission.rowVersion, bedId, ...(handover ? { handover } : {}),
+        ...(confirmSexMismatch ? { confirmSexMismatch: true } : {}) },
+      { headers: { ...facilityHeaders(facilityId, 'direct-care'), ...keyHeaders(key) } }),
+  handover: (facilityId: string, admissionId: string, movementId: string) =>
+    client.get<{ movementId: string; handover: string; at: string; byMembershipId: string | null }>(
+      `${admissionPath(admissionId)}/movements/${encodeURIComponent(movementId)}/handover`,
+      { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false }),
+  prepareDischarge: (facilityId: string, admission: Pick<AdmissionCard, 'admissionId'> & Versioned, input: PrepareDischargeInput, key: string) =>
+    client.post<AdmissionWritten>(`${admissionPath(admission.admissionId)}/prepare-discharge`,
+      { expectedRowVersion: admission.rowVersion, ...input },
+      { headers: { ...facilityHeaders(facilityId, 'direct-care'), ...keyHeaders(key) } }),
+  discharge: (facilityId: string, admission: Pick<AdmissionCard, 'admissionId'> & Versioned, input: DischargeInput, key: string) =>
+    client.post<AdmissionWritten>(`${admissionPath(admission.admissionId)}/discharge`,
+      { expectedRowVersion: admission.rowVersion, ...input },
+      { headers: { ...facilityHeaders(facilityId, 'direct-care'), ...keyHeaders(key) } }),
+  cancel: (facilityId: string, admission: Pick<AdmissionCard, 'admissionId'> & Versioned, reason: string, key: string) =>
+    client.post<AdmissionWritten>(`${admissionPath(admission.admissionId)}/cancel`,
+      { expectedRowVersion: admission.rowVersion, reason },
+      { headers: { ...facilityHeaders(facilityId, 'direct-care'), ...keyHeaders(key) } }),
+  update: (facilityId: string, admission: Pick<AdmissionCard, 'admissionId'> & Versioned, change: AdmissionChange, key: string) =>
+    client.request<AdmissionWritten>({ method: 'PATCH', path: admissionPath(admission.admissionId),
+      body: { expectedRowVersion: admission.rowVersion, ...change },
+      headers: { ...facilityHeaders(facilityId, 'direct-care'), ...keyHeaders(key) } }),
+  dischargeSummary: (facilityId: string, admissionId: string) =>
+    client.get<DischargeSummaryPrint>(`${admissionPath(admissionId)}/discharge-summary`,
+      { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false }),
+  /** Route 20 (route 21 for a newborn's band). The answer's Health ID is printed and let go: never stored or put in an address. */
+  wristband: (facilityId: string, admissionId: string, reprintReason: ReprintReason | undefined, key: string, newborn = false) =>
+    client.post<WristbandPrint>(`${admissionPath(admissionId)}/${newborn ? 'newborn-band' : 'wristband'}`,
+      reprintReason ? { reprintReason } : {},
+      { headers: { ...facilityHeaders(facilityId, 'direct-care'), ...keyHeaders(key) } }),
+}
