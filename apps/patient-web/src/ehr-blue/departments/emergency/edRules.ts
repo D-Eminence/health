@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import { isHidApiError } from '@hid/http'
+import { formatDateTime, formatTime, lagosDay } from '@hid/ui/display'
 import type { EhrBadgeTone } from '@hid/ui/ehr'
 import type {
   EdArrivalMode, EdCard, EdColumn, EdHistoryEvent, EdOutcome, UnknownPatientReason, VisitQueueStage,
@@ -182,23 +183,14 @@ export function memberText(membershipId: string | null | undefined, own: string 
   return names.get(membershipId.toLowerCase()) ?? 'A staff member here'
 }
 
-const LAGOS_TIME = new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Lagos', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
-const LAGOS_DATE_TIME = new Intl.DateTimeFormat('en-GB', {
-  timeZone: 'Africa/Lagos', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
-})
-
-/** "09:05": the Lagos time of day of an ISO moment; '' when it is not one. */
+/** "09:05": the Lagos time of day of an ISO moment (@hid/ui/display, P2-4); '' when it is not one. */
 export function lagosTime(iso: string | null | undefined): string {
-  if (!iso) return ''
-  const time = new Date(iso)
-  return Number.isNaN(time.getTime()) ? '' : LAGOS_TIME.format(time)
+  return formatTime(iso)
 }
 
-/** "3 Dec, 09:05": the Lagos day and time, for the history. */
+/** "3 Dec 2026, 09:05": the Lagos day and time, for the history (@hid/ui/display, P2-4). */
 export function lagosDateTime(iso: string | null | undefined): string {
-  if (!iso) return ''
-  const time = new Date(iso)
-  return Number.isNaN(time.getTime()) ? '' : LAGOS_DATE_TIME.format(time)
+  return formatDateTime(iso)
 }
 
 /** The time in the department: "42 min", "2 h 5 min". No colours: the clinical lead has named no target. */
@@ -213,15 +205,12 @@ export function minutesText(minutes: number): string {
 
 /** The Lagos wall-clock time (HH:MM) of now, and the ISO moment for a HH:MM typed today in Lagos (UTC+1, no summer time). */
 export function lagosNowTime(now = new Date()): string {
-  return LAGOS_TIME.format(now)
+  return formatTime(now)
 }
-const LAGOS_DAY = new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Lagos', year: 'numeric', month: '2-digit', day: '2-digit' })
 export function arrivalMoment(time: string, now = new Date()): string | null {
   const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(time)
   if (!match) return null
-  const parts = LAGOS_DAY.formatToParts(now)
-  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find(item => item.type === type)?.value ?? ''
-  let moment = new Date(`${part('year')}-${part('month')}-${part('day')}T${match[1]}:${match[2]}:00.000+01:00`)
+  let moment = new Date(`${lagosDay(now)}T${match[1]}:${match[2]}:00.000+01:00`)
   // A time later than now (by more than the server's two minutes) was yesterday evening: an arrival before midnight.
   if (moment.getTime() - now.getTime() > 2 * 60_000) moment = new Date(moment.getTime() - 24 * 60 * 60_000)
   return moment.toISOString()
