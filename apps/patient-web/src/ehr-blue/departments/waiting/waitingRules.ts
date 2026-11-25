@@ -80,23 +80,16 @@ export const NEXT_STEP: Readonly<Partial<Record<VisitQueueStage, { readonly stag
   with_clinician: { stage: 'finished', label: 'Finished' },
 }
 
-export const TRIAGE_LEVELS = [1, 2, 3, 4, 5] as const
+// The five triage levels are shared with the emergency department board and Triage & Vitals (one module).
+export { TRIAGE_LEVELS, triageText, triageTone } from '../parts/triageLevels'
 
-const TRIAGE_WORDS: Readonly<Record<number, string>> = {
-  1: 'Level 1: most urgent',
-  2: 'Level 2: very urgent',
-  3: 'Level 3: urgent',
-  4: 'Level 4: less urgent',
-  5: 'Level 5: not urgent',
-}
-
-export function triageText(level: number | null): string {
-  return level !== null && Object.hasOwn(TRIAGE_WORDS, level) ? TRIAGE_WORDS[level]! : 'No triage level yet'
-}
-
-export function triageTone(level: number | null): EhrBadgeTone {
-  if (level === null) return 'neutral'
-  return level <= 2 ? 'critical' : level === 3 ? 'caution' : 'neutral'
+/**
+ * A row that is also on the emergency department board (hid-system ED-1, `edAttendanceId`): it says so, and links to the
+ * patient's record on the board, by the ED record's id only.
+ */
+export const EMERGENCY_DEPARTMENT = 'Emergency department'
+export function emergencyRecordHref(attendanceId: string): string {
+  return `/provider/emergency-department/${encodeURIComponent(attendanceId)}`
 }
 
 /** Who will see the patient: the session's own membership is "You"; another member's id is never shown. */

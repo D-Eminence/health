@@ -1,0 +1,133 @@
+/*
+ * The emergency department board (departments/emergency): the few looks departments.css and waiting.css do not have.
+ * The three columns sit side by side on a wide screen and one under the other on a phone, so nothing scrolls sideways;
+ * a level 1 or 2 card carries the critical tone on its left edge, as its badge does (no timer colours). Every rule sits
+ * under .hid-ehr and names hid-ehr-dept-emergency-* classes; values come from the --ehr-* tokens.
+ */
+
+.hid-ehr .hid-ehr-dept-emergency-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin: 0;
+}
+
+.hid-ehr .hid-ehr-dept-emergency-counts > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.hid-ehr .hid-ehr-dept-emergency-counts dt {
+  color: var(--ehr-muted);
+  font-size: 13px;
+}
+
+.hid-ehr .hid-ehr-dept-emergency-counts dd {
+  margin: 0;
+  color: var(--ehr-ink);
+  font-size: 20px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.hid-ehr .hid-ehr-dept-emergency-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+@media (min-width: 1100px) {
+  .hid-ehr .hid-ehr-dept-emergency-columns {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.hid-ehr .hid-ehr-dept-emergency-column {
+  min-width: 0;
+}
+
+.hid-ehr .hid-ehr-dept-emergency-urgent {
+  border-left: 4px solid var(--ehr-critical, currentColor);
+}
+
+.hid-ehr .hid-ehr-dept-emergency-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.hid-ehr .hid-ehr-dept-emergency-history {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+.hid-ehr .hid-ehr-dept-emergency-history > li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--ehr-line);
+}
+
+.hid-ehr .hid-ehr-dept-emergency-history-when,
+.hid-ehr .hid-ehr-dept-emergency-history-who,
+.hid-ehr .hid-ehr-dept-emergency-history-reason {
+  color: var(--ehr-muted);
+}
+
+.hid-ehr .hid-ehr-dept-emergency-history-reason {
+  flex-basis: 100%;
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-dept-emergency-outcomes {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.hid-ehr .hid-ehr-dept-emergency-outcomes > legend {
+  margin-bottom: 4px;
+  color: var(--ehr-ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-dept-emergency-outcome,
+.hid-ehr .hid-ehr-dept-emergency-choice > label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 14px;
+}
+
+.hid-ehr .hid-ehr-dept-emergency-outcome > span {
+  display: grid;
+  gap: 2px;
+}
+
+.hid-ehr .hid-ehr-dept-emergency-choice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+}
+
+.hid-ehr .hid-ehr-dept-emergency-wristband-line {
+  margin: 0;
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+
+@media print {
+  .hid-ehr .hid-ehr-dept-emergency-wristband {
+    break-inside: avoid;
+  }
+}

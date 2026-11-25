@@ -99,6 +99,20 @@ export const PAGE_GUIDES: Readonly<Record<string, PageGuide>> = {
     purpose: 'Nursing observations for the open patient.',
     steps: ['Open the patient first (Find a patient).', 'Select Create record to add an observation, or open one from the list to read it.'],
   },
+  'emergency-department': {
+    purpose: 'Add the patient, set the triage level, start care, record where they go next.',
+    steps: [
+      'Select New arrival. Find the patient by search, or choose Unknown patient for someone who cannot say who they are, then say how they came.',
+      'Nurses, clinicians and doctors set the triage level (Level 1 is the most urgent) and a short complaint, on arrival or with Triage on the patient’s record.',
+      'Select Start care when you see the patient. Open their chart on Patients to write the assessment in Consultation, and link today’s emergency visit.',
+      'Clinicians and doctors select Record where they go next. Then select Left the department, or Handed over to the ward for an admission.',
+    ],
+    tips: [
+      'Do not show this board on a screen patients or visitors can see.',
+      'The board uses the waiting list’s five triage levels: a change on one shows on the other.',
+      'An unknown patient gets a Health ID for the wristband, shown once. Print it or write it down straight away.',
+    ],
+  },
   emergency: {
     purpose: 'Open a patient’s emergency summary when they can’t consent and care can’t wait.',
     steps: [

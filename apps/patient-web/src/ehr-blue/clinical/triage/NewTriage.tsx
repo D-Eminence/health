@@ -1,16 +1,15 @@
-import { EhrCard, EhrField, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
-import { useRef, useState } from 'react'
+import { EhrCard } from '@hid/ui/ehr'
+import { useRef } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { staffApi, type Encounter, type VitalMeasurements } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
-import { isDemoFacility } from '../../blueFacilities'
 import { ChartGate, useChart, type Chart } from '../parts/chart'
 import { formatWhen, statusWords } from '../parts/format'
 import { KeyValueList } from '../parts/KeyValueList'
 import { ErrorBox, Loading, RecordHeading } from '../parts/Notices'
 import type { SubmitOutcome } from '../parts/RecordForm'
-import { SampleBanner } from '../parts/SampleBanner'
 import { useWorkspaceHref } from '../parts/Workspace'
+import { TRIAGE_LEVELS, triageText } from '../../departments/parts/triageLevels'
 import { AllergyLines, useAllergies } from '../patients/AllergiesCard'
 import { VisitPages } from './ListCard'
 import {
@@ -34,7 +33,6 @@ export function NewTriage() {
 }
 
 const MEASUREMENT_NAMES = new Set<string>(VITAL_FIELDS.map(field => field.name))
-const PRIORITIES = ['Routine', 'Urgent', 'Emergency'] as const
 
 function NewTriageForm({ chart }: { chart: Chart }) {
   const href = useWorkspaceHref()
@@ -102,8 +100,7 @@ function NewTriageForm({ chart }: { chart: Chart }) {
         {canCreate ? (
           list.encounters === null ? (list.loading ? <Loading label="Loading encounters…" /> : null) : (
             <VitalsForm mode="record" visits={visits} initialVisit={preset} visitHint={visitHint} groupLabel="Vital measurements" submitLabel="Save record" onSubmit={submit}>
-              {/* Sample fields inside a live form: only at the demo facilities, where nothing real is recorded. */}
-              {isDemoFacility(chart.facilityId) ? <SampleTriage /> : null}
+              <TriageLevelNote />
             </VitalsForm>
           )
         ) : null}
@@ -113,26 +110,18 @@ function NewTriageForm({ chart }: { chart: Chart }) {
 }
 
 /**
- * The design's priority and observations, which today's vitals have no field for: a clearly marked sample, held in
- * this page only and never sent. Shown only at the four demo facilities, so at a real facility no one can type in a
- * field that is not saved.
+ * The triage level, in place of the design's sample priority (Routine, Urgent, Emergency), which is gone: the live
+ * five-level scale (hid-system 0135, the same words as the waiting list and the emergency department board) is set on the
+ * patient's place on the Emergency department board or the Waiting list, not with the vitals. Nothing here is sent.
  */
-function SampleTriage() {
-  const [priority, setPriority] = useState<string>('Routine')
-  const [observations, setObservations] = useState('')
+function TriageLevelNote() {
   return (
-    <div className="hid-ehr-clinical-triage-sample" role="group" aria-label="Priority and observations (sample)">
-      <SampleBanner />
-      <div className="hid-ehr-clinical-form-grid">
-        <EhrField label="Priority">
-          <EhrSelect value={priority} onChange={event => setPriority(event.target.value)}>
-            {PRIORITIES.map(option => <option key={option} value={option}>{option}</option>)}
-          </EhrSelect>
-        </EhrField>
-        <EhrField className="hid-ehr-clinical-form-full" label="Observations">
-          <EhrTextarea rows={3} maxLength={4000} value={observations} onChange={event => setObservations(event.target.value)} />
-        </EhrField>
-      </div>
+    <div className="hid-ehr-clinical-triage-sample" role="group" aria-label="Triage level">
+      <p>
+        Set the triage level ({triageText(TRIAGE_LEVELS[0])} to {triageText(TRIAGE_LEVELS[4])}) on the patient’s place
+        on the <Link className="hid-ehr-clinical-link" to="/provider/emergency-department">Emergency department</Link> board
+        or the <Link className="hid-ehr-clinical-link" to="/provider/waiting-list">Waiting list</Link>.
+      </p>
     </div>
   )
 }

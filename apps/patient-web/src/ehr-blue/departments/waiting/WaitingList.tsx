@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { Link } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { EhrBadge, EhrButton, EhrEmptyState, EhrField, EhrInput, EhrSelect } from '@hid/ui/ehr'
 import {
@@ -19,7 +20,7 @@ import {
   UNAVAILABLE_MESSAGE, UNAVAILABLE_TITLE, UPDATE_INVALID,
   VISIT_QUEUE_REFUSALS, assigneeText, bornText, canSearchPatients, canSeePatients, canUseWaitingList, checkedInText,
   checkInWhen, closedCutText, closedTitle, cutShort, fromEarlierDay, healthIdEnding, isOpen, lagosToday, searchKeys, sexText,
-  stageText, stageTone, timeText, triageText, triageTone, type SearchValues,
+  stageText, stageTone, timeText, triageText, triageTone, type SearchValues, EMERGENCY_DEPARTMENT, emergencyRecordHref,
 } from './waitingRules'
 import './waiting.css'
 
@@ -243,7 +244,11 @@ function WaitingCard({ card, facilityId, membershipId, canSee, today, onChanged 
           <EhrBadge tone={triageTone(card.triageLevel)}>{triageText(card.triageLevel)}</EhrBadge>
           {card.chartBlocked ? <EhrBadge tone="critical">Chart cannot be opened</EhrBadge> : null}
           {fromEarlierDay(card, today) ? <EhrBadge tone="caution">{EARLIER_DAY}</EhrBadge> : null}
+          {card.edAttendanceId ? <EhrBadge tone="critical">{EMERGENCY_DEPARTMENT}</EhrBadge> : null}
         </div>
+        {card.edAttendanceId ? (
+          <Link className="hid-ehr-dept-link" to={emergencyRecordHref(card.edAttendanceId)}>Open on the emergency board</Link>
+        ) : null}
         <dl className="hid-ehr-dept-waiting-facts">
           <div><dt>Checked in</dt><dd>{checkInWhen(card, today)}</dd></div>
           <div><dt>Seen by</dt><dd>{assigneeText(card, membershipId)}</dd></div>

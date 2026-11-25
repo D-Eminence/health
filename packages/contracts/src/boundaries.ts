@@ -187,6 +187,8 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'identity.facilityAudit',
       // Staff patient search and emergency search, and opening this facility's own patient (Release A, 0131 and 0132).
       'identity.patientSearch', 'identity.patientEmergencySearch', 'identity.ownFacilityAccess',
+      // An unknown patient's record, made from the emergency board's New arrival (hid-system ID-7, 0145).
+      'identity.unknownPatients',
       'identity.registrationCapabilities', 'identity.resolveNin', 'identity.registrationCase',
       'identity.registrationApprove', 'identity.registrationEnroll', 'identity.registrationLink',
       // hid-system 0130: registration at the desk without a NIN.
@@ -235,7 +237,11 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'ehr.consultations',
       // The waiting list: check-in by a search's matchRef, the list, and each row's stage, triage level and who will see
       // the patient (hid-system 0135, EHR-C7, Release A; a backend before it answers 404).
-      'ehr.visitQueue', 'ehr.visitQueueCheckIn', 'ehr.visitQueueEntry'],
+      'ehr.visitQueue', 'ehr.visitQueueCheckIn', 'ehr.visitQueueEntry',
+      // The emergency department board: the board, an arrival, one record and its triage, move, visit link, disposition,
+      // leave and cancel (hid-system ED-1, 0168; 404 before it, 503 while ED_BOARD_ENABLED is off).
+      'ehr.edBoard', 'ehr.edAttendances', 'ehr.edAttendance', 'ehr.edAttendanceTriage', 'ehr.edAttendanceMove',
+      'ehr.edAttendanceVisit', 'ehr.edAttendanceDisposition', 'ehr.edAttendanceLeave', 'ehr.edAttendanceCancel'],
     // Facility billing (docs/BILLING_SPEC.md; proposed routes) and the price catalogue it shows. Not demo requests.
     commercial: ['commercial.pricing', 'commercial.subscription', 'commercial.subscriptionTrial',
       'commercial.subscriptionCheckout', 'commercial.invoices',

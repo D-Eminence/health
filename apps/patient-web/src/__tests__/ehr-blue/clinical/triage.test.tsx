@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { HidApiError } from '@hid/http'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
@@ -110,7 +110,7 @@ function described(element: Element) {
 }
 
 describe('Triage & Vitals list', () => {
-  it('is partial: vitals are live; the design’s priority and observations are a sample', () => {
+  it('is partial: vitals are live; the triage level is set on the board or the waiting list', () => {
     expect(triageStatus).toBe('partial')
   })
 
@@ -407,20 +407,20 @@ describe('New triage & vitals', () => {
     expect(within(form).queryByText('Sample only: not connected to Health ID yet. Nothing you do here is saved.')).toBeNull()
   })
 
-  it('keeps the sample priority and observations in the page at a demo facility: marked, and never sent', async () => {
-    staff.facilityId = DEMO_HOSPITAL_ID
-    // The page lists only this facility's visits.
-    api.encounters.mockResolvedValue({ items: [{ ...ENCOUNTER, facilityId: DEMO_HOSPITAL_ID }], nextCursor: null })
-    const form = await openNew()
-    const sample = within(form).getByRole('group', { name: 'Priority and observations (sample)' })
-    expect(within(sample).getByText('Sample only: not connected to Health ID yet. Nothing you do here is saved.')).toBeTruthy()
-    fireEvent.change(within(sample).getByLabelText('Priority'), { target: { value: 'Urgent' } })
-    type(sample, 'Observations', 'Looks unwell')
-    fireEvent.change(input(form, 'Visit'), { target: { value: ENCOUNTER_ID } })
-    type(form, 'Pulse (bpm)', '90')
-    fireEvent.submit(form)
-    await waitFor(() => expect(api.createRecord).toHaveBeenCalled())
-    expect(JSON.stringify(api.createRecord.mock.calls[0])).not.toMatch(/Urgent|Looks unwell/)
+  it('replaces the sample priority with the live five triage levels, set on the board or the waiting list (ED-1), at every facility', async () => {
+    for (const facilityId of [FACILITY_ID, DEMO_HOSPITAL_ID]) {
+      staff.facilityId = facilityId
+      api.encounters.mockResolvedValue({ items: [{ ...ENCOUNTER, facilityId }], nextCursor: null })
+      const form = await openNew()
+      const note = within(form).getByRole('group', { name: 'Triage level' })
+      expect(note.textContent).toContain('Level 1: most urgent to Level 5: not urgent')
+      expect(within(note).getByRole('link', { name: 'Emergency department' }).getAttribute('href')).toBe('/provider/emergency-department')
+      expect(within(note).getByRole('link', { name: 'Waiting list' }).getAttribute('href')).toBe('/provider/waiting-list')
+      // The design's sample priority (Routine, Urgent, Emergency) is gone: nothing to type that is not saved.
+      expect(within(form).queryByRole('group', { name: 'Priority and observations (sample)' })).toBeNull()
+      expect(within(form).queryByText(/Routine/)).toBeNull()
+      cleanup()
+    }
   })
 
   it('refuses as today: a visit, at least one measurement, both blood pressure readings, and the ranges', async () => {

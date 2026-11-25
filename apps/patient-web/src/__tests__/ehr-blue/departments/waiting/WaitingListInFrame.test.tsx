@@ -370,4 +370,23 @@ describe('Waiting list in the frame', () => {
     expect(within(now).queryByText('Checked in on an earlier day')).toBeNull()
     expect(within(now).getByText(/^\d\d:\d\d$/)).toBeDefined()
   })
+
+  it('marks a row that is on the emergency board and links to its record there by the ED record’s id only (ED-1)', async () => {
+    const nurse = facility(REAL_FACILITY, 'Fictional Clinic', NURSE, ['nurse'])
+    serve({
+      [SESSION]: [sessionAt(nurse, [nurse])],
+      [LIST]: [listOf(card({ triageLevel: 1, edAttendanceId: 'e0000000-0000-4000-8000-0000000000e1' }),
+        card({ entryId: 'a0000000-0000-4000-8000-0000000000e2', fullName: 'Other Queueperson', edAttendanceId: null }))],
+    })
+    await openStaffApp('/provider/waiting-list')
+    const board = await screen.findByRole('listitem', { name: 'Testa Queueperson' })
+    expect(within(board).getByText('Emergency department')).toBeDefined()
+    expect(within(board).getByText('Level 1: most urgent')).toBeDefined()
+    expect(within(board).getByRole('link', { name: 'Open on the emergency board' }).getAttribute('href'))
+      .toBe('/provider/emergency-department/e0000000-0000-4000-8000-0000000000e1')
+    const other = screen.getByRole('listitem', { name: 'Other Queueperson' })
+    expect(within(other).queryByText('Emergency department')).toBeNull()
+    expect(within(other).queryByRole('link', { name: 'Open on the emergency board' })).toBeNull()
+  })
+
 })
