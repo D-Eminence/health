@@ -172,18 +172,15 @@ function ageOf(dateOfBirth: string | undefined): string {
  * (Open chart), the next steps, and this facility's visits.
  */
 export function PatientPage() {
-  const { activePatient } = useClinical()
-  // Closing the grant here keeps the page, as today's Close my grant keeps Patients (Patients.tsx:239-248): it says
-  // so, and focus goes to what it says, as the button that had it is gone.
-  const [closed, setClosed] = useState(0)
-  const said = useRef<HTMLDivElement>(null)
-  useLayoutEffect(() => { if (closed) said.current?.focus() }, [closed])
+  const href = useWorkspaceHref()
+  const navigate = useNavigate()
+  // Closing the grant here goes back to Find a patient, as today's Close my grant leaves Patients with no record open
+  // (Patients.tsx:239-248): it says "Access was closed." there, and focus goes to its heading (parity 23b). Replaced in
+  // history, so Back does not return to a page with no patient. Nothing of the patient goes with it.
+  const closed = () => navigate(href(), { replace: true, state: { notice: ACCESS_CLOSED } })
   return (
     <div className="flex flex-col gap-5">
-      <div ref={said} tabIndex={-1} role="status" className="outline-none empty:hidden">
-        {closed && !activePatient ? <Alert intent="success" live={false}>{ACCESS_CLOSED}</Alert> : null}
-      </div>
-      <ChartGate allowEmergency>{current => <PatientRecord chart={current} onClosed={() => setClosed(value => value + 1)} />}</ChartGate>
+      <ChartGate allowEmergency>{current => <PatientRecord chart={current} onClosed={closed} />}</ChartGate>
     </div>
   )
 }
@@ -210,7 +207,7 @@ function PatientRecord({ chart, onClosed }: { chart: Chart; onClosed: () => void
   const about = [ageOf(facts.dateOfBirth), sexText(facts.sex), facts.dateOfBirth ? `born ${formatDate(facts.dateOfBirth)}` : ''].filter(Boolean).join(' · ')
   const reported = useReportedHealth(chart)
 
-  /** Today's closeGrant (Patients.tsx:239-248), its words and its refusals: the page stays and says so. */
+  /** Today's closeGrant (Patients.tsx:239-248), its words and its refusals: closed, Find a patient says so (parity 23b). */
   async function closeGrant() {
     if (!grantId || closeUnavailable || ending) return
     setEnding(true)
