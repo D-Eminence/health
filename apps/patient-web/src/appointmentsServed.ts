@@ -4,8 +4,10 @@ import { useSyncExternalStore } from 'react'
  * Whether the backend serves "My appointments" (hid-system APPT-1 route 12, 0161), as the portal has learned it from the
  * backend's own answers (as shareServed.ts does): GET ehr/me/appointments answering says served; its 404 (an ehr-api
  * before 0161) or 503 APPOINTMENTS_NOT_AVAILABLE (switched off until the owner's go-live) says not served, only while
- * nothing has said otherwise. In memory for the page's life. `null` until an answer has said either; the menu then
- * lists "Appointments", and stops listing it once an answer says it is not served.
+ * nothing has said otherwise. In memory for the page's life. `null` until an answer has said either, and treated as
+ * not served: the menu lists "Appointments" only once an answer says it is served (the menu asks itself,
+ * useMyAppointmentsProbe), so no patient is offered a page that can only say "not available yet". A notice about an
+ * appointment still opens the page.
  */
 type Served = boolean | null
 

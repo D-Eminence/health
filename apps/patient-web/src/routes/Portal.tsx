@@ -56,7 +56,7 @@ import { HealthInformationCard } from './HealthInformation'
 import { ShareInvitationsCard } from './ShareInvitations'
 import { useShareProbe } from './ShareRecords'
 import { useShareServed } from '../shareServed'
-import { useMyAppointmentsServed } from '../appointmentsServed'
+import { useMyAppointmentsProbe } from './MyAppointments'
 import { shareDurationLabel, shareLevelLabel } from '../shareRecords'
 import { accessLevelLabel, countryLabel, fileSizeLabel, fileTypeLabel, genderLabel, labPriorityLabel, labRequestStatusLabel, medicineStatusLabel, patientAccessStatusLabel, plainCode,
   visitClassLabel, visitStatusLabel } from '../plainLabels'
@@ -140,8 +140,8 @@ function PatientChrome({ api, signingOut, onSignOut, children }: { api: ReturnTy
   const photo = usePatientPhoto(shown?.hasPhoto === true)
   useOnProfileChange(() => { void profile.reload().then(() => photo.reload()) })
   const share = useShareServed()
-  const appointmentsServed = useMyAppointmentsServed()
-  const appointments = usesNovuBackend() && appointmentsServed !== false
+  // "Appointments" only once an answer says they are served (appointmentsServed.ts), as "Add a record" below.
+  const appointments = useMyAppointmentsProbe(usesNovuBackend()) === true
   const shareTo = share === true ? '/access/share' : '/access'
   // "Add a record" only once the backend serves the records a patient adds (patientEntriesServed.ts): today's refuses the Save.
   const adds = usePatientEntriesServed() === true
@@ -155,7 +155,7 @@ function PatientChrome({ api, signingOut, onSignOut, children }: { api: ReturnTy
       ...(patientChatEnabled() ? [{ to: '/chat', label: 'Ask about your records', icon: MessageSquareText }] : []),
       { to: '/records', label: 'Records', icon: FolderHeart },
       { to: '/access', label: 'Access & sharing', icon: ShieldCheck },
-      // "My appointments" (hid-system APPT-1, Novu only), until an answer says appointments are not served or are off.
+      // "My appointments" (hid-system APPT-1, Novu only), once an answer says appointments are served and switched on.
       ...(appointments ? [{ to: '/appointments', label: 'Appointments', icon: CalendarDays }] : []),
     ] },
     { title: 'Account', items: [{ to: '/profile', label: 'Profile', icon: UserRound }] },

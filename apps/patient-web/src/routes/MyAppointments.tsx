@@ -6,7 +6,7 @@ import { Badge, Button, Card, EmptyState, PageHeader, type Tone } from '../kasuw
 import { LoadingRows } from '../kasuwa/parts'
 import type { MyAppointment } from '../api'
 import { useSession } from '../session'
-import { learnMyAppointmentsServed } from '../appointmentsServed'
+import { learnMyAppointmentsServed, useMyAppointmentsServed } from '../appointmentsServed'
 import { LoadProblem } from './profileParts'
 
 /**
@@ -46,6 +46,26 @@ const VISIT: Readonly<Record<string, string>> = {
 function notServed(caught: unknown): boolean {
   return isHidApiError(caught) && ((caught.status === 503 && caught.code === 'APPOINTMENTS_NOT_AVAILABLE')
     || (caught.status === 404 && !caught.code.startsWith('APPOINTMENT_')))
+}
+
+/**
+ * Whether "My appointments" is served, asked once per page load (for one upcoming appointment, as the page reads them) while
+ * nothing has said either: on a Novu build only (`asks`; hid-system main has no such route). Until an answer says it
+ * is served, the menu does not list it: today's backend answers 404, and one with appointments switched off 503. A
+ * failed read (no connection) says nothing, and it is asked again the next time the portal opens.
+ */
+export function useMyAppointmentsProbe(asks: boolean): boolean | null {
+  const { api } = useSession()
+  const served = useMyAppointmentsServed()
+  useEffect(() => {
+    if (!asks || served !== null) return
+    const controller = new AbortController()
+    api.myAppointments('upcoming', null, controller.signal, 1).then(() => learnMyAppointmentsServed(true), (caught: unknown) => {
+      if (!controller.signal.aborted && notServed(caught)) learnMyAppointmentsServed(false)
+    })
+    return () => controller.abort()
+  }, [api, asks, served])
+  return served
 }
 
 export function MyAppointments() {

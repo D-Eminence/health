@@ -1013,10 +1013,11 @@ export function createPatientApi(sender: ApiClient) {
     stopOrderRoute: (route: Pick<PatientOrderRoute, 'id' | 'version'>) => call<{ route: PatientOrderRoute }>('POST',
       `ehr/me/order-routes/${encodeURIComponent(route.id)}/withdraw`, { expectedVersion: route.version }),
     // "My appointments" (hid-system APPT-1, 0161; read only): the patient's own appointments at every facility. Before it
-    // ehr-api answers 404, and while it is switched off 503 APPOINTMENTS_NOT_AVAILABLE: the page then says so.
-    myAppointments: (when: 'upcoming' | 'past', cursor?: string | null, signal?: AbortSignal) =>
+    // ehr-api answers 404, and while it is switched off 503 APPOINTMENTS_NOT_AVAILABLE: the page then says so. The menu
+    // asks for one (`limit` 1) to learn whether it is served (useMyAppointmentsProbe).
+    myAppointments: (when: 'upcoming' | 'past', cursor?: string | null, signal?: AbortSignal, limit = MY_APPOINTMENTS_PAGE) =>
       call<MyAppointmentList>('GET', 'ehr/me/appointments', undefined,
-        { signal, query: { when, limit: String(MY_APPOINTMENTS_PAGE), ...(cursor ? { cursor } : {}) } }),
+        { signal, query: { when, limit: String(limit), ...(cursor ? { cursor } : {}) } }),
     markNotificationRead: (id: string) => call<{ id: string; readAt: string }>('POST', `identity/me/notifications/${encodeURIComponent(id)}/read`),
     /**
      * The bell's count (hid-system 0093; an Identity before it answers 404): unread inbox items and unread imported
