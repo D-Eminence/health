@@ -1,3 +1,4 @@
+import { formatDateTime, formatWeekday } from '@hid/ui/display'
 import type { PatientNotification } from '../api'
 
 /**
@@ -68,15 +69,11 @@ const APPOINTMENT_TITLES: Readonly<Record<string, (facility: string, when: strin
   APPOINTMENT_REMINDER: (facility, when) => `Reminder: you have an appointment at ${facility}${when ? ` on ${when}` : ''}`,
 }
 
-const APPOINTMENT_START = new Intl.DateTimeFormat('en-GB', {
-  weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'Africa/Lagos',
-})
-
-/** "Thu 3 Dec, 09:00": an appointment's start in Lagos; null when the notice carries none. */
+/** "Thursday 3 Dec 2026, 09:00": an appointment's start in Lagos (@hid/ui/display); null when the notice carries none. */
 function appointmentStart(value: unknown): string | null {
   if (typeof value !== 'string' || value.length > 40) return null
-  const start = new Date(value)
-  return Number.isNaN(start.getTime()) ? null : APPOINTMENT_START.format(start)
+  const start = formatDateTime(value)
+  return start ? `${formatWeekday(value)} ${start}` : null
 }
 
 /** A name from a notice's metadata, or the words that stand for it: never anything but a short plain string. */

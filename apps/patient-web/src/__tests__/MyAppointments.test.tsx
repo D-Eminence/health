@@ -36,7 +36,7 @@ describe('My appointments', () => {
     const upcoming = await screen.findByRole('list', { name: 'Upcoming appointments' })
     const row = within(upcoming).getByRole('listitem')
     // 08:00 UTC is 09:00 in Lagos (and midnight in Los Angeles).
-    expect(row.textContent).toMatch(/3 December 2026, 09:00 to 09:30/)
+    expect(row.textContent).toMatch(/Thursday 3 Dec 2026, 09:00 to 09:30/)
     expect(row.textContent).toContain('Medical outpatients, Fictional General Hospital')
     expect(row.textContent).toContain('Follow-up · with Dr Fiction Adeyemi · 30 minutes')
     expect(within(row).getByText('Booked')).toBeDefined()
@@ -47,7 +47,7 @@ describe('My appointments', () => {
     await press(screen.getByRole('button', { name: 'Past' }))
     const past = await screen.findByRole('list', { name: 'Past appointments' })
     expect(within(past).getByText('Missed')).toBeDefined()
-    expect(within(past).getByRole('listitem').textContent).toMatch(/2 November 2026, 14:00 to 14:20/)
+    expect(within(past).getByRole('listitem').textContent).toMatch(/2 Nov 2026, 14:00 to 14:20/)
     expect(sent.filter(request => request.path === MINE).map(request => request.method)).toEqual(['GET', 'GET'])
   })
 
@@ -74,7 +74,7 @@ describe('My appointments', () => {
   })
 
   it('says each time in Lagos', () => {
-    expect(appointmentWhen({ startsAt: '2026-12-02T23:30:00.000Z', endsAt: '2026-12-03T00:00:00.000Z' })).toMatch(/3 December 2026, 00:30 to 01:00$/)
+    expect(appointmentWhen({ startsAt: '2026-12-02T23:30:00.000Z', endsAt: '2026-12-03T00:00:00.000Z' })).toMatch(/^Thursday 3 Dec 2026, 00:30 to 01:00$/)
     expect(appointmentWhen({ startsAt: 'not a time', endsAt: '' })).toBe('Time not known')
   })
 })
@@ -87,7 +87,7 @@ describe('appointment notices in the inbox', () => {
 
   it('names the facility and the Lagos time, never the clinic or reason, and opens My appointments', () => {
     const metadata = { facilityName: 'Fictional General Hospital', startsAt: '2026-12-03T08:00:00.000Z' }
-    expect(notificationTitle(notice('APPOINTMENT_BOOKED', metadata))).toMatch(/^Fictional General Hospital booked an appointment for you on Thu,? 3 Dec,? 09:00$/)
+    expect(notificationTitle(notice('APPOINTMENT_BOOKED', metadata))).toMatch(/^Fictional General Hospital booked an appointment for you on Thursday 3 Dec 2026, 09:00$/)
     expect(notificationTitle(notice('APPOINTMENT_RESCHEDULED', metadata))).toMatch(/^Fictional General Hospital moved your appointment to Thu/)
     expect(notificationTitle(notice('APPOINTMENT_CANCELLED', metadata))).toMatch(/^Fictional General Hospital cancelled your appointment on/)
     expect(notificationTitle(notice('APPOINTMENT_REMINDER', metadata))).toMatch(/^Reminder: you have an appointment at Fictional General Hospital on/)

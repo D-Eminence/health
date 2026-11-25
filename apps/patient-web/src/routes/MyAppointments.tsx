@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { CalendarDays } from 'lucide-react'
 import { isHidApiError, plainErrorText } from '@hid/http'
+import { formatDateTime, formatTime, formatWeekday } from '@hid/ui/display'
 import { Badge, Button, Card, EmptyState, PageHeader, type Tone } from '../kasuwa/ui'
 import { LoadingRows } from '../kasuwa/parts'
 import type { MyAppointment } from '../api'
@@ -18,15 +19,12 @@ import { LoadProblem } from './profileParts'
 
 type When = 'upcoming' | 'past'
 
-const DAY = new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Africa/Lagos' })
-const TIME = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'Africa/Lagos' })
-
-/** "Thursday 3 December 2026, 09:00 to 09:30", in Lagos. */
+/** "Thursday 3 Dec 2026, 09:00 to 09:30", in Lagos (@hid/ui/display, Q181 A and Q182 A). */
 export function appointmentWhen(item: Pick<MyAppointment, 'startsAt' | 'endsAt'>): string {
-  const start = new Date(item.startsAt)
-  if (Number.isNaN(start.getTime())) return 'Time not known'
-  const end = new Date(item.endsAt)
-  return `${DAY.format(start)}, ${TIME.format(start)}${Number.isNaN(end.getTime()) ? '' : ` to ${TIME.format(end)}`}`
+  const start = formatDateTime(item.startsAt)
+  if (!start) return 'Time not known'
+  const end = formatTime(item.endsAt)
+  return `${formatWeekday(item.startsAt)} ${start}${end ? ` to ${end}` : ''}`
 }
 
 const STATUS: Readonly<Record<string, { label: string; tone: Tone }>> = {

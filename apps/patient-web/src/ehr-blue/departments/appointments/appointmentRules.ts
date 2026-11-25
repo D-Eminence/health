@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import { isHidApiError } from '@hid/http'
+import { formatDate, formatTime, formatWeekday, lagosDay } from '@hid/ui/display'
 import type { EhrBadgeTone } from '@hid/ui/ehr'
 import type {
   AppointmentCard, AppointmentHistoryEntry, AppointmentStatus, AppointmentVisitType,
@@ -97,10 +98,6 @@ export function departmentText(code: string): string {
 // device is set to.
 
 const LAGOS_OFFSET = '+01:00'
-const LAGOS_TIME = new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Lagos', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
-const LAGOS_PARTS = new Intl.DateTimeFormat('en-GB', {
-  timeZone: 'Africa/Lagos', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
-})
 const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 const TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/
 
@@ -110,31 +107,23 @@ export function isDay(value: string): boolean {
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value
 }
 
-/** "09:05": the Lagos time of day of an ISO moment; '' when it is not one. */
+/** "09:05": the Lagos time of day of an ISO moment (@hid/ui/display, Q181 A and Q182 A); '' when it is not one. */
 export function lagosTime(iso: string | null | undefined): string {
-  if (!iso) return ''
-  const time = new Date(iso)
-  return Number.isNaN(time.getTime()) ? '' : LAGOS_TIME.format(time)
+  return formatTime(iso)
 }
 
 /** The Lagos day (YYYY-MM-DD) and time (HH:MM) of an ISO moment, as the form's fields take them. */
 export function lagosParts(iso: string): { day: string; time: string } | null {
-  const time = new Date(iso)
-  if (Number.isNaN(time.getTime())) return null
-  const parts = LAGOS_PARTS.formatToParts(time)
-  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find(item => item.type === type)?.value ?? ''
-  return { day: `${part('year')}-${part('month')}-${part('day')}`, time: `${part('hour')}:${part('minute')}` }
+  const day = lagosDay(iso)
+  const time = formatTime(iso)
+  return day && time ? { day, time } : null
 }
 
-/** "Thursday 3 December 2026": a calendar day (YYYY-MM-DD), the same wherever the device is. */
+/** "Thursday 3 Dec 2026": a calendar day (YYYY-MM-DD) in the one date format (Q182 A), the same wherever the device is. */
 export function dayText(day: string, withWeekday = true): string {
   if (!isDay(day)) return ''
-  const parts = DAY_PARTS.formatToParts(new Date(`${day}T12:00:00.000Z`))
-  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find(item => item.type === type)?.value ?? ''
-  // Put together by hand: ICU versions differ on the comma after the weekday.
-  return [withWeekday ? part('weekday') : '', part('day'), part('month'), part('year')].filter(Boolean).join(' ')
+  return withWeekday ? `${formatWeekday(day)} ${formatDate(day)}` : formatDate(day)
 }
-const DAY_PARTS = new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })
 
 /** The day `count` days after (or before) a calendar day. */
 export function addDays(day: string, count: number): string {
@@ -166,7 +155,7 @@ export function timeRangeText(card: Pick<AppointmentCard, 'startsAt' | 'endsAt'>
   return from && to ? `${from} to ${to}` : from
 }
 
-/** "Thursday 3 December 2026, 09:00": when an appointment starts, in Lagos. */
+/** "Thursday 3 Dec 2026, 09:00": when an appointment starts, in Lagos. */
 export function whenText(iso: string | null | undefined): string {
   if (!iso) return ''
   const parts = lagosParts(iso)

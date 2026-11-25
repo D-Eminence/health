@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
+import { formatPhone } from '@hid/ui/display'
 import { EhrButton, EhrEmptyState, EhrField, EhrInput, EhrSelect } from '@hid/ui/ehr'
 import { appointmentsApi, type AppointmentCallListItem } from '../../../staff/api'
 import { useDeptAccess } from '../parts/access'
@@ -91,7 +92,7 @@ function CallListPage({ facilityId, initialDay }: { readonly facilityId: string;
                   <th scope="row">{item.fullName}<span className="hid-ehr-dept-appointments-hint"> {healthIdEnding(item.healthIdLast4)}</span></th>
                   <td>{item.clinicName ?? '—'}</td>
                   <td>{clinicianText(item.clinicianMembershipId, names, membershipId)}</td>
-                  <td>{item.phone ? <a href={`tel:${item.phone}`}>{item.phone}</a> : 'No phone recorded'}</td>
+                  <td>{item.phone ? <a href={`tel:${item.phone}`}>{formatPhone(item.phone)}</a> : 'No phone recorded'}</td>
                   <td className="hid-ehr-dept-appointments-called" aria-label="Called (tick on paper)" />
                 </tr>
               ))}

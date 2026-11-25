@@ -423,7 +423,7 @@ describe('Appointments in the frame', () => {
     await openStaffApp('/provider/appointments/call-list')
     expect(await screen.findByRole('heading', { level: 1, name: 'Call list' })).toBeDefined()
     const table = await screen.findByRole('table')
-    expect(within(table).getByRole('link', { name: '+2348000000001' }).getAttribute('href')).toBe('tel:+2348000000001')
+    expect(within(table).getByRole('link', { name: '0800 000 0001' }).getAttribute('href')).toBe('tel:+2348000000001')
     expect(within(table).getByText('No phone recorded')).toBeDefined()
     expect(within(table).getByText('09:00')).toBeDefined()
     expect(screen.getAllByText('Contains patient phone numbers. Keep it at the desk and shred it after use.')).not.toHaveLength(0)

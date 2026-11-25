@@ -9,6 +9,7 @@ import { useDeptAccess } from '../parts/access'
 import { DeptNotice, type DeptNoticeTone } from '../parts/DeptNotice'
 import { DeptPage, DeptSection } from '../parts/DeptPage'
 import { DeptFacts } from '../parts/DeptRecord'
+import { birthDateText } from '../parts/format'
 import {
   BASE, CHANGE_REASON_MAX, CHECK_IN_CONFIRM, CHECK_IN_CONFIRM_LABEL, LENGTHS, NOT_AVAILABLE, RELOAD_AFTER, canCheckIn,
   canSearch, canWrite, changeReasonProblem, checkInOffered, clinicianText, dayText, departmentText, hasStarted,
@@ -251,7 +252,7 @@ function CheckInForm({ facilityId, card, busy, searches, onSend, onCancel }: {
 
   return (
     <form className="hid-ehr-dept-form" noValidate onSubmit={submit} aria-label={`Check in ${card.fullName}`}>
-      <p>{CHECK_IN_CONFIRM} The appointment shows: <strong>{card.fullName}</strong>{card.dateOfBirth ? `, born ${card.dateOfBirth}` : ''}.</p>
+      <p>{CHECK_IN_CONFIRM} The appointment shows: <strong>{card.fullName}</strong>{card.dateOfBirth ? `, born ${birthDateText(card.dateOfBirth)}` : ''}.</p>
       <label className="hid-ehr-dept-appointments-confirm">
         <input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />
         <span>{CHECK_IN_CONFIRM_LABEL}</span>

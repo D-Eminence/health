@@ -51,7 +51,7 @@ describe('the patient page’s Appointments card', () => {
     session.permissions = ['ehr.appointment.read', 'ehr.appointment.write']
     api.forPatient.mockResolvedValue({ items: [appointment] })
     renderCard()
-    const row = await screen.findByRole('button', { name: /Thursday 3 December 2026, 09:00 to 09:30/ })
+    const row = await screen.findByRole('button', { name: /Thursday 3 Dec 2026, 09:00 to 09:30/ })
     expect(within(row).getByText('Booked')).toBeDefined()
     expect(within(row).getByText('Medical outpatients · Follow-up')).toBeDefined()
     expect(api.forPatient).toHaveBeenCalledWith('98d00002-0000-4000-8000-000000000002', PATIENT)

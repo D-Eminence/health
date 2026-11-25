@@ -30,8 +30,8 @@ describe('Lagos time, whatever the device’s zone', () => {
     expect(lagosTime('2026-12-03T08:00:00.000Z')).toBe('09:00')
     expect(lagosParts('2026-12-02T23:30:00.000Z')).toEqual({ day: '2026-12-03', time: '00:30' })
     expect(timeRangeText({ startsAt: '2026-12-03T08:00:00.000Z', endsAt: '2026-12-03T08:30:00.000Z' })).toBe('09:00 to 09:30')
-    expect(whenText('2026-12-03T08:00:00.000Z')).toBe('Thursday 3 December 2026, 09:00')
-    expect(dayText('2026-12-03')).toBe('Thursday 3 December 2026')
+    expect(whenText('2026-12-03T08:00:00.000Z')).toBe('Thursday 3 Dec 2026, 09:00')
+    expect(dayText('2026-12-03')).toBe('Thursday 3 Dec 2026')
     expect(lagosToday(new Date('2026-12-02T23:30:00.000Z'))).toBe('2026-12-03')
   })
 
@@ -106,7 +106,7 @@ describe('plain words', () => {
   it('says history and who in words, never a membership id', () => {
     expect(historyText({ kind: 'rescheduled', at: '', byMembershipId: null, fromStartsAt: '2026-12-03T08:00:00.000Z',
       toStartsAt: '2026-12-04T09:30:00.000Z', fromClinicianMembershipId: null, toClinicianMembershipId: null, reason: null }))
-      .toBe('Moved from Thursday 3 December 2026, 09:00 to Friday 4 December 2026, 10:30')
+      .toBe('Moved from Thursday 3 Dec 2026, 09:00 to Friday 4 Dec 2026, 10:30')
     expect(historyText({ kind: 'no_show_undone', at: '', byMembershipId: null, fromStartsAt: null, toStartsAt: null,
       fromClinicianMembershipId: null, toClinicianMembershipId: null, reason: null })).toMatch(/No-show undone/)
     const names = new Map<string, string | null>([['m-1', 'Dr Fiction Ade'], ['m-2', null]])
