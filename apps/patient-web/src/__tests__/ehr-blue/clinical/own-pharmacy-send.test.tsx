@@ -351,6 +351,23 @@ describe('Today’s pharmacist hand-off beside the automatic send', () => {
     expect(screen.getByRole('button', { name: 'Send to Pharmacy', expanded: true })).toBeTruthy()
   })
 
+  it('once the hand-off is accepted, offers neither send: the pharmacy holds the prescription now', async () => {
+    list = [prescription()]
+    api.acceptPrescription.mockResolvedValueOnce({ id: 'pw-1', sourceEhrPrescriptionVersion: 4, status: 'accepted',
+      acceptedAt: '2026-11-20T09:10:00.000Z', dispensing: null })
+    await openPrescription()
+    fireEvent.click(handoffButton()!)
+    const reason = screen.getByLabelText(/^Reason/)
+    fireEvent.change(reason, { target: { value: 'Patient waiting at the pharmacy' } })
+    fireEvent.submit(reason.closest('form')!)
+    expect(await screen.findByText('Pharmacy accepted this exact prescription version.')).toBeTruthy()
+    expect(api.acceptPrescription).toHaveBeenCalledTimes(1)
+    expect(handoffButton()).toBeNull()
+    // The prescriber's own send would ask the pharmacy for what it already holds.
+    expect(sendButton()).toBeNull()
+    expect(api.ownPharmacySend).not.toHaveBeenCalled()
+  })
+
   it.each([
     ['the pharmacy has not received it', { status: 'not_received' }],
     ['the EHR sends no progress (before ORD-3)', undefined],
