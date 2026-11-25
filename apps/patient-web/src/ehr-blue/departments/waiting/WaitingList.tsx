@@ -14,7 +14,7 @@ import { errorText } from '../parts/errors'
 import { birthDateText, countText } from '../parts/format'
 import { useFacilityRead } from '../parts/useFacilityRead'
 import {
-  CHECK_IN_INVALID, CHECK_IN_SEARCH_MISSING, CHECK_IN_SEARCH_REFUSED, CLOSING_STAGES, DESCRIPTION, EARLIER_DAY, EMPTY_SEARCH,
+  BOOKED_APPOINTMENT, CHECK_IN_INVALID, CHECK_IN_SEARCH_MISSING, CHECK_IN_SEARCH_REFUSED, CLOSING_STAGES, DESCRIPTION, EARLIER_DAY, EMPTY_SEARCH,
   EYEBROW, NEXT_STEP, OPEN_STAGES, POLL_MS, RELOAD_AFTER, SEARCH_EMPTY, SEARCH_HINT, STAGE_WORDS, TITLE, TRIAGE_LEVELS,
   UNAVAILABLE_MESSAGE, UNAVAILABLE_TITLE, UPDATE_INVALID,
   VISIT_QUEUE_REFUSALS, assigneeText, bornText, canSearchPatients, canSeePatients, canUseWaitingList, checkedInText,
@@ -243,6 +243,8 @@ function WaitingCard({ card, facilityId, membershipId, canSee, today, onChanged 
           <EhrBadge tone={triageTone(card.triageLevel)}>{triageText(card.triageLevel)}</EhrBadge>
           {card.chartBlocked ? <EhrBadge tone="critical">Chart cannot be opened</EhrBadge> : null}
           {fromEarlierDay(card, today) ? <EhrBadge tone="caution">{EARLIER_DAY}</EhrBadge> : null}
+          {/* Checked in from this facility's appointment on its own day (hid-system APPT-1): the journey's "Booked" step. */}
+          {card.checkInBasis === 'appointment' ? <EhrBadge tone="brand">{BOOKED_APPOINTMENT}</EhrBadge> : null}
         </div>
         <dl className="hid-ehr-dept-waiting-facts">
           <div><dt>Checked in</dt><dd>{checkInWhen(card, today)}</dd></div>

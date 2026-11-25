@@ -217,6 +217,8 @@ export function checkInWhen(card: Pick<VisitQueueCard, 'checkInDay' | 'checkedIn
 }
 
 export const EARLIER_DAY = 'Checked in on an earlier day'
+/** A card checked in from a booked appointment (checkInBasis 'appointment', hid-system APPT-1). */
+export const BOOKED_APPOINTMENT = 'Booked appointment'
 
 /**
  * The backend stops the list at `limit` patients, those still waiting first, then those who finished or left today. So a

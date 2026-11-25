@@ -154,7 +154,9 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       // The patient's orders sent to other facilities, and Stop before acceptance (P4c; Novu only, main answers 404).
       'ehr.myOrderRoutes', 'ehr.myOrderRouteWithdraw',
       // The health information the patient enters (hid-system 0094, Novu only; a backend before it answers 404).
-      'ehr.myHealthProfile'],
+      'ehr.myHealthProfile',
+      // "My appointments", read only (hid-system APPT-1, 0161; 404 before it, 503 while it is off).
+      'ehr.myAppointments'],
   },
   'staff-web': {
     // The anonymous support assistant, from the blue EHR's Help (behind its own privacy guard). Nothing else of support.
@@ -212,7 +214,9 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       // "Start an outreach group" with the same login, an outreach group's team invitations, and accepting one signed in
       // (open sign-up on outreach.; proposed, 404 until served).
       'identity.outreachGroupAvailability', 'identity.outreachGroupStart', 'identity.outreachInvitations',
-      'identity.outreachInvitationSignedInAccept'],
+      'identity.outreachInvitationSignedInAccept',
+      // Appointments' printable call list, with the phone this facility recorded (hid-system APPT-1, 0161).
+      'identity.appointmentCallList'],
     access: ['access.staffRequests', 'access.breakGlass', 'access.verifyPin', 'access.closeOwnGrant'],
     ehr: ['ehr.importedHistory', 'ehr.staffPatientChatAvailability', 'ehr.staffPatientChat', 'ehr.staffPatientChatHistory', 'ehr.staffPatientChatSource',
       'ehr.importedRecords', 'ehr.importedAttachment', 'ehr.emergencyRecords', 'ehr.encounters', 'ehr.encounter', 'ehr.vitals', 'ehr.vital',
@@ -235,7 +239,12 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'ehr.consultations',
       // The waiting list: check-in by a search's matchRef, the list, and each row's stage, triage level and who will see
       // the patient (hid-system 0135, EHR-C7, Release A; a backend before it answers 404).
-      'ehr.visitQueue', 'ehr.visitQueueCheckIn', 'ehr.visitQueueEntry'],
+      'ehr.visitQueue', 'ehr.visitQueueCheckIn', 'ehr.visitQueueEntry',
+      // Appointments: the day list, booking, one appointment and its four actions, a patient's appointments here, who can
+      // be booked, and the facility's clinics and default length (hid-system APPT-1, 0160; 404 before it, 503 while off).
+      'ehr.appointments', 'ehr.appointmentBookableStaff', 'ehr.appointment', 'ehr.appointmentReschedule',
+      'ehr.appointmentCancel', 'ehr.appointmentNoShow', 'ehr.appointmentCheckIn', 'ehr.patientAppointments',
+      'ehr.appointmentClinics', 'ehr.appointmentClinic', 'ehr.appointmentSettings'],
     // Facility billing (docs/BILLING_SPEC.md; proposed routes) and the price catalogue it shows. Not demo requests.
     commercial: ['commercial.pricing', 'commercial.subscription', 'commercial.subscriptionTrial',
       'commercial.subscriptionCheckout', 'commercial.invoices',
@@ -296,6 +305,10 @@ export function assertEndpointAllowed(app: HidApp, endpointName: string): void {
   if ((endpointName === 'ehr.myHealthProfile' && app !== 'patient-web')
     || (endpointName === 'ehr.patientReportedHealthProfile' && !['staff-web', 'ehr-web'].includes(app))) {
     throw new BoundaryViolationError('Patient-reported health information is available only in its patient or provider context.')
+  }
+  // Appointments (APPT-1): the patient's own list is the portal's alone; staff book and change them in the provider portal.
+  if (endpointName === 'ehr.myAppointments' && app !== 'patient-web') {
+    throw new BoundaryViolationError('"My appointments" is available only to the patient application.')
   }
   const descriptor = findEndpoint(endpointName)
 

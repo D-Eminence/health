@@ -118,6 +118,16 @@ const RELEASE_A = 'Served by hid-system staging-novu-ci-20261005 from Release A 
   + 'main, which answers 404. '
 const ACCOUNT_DELETION_NOTE = 'Novu: hid-system 0096; 404 before'
 /**
+ * Appointments (hid-system APPT-1, migrations 0160 and 0161, provisional; Release D). Built on
+ * claude/sprint-appointments-backend and not live: an ehr-api before it answers 404, and while the service flag
+ * APPOINTMENTS_ENABLED is off every route answers 503 APPOINTMENTS_NOT_AVAILABLE. Staff routes are direct care at the
+ * X-Facility-ID facility. No Health ID or NIN in any path, query or answer.
+ */
+const APPT_1 = 'hid-system APPT-1 (0160-0161, Release D; claude/sprint-appointments-backend, not live): 404 before it, 503 '
+  + 'APPOINTMENTS_NOT_AVAILABLE while APPOINTMENTS_ENABLED is off. X-Facility-ID, direct-care.'
+/** The day list and the call list take ids and a day only: a Health ID or NIN is refused before it reaches an address. */
+const APPT_NO_ID_QUERY: Partial<Record<EndpointMethod, readonly string[]>> = { GET: ['healthId', 'nin', 'phone'] }
+/**
  * "Notifications on this device" (B6, contract b6-contract.md §3): payload-free Web Push, the subscription stored by
  * Identity. Served by Novu from hid-system 0097, and only once the owner has configured the push keys: before that, and
  * on a backend before 0097, each route answers 404, which the portal takes as not offered (the section is hidden).
@@ -663,6 +673,13 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'FACILITY_PROFILE_UNAVAILABLE.')),
   // SX-9 (hid-system staging-novu-ci-20261005): the working facility's members' names by membership, for "Accepted by
   // <name>" on Pharmacy (ORD-4). Any member active at the facility; no permission beyond membership.
+  // Appointments' printable call list (APPT-1 route 11, 0161): Identity holds the contact key, so it reads the phone.
+  { ...proposed(r('identity.appointmentCallList','identity','/api/v1/identity/appointment-call-list',G,false,
+    one('GET','ehr.appointment.write'),
+    `${APPT_1} ?day=YYYY-MM-DD[&clinicId][&clinicianMembershipId]: this facility's booked appointments that day, at most 500, `
+    + '{ items: [{ appointmentId, startsAt, clinicName, clinicianMembershipId, fullName, healthIdLast4, phone (E.164 or '
+    + 'null), phoneSource (facility_contact or null) }] }. No reason, visit type or date of birth.')),
+  requiredQuery: { GET: ['day'] }, forbiddenQuery: APPT_NO_ID_QUERY },
   proposed(r('identity.facilityStaffNames','identity','/api/v1/identity/facility-staff-names',G,false,undefined,
     'hid-system SX-9 (staging-novu-ci-20261005). X-Facility-ID required (400 FACILITY_REQUIRED; 403 FACILITY_ACCESS_DENIED; '
     + '403 PATIENT_SCOPE_DENIED), read as healthcare-operations whatever X-Purpose-Of-Use says. Query membershipIds: up to 100 '
@@ -850,6 +867,11 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('ehr.myRecords','ehr','/api/v1/ehr/me/records',G),
   // hid-1.0 patient parity B3 (hid-system 0094 on staging-novu-ci-20261005): the health information the patient enters,
   // kept apart from clinicians' records, and the clinician's read of it.
+  // "My appointments" in the portal (APPT-1 route 12, 0161; read only, Q-APPT-4 A). Patient sessions only.
+  proposed(r('ehr.myAppointments','ehr','/api/v1/ehr/me/appointments',G,false,undefined,
+    `${APPT_1.replace(' X-Facility-ID, direct-care.', '')} Patient sessions only (403 PATIENT_SESSION_REQUIRED). `
+    + '?when=upcoming|past[&limit=1..50][&cursor] answers { items: [{ appointmentId, facilityName, clinicName, '
+    + 'departmentCode, clinicianName, startsAt, endsAt, lengthMinutes, visitType, reason, status }], nextCursor }.')),
   proposed(r('ehr.myHealthProfile','ehr','/api/v1/ehr/me/health-profile',['GET','PUT'],false,undefined,
     `${PARITY_B3} Patient sessions only, CSRF on PUT. 200 { bloodGroup, genotype, allergies, currentMedications, `
     + 'chronicConditions, medicalNotes, rowVersion, updatedAt }; PUT the six with expectedVersion answers the same, 409 '
@@ -986,6 +1008,46 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     one('PATCH','ehr.encounter.read','ehr.encounter.write'),
     `${RELEASE_A} X-Facility-ID, direct-care. Body { expectedRowVersion, stage?, triageLevel? (null clears), `
     + 'assignedMembershipId? (null clears) }. 200 the card; 409 VISIT_QUEUE_ENTRY_CHANGED or VISIT_QUEUE_ENTRY_CLOSED.')),
+  // Appointments, with check-in to the waiting list (hid-system APPT-1, migrations 0160 and 0161, Release D; on the
+  // branch claude/sprint-appointments-backend, not live). Every route answers 503 APPOINTMENTS_NOT_AVAILABLE while the
+  // service flag APPOINTMENTS_ENABLED is off, and an ehr-api before it answers 404: the pages then say "not available yet".
+  { ...proposed(r('ehr.appointments','ehr','/api/v1/ehr/appointments',GP,false,
+    { GET: ['ehr.appointment.read'], POST: ['ehr.appointment.write'] },
+    `${APPT_1} GET ?day=YYYY-MM-DD (a Lagos day) [&clinicId][&clinicianMembershipId][&status=booked,checked_in,cancelled,`
+    + 'no_show][&limit=1..200][&cursor] answers { items: card[], nextCursor }. POST books: { matchRef | patientId (exactly '
+    + 'one), departmentCode, clinicId?, clinicianMembershipId?, startsAt, lengthMinutes?, visitType, reason? } with an '
+    + 'Idempotency-Key; 201 { appointment, replayed }.')), requiredQuery: { GET: ['day'] }, forbiddenQuery: APPT_NO_ID_QUERY },
+  proposed(r('ehr.appointmentBookableStaff','ehr','/api/v1/ehr/appointments/bookable-staff',G,false,one('GET','ehr.appointment.read'),
+    `${APPT_1} 200 { items: [{ membershipId }] }: the nurses, clinicians and doctors here who can be booked (names from SX-9).`)),
+  proposed(r('ehr.appointment','ehr','/api/v1/ehr/appointments/:appointmentId',G,false,one('GET','ehr.appointment.read'),
+    `${APPT_1} 200 { appointment, history }; 404 APPOINTMENT_NOT_FOUND (also another facility's).`)),
+  proposed(r('ehr.appointmentReschedule','ehr','/api/v1/ehr/appointments/:appointmentId/reschedule',P,false,
+    one('POST','ehr.appointment.write'),
+    `${APPT_1} Body { expectedRowVersion, startsAt, lengthMinutes?, clinicianMembershipId? (null removes), reason (8-500) }.`)),
+  proposed(r('ehr.appointmentCancel','ehr','/api/v1/ehr/appointments/:appointmentId/cancel',P,false,
+    one('POST','ehr.appointment.write'), `${APPT_1} Body { expectedRowVersion, reason (8-500) }. Cancelled is final.`)),
+  proposed(r('ehr.appointmentNoShow','ehr','/api/v1/ehr/appointments/:appointmentId/no-show',P,false,
+    one('POST','ehr.appointment.write'), `${APPT_1} Body { expectedRowVersion }, only after the start time.`)),
+  proposed(r('ehr.appointmentCheckIn','ehr','/api/v1/ehr/appointments/:appointmentId/check-in',P,false,
+    one('POST','ehr.appointment.write','ehr.encounter.read','ehr.encounter.write'),
+    `${APPT_1} Body { expectedRowVersion, identityConfirmed: true, matchRef? }. The appointment is a check-in-only basis on `
+    + 'its own Lagos day at the facility that booked it (Q-APPT-6 A); with a matchRef it goes through 0135. 200 { outcome: '
+    + 'checked_in | already_on_list, appointment, entry (the waiting-list card), replayed }; 403 '
+    + 'APPOINTMENT_CHECK_IN_NEEDS_SEARCH.')),
+  proposed(r('ehr.patientAppointments','ehr','/api/v1/ehr/patients/:patientId/appointments',G,false,one('GET','ehr.appointment.read'),
+    `${APPT_1} 200 { items: card[] }: this facility's appointments for one patient, upcoming and the last 90 days.`)),
+  // Read with ehr.appointment.read or organization.manage (either one; the registry lists required codes only).
+  proposed(r('ehr.appointmentClinics','ehr','/api/v1/ehr/appointment-clinics',GP,false,one('POST','organization.manage'),
+    `${APPT_1} GET [?includeInactive=true] { items: [{ clinicId, name, departmentCode, defaultLengthMinutes, active, `
+    + 'rowVersion }] } for ehr.appointment.read or organization.manage. POST { name (2-80), departmentCode, '
+    + 'defaultLengthMinutes? } with an Idempotency-Key; 201 { clinic, replayed }; 409 APPOINTMENT_CLINIC_NAME_TAKEN.')),
+  proposed(r('ehr.appointmentClinic','ehr','/api/v1/ehr/appointment-clinics/:clinicId',['PATCH'],false,
+    one('PATCH','organization.manage'),
+    `${APPT_1} Body { expectedRowVersion, name?, defaultLengthMinutes? (null: the facility's), active? }. A clinic is never `
+    + 'deleted.')),
+  proposed(r('ehr.appointmentSettings','ehr','/api/v1/ehr/appointment-settings',GPA,false,one('PATCH','organization.manage'),
+    `${APPT_1} GET { defaultLengthMinutes, rowVersion }. PATCH (the contract's PUT: ehr-api's CORS allows GET, POST and `
+    + 'PATCH) { expectedRowVersion, defaultLengthMinutes } with an Idempotency-Key.')),
   r('ehr.vitals','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals',GP,false,{GET:['ehr.vital.read'],POST:['ehr.vital.write']}),
   r('ehr.vital','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals/:vitalId',G,false,one('GET','ehr.vital.read')),
   r('ehr.vitalCorrections','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals/:vitalId/corrections',GP,false,{GET:['ehr.vital.read'],POST:['ehr.vital.write']}),
@@ -1646,6 +1708,8 @@ export const NON_FRONTEND_ENDPOINTS: readonly string[] = [
   '/api/v1/notifications/emergency-contact-alert', '/api/v1/notifications/staff-invitation',
   // The empty, VAPID-signed push Identity's dispatcher asks notification-api to send (B6); the gateway does not route it.
   '/api/v1/notifications/web-push',
+  // Identity's appointment email (APPT-1, 0161), sent by notification-api for identity-api; the gateway does not route it.
+  '/api/v1/notifications/appointment-notice',
   // This admin route exists but always returns INTEGRATION_CREDENTIAL_ROTATION_EXTERNAL.
   '/api/v1/admin/integrations/:provider/credential-reference',
 ]

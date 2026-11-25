@@ -22,7 +22,7 @@ const sample = (id: string) => createElement(SampleWorkspace, { id })
  */
 export const pages: EhrBluePage[] = [
   { path: 'patients/*', group: 'Clinical', label: 'Patients', icon: icon('user'), permission: 'identity.patient.read', status: patientsStatus, element: createElement(PatientsWorkspace) },
-  { path: 'appointments/*', group: 'Clinical', label: 'Appointments', icon: icon('calendar'), status: 'sample', element: sample('appointments') },
+  // Appointments is live: departments/appointments/page.tsx (hid-system APPT-1). Its sample's records stay in the sample store.
   { path: 'journey/*', group: 'Clinical', label: 'Patient visits', icon: icon('route'), status: 'sample', element: sample('journey') },
   { path: 'triage/*', group: 'Clinical', label: 'Triage & Vitals', icon: icon('activity'), permission: 'ehr.vital.read', status: triageStatus, element: createElement(TriageWorkspace) },
   { path: 'clinical/*', group: 'Clinical', label: 'Consultation', icon: icon('stethoscope'), permission: 'ehr.encounter.read', status: consultStatus, element: createElement(ConsultWorkspace) },

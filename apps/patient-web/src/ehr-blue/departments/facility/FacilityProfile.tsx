@@ -10,6 +10,7 @@ import type { Product } from '../../frame/product'
 import { resolveStaffProductHostname } from '../../../productHostname'
 import { demoFacilitySite } from '../../blueFacilities'
 import { OnePersonLab } from './OnePersonLab'
+import { AppointmentClinics } from '../appointments/AppointmentClinics'
 
 /*
  * Facility profile (target admin/facility.png), read-only: the working facility as today's staff session reports it
@@ -155,6 +156,8 @@ export function FacilityProfile() {
       </DeptSection>
       <Verification name={facility.name} review={review} type={type} />
       <OnePersonLab key={facility.id} facilityId={facility.id} permissions={facility.permissions} />
+      {/* Appointment clinics and the default length (hid-system APPT-1), for the hospital administrator. */}
+      <AppointmentClinics key={`clinics-${facility.id}`} facilityId={facility.id} permissions={facility.permissions} />
       <DeptSection title="Verification history">
         <p className="hid-ehr-dept-muted">{NOT_AVAILABLE}.</p>
       </DeptSection>

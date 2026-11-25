@@ -26,7 +26,7 @@ function openNotifications() {
 }
 
 describe('Recent activity, with every folder\'s pages', () => {
-  for (const role of ['doctor', 'nurse', 'receptionist']) {
+  for (const role of ['doctor', 'nurse']) {
     it(`finds what each row opens, as a ${role}`, async () => {
       await openDemo([role])
       const labels = openNotifications().getAllByRole('button', { name: /^Open / })
@@ -42,8 +42,10 @@ describe('Recent activity, with every folder\'s pages', () => {
     })
   }
 
-  it('shows no Recent activity to a role that may open none of its workspaces', async () => {
-    await openDemo(['lab'])
+  // A receptionist's one workspace there is Appointments, live now (hid-system APPT-1): without ehr.appointment.read it
+  // does not open, so this receptionist has none.
+  it.each(['lab', 'receptionist'])('shows no Recent activity to a role that may open none of its workspaces (%s)', async role => {
+    await openDemo([role])
     const drawer = openNotifications()
     expect(drawer.queryByRole('heading', { name: /^Recent activity/ })).toBeNull()
     expect(drawer.queryByText(/record created$/)).toBeNull()
