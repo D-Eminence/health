@@ -3,7 +3,7 @@ import { HidApiError } from '@hid/http'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { OrderedByMe } from '../../../ehr-blue/clinical/mine/OrderedByMe'
-import { MY_ORDERS_REFUSALS, earliestSince, hiddenText, sinceProblem } from '../../../ehr-blue/clinical/mine/myOrders'
+import { MY_ORDERS_REFUSALS, dayWords, earliestSince, hiddenText, sinceProblem } from '../../../ehr-blue/clinical/mine/myOrders'
 import { lagosToday } from '../../../ehr-blue/departments/waiting/waitingRules'
 import { readMyOrdersPage } from '../../../staff/api'
 import { PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient } from './harness'
@@ -166,6 +166,105 @@ describe('Ordered by me', () => {
     plainWords()
   })
 
+  it('goes back to the list it last showed when the backend refuses a day, so Cancel leaves rows and true words', async () => {
+    open()
+    await screen.findByRole('listitem', { name: 'Full blood count' })
+    const today = lagosToday()
+    const earliest = earliestSince(today)
+
+    // A day the backend takes, then a later one it refuses (its clock is a day behind the device's, say).
+    fireEvent.click(screen.getByRole('button', { name: 'Look further back' }))
+    orders.list.mockResolvedValueOnce(page([order()], { since: earliest }))
+    fireEvent.change(screen.getByLabelText('Show orders from'), { target: { value: earliest } })
+    fireEvent.click(screen.getByRole('button', { name: 'Show orders' }))
+    expect(await screen.findByText(/^Showing orders from /)).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Look further back' }))
+    orders.list.mockRejectedValueOnce(refused(400, 'VALIDATION_FAILED', 'since must not be in the future'))
+    orders.list.mockResolvedValueOnce(page([order()], { since: earliest }))
+    fireEvent.change(screen.getByLabelText('Show orders from'), { target: { value: today } })
+    fireEvent.click(screen.getByRole('button', { name: 'Show orders' }))
+    expect(await screen.findByText('Choose a day that is today or earlier.')).toBeDefined()
+    await waitFor(() => expect(orders.list).toHaveBeenCalledTimes(4))
+    expect(call(2)).toMatchObject({ since: today })
+    expect(call(3)).toEqual({ kind: 'all', openOnly: false, limit: 25, since: earliest })
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(await screen.findByRole('listitem', { name: 'Full blood count' })).toBeDefined()
+    expect(screen.getByText(`Showing orders from ${dayWords(earliest)} and everything still open.`)).toBeDefined()
+
+    // The day it took is refused in turn (now too far back): the backend's own 90 days are read and said.
+    orders.list.mockRejectedValueOnce(refused(400, 'MY_ORDERS_SINCE_TOO_OLD'))
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    expect(await screen.findByText('You can look back up to 2 years. Choose a later date.')).toBeDefined()
+    await waitFor(() => expect(orders.list).toHaveBeenCalledTimes(6))
+    expect(call(5)).toEqual({ kind: 'all', openOnly: false, limit: 25 })
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(await screen.findByRole('listitem', { name: 'Full blood count' })).toBeDefined()
+    expect(screen.getByText('Showing the last 90 days and everything still open.')).toBeDefined()
+    plainWords()
+  })
+
+  it('reads again only when a filter changes: the tab already chosen reads nothing', async () => {
+    open()
+    await screen.findByRole('listitem', { name: 'Full blood count' })
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Show' })).getByRole('button', { name: 'All' }))
+    await act(async () => {})
+    expect(orders.list).toHaveBeenCalledTimes(1)
+  })
+
+  it('says when each order was made in Lagos time, as its progress is', async () => {
+    open()
+    const lab = await screen.findByRole('listitem', { name: 'Full blood count' })
+    // createdAt 09:15 UTC is 10:15 in Lagos.
+    expect(within(lab).getByText('20 Nov 2026, 10:15')).toBeDefined()
+  })
+
+  it('drops an answer that comes after the member moved on to another tab', async () => {
+    let first!: (value: unknown) => void
+    orders.list.mockReturnValueOnce(new Promise(resolve => { first = resolve }))
+    open()
+    orders.list.mockResolvedValueOnce(page([prescription()], { nextCursor: 'cursorAAAAAAAAAAAAAA1' }))
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Show' })).getByRole('button', { name: 'Prescriptions' }))
+    expect(await screen.findByRole('listitem', { name: 'Amoxicillin 500 mg capsule' })).toBeDefined()
+    await act(async () => { first(page([order()])) })
+    expect(screen.queryByRole('listitem', { name: 'Full blood count' })).toBeNull()
+
+    // A Load more still reading when the tab changes is dropped too.
+    let more!: (value: unknown) => void
+    orders.list.mockReturnValueOnce(new Promise(resolve => { more = resolve }))
+    fireEvent.click(screen.getByRole('button', { name: 'Load more' }))
+    orders.list.mockResolvedValueOnce(page([order()]))
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Show' })).getByRole('button', { name: 'Lab' }))
+    expect(await screen.findByRole('list', { name: 'Lab requests' })).toBeDefined()
+    await act(async () => { more(page([prescription({ orderId: 'b0000000-0000-4000-8000-000000000002', display: 'Paracetamol 500 mg tablet' })])) })
+    expect(screen.queryByRole('listitem', { name: 'Paracetamol 500 mg tablet' })).toBeNull()
+    expect(within(list()).getAllByRole('listitem')).toHaveLength(1)
+  })
+
+  it('reads the next page once when Load more is pressed twice', async () => {
+    orders.list.mockResolvedValueOnce(page([order()], { nextCursor: 'cursorAAAAAAAAAAAAAA1' }))
+    open()
+    await screen.findByRole('listitem', { name: 'Full blood count' })
+    let next!: (value: unknown) => void
+    orders.list.mockReturnValueOnce(new Promise(resolve => { next = resolve }))
+    fireEvent.click(screen.getByRole('button', { name: 'Load more' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Load more' }))
+    expect(orders.list).toHaveBeenCalledTimes(2)
+    await act(async () => { next(page([prescription()])) })
+    expect(within(list()).getAllByRole('listitem')).toHaveLength(2)
+  })
+
+  it('holds Load more while Refresh reads', async () => {
+    orders.list.mockResolvedValueOnce(page([order()], { nextCursor: 'cursorAAAAAAAAAAAAAA1' }))
+    open()
+    await screen.findByRole('listitem', { name: 'Full blood count' })
+    let fresh!: (value: unknown) => void
+    orders.list.mockReturnValueOnce(new Promise(resolve => { fresh = resolve }))
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    expect(screen.getByRole('button', { name: 'Load more' }).matches(':disabled')).toBe(true)
+    await act(async () => { fresh(page([order()], { nextCursor: 'cursorAAAAAAAAAAAAAA2' })) })
+    expect(screen.getByRole('button', { name: 'Load more' }).matches(':disabled')).toBe(false)
+  })
+
   it('offers Load more while a cursor is set, also after a short or empty page, and adds what it reads', async () => {
     orders.list.mockResolvedValueOnce(page([], { nextCursor: 'cursorAAAAAAAAAAAAAA1' }))
     open()
@@ -221,10 +320,12 @@ describe('Ordered by me', () => {
 
   it.each([
     [400, 'MY_ORDERS_SINCE_TOO_OLD', 'You can look back up to 2 years. Choose a later date.', true],
-    [400, 'VALIDATION_FAILED', 'Choose a day that is today or earlier.', true],
+    // With no day chosen, a refused request is not about a day: it never tells the member to choose one.
+    [400, 'VALIDATION_FAILED', 'The list could not be shown as asked. Reload the page and try again.', true],
     [400, 'INVALID_CURSOR', 'Your orders changed. Showing them again from the start.', true],
     [400, 'PURPOSE_OF_USE_REQUIRED', 'Ordered by me is for patient care only. Reload the page and try again.', true],
     [403, 'PERMISSION_DENIED', 'Ordered by me shows the tests and medicines you ordered here. It is for staff who order them.', false],
+    [403, 'MY_ORDERS_NOT_PERMITTED', 'Your staff account at this facility is not active right now, so your orders cannot be listed. Ask your facility administrator.', false],
     [503, 'MY_ORDERS_UNAVAILABLE', 'Your orders cannot be listed right now. Please try again.', true],
   ])('says %i %s in plain words', async (status, code, words, retry) => {
     orders.list.mockRejectedValueOnce(refused(status, code, 'Required permission is missing'))

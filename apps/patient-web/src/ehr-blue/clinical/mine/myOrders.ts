@@ -48,19 +48,24 @@ export const RESTARTED = 'Your orders changed. Showing them again from the start
 export const PURPOSE = 'Ordered by me is for patient care only. Reload the page and try again.'
 export const LOAD_FAILED = 'Your orders could not be loaded.'
 export const MORE_FAILED = 'More orders could not be loaded.'
+/** VALIDATION_FAILED with no day chosen: a kind, filter, size or cursor the backend did not take, not anything the member chose. */
+export const NOT_TAKEN = 'The list could not be shown as asked. Reload the page and try again.'
+/** MY_ORDERS_NOT_PERMITTED: the member's place at this facility is not active (inactive or on hold), not a missing role. */
+export const NOT_ACTIVE_HERE = 'Your staff account at this facility is not active right now, so your orders cannot be listed. Ask your facility administrator.'
 
 /**
  * Every refusal the route can answer, in plain words (never its code, nor the backend's 403 text). INVALID_CURSOR is
- * the page's to handle first: it starts the list again from the top and says so (RESTARTED).
+ * the page's to handle first: it starts the list again from the top and says so (RESTARTED). A refusal about a day the
+ * member chose is said at the date picker in sinceRefusalWords' words instead.
  */
 export const MY_ORDERS_REFUSALS: Readonly<Record<string, string>> = {
   MY_ORDERS_SINCE_TOO_OLD: SINCE_TOO_OLD,
-  VALIDATION_FAILED: SINCE_IN_FUTURE,
+  VALIDATION_FAILED: NOT_TAKEN,
   INVALID_CURSOR: RESTARTED,
   PURPOSE_OF_USE_REQUIRED: PURPOSE,
   // The database's own codes, should one come through as it is (the service turns each into one of the above).
   MY_ORDERS_DIRECT_CARE_ONLY: PURPOSE,
-  MY_ORDERS_NOT_PERMITTED: UNAVAILABLE_MESSAGE,
+  MY_ORDERS_NOT_PERMITTED: NOT_ACTIVE_HERE,
   PERMISSION_DENIED: UNAVAILABLE_MESSAGE,
   MY_ORDERS_UNAVAILABLE: UNAVAILABLE,
 }
@@ -72,9 +77,26 @@ export function refusalWords(caught: unknown, fallback: string): string {
   return errorText(caught, fallback)
 }
 
-/** Whether a refusal is about the day chosen, so it is said at the date picker. */
+/** Whether a refusal is about the day chosen, so it is said at the date picker. Only asked when a day was sent. */
 export function isSinceRefusal(caught: unknown): boolean {
   return isHidApiError(caught) && (caught.code === 'MY_ORDERS_SINCE_TOO_OLD' || caught.code === 'VALIDATION_FAILED')
+}
+
+/** A refused day's words at the date picker: too far back, else (VALIDATION_FAILED for a day sent) later than today. */
+export function sinceRefusalWords(caught: unknown): string {
+  return isHidApiError(caught) && caught.code === 'MY_ORDERS_SINCE_TOO_OLD' ? SINCE_TOO_OLD : SINCE_IN_FUTURE
+}
+
+/** When an order was made, in West Africa Time as its progress words are (progress.ts), never all in numbers. */
+const LAGOS_MOMENT = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Africa/Lagos', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+})
+
+/** "20 Nov 2026, 10:15" in Lagos for the order's createdAt; '' when it is missing or not a date. */
+export function orderedWhen(value: string | null | undefined): string {
+  if (!value) return ''
+  const at = new Date(value)
+  return Number.isNaN(at.getTime()) ? '' : LAGOS_MOMENT.format(at)
 }
 
 /** The earliest day the list can start from, in Lagos: today 2 years ago (29 Feb is taken as 28 Feb). */

@@ -13,11 +13,11 @@ import { birthDateText } from '../../departments/parts/format'
 import { bornText, healthIdEnding, lagosToday, sexText } from '../../departments/waiting/waitingRules'
 import { routeStatus } from '../consult/orders/Routing'
 import { readOrderRoute } from '../consult/orders/words'
-import { formatWhen, statusWords } from '../parts/format'
+import { statusWords } from '../parts/format'
 import {
   DESCRIPTION, EYEBROW, KIND_TABS, LOAD_FAILED, MORE_FAILED, PAGE_SIZE, RESTARTED, TITLE, UNAVAILABLE_MESSAGE, canReadLab, canReadPrescriptions,
-  canUseOrderedByMe, coverageText, earliestSince, emptyText, hiddenText, isSinceRefusal, kindWord, orderName, orderWord, patientName,
-  priorityWords, progressWords, refusalWords, sinceProblem,
+  canUseOrderedByMe, coverageText, earliestSince, emptyText, hiddenText, isSinceRefusal, kindWord, orderName, orderWord, orderedWhen,
+  patientName, priorityWords, progressWords, refusalWords, sinceProblem, sinceRefusalWords,
 } from './myOrders'
 import './mine.css'
 
@@ -65,6 +65,8 @@ function MyOrdersDesk({ facilityId, lab, prescriptions }: { readonly facilityId:
   const [notice, setNotice] = useState('')
   const [lookBack, setLookBack] = useState<{ readonly value: string; readonly problem: string } | null>(null)
   const sequence = useRef(0)
+  /** The day of the last list the backend answered (null for its 90 days), to go back to when a later day is refused. */
+  const accepted = useRef<string | null>(null)
   const focus = useFocusById()
 
   /**
@@ -80,14 +82,21 @@ function MyOrdersDesk({ facilityId, lab, prescriptions }: { readonly facilityId:
       const page = await myOrdersApi.list(facilityId,
         { kind: wanted.kind, openOnly: wanted.openOnly, limit: PAGE_SIZE, ...(wanted.since ? { since: wanted.since } : {}) })
       if (run !== sequence.current) return
+      accepted.current = wanted.since
       setList(page)
       if (restarted) setNotice(RESTARTED)
     } catch (caught) {
       if (run !== sequence.current || cancelled(caught)) return
       if (wanted.since && isSinceRefusal(caught)) {
-        // About the day chosen: said at the date picker, which stays open to choose another.
-        setLookBack(previous => ({ value: previous?.value ?? wanted.since ?? '', problem: refusalWords(caught, LOAD_FAILED) }))
+        // About the day chosen: said at the date picker, which stays open to choose another. The list goes back to the
+        // last day answered (or the backend's 90 days when that is the day refused) and is read again, so the page never
+        // says it shows a day it could not show, and Cancel leaves a list on screen.
+        const refused = wanted.since
+        setLookBack(previous => ({ value: previous?.value ?? refused, problem: sinceRefusalWords(caught) }))
         focus('my-orders-since')
+        const fallback = accepted.current === refused ? null : accepted.current
+        accepted.current = fallback
+        setFilters(previous => ({ ...previous, since: fallback }))
         return
       }
       setProblem({ text: refusalWords(caught, LOAD_FAILED), retry: !(isHidApiError(caught) && caught.status === 403) })
@@ -124,8 +133,12 @@ function MyOrdersDesk({ facilityId, lab, prescriptions }: { readonly facilityId:
     }
   }
 
+  /** A filter change reads again only when something differs: each read is audited for every patient it shows. */
   function change(next: Partial<Filters>) {
-    setFilters(previous => ({ ...previous, ...next }))
+    setFilters(previous => {
+      const changed = (Object.keys(next) as (keyof Filters)[]).some(key => next[key] !== previous[key])
+      return changed ? { ...previous, ...next } : previous
+    })
   }
 
   function chooseSince(event: FormEvent<HTMLFormElement>) {
@@ -198,7 +211,7 @@ function MyOrdersDesk({ facilityId, lab, prescriptions }: { readonly facilityId:
         {list?.nextCursor ? (
           <div className="hid-ehr-mine-more">
             {moreProblem ? <DeptNotice role="alert" tone="critical">{moreProblem}</DeptNotice> : null}
-            <EhrButton variant="secondary" busy={loading === 'more'} onClick={() => void loadMore()}>Load more</EhrButton>
+            <EhrButton variant="secondary" busy={loading === 'more'} disabled={loading === 'first'} onClick={() => void loadMore()}>Load more</EhrButton>
           </div>
         ) : null}
       </DeptSection>
@@ -220,7 +233,7 @@ function OrderCard({ order, index }: { readonly order: MyOrder; readonly index: 
   const what = orderWord(order.kind)
   const progress = progressWords(order)
   const priority = priorityWords(order)
-  const ordered = formatWhen(order.createdAt)
+  const ordered = orderedWhen(order.createdAt)
   const route = readOrderRoute(order.orderRoute)
   const sent = route ? routeStatus(route, name).text : ''
   const identity = [sexText(order.patient.sex), bornText(birthDateText(order.patient.dateOfBirth), undefined)].filter(Boolean)
