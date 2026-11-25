@@ -51,7 +51,7 @@ const REASON_WORD: Readonly<Record<'emergency' | 'inpatient', string>> = { emerg
  *   the reason.
  * Once the bill is paid or set to follow, `onCleared` hears its summary and the work goes on.
  */
-export function PaymentStep({ facilityId, summary, settings, permissions, subject, verb, headingId, onCleared }: {
+export function PaymentStep({ facilityId, summary, settings, permissions, subject, verb, headingId, onCleared, counterSale = false }: {
   readonly facilityId: string
   readonly summary: NonNullable<WorkItemBill>
   readonly settings: PaymentSettings
@@ -62,6 +62,8 @@ export function PaymentStep({ facilityId, summary, settings, permissions, subjec
   readonly verb: string
   readonly headingId: string
   readonly onCleared: (summary: NonNullable<WorkItemBill>) => void
+  /** A counter sale: always paid first, whatever pay-before says, and never "Bill follows" (BILL-1 §8). */
+  readonly counterSale?: boolean
 }) {
   const read = useCommerceRead<Bill>(`bill:${facilityId}:${summary.billId}`, signal => commerce.bill(facilityId, summary.billId, signal))
   const bill = read.data
@@ -72,7 +74,8 @@ export function PaymentStep({ facilityId, summary, settings, permissions, subjec
   const [deferBusy, setDeferBusy] = useState(false)
   const [deferError, setDeferError] = useState('')
   const [deferOff, setDeferOff] = useState(false)
-  const allowedReasons = settings.allowDeferredFor
+  // Inpatient billing is not available yet (DEFERRAL_REASON_NOT_AVAILABLE until the Inpatient department ships).
+  const allowedReasons = counterSale ? [] : settings.allowDeferredFor.filter(option => option === 'emergency')
   const [reason, setReason] = useState<'emergency' | 'inpatient' | ''>('')
   // One key per Bill follows sheet opened: a retry after a lost answer sends the same request again.
   const deferKey = useRef('')
@@ -87,7 +90,7 @@ export function PaymentStep({ facilityId, summary, settings, permissions, subjec
   const number = bill?.number
 
   function cleared(next: Bill) {
-    if (next.status === 'paid' || next.status === 'deferred' || next.status === 'void') onCleared(summaryOf(next))
+    if (next.status === 'paid' || (!counterSale && (next.status === 'deferred' || next.status === 'void'))) onCleared(summaryOf(next))
     else setSaid(next.status === 'part_paid' ? `Part paid. ${naira(next.dueKobo)} still due.` : `Not paid yet. ${naira(next.dueKobo)} still due.`)
   }
 

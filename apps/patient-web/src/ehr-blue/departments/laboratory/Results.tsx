@@ -6,7 +6,7 @@ import { Alert, Button, Card, CardHeader, EmptyState, Input, PageHeader } from '
 import { staffApi, type LabExecution, type LabResultRevision, type LabWorkItem } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
 import { SAME_SCIENTIST, sameScientistCheck } from '../../../staff/labRevisions'
-import { pointOfCareOpen } from '../commerce/served'
+import { labCounterOpen } from '../commerce/served'
 import { useDeptAccess } from '../parts/access'
 import { matchesSearch } from '../parts/format'
 import { useFacilityRead } from '../parts/useFacilityRead'
@@ -106,7 +106,7 @@ function ResultView({ facilityId, item, permissions }: { readonly facilityId: st
   const released = record.executions.flatMap(execution => { const revision = releasedOf(execution); return revision ? [{ execution, revision }] : [] })
   const { print, area } = usePrint()
   // Sharing a result is a point-of-care route Health ID does not serve yet: offered only where it may answer (commerce/served.ts).
-  const canShare = pointOfCareOpen(facilityId) && permissions.includes('lab.result.share') && Boolean(item.accessionId)
+  const canShare = labCounterOpen(facilityId) && permissions.includes('lab.result.share') && Boolean(item.accessionId)
   const test = item.testName ?? 'Lab test'
   const lines: SlipLine[] = released.map(({ execution, revision }) => ({
     key: execution.id, test: execution.test.name, value: revisionText(revision), unit: revision.unit, range: revision.referenceRange, flag: revision.abnormalFlag,

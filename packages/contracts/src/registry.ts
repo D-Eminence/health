@@ -157,6 +157,18 @@ const NOVU_PATIENT_CHAT_NOTE = 'Novu (staging-novu-ci-20261005, hid-system #167)
   + '409 CHAT_SOURCES_CHANGED, CHAT_CONVERSATION_CHANGED or CHAT_ACCESS_CHANGED (ask again); 503 PATIENT_CHAT_UNAVAILABLE or '
   + 'PATIENT_CHAT_DISABLED.'
 /** docs/POINT_OF_CARE_SPEC.md: proposed, not served by any hid-system release yet; callers treat a 404 as "not switched on". */
+/**
+ * Patient billing release 1 with pharmacy point-of-care stock (hid-system BILL-1, migrations 0162-0167, provisional; Release
+ * D; docs/EHR_PLANNED_CONTRACT.md "BILL-1" on claude/sprint-billing-backend, not live). ehr-api serves the commercial
+ * billing paths (the gateway's BILL-9 prefixes) and pharmacy-api stock and counter sales. A backend before 0162 answers 404,
+ * and while COMMERCIAL_BILLING_ENABLED is off every route answers 404 BILLING_NOT_AVAILABLE at a real facility (the four
+ * demo facilities and the sealed QA facility are on): callers treat both as "not switched on". X-Facility-ID; routes that
+ * show patients need X-Purpose-Of-Use: healthcare-operations; every write takes an Idempotency-Key. No Health ID or NIN in
+ * any path or query: a `q` shaped like one is refused 400 BILLING_SEARCH_TEXT_NOT_ALLOWED. Money is kobo, a day the Lagos day.
+ */
+const BILL_1 = 'BILL-1 (hid-system 0162-0167, Release D; claude/sprint-billing-backend, not live): 404 before it, 404 '
+  + 'BILLING_NOT_AVAILABLE while switched off at a real facility. X-Facility-ID, X-Purpose-Of-Use healthcare-operations; '
+  + 'Idempotency-Key on every write.'
 const POINT_OF_CARE = 'Point of care (docs/POINT_OF_CARE_SPEC.md); not served by hid-system yet (404). Every POST takes Idempotency-Key.'
 const STAFF_CHAT_NOTE = 'Staff sessions holding ehr.record-chat.use, for direct care only (X-Purpose-Of-Use: direct-care, never break-glass). '
   + 'Off by default in hid-system (ADR-069, 0101): 503 RECORD_CHAT_DISABLED until RECORD_CHAT_STAFF_ENABLED and the platform control are on.'
@@ -1156,15 +1168,30 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'X-Purpose-Of-Use direct-care and Idempotency-Key; body exactly { expectedWorkItemVersion }. 201 recorded or 200 '
     + '{ alreadyAccepted: true }, each { workItemId, pharmacyStep, pharmacistAcceptance, alreadyAccepted }; 409 '
     + 'PHARMACY_PRESCRIPTION_NOT_DISPENSABLE with withdrawnReason; 503 PHARMACY_ACCEPTANCE_UNAVAILABLE.')),
-  // Point of care (docs/POINT_OF_CARE_SPEC.md): walk-ins and stock at the pharmacy. Proposed; 404 until served.
+  // Pharmacy point-of-care stock and counter sales (hid-system BILL-1, 0166; POINT_OF_CARE_SPEC §4 counter only and §5).
   proposed(r('pharmacy.saleHandOver','pharmacy','/api/v1/pharmacy/sales/:billId/hand-over',P,false,one('POST','pharmacy.dispensing.create'),
-    `${POINT_OF_CARE} A counter sale handed over: takes stock (first to expire); 409 PAYMENT_REQUIRED or OUT_OF_STOCK.`)),
-  proposed(r('pharmacy.walkInOrders','pharmacy','/api/v1/pharmacy/walk-in-orders',P,false,one('POST','pharmacy.walk-in.create'),POINT_OF_CARE)),
-  proposed(r('pharmacy.stock','pharmacy','/api/v1/pharmacy/stock',G,false,one('GET','pharmacy.stock.read'),POINT_OF_CARE)),
-  proposed(r('pharmacy.stockReceipts','pharmacy','/api/v1/pharmacy/stock/receipts',P,false,one('POST','pharmacy.stock.manage'),POINT_OF_CARE)),
+    `${BILL_1} Body { expectedVersion? }. A counter sale handed over: every drug line taken from the batch that expires first; `
+    + '409 PAYMENT_REQUIRED (a counter sale is always paid first), PAYMENT_PENDING_CHECK, OUT_OF_STOCK, ALREADY_HANDED_OVER, '
+    + 'BILL_NOT_A_COUNTER_SALE. Answers { handedOverAt, bill }.')),
+  proposed(r('pharmacy.walkInOrders','pharmacy','/api/v1/pharmacy/walk-in-orders',P,false,one('POST','pharmacy.walk-in.create'),
+    `${BILL_1} Counter sales only (BILL-13): counter must be true, else 409 WALK_IN_QUEUE_NOT_AVAILABLE. patient { kind: `
+    + 'anonymous, name?, phone? (E.164) } or { kind: health_id, healthId } (a patient lookup, audited; only the bill moves); '
+    + 'outside { prescriberName } for a prescription-only item (422 PRESCRIPTION_REQUIRED); photoFileId refused until the '
+    + 'order-photo upload ships. Answers { workItemIds: [], bill }.')),
+  proposed(r('pharmacy.stock','pharmacy','/api/v1/pharmacy/stock',G,false,one('GET','pharmacy.stock.read'),
+    `${BILL_1} ?q (2-60, never a Health ID or NIN)&filter=low|expiring&page: { items: StockLine (onHand non-expired, `
+    + 'expiredOnHand, batches with expired), nextPage }, 50 per page; only items with stock settings.')),
+  proposed(r('pharmacy.stockReceipts','pharmacy','/api/v1/pharmacy/stock/receipts',P,false,one('POST','pharmacy.stock.manage'),
+    `${BILL_1} 1-100 lines { catalogueItemId, batchNumber, expiresOn (after today), quantity, unitCostKobo? }; 409 STOCK_NOT_KEPT, `
+    + 'BATCH_EXPIRY_MISMATCH. Answers { items: StockLine[] }.')),
   proposed(r('pharmacy.stockAdjustments','pharmacy','/api/v1/pharmacy/stock/adjustments',P,false,one('POST','pharmacy.stock.manage'),
-    `${POINT_OF_CARE} Reason required.`)),
-  proposed(r('pharmacy.stockMovements','pharmacy','/api/v1/pharmacy/stock/:catalogueItemId/movements',G,false,one('GET','pharmacy.stock.read'),POINT_OF_CARE)),
+    `${BILL_1} { catalogueItemId, batchId, change (non-zero), reason damaged|expired|count|returned, note (required for count) }; `
+    + '409 STOCK_BELOW_ZERO. Answers the StockLine.')),
+  proposed(r('pharmacy.stockMovements','pharmacy','/api/v1/pharmacy/stock/:catalogueItemId/movements',G,false,one('GET','pharmacy.stock.read'),
+    `${BILL_1} Append-only, newest first, 50 per page: receipt, adjustment, dispensing, dispensing_reversal, counter_sale; no patient.`)),
+  proposed(r('pharmacy.stockSettings','pharmacy','/api/v1/pharmacy/stock/:catalogueItemId/settings',['PUT'],false,one('PUT','pharmacy.stock.manage'),
+    `${BILL_1} { unit (1-40), reorderLevel (0-1,000,000), expectedVersion }: makes a drug stock-kept; 409 STOCK_UNIT_LOCKED while `
+    + 'any batch holds stock. Answers the StockLine.')),
   r('pharmacy.import','pharmacy','/api/v1/pharmacy/imports/:importId',G,false,one('GET','pharmacy.import.read')),
   // A patient's imported medicines (hid-system Session B, branch claude/ecstatic-ramanujan-q4i1eo-pharmacy-patient-imports;
   // not on staging-novu-ci-20261005 yet). Migrate's "From paper records" hides it while it answers 404.
@@ -1316,37 +1343,79 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   proposed(r('commercial.subscriptionCheckout','commercial','/api/v1/commercial/subscription/checkout',P,false,one('POST','billing.subscription.manage'),
     'Answers a Paystack authorizationUrl; payment is confirmed only by the server (webhook or verify).')),
   proposed(r('commercial.invoices','commercial','/api/v1/commercial/invoices',G,false,one('GET','billing.subscription.read'))),
-  // Point of care (docs/POINT_OF_CARE_SPEC.md): payments, price list and end of day at a facility. Proposed, not yet
-  // served by hid-system; every caller treats a 404 as "not switched on yet". Health ID records payments, never moves money.
+  // Patient billing release 1 (hid-system BILL-1, 0162-0165, built on docs/POINT_OF_CARE_SPEC.md): payment setup, the
+  // price list (the facility's one item master, BILL-7), bills, payments and HMO cover, receipts, outstanding balances
+  // and end of day. Every caller treats a 404 that is not a missing record as "not switched on yet". Health ID records
+  // payments, never moves money.
   proposed(r('commercial.paymentSettings','commercial','/api/v1/commercial/payment-settings',['GET','PUT'],false,
-    one('PUT','billing.settings.manage'), POINT_OF_CARE)),
+    {GET:['billing.bill.read'],PUT:['billing.settings.manage']}, `${BILL_1} PUT the whole object with expectedVersion (412 `
+    + 'VERSION_CONFLICT); a new HMO or till has no id, none is ever deleted (active false). 409 PAY_BEFORE_NOT_AVAILABLE while '
+    + 'payBeforeAvailable is false, EMERGENCY_DEFERRAL_REQUIRED, TILL_DAY_OPEN.')),
   proposed(r('commercial.catalogueItems','commercial','/api/v1/commercial/catalogue-items',GP,false,
-    {GET:['billing.catalogue.read'],POST:['billing.catalogue.manage']}, POINT_OF_CARE)),
+    {GET:['billing.catalogue.read'],POST:['billing.catalogue.manage']}, `${BILL_1} GET ?kind&q (2+, never a Health ID or NIN)`
+    + '&active&page: { items, page, pageSize: 50, more }. POST an item (kind drug | lab_test | other, the screen\'s "Service"), '
+    + 'with an optional national code (HID-MED, LOINC or HID-LAB); 409 NATIONAL_CODE_NOT_FOUND, NATIONAL_CODE_ALREADY_PRICED, '
+    + 'CATALOGUE_ITEM_EXISTS, CATALOGUE_LIMIT. No picture yet (imageFileId refused).')),
+  proposed(r('commercial.catalogueUnpricedCodes','commercial','/api/v1/commercial/catalogue-items/unpriced-codes',G,false,
+    one('GET','billing.catalogue.manage'), `${BILL_1} The last 30 days' national codes with no priced item: { items: [{ codeSystem, `
+    + 'code, display, count }] }. No patient.')),
   proposed(r('commercial.catalogueItem','commercial','/api/v1/commercial/catalogue-items/:itemId',['PATCH'],false,
-    one('PATCH','billing.catalogue.manage'), `${POINT_OF_CARE} An image is uploaded through the files service, then PATCH { imageFileId }.`)),
+    one('PATCH','billing.catalogue.manage'), `${BILL_1} Only the changed fields with expectedVersion; kind never changes; `
+    + 'withdrawn with active false, never deleted.')),
   proposed(r('commercial.bills','commercial','/api/v1/commercial/bills',GP,false,
-    {GET:['billing.bill.read'],POST:['billing.bill.create']}, POINT_OF_CARE)),
-  proposed(r('commercial.bill','commercial','/api/v1/commercial/bills/:billId',G,false,one('GET','billing.bill.read'), POINT_OF_CARE)),
+    {GET:['billing.bill.read'],POST:['billing.bill.create']}, `${BILL_1} GET ?status (or open)&source visit|pharmacy|lab&q (2-60: a `
+    + 'bill or receipt number or a name, never a Health ID or NIN)&date&page, 25 per page, audited per patient shown. POST '
+    + '{ source, patient: { visitQueueEntryId } | { anonymous: true, name? }, lines }: one bill per visit (merged: true).')),
+  proposed(r('commercial.billSummary','commercial','/api/v1/commercial/bills/summary',G,false,one('GET','billing.bill.read'),
+    `${BILL_1} ?date (a Lagos day): { date, billedKobo, collectedKobo, waivedKobo, hmoCoveredKobo, outstandingKobo, billCount }. `
+    + 'Numbers only, no patient.')),
+  proposed(r('commercial.bill','commercial','/api/v1/commercial/bills/:billId',G,false,one('GET','billing.bill.read'),
+    `${BILL_1} The bill: patient { patientId, displayName, healthIdLast4 } (never the whole Health ID), lines, payments, hmoCovers, `
+    + 'deferred, sums.')),
+  proposed(r('commercial.billLines','commercial','/api/v1/commercial/bills/:billId/lines',P,false,one('POST','billing.bill.create'),
+    `${BILL_1} { catalogueItemId, quantity, note?, expectedVersion }. Not on a void bill.`)),
+  proposed(r('commercial.billLineCancel','commercial','/api/v1/commercial/bills/:billId/lines/:lineId/cancel',P,false,
+    one('POST','billing.bill.adjust'), `${BILL_1} { reason (8-500), expectedVersion }; 409 LINE_CANCEL_BELOW_PAID.`)),
   proposed(r('commercial.billPayments','commercial','/api/v1/commercial/bills/:billId/payments',P,false,
-    one('POST','billing.payment.record'), `${POINT_OF_CARE} 409 OVERPAYMENT above dueKobo; a transfer is pending_check until confirmed.`)),
+    one('POST','billing.payment.record'), `${BILL_1} cash, pos (RRN), transfer (pending_check until a second person confirms), `
+    + 'waiver (reason; billing.payment.waive), or hmo (hmoId and approval code: recorded as HMO cover, owed by the HMO, never '
+    + 'a payment). 409 OVERPAYMENT, PAYMENT_METHOD_NOT_ACCEPTED, TILL_DAY_NOT_OPEN, BILL_VOID; 403 PAYMENT_AT_CASHIER_ONLY.')),
   proposed(r('commercial.billPaymentVoid','commercial','/api/v1/commercial/bills/:billId/payments/:paymentId/void',P,false,
-    one('POST','billing.payment.void'), `${POINT_OF_CARE} Reason required.`)),
+    one('POST','billing.payment.void'), `${BILL_1} { reason (8-500; a refund is "Refund: …") }; 403 SECOND_PERSON_REQUIRED for `
+    + 'the person who took it.')),
   proposed(r('commercial.billPaymentConfirm','commercial','/api/v1/commercial/bills/:billId/payments/:paymentId/confirm',P,false,
-    one('POST','billing.payment.confirm'), POINT_OF_CARE)),
+    one('POST','billing.payment.confirm'), `${BILL_1} A transfer arrived: by someone else (SECOND_PERSON_REQUIRED); 409 PAYMENT_NOT_PENDING.`)),
+  proposed(r('commercial.billHmoCoverCancel','commercial','/api/v1/commercial/bills/:billId/hmo-covers/:coverId/cancel',P,false,
+    one('POST','billing.payment.void'), `${BILL_1} { reason, expectedVersion }: by someone else; the amount goes back on what the `
+    + 'patient owes.')),
   proposed(r('commercial.billReceipt','commercial','/api/v1/commercial/bills/:billId/receipt',G,false,
-    one('GET','billing.bill.read'), POINT_OF_CARE)),
+    one('GET','billing.bill.read'), `${BILL_1} ?paymentId: that payment's receipt, else the latest (audited); cancelled true for a `
+    + 'voided payment. None for HMO cover (404 RECEIPT_NOT_FOUND).')),
   proposed(r('commercial.billDefer','commercial','/api/v1/commercial/bills/:billId/defer',P,false,
-    one('POST','billing.bill.defer'), `${POINT_OF_CARE} Reason: emergency | inpatient.`)),
+    one('POST','billing.bill.defer'), `${BILL_1} { reason: emergency | inpatient (409 DEFERRAL_REASON_NOT_AVAILABLE), note? }.`)),
   proposed(r('commercial.billPatient','commercial','/api/v1/commercial/bills/:billId/patient',P,false,
-    one('POST','billing.bill.create'), `${POINT_OF_CARE} { healthId }: puts a finished walk-in sale or lab request, and its work and results, on that Health ID.`)),
+    one('POST','billing.bill.create'), `${BILL_1} { healthId } in the body (a patient lookup, audited): puts an anonymous counter `
+    + 'sale on that Health ID; only the bill moves. 409 BILL_NOT_A_COUNTER_SALE.')),
+  proposed(r('commercial.billVoid','commercial','/api/v1/commercial/bills/:billId/void',P,false,
+    one('POST','billing.bill.adjust'), `${BILL_1} { reason (8-500), expectedVersion }; 409 BILL_HAS_PAYMENTS.`)),
+  // Paying online through the facility's own Paystack (BILL-14): built, switched off (404 ONLINE_PAYMENT_NOT_AVAILABLE).
+  proposed(r('commercial.billOnlinePaymentLinks','commercial','/api/v1/commercial/bills/:billId/online-payment-links',P,false,
+    one('POST','billing.payment.record'), `${BILL_1} Switched off everywhere: 404 ONLINE_PAYMENT_NOT_AVAILABLE until legal, the `
+    + 'DPO and the owner approve. { amountKobo, email? }: { authorizationUrl, reference, expiresAt }.')),
+  proposed(r('commercial.outstanding','commercial','/api/v1/commercial/outstanding',G,false,one('GET','billing.report.read'),
+    `${BILL_1} ?olderThanDays (0-365)&page: patients who owe, oldest first, { items: [{ patient, bills, dueKobo, oldestDays }], `
+    + 'totalDueKobo, nextPage }; audited per patient shown.')),
+  proposed(r('commercial.hmoReceivables','commercial','/api/v1/commercial/hmo-receivables',G,false,one('GET','billing.report.read'),
+    `${BILL_1} What each HMO owes (covers pending a claim): { items: [{ hmoId, hmoName, count, amountKobo, oldestDays }] }.`)),
   proposed(r('commercial.currentShift','commercial','/api/v1/commercial/shifts/current',G,false,
-    one('GET','billing.shift.own'), `${POINT_OF_CARE} By payment-settings dayCloseBy: the facility's day, the signed-in `
-    + 'cashier\'s own, or with ?tillId= that till\'s; null when none is open.')),
+    one('GET','billing.shift.own'), `${BILL_1} By payment-settings dayCloseBy (the day is a "till day"): { shift: the facility's `
+    + 'day, the signed-in cashier\'s own, or with ?tillId= that till\'s, or null; scope }.')),
   proposed(r('commercial.shifts','commercial','/api/v1/commercial/shifts',GP,false,
-    {GET:['billing.shift.manage'],POST:['billing.shift.own']}, `${POINT_OF_CARE} GET ?date= or ?status=open (the cashiers' or `
-    + 'tills\' overview); POST { openingCashKobo, tillId? } (tillId required when dayCloseBy is till).')),
+    {GET:['billing.shift.manage'],POST:['billing.shift.own']}, `${BILL_1} GET ?date= or ?status=open (the cashiers' or `
+    + 'tills\' overview); POST { openingCashKobo, tillId? } (tillId required when dayCloseBy is till); 409 SHIFT_ALREADY_OPEN.')),
   proposed(r('commercial.shiftClose','commercial','/api/v1/commercial/shifts/:shiftId/close',P,false,
-    one('POST','billing.shift.own'), `${POINT_OF_CARE} Your own day or till; another cashier's needs billing.shift.manage.`)),
+    one('POST','billing.shift.own'), `${BILL_1} { countedCashKobo, note (required when the difference is not 0), expectedVersion }. `
+    + 'Your own day or till; another cashier\'s needs billing.shift.manage. A closed day never changes.')),
 
   r('admin.session','admin','/api/v1/admin/session',G,false,one('GET','platform.admin.access')),
   r('admin.overview','admin','/api/v1/admin/overview',G,false,one('GET','platform.admin.access')),
@@ -1646,6 +1715,8 @@ export const NON_FRONTEND_ENDPOINTS: readonly string[] = [
   '/api/v1/notifications/emergency-contact-alert', '/api/v1/notifications/staff-invitation',
   // The empty, VAPID-signed push Identity's dispatcher asks notification-api to send (B6); the gateway does not route it.
   '/api/v1/notifications/web-push',
+  // Paystack's own call to ehr-api (BILL-14, switched off), checked by its signature: never a browser's.
+  '/api/v1/commercial/paystack/*',
   // This admin route exists but always returns INTEGRATION_CREDENTIAL_ROTATION_EXTERNAL.
   '/api/v1/admin/integrations/:provider/credential-reference',
 ]

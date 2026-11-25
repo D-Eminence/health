@@ -1,13 +1,14 @@
 import { useId, useState } from 'react'
 import { Plus, X } from 'lucide-react'
 import { Switch } from '../../../kasuwa/interactive'
-import { Alert, Button, Field, Input, PageHeader, Textarea, cx } from '../../../kasuwa/ui'
+import { Alert, Button, Field, Input, PageHeader, Select, Textarea, cx } from '../../../kasuwa/ui'
+import { naira } from './money'
+import { useCommerceRead } from './useCommerceRead'
 import { FormActions, FormPage, LoadingRows, Step } from '../../../kasuwa/parts'
 import { useToast } from '../../../kasuwa/toast'
 import { useDeptAccess } from '../parts/access'
-import { commerce, METHOD_LABEL, PAYMENT_METHODS, type DayCloseBy, type Hmo, type PaymentMethod, type PaymentSettings, type Till } from './api'
-import { NOT_SWITCHED_ON } from './NotSwitchedOn'
-import { useCommerceRead } from './useCommerceRead'
+import { commerce, METHOD_LABEL, PAYMENT_METHODS, type CatalogueItem, type DayCloseBy, type ListPage, type PaymentMethod, type PaymentSettings } from './api'
+import { BILLING_OFF, NOT_SWITCHED_ON, NotSwitchedOn } from './NotSwitchedOn'
 
 const WHERE: readonly { value: PaymentSettings['wherePaid']; title: string; hint: string }[] = [
   { value: 'cashier', title: 'At the cashier', hint: 'Patients pay at one desk, then bring the receipt to the pharmacy or lab.' },
@@ -23,14 +24,21 @@ const METHOD_HINT: Readonly<Record<PaymentMethod, string>> = {
   cash: 'Notes and coins. The screen works out the change.',
   pos: 'Card on your POS terminal. Staff type the reference (RRN) on the slip.',
   transfer: 'To the facility’s bank account. Shows “Waiting for check” until someone confirms it arrived.',
-  hmo: 'HMO or NHIA cover. Staff choose the HMO and type the approval code.',
+  hmo: 'HMO or NHIA cover. Staff choose the HMO and type the approval code. Recorded as owed by the HMO, not as money paid.',
   waiver: 'No charge, with a reason. Only staff allowed to waive can use it.',
 }
 
+/** What a facility with no setup answers (BILL-1 §1): pay at the cashier, cash, POS and transfer, nothing waits for payment. */
 const DEFAULTS: PaymentSettings = {
-  wherePaid: 'cashier', methods: ['cash', 'pos', 'transfer'], payBefore: { pharmacy: true, lab: true }, allowDeferredFor: ['emergency'],
-  transferAccount: null, hmos: [], receiptFooter: null, dayCloseBy: 'facility', tills: [], version: 0,
+  wherePaid: 'cashier', methods: ['cash', 'pos', 'transfer'], payBefore: { pharmacy: false, lab: false }, allowDeferredFor: ['emergency'],
+  transferAccount: null, hmos: [], receiptFooter: null, dayCloseBy: 'facility', tills: [], checkInChargeItemId: null,
+  payBeforeAvailable: false, onlinePaymentAvailable: false, version: 0,
 }
+
+/** An HMO or till as the form keeps it: one already saved keeps its id; a new one has none until it is saved. */
+interface Entry { key: string; id?: string; name: string; active: boolean }
+const entriesOf = (list: readonly { id: string; name: string; active?: boolean }[]): Entry[] =>
+  list.map(entry => ({ key: entry.id, id: entry.id, name: entry.name, active: entry.active !== false }))
 
 /**
  * Payment setup (docs/POINT_OF_CARE_SPEC.md §1): where people pay, the ways this facility takes, whether the pharmacy and
@@ -40,7 +48,8 @@ const DEFAULTS: PaymentSettings = {
 export function PaymentSetup() {
   const { facilityId } = useDeptAccess()
   const settings = useCommerceRead<PaymentSettings>(facilityId ? `settings:${facilityId}` : null, signal => commerce.paymentSettings(facilityId!, signal))
-  // Payment setup that answers 404 opens as a new setup; saving it then says so (NOT_SWITCHED_ON).
+  // Payment setup that answers 404: billing is not switched on here.
+  if (settings.status === 'off') return <div className="flex flex-col gap-5"><PageHeader title="Payment setup" /><NotSwitchedOn message={BILLING_OFF} /></div>
   if (settings.status === 'loading' && settings.data === null) return <div className="flex flex-col gap-5"><PageHeader title="Payment setup" /><LoadingRows rows={4} label="Loading payment setup" /></div>
   if (settings.status === 'error' && settings.data === null) return <div className="flex flex-col gap-5">
     <PageHeader title="Payment setup" />
@@ -57,16 +66,20 @@ function SetupForm({ initial, onSaved }: { readonly initial: PaymentSettings; re
   const [wherePaid, setWherePaid] = useState(initial.wherePaid)
   const [methods, setMethods] = useState<readonly PaymentMethod[]>(initial.methods)
   const [payBefore, setPayBefore] = useState(initial.payBefore)
-  const [deferred, setDeferred] = useState(initial.allowDeferredFor)
+  // Pay before waits for the clinical lead's sign-off (BILL-3): built, and switched off until then.
+  const payBeforeOn = initial.payBeforeAvailable === true
+  // Emergencies are always served first: always ticked, and it can't be changed (BILL-3).
+  const [deferred, setDeferred] = useState<readonly ('emergency' | 'inpatient')[]>(() => ['emergency', ...initial.allowDeferredFor.filter(reason => reason === 'inpatient')])
+  const [checkInItem, setCheckInItem] = useState(initial.checkInChargeItemId ?? '')
   const [bankName, setBankName] = useState(initial.transferAccount?.bankName ?? '')
   const [accountName, setAccountName] = useState(initial.transferAccount?.accountName ?? '')
   const [accountNumber, setAccountNumber] = useState(initial.transferAccount?.accountNumber ?? '')
-  const [hmos, setHmos] = useState<readonly Hmo[]>(initial.hmos)
+  const [hmos, setHmos] = useState<readonly Entry[]>(() => entriesOf(initial.hmos))
   const [newHmo, setNewHmo] = useState('')
   const [footer, setFooter] = useState(initial.receiptFooter ?? '')
   // A setup saved before these were asked has neither: one day for the whole facility, as before.
   const [closeBy, setCloseBy] = useState<DayCloseBy>(initial.dayCloseBy ?? 'facility')
-  const [tills, setTills] = useState<readonly Till[]>(initial.tills ?? [])
+  const [tills, setTills] = useState<readonly Entry[]>(() => entriesOf(initial.tills ?? []))
   const [newTill, setNewTill] = useState('')
   const [tried, setTried] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -74,6 +87,8 @@ function SetupForm({ initial, onSaved }: { readonly initial: PaymentSettings; re
   const [key] = useState(() => crypto.randomUUID())
 
   const has = (method: PaymentMethod) => methods.includes(method)
+  const services = useCommerceRead<ListPage<CatalogueItem>>(facilityId ? `services:${facilityId}` : null,
+    signal => commerce.catalogueItems(facilityId!, { kind: 'other', active: true }, signal))
   const toggle = (method: PaymentMethod, on: boolean) => setMethods(previous => PAYMENT_METHODS.filter(m => m === method ? on : previous.includes(m)))
   const toggleDeferred = (reason: 'emergency' | 'inpatient', on: boolean) =>
     setDeferred(previous => (['emergency', 'inpatient'] as const).filter(r => r === reason ? on : previous.includes(r)))
@@ -83,24 +98,26 @@ function SetupForm({ initial, onSaved }: { readonly initial: PaymentSettings; re
     bankName: (has('transfer') || transferStarted) && bankName.trim().length < 2 ? 'Type the bank’s name.' : null,
     accountName: (has('transfer') || transferStarted) && accountName.trim().length < 2 ? 'Type the name on the account.' : null,
     accountNumber: (has('transfer') || transferStarted) && !/^\d{10}$/.test(accountNumber.replace(/\s/g, '')) ? 'Type the 10-digit account number (NUBAN).' : null,
-    hmos: has('hmo') && hmos.length === 0 ? 'Add at least one HMO, or turn HMO off above.' : null,
-    tills: closeBy === 'till' && tills.length === 0 ? 'Add at least one till, or pick another way above.' : null,
+    hmos: has('hmo') && !hmos.some(hmo => hmo.active) ? 'Add at least one HMO, or turn HMO off above.' : null,
+    tills: closeBy === 'till' && !tills.some(till => till.active) ? 'Add at least one till, or pick another way above.' : null,
+    footer: footer.trim().length > 300 ? 'Keep the line to 300 characters.' : null,
   }
   const blocked = Object.values(errors).some(Boolean)
 
   function addHmo() {
     const name = newHmo.trim()
-    if (name.length < 2 || hmos.some(hmo => hmo.name.toLowerCase() === name.toLowerCase())) return
-    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-    setHmos(previous => [...previous, { id: `hmo-${slug || crypto.randomUUID()}`, name }])
+    if (name.length < 2 || name.length > 120) return
+    const same = hmos.find(hmo => hmo.name.toLowerCase() === name.toLowerCase())
+    // One switched off comes back on; a new one has no id until it is saved.
+    setHmos(previous => same ? previous.map(hmo => hmo === same ? { ...hmo, active: true } : hmo) : [...previous, { key: crypto.randomUUID(), name, active: true }])
     setNewHmo('')
   }
 
   function addTill() {
     const name = newTill.trim()
-    if (name.length < 2 || tills.some(till => till.name.toLowerCase() === name.toLowerCase())) return
-    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-    setTills(previous => [...previous, { id: `till-${slug || crypto.randomUUID()}`, name }])
+    if (name.length < 2 || name.length > 120) return
+    const same = tills.find(till => till.name.toLowerCase() === name.toLowerCase())
+    setTills(previous => same ? previous.map(till => till === same ? { ...till, active: true } : till) : [...previous, { key: crypto.randomUUID(), name, active: true }])
     setNewTill('')
   }
 
@@ -108,11 +125,15 @@ function SetupForm({ initial, onSaved }: { readonly initial: PaymentSettings; re
     setTried(true)
     if (!facilityId || blocked) return
     setBusy(true); setProblem(null)
-    const next: PaymentSettings = {
-      wherePaid, methods: [...methods], payBefore, allowDeferredFor: [...deferred],
+    // An HMO or till is never deleted: one taken off is sent as not active, and keeps its history (BILL-1 §1).
+    const entry = ({ id, name, active }: Entry) => ({ ...(id ? { id } : {}), name, active })
+    const next = {
+      wherePaid, methods: [...methods], payBefore: payBeforeOn ? payBefore : { pharmacy: false, lab: false },
+      allowDeferredFor: [...deferred],
       transferAccount: has('transfer') || transferStarted
         ? { bankName: bankName.trim(), accountName: accountName.trim(), accountNumber: accountNumber.replace(/\s/g, '') } : null,
-      hmos: [...hmos], receiptFooter: footer.trim() || null, dayCloseBy: closeBy, tills: [...tills], version: initial.version,
+      hmos: hmos.map(entry), receiptFooter: footer.trim() || null, dayCloseBy: closeBy, tills: tills.map(entry),
+      checkInChargeItemId: checkInItem || null, expectedVersion: initial.version,
     }
     const result = await commerce.savePaymentSettings(facilityId, next, key)
     setBusy(false)
@@ -146,14 +167,16 @@ function SetupForm({ initial, onSaved }: { readonly initial: PaymentSettings; re
         </Step>
 
         <Step n={3} title="Pay before" hint="Whether work waits for payment.">
-          <Switch checked={payBefore.pharmacy} onChange={on => setPayBefore(previous => ({ ...previous, pharmacy: on }))}
-            label="Pharmacy dispenses only when paid" description={payBefore.pharmacy ? 'Drugs are handed over once the bill is paid.' : 'Drugs can be handed over before payment.'} />
-          <Switch checked={payBefore.lab} onChange={on => setPayBefore(previous => ({ ...previous, lab: on }))}
-            label="Lab takes the sample only when paid" description={payBefore.lab ? 'The sample is taken once the bill is paid.' : 'The sample can be taken before payment.'} />
+          {!payBeforeOn ? <p className="m-0 text-[13px] text-ink-2">Not switched on yet. It waits for the clinical lead’s sign-off; until then the pharmacy and the lab never wait for payment.</p> : null}
+          <Switch checked={payBeforeOn && payBefore.pharmacy} disabled={!payBeforeOn} onChange={on => setPayBefore(previous => ({ ...previous, pharmacy: on }))}
+            label="Pharmacy dispenses only when paid" description={!payBeforeOn ? 'Not switched on yet.' : payBefore.pharmacy ? 'Drugs are handed over once the bill is paid.' : 'Drugs can be handed over before payment.'} />
+          <Switch checked={payBeforeOn && payBefore.lab} disabled={!payBeforeOn} onChange={on => setPayBefore(previous => ({ ...previous, lab: on }))}
+            label="Lab takes the sample only when paid" description={!payBeforeOn ? 'Not switched on yet.' : payBefore.lab ? 'The sample is taken once the bill is paid.' : 'The sample can be taken before payment.'} />
           <div className="border-t border-line pt-4">
             <p className="m-0 mb-3 text-[13px] font-medium text-ink-2">Serve now, bill follows</p>
             <div className="flex flex-col gap-4">
-              <Switch checked={deferred.includes('emergency')} onChange={on => toggleDeferred('emergency', on)} label="Emergencies" description="Care first; the bill is settled later." />
+              <Switch checked disabled onChange={() => undefined} label="Emergencies"
+                description="Always: emergency and unknown patients are served first, and their bill follows. This can’t be switched off." />
               <Switch checked={deferred.includes('inpatient')} onChange={on => toggleDeferred('inpatient', on)} label="Admitted patients" description="Added to the bill paid at discharge." />
             </div>
           </div>
@@ -173,24 +196,25 @@ function SetupForm({ initial, onSaved }: { readonly initial: PaymentSettings; re
         </Step>
 
         <Step n={5} title="HMOs" hint="HMOs and insurers you accept, NHIA included.">
-          {hmos.length > 0 ? (
+          {hmos.some(hmo => hmo.active) ? (
             <ul className="m-0 flex list-none flex-col divide-y divide-line rounded-lg p-0 ring-1 ring-line">
-              {hmos.map(hmo => (
-                <li key={hmo.id} className="flex items-center justify-between gap-3 py-1 pr-1 pl-3.5">
+              {hmos.filter(hmo => hmo.active).map(hmo => (
+                <li key={hmo.key} className="flex items-center justify-between gap-3 py-1 pr-1 pl-3.5">
                   <span className="min-w-0 break-words text-sm text-ink">{hmo.name}</span>
-                  <Button variant="ghost" size="sm" icon={X} aria-label={`Remove ${hmo.name}`} className="size-11 px-0 sm:size-9"
-                    onClick={() => setHmos(previous => previous.filter(entry => entry.id !== hmo.id))} />
+                  <Button variant="ghost" size="sm" icon={X} aria-label={`Stop accepting ${hmo.name}`} className="size-11 px-0 sm:size-9"
+                    onClick={() => setHmos(previous => hmo.id ? previous.map(entry => entry === hmo ? { ...entry, active: false } : entry) : previous.filter(entry => entry !== hmo))} />
                 </li>
               ))}
             </ul>
           ) : <p className="m-0 text-[13px] text-ink-3">No HMOs yet.</p>}
+          {hmos.some(hmo => !hmo.active) ? <p className="m-0 text-[13px] text-ink-3">No longer accepted (kept for past bills): {hmos.filter(hmo => !hmo.active).map(hmo => hmo.name).join(', ')}. Add one again to accept it.</p> : null}
           <div className="flex gap-2">
             <Input aria-label="HMO name" placeholder="NHIA, Hygeia HMO…" autoComplete="off" value={newHmo} className="flex-1"
               onChange={event => setNewHmo(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); addHmo() } }} />
             <Button icon={Plus} onClick={addHmo} disabled={newHmo.trim().length < 2}>Add HMO</Button>
           </div>
           {tried && errors.hmos ? <p className="m-0 text-xs font-medium text-danger-ink">{errors.hmos}</p> : null}
-          <Field label="Line at the foot of each receipt" optional htmlFor={`${ids}-footer`} className="border-t border-line pt-4">
+          <Field label="Line at the foot of each receipt" optional htmlFor={`${ids}-footer`} className="border-t border-line pt-4" error={errors.footer}>
             <Textarea id={`${ids}-footer`} rows={2} value={footer} onChange={event => setFooter(event.target.value)} placeholder="Thank you. Keep this receipt for the pharmacy or lab." />
           </Field>
         </Step>
@@ -211,13 +235,13 @@ function SetupForm({ initial, onSaved }: { readonly initial: PaymentSettings; re
           </div>
           {closeBy === 'till' ? <div className="flex flex-col gap-3 border-t border-line pt-4">
             <p className="m-0 text-[13px] font-medium text-ink-2">Tills</p>
-            {tills.length > 0 ? (
+            {tills.some(till => till.active) ? (
               <ul className="m-0 flex list-none flex-col divide-y divide-line rounded-lg p-0 ring-1 ring-line">
-                {tills.map(till => (
-                  <li key={till.id} className="flex items-center justify-between gap-3 py-1 pr-1 pl-3.5">
+                {tills.filter(till => till.active).map(till => (
+                  <li key={till.key} className="flex items-center justify-between gap-3 py-1 pr-1 pl-3.5">
                     <span className="min-w-0 break-words text-sm text-ink">{till.name}</span>
-                    <Button variant="ghost" size="sm" icon={X} aria-label={`Remove ${till.name}`} className="size-11 px-0 sm:size-9"
-                      onClick={() => setTills(previous => previous.filter(entry => entry.id !== till.id))} />
+                    <Button variant="ghost" size="sm" icon={X} aria-label={`Stop using ${till.name}`} className="size-11 px-0 sm:size-9"
+                      onClick={() => setTills(previous => till.id ? previous.map(entry => entry === till ? { ...entry, active: false } : entry) : previous.filter(entry => entry !== till))} />
                   </li>
                 ))}
               </ul>
@@ -229,6 +253,17 @@ function SetupForm({ initial, onSaved }: { readonly initial: PaymentSettings; re
             </div>
             {tried && errors.tills ? <p className="m-0 text-xs font-medium text-danger-ink">{errors.tills}</p> : null}
           </div> : null}
+        </Step>
+
+        <Step n={7} title="Charge at check-in" hint="Optional: a service every visit's bill starts with, such as the consultation fee.">
+          <Field label="Service" htmlFor={`${ids}-checkin`} optional
+            hint={services.status === 'off' ? undefined : 'From the price list’s services. Choose none to add nothing at check-in.'}>
+            <Select id={`${ids}-checkin`} value={checkInItem} onChange={event => setCheckInItem(event.target.value)}>
+              <option value="">None</option>
+              {(services.data?.items ?? []).map(item => <option key={item.id} value={item.id}>{item.name} · {naira(item.prices.cashKobo)}</option>)}
+              {checkInItem && !(services.data?.items ?? []).some(item => item.id === checkInItem) ? <option value={checkInItem}>The service chosen before</option> : null}
+            </Select>
+          </Field>
         </Step>
 
         {tried && blocked ? <Alert intent="error" title="Not saved yet">Check the steps marked above.</Alert> : null}

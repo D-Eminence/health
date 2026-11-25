@@ -121,7 +121,7 @@ describe('every printed paper carries it, and no web address', () => {
 
   it('a receipt: the header on paper only, the facility’s name on the screen as before', () => {
     const bill: Bill = {
-      id: 'bill-1', number: 'B-0001', source: 'pharmacy', status: 'paid', patient: { patientId: 'p-1', displayName: 'Patient One', healthId: 'HID-ZDEMAAA2' },
+      id: 'bill-1', number: 'B-0001', source: 'pharmacy', status: 'paid', patient: { patientId: 'p-1', displayName: 'Patient One', healthIdLast4: 'MAA2' },
       lines: [{ id: 'line-1', catalogueItemId: 'item-1', name: 'Paracetamol 500 mg', quantity: 2, unitKobo: 5000, totalKobo: 10000 }],
       totalKobo: 10000, paidKobo: 10000, dueKobo: 0, receiptNumber: 'R-0001', createdAt: '2026-11-23T09:00:00.000Z', version: 1,
       payments: [{ id: 'pay-1', method: 'cash', amountKobo: 10000, receivedBy: 'staff-1', receivedAt: '2026-11-23T09:01:00.000Z', voided: false }],

@@ -1,18 +1,20 @@
 import { useId, useState } from 'react'
-import { Banknote, BadgeCheck, CreditCard, Landmark, ShieldCheck, Store } from 'lucide-react'
+import { Banknote, BadgeCheck, CreditCard, Globe, Landmark, Store } from 'lucide-react'
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, Field, Input, PageHeader, SectionHeader, StatCard, StatGroup, Textarea, cx, type Icon } from '../../../kasuwa/ui'
 import { ConfirmSheet, FormActions, LoadingRows } from '../../../kasuwa/parts'
 import { useToast } from '../../../kasuwa/toast'
 import { useDeptAccess } from '../parts/access'
-import { commerce, METHOD_LABEL, PAYMENT_METHODS, type DayCloseBy, type ListPage, type PaymentMethod, type PaymentSettings, type Shift, type Till } from './api'
+import { commerce, lagosDay, lagosTime, METHOD_LABEL, type DayCloseBy, type ListPage, type PaymentSettings, type RecordedMethod, type Shift, type Till } from './api'
 import { naira, parseNaira } from './money'
-import { NOT_SWITCHED_ON } from './NotSwitchedOn'
+import { BILLING_OFF, NOT_SWITCHED_ON, NotSwitchedOn } from './NotSwitchedOn'
 import { useCommerceRead } from './useCommerceRead'
 
-const METHOD_ICON: Readonly<Record<PaymentMethod, Icon>> = {
-  cash: Banknote, pos: CreditCard, transfer: Landmark, hmo: ShieldCheck, waiver: BadgeCheck,
+const METHOD_ICON: Readonly<Record<RecordedMethod, Icon>> = {
+  cash: Banknote, pos: CreditCard, transfer: Landmark, waiver: BadgeCheck, online: Globe,
 }
-const clock = (iso: string) => new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(iso))
+/** The ways money is taken, in the order a day shows them. Waivers and HMO cover are never money taken. */
+const MONEY: readonly RecordedMethod[] = ['cash', 'pos', 'transfer', 'online']
+const clock = (iso: string) => lagosTime(iso, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 
 /** "₦500.00 over", "₦200.00 short", "Matches". */
 export function differenceText(kobo: number): string {
@@ -20,11 +22,12 @@ export function differenceText(kobo: number): string {
   return kobo > 0 ? `${naira(kobo)} over` : `${naira(-kobo)} short`
 }
 
-/** Payments recorded, waivers left out. */
+/** Money taken in the day, less what was cancelled in it: waivers and HMO cover left out. */
 function takenOf(shift: Shift): number {
   return shift.totals.filter(total => total.method !== 'waiver').reduce((sum, total) => sum + total.amountKobo, 0)
 }
-const today = () => new Date().toISOString().slice(0, 10)
+/** Today, the Lagos day. */
+const today = () => lagosDay()
 
 /** Whose day a panel shows: the facility's, the signed-in cashier's, or one till's. */
 type DayOf = { kind: 'facility' } | { kind: 'cashier' } | { kind: 'till'; till: Till }
@@ -50,11 +53,12 @@ export function EndOfDay() {
   return (
     <div className="flex flex-col gap-5">
       <PageHeader title="End of day" description={settings.status === 'loading' ? undefined : description} />
-      {settings.status === 'loading' && settings.data === null ? <LoadingRows rows={3} label="Loading today" />
+      {settings.status === 'off' ? <NotSwitchedOn message={BILLING_OFF} />
+        : settings.status === 'loading' && settings.data === null ? <LoadingRows rows={3} label="Loading today" />
         : settings.status === 'error' && settings.data === null
           ? <Alert intent="error" title="Couldn’t load today" action={<Button size="sm" onClick={settings.reload}>Try again</Button>}>{settings.error}</Alert>
           : closeBy === 'cashier' ? <CashierDays canManage={canManage} />
-            : closeBy === 'till' && settings.data ? <TillDays tills={settings.data.tills ?? []} />
+            : closeBy === 'till' && settings.data ? <TillDays tills={(settings.data.tills ?? []).filter(till => till.active !== false)} />
               : <DayPanel of={{ kind: 'facility' }} />}
     </div>
   )
@@ -67,8 +71,9 @@ function DayPanel({ of, onChanged }: { readonly of: DayOf; readonly onChanged?: 
   const shift = useCommerceRead<Shift | null>(facilityId ? `shift:${facilityId}:${tillId ?? of.kind}` : null,
     signal => commerce.currentShift(facilityId!, tillId ? { tillId } : {}, signal))
   const [closed, setClosed] = useState<Shift | null>(null)
-  // A day that answers 404 reads as no day open; opening it then says so (NOT_SWITCHED_ON).
-  return shift.status === 'loading' && shift.data === null ? <LoadingRows rows={3} label="Loading today" />
+  // A day that answers 404: billing is not switched on here.
+  return shift.status === 'off' ? <NotSwitchedOn message={BILLING_OFF} />
+    : shift.status === 'loading' && shift.data === null ? <LoadingRows rows={3} label="Loading today" />
       : shift.status === 'error' ? <Alert intent="error" title="Couldn’t load today" action={<Button size="sm" onClick={shift.reload}>Try again</Button>}>{shift.error}</Alert>
         : shift.data ? <OpenDay of={of} shift={shift.data} onClosed={done => { setClosed(done); shift.replace(null); onChanged?.() }} />
           : <>
@@ -211,14 +216,19 @@ function OpenDay({ of, shift, onClosed }: { readonly of: DayOf; readonly shift: 
   const counted = countedText.trim() === '' ? null : parseNaira(countedText)
   const difference = counted === null ? null : counted - shift.expectedCashKobo
   const error = countedText.trim() === '' ? 'Count the cash in the drawer and type the amount.' : counted === null ? 'Type an amount like 45,500.' : null
-  const totals = PAYMENT_METHODS.map(method => shift.totals.find(total => total.method === method) ?? { method, count: 0, amountKobo: 0 })
-    .filter(total => total.method !== 'waiver' || total.count > 0)
+  // A count that differs from what was expected is closed with a note saying why (BILL-1 §6).
+  const noteError = difference !== null && difference !== 0 && note.trim() === '' ? 'Say why the cash is over or short.'
+    : note.trim().length > 500 ? 'Keep the note to 500 characters.' : null
+  const totals = MONEY.map(method => shift.totals.find(total => total.method === method) ?? { method, count: 0, amountKobo: 0 })
+    .filter(total => total.method !== 'online' || total.count > 0)
+  const waivers = shift.waivers ?? shift.totals.find(total => total.method === 'waiver') ?? { count: 0, amountKobo: 0 }
+  const covered = shift.hmoCovered ?? { count: 0, amountKobo: 0 }
   const taken = takenOf(shift)
 
   async function close() {
     if (!facilityId || counted === null) return
     setBusy(true); setProblem(null)
-    const result = await commerce.closeShift(facilityId, shift.id, counted, note.trim() || null, key)
+    const result = await commerce.closeShift(facilityId, shift.id, counted, note.trim() || null, shift.version ?? 0, key)
     setBusy(false); setAsking(false)
     if (result.ok) { toast.success({ title: 'Day closed', message: difference !== null ? differenceText(difference) : undefined }); onClosed(result.data); return }
     if (result.notAvailable) { setProblem(NOT_SWITCHED_ON); return }
@@ -227,6 +237,7 @@ function OpenDay({ of, shift, onClosed }: { readonly of: DayOf; readonly shift: 
 
   return <>
     <p className="m-0 text-sm text-ink-2">{of.kind === 'till' ? `${of.till.name} opened` : 'Opened'} {clock(shift.openedAt)} by {of.kind === 'cashier' ? 'you' : shift.openedBy} with <span className="tabular">{naira(shift.openingCashKobo)}</span> in the drawer.</p>
+    {shift.overdue ? <Alert intent="warning" size="sm" title="Left open overnight">This day was opened before today. Count the cash and close it, then open today’s.</Alert> : null}
     <StatGroup cols={totals.length >= 4 ? 4 : 3} label="Taken today by way of paying">
       {totals.map(total => (
         <StatCard key={total.method} icon={METHOD_ICON[total.method]} label={METHOD_LABEL[total.method]} value={naira(total.amountKobo)}
@@ -236,12 +247,19 @@ function OpenDay({ of, shift, onClosed }: { readonly of: DayOf; readonly shift: 
     <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))] gap-3">
       <SummaryLine label="Recorded today" value={naira(taken)} />
       <SummaryLine label="Still unpaid" value={naira(shift.unpaidBills.amountKobo)} hint={`${shift.unpaidBills.count} ${shift.unpaidBills.count === 1 ? 'bill' : 'bills'}`} />
-      <SummaryLine label="Bill follows" value={naira(shift.deferredBills.amountKobo)} hint={`${shift.deferredBills.count} ${shift.deferredBills.count === 1 ? 'bill' : 'bills'} (emergency, inpatient)`} />
+      <SummaryLine label="Bill follows" value={naira(shift.deferredBills.amountKobo)} hint={`${shift.deferredBills.count} ${shift.deferredBills.count === 1 ? 'bill' : 'bills'} (emergency, unknown patient)`} />
     </div>
+    <section aria-labelledby={`eod-apart-${shift.id}`} className="flex flex-col gap-2">
+      <h3 id={`eod-apart-${shift.id}`} className="m-0 text-[13px] font-medium text-ink-2">Not money taken, so not in the cash</h3>
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))] gap-3">
+        <SummaryLine label="Waived" value={naira(waivers.amountKobo)} hint={`${waivers.count} ${waivers.count === 1 ? 'waiver' : 'waivers'}`} />
+        <SummaryLine label="HMO to pay" value={naira(covered.amountKobo)} hint={`${covered.count} recorded today, owed by the HMO`} />
+      </div>
+    </section>
 
     <Card className="max-w-xl">
       <CardHeader title="Count the cash" description={<>Expected in the drawer: <span className="font-semibold text-ink tabular">{naira(shift.expectedCashKobo)}</span> (opening cash plus cash taken).</>} />
-      <form className="flex flex-col gap-4 p-5" onSubmit={event => { event.preventDefault(); setTried(true); if (!error) setAsking(true) }}>
+      <form className="flex flex-col gap-4 p-5" onSubmit={event => { event.preventDefault(); setTried(true); if (!error && !noteError) setAsking(true) }}>
         <Field label="Cash counted" htmlFor={`${ids}-counted`} error={tried ? error : null} errorId={`${ids}-counted-error`}>
           <Input id={`${ids}-counted`} prefix="₦" inputMode="decimal" autoComplete="off" value={countedText} onChange={event => setCountedText(event.target.value)}
             aria-invalid={Boolean(tried && error)} aria-describedby={tried && error ? `${ids}-counted-error` : undefined} />
@@ -252,8 +270,10 @@ function OpenDay({ of, shift, onClosed }: { readonly of: DayOf; readonly shift: 
             <span className="text-title-3 text-ink tabular">{differenceText(difference)}</span>
           </p>
         ) : null}
-        <Field label="Note" optional htmlFor={`${ids}-note`} hint={difference ? 'Say why the cash is over or short, if you know.' : undefined}>
-          <Textarea id={`${ids}-note`} rows={2} value={note} onChange={event => setNote(event.target.value)} />
+        <Field label="Note" optional={!difference} htmlFor={`${ids}-note`} error={tried ? noteError : null} errorId={`${ids}-note-error`}
+          hint={difference ? 'Needed when the cash is over or short: say why.' : undefined}>
+          <Textarea id={`${ids}-note`} rows={2} maxLength={500} value={note} onChange={event => setNote(event.target.value)}
+            aria-invalid={Boolean(tried && noteError)} aria-describedby={tried && noteError ? `${ids}-note-error` : undefined} />
         </Field>
         {problem ? <Alert intent="error" title="Not closed">{problem}</Alert> : null}
         <FormActions sticky={false}><Button type="submit" variant="primary">Close day</Button></FormActions>

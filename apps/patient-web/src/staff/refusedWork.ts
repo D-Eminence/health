@@ -10,7 +10,7 @@ import { roleInSentence, roleLabel, selfServiceReview, selfServiceType, type Org
  * to refusedWork.test.ts, which checks each has words.
  */
 export type NamedRole = 'doctor' | 'clinician' | 'nurse' | 'lab' | 'pharmacist' | 'receptionist' | 'records_officer' | 'billing'
-  | 'outreach_officer'
+  | 'outreach_officer' | 'cashier' | 'billing_officer'
 
 /**
  * Work a role may not hold at a facility, as its refusal names it: the department (`name`), the `work` the role doesn't

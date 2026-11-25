@@ -5,9 +5,9 @@ import { ConfirmSheet, FormActions, PageState } from '../../../kasuwa/parts'
 import { Alert, Badge, Button, Field, FilterTabs, Input, PageHeader, Textarea, cx, timeAgo, type Tone } from '../../../kasuwa/ui'
 import { useToast } from '../../../kasuwa/toast'
 import { useBluePage } from '../../frame/pageContext'
-import { commerce, METHOD_LABEL, type Bill, type ListPage, type Payment, type PaymentSettings, type ReceiptData } from '../commerce/api'
+import { commerce, lagosDay, lagosTime, METHOD_LABEL, billName, healthIdEnding, type Bill, type ListPage, type Payment, type PaymentSettings, type ReceiptData } from '../commerce/api'
 import { naira } from '../commerce/money'
-import { NOT_SWITCHED_ON } from '../commerce/NotSwitchedOn'
+import { BILLING_OFF, NOT_SWITCHED_ON, NotSwitchedOn } from '../commerce/NotSwitchedOn'
 import { Receipt } from '../commerce/Receipt'
 import { TakePayment } from '../commerce/TakePayment'
 import { useCommerceRead } from '../commerce/useCommerceRead'
@@ -18,14 +18,9 @@ import { printReceipt } from '../../../print/printPaper'
 const LIST = '/provider/pharmacy/sales'
 type When = 'today' | 'all'
 
-/** The facility's day, as `GET bills?date=` takes it: today on this device. */
-function localDay(at = new Date()): string {
-  return `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}`
-}
-const clock = (iso: string) => {
-  const date = new Date(iso)
-  return Number.isNaN(date.getTime()) ? '' : new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit' }).format(date)
-}
+/** The facility's day, as `GET bills?date=` takes it: today in Lagos (BILL-1). */
+const localDay = () => lagosDay()
+const clock = (iso: string) => lagosTime(iso, { hour: '2-digit', minute: '2-digit' })
 
 /** Money given back on a sale: its payments taken back (each recorded with the reason). */
 const refundedOf = (bill: Bill) => bill.payments.filter(payment => payment.voided).reduce((sum, payment) => sum + payment.amountKobo, 0)
@@ -71,7 +66,7 @@ function SalesList({ when, onWhen, query, onQuery }: {
 
   if (!facilityId || !canRead) return <div className="flex flex-col gap-6">
     <PageHeader title="Sales & receipts" />
-    <Alert intent="info" title="You can’t see sales here">Your role needs permission to see bills.</Alert>
+    <Alert intent="info" title="You can’t see sales here">Your role here does not include bills. Ask a billing officer or administrator.</Alert>
   </div>
 
   return <div className="flex flex-col gap-5">
@@ -88,8 +83,9 @@ function SalesList({ when, onWhen, query, onQuery }: {
     </div>
     {read.status === 'error' && bills.length > 0 ? <Alert intent="error" size="sm" title="Couldn’t refresh sales"
       action={<Button size="sm" onClick={read.reload}>Try again</Button>}>{read.error}</Alert> : null}
+    {read.status === 'off' ? <NotSwitchedOn message={BILLING_OFF} /> : null}
     <PageState loading={read.status === 'loading'} error={bills.length ? null : read.error} hasData={bills.length > 0} onRetry={read.reload}
-      what="sales" rows={4} empty={read.status !== 'loading' && bills.length === 0 ? (q
+      what="sales" rows={4} empty={read.status !== 'loading' && read.status !== 'off' && bills.length === 0 ? (q
         ? { icon: Search, title: 'No sale matches that', description: 'Try the bill number as on the slip (B-000412), or part of the name.' }
         : { icon: ReceiptText, title: when === 'today' ? 'No sales yet today' : 'No sales yet', description: 'Sales from the counter and prescriptions show here.' }) : null}>
       <ul aria-label="Sales" className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3 p-0">
@@ -101,17 +97,17 @@ function SalesList({ when, onWhen, query, onQuery }: {
 
 function SaleCard({ bill, today }: { readonly bill: Bill; readonly today: boolean }) {
   const state = saleState(bill)
-  const what = bill.lines.map(line => line.quantity > 1 ? `${line.quantity} × ${line.name}` : line.name).join(', ')
+  const what = bill.lines.filter(line => !line.cancelled).map(line => line.quantity > 1 ? `${line.quantity} × ${line.name}` : line.name).join(', ')
   return <li className="min-w-0">
     <Link to={`${LIST}/${encodeURIComponent(bill.id)}`}
       className="flex w-full items-start gap-3 rounded-2xl bg-surface p-4 text-left text-ink no-underline shadow-[var(--shadow-card)] ring-1 ring-line transition-colors hover:bg-subtle focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--focus-ring-color)]">
       <span className="flex min-w-0 flex-1 flex-col gap-1.5">
         <span className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
           <span className="min-w-0 flex-[1_1_10rem]">
-            <span className="block text-[17px] font-semibold text-ink break-words">{bill.patient?.displayName ?? 'Walk-in'}</span>
+            <span className="block text-[17px] font-semibold text-ink break-words">{billName(bill)}</span>
             <span className="block text-[13px] font-normal text-ink-3">
               <span className="tabular">{bill.receiptNumber ?? bill.number}</span> · {today ? clock(bill.createdAt) : timeAgo(bill.createdAt)}
-              {bill.patient?.healthId ? <> · <span className="whitespace-nowrap tracking-[.04em]">{bill.patient.healthId}</span></> : null}
+              {healthIdEnding(bill.patient) ? <> · <span className="whitespace-nowrap">{healthIdEnding(bill.patient)}</span></> : null}
             </span>
           </span>
           <span className="shrink-0 text-[19px] font-semibold text-ink tabular">{naira(bill.totalKobo)}</span>
@@ -140,23 +136,23 @@ function SaleRecord({ billId }: { readonly billId: string }) {
 
   if (!facilityId || !permissions.includes('billing.bill.read')) return <div className="flex flex-col gap-6">
     <PageHeader title="Sale" back={back} />
-    <Alert intent="info" title="You can’t see sales here">Your role needs permission to see bills.</Alert>
+    <Alert intent="info" title="You can’t see sales here">Your role here does not include bills. Ask a billing officer or administrator.</Alert>
   </div>
   if (!bill) return <div className="flex flex-col gap-6">
     <PageHeader title="Sale" back={back} />
     <PageState loading={read.status === 'loading'} error={read.status === 'error' ? read.error : null} hasData={false} onRetry={read.reload} what="the sale"
-      empty={read.status === 'off' ? { icon: ReceiptText, title: 'No such sale', description: 'It may be at another facility.' } : null}>{null}</PageState>
+      empty={null}>{read.status === 'off' ? <NotSwitchedOn message={BILLING_OFF} /> : null}</PageState>
   </div>
 
   const owed = (bill.status === 'unpaid' || bill.status === 'part_paid') && refundedOf(bill) === 0
   const canPay = owed && permissions.includes('billing.payment.record')
-  // A counter sale paid (or set to follow) but not yet handed over: finish it here.
-  const toHandOver = bill.handedOverAt === null && (bill.status === 'paid' || bill.status === 'deferred') && permissions.includes('pharmacy.dispensing.create')
+  // A counter sale paid but not yet handed over: finish it here. A counter sale is always paid first (BILL-1 §8).
+  const toHandOver = bill.counter !== false && bill.source === 'pharmacy' && !bill.handedOverAt && bill.status === 'paid' && permissions.includes('pharmacy.dispensing.create')
   async function handOver() {
     if (!bill || !facilityId || handing.busy) return
     const key = handing.key || crypto.randomUUID()
     setHanding({ busy: true, error: '', key })
-    const result = await commerce.handOverSale(facilityId, bill.id, key)
+    const result = await commerce.handOverSale(facilityId, bill.id, key, bill.version)
     if (result.ok) { read.replace(result.data.bill); setHanding({ busy: false, error: '', key: '' }); toast.success({ title: 'Handed over', message: `Bill ${bill.number}` }); return }
     setHanding({ busy: false, error: result.notAvailable ? NOT_SWITCHED_ON : result.error, key })
   }
@@ -165,12 +161,12 @@ function SaleRecord({ billId }: { readonly billId: string }) {
   const state = saleState(bill)
 
   return <div data-layout="column" className="mx-auto flex w-full max-w-2xl flex-col gap-5">
-    <PageHeader back={back} title={<>{bill.patient?.displayName ?? 'Walk-in'}</>}
+    <PageHeader back={back} title={<>{billName(bill)}</>}
       description={<><span className="tabular">Bill {bill.number}</span> · {timeAgo(bill.createdAt)} · <Badge size="sm" tone={state.tone}>{state.word}</Badge></>} />
     <Receipt bill={bill} receipt={receipt.data} facilityName={facility?.name} hmos={settings.data?.hmos} footer={settings.data?.receiptFooter} />
     {refundedOf(bill) > 0 ? <ul aria-label="Refunds" className="m-0 flex list-none flex-col gap-1 p-0 text-[14px] text-ink-2">
       {bill.payments.filter(payment => payment.voided).map(payment => <li key={payment.id}>
-        Refunded <span className="font-medium text-ink tabular">{naira(payment.amountKobo)}</span> ({METHOD_LABEL[payment.method]}){payment.reason ? `: ${payment.reason}` : ''}</li>)}
+        Refunded <span className="font-medium text-ink tabular">{naira(payment.amountKobo)}</span> ({METHOD_LABEL[payment.method] ?? 'Payment'}){payment.voidReason ? `: ${payment.voidReason.replace(/^Refund:\s*/, '')}` : ''}{payment.voidedBy ? ` · ${payment.voidedBy}` : ''}</li>)}
     </ul> : null}
     {toHandOver ? <Alert intent="warning" title="Not handed over yet"
       action={<Button size="sm" icon={PackageCheck} aria-busy={handing.busy || undefined} aria-disabled={handing.busy || undefined} onClick={() => void handOver()}>
@@ -205,28 +201,28 @@ function RefundSheet({ facilityId, bill, payments, onClose, onRefunded }: {
 
   async function refund() {
     if (busy) return
-    if (reason.trim().length < 5) { setError('Say why (at least 5 letters): it is kept with the sale.'); document.getElementById('refund-reason')?.focus(); return }
+    if (reason.trim().length < 8) { setError('Say why (at least 8 characters): it is kept with the sale.'); document.getElementById('refund-reason')?.focus(); return }
     setBusy(true); setError('')
-    const result = await commerce.voidPayment(facilityId, bill.id, payment.id, `Refund: ${reason.trim()}`, key)
+    const result = await commerce.voidPayment(facilityId, bill.id, payment.id, `Refund: ${reason.trim()}`, bill.version, key)
     setBusy(false)
     if (result.ok) { toast.success({ title: 'Refund recorded', message: `${naira(payment.amountKobo)} · Bill ${bill.number}` }); onRefunded(result.data); return }
     setError(result.notAvailable ? NOT_SWITCHED_ON : result.error)
   }
 
   return <ConfirmSheet open onClose={onClose} title="Refund" destructive busy={busy} confirmLabel={`Refund ${naira(payment.amountKobo)}`} onConfirm={() => void refund()}
-    subject={<p className="m-0 text-[14px] text-ink-2">{bill.patient?.displayName ?? 'Walk-in'} · Bill {bill.number}</p>}
-    effect={<>Give back <strong className="tabular">{naira(payment.amountKobo)}</strong> paid by {METHOD_LABEL[payment.method]}.</>}
-    undo="A refund can’t be undone. The sale shows it, with your name and the reason.">
+    subject={<p className="m-0 text-[14px] text-ink-2">{billName(bill)} · Bill {bill.number}</p>}
+    effect={<>Give back <strong className="tabular">{naira(payment.amountKobo)}</strong> paid by {METHOD_LABEL[payment.method] ?? 'payment'}.</>}
+    undo="A refund can’t be undone. The sale shows it, with your name and the reason. Another member of staff must record it, not the person who took the payment.">
     {payments.length > 1 ? <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
       <legend className="mb-1 p-0 text-[13px] font-medium text-ink-2">Which payment?</legend>
       {payments.map(entry => <label key={entry.id} className={cx('flex min-h-11 cursor-pointer items-center gap-3 rounded-lg px-3 py-2 ring-1 ring-inset',
         entry.id === payment.id ? 'bg-brand-soft ring-brand-line' : 'ring-line-strong hover:bg-subtle')}>
         <input type="radio" name="refund-payment" checked={entry.id === payment.id} onChange={() => setPaymentId(entry.id)} className="m-0 size-5 shrink-0 accent-[var(--color-brand)]" />
-        <span className="text-[15px] text-ink">{METHOD_LABEL[entry.method]} · <span className="tabular">{naira(entry.amountKobo)}</span></span>
+        <span className="text-[15px] text-ink">{METHOD_LABEL[entry.method] ?? 'Payment'} · <span className="tabular">{naira(entry.amountKobo)}</span></span>
       </label>)}
     </fieldset> : null}
     <Field label="Why?" htmlFor="refund-reason" error={error || undefined} errorId="refund-reason-error">
-      <Textarea id="refund-reason" rows={2} value={reason} maxLength={300} aria-invalid={error ? true : undefined}
+      <Textarea id="refund-reason" rows={2} value={reason} maxLength={490} aria-invalid={error ? true : undefined}
         aria-describedby={error ? 'refund-reason-error' : undefined} onChange={event => { setReason(event.target.value); setError('') }} />
     </Field>
   </ConfirmSheet>

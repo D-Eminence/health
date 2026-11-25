@@ -239,12 +239,15 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
     // Facility billing (docs/BILLING_SPEC.md; proposed routes) and the price catalogue it shows. Not demo requests.
     commercial: ['commercial.pricing', 'commercial.subscription', 'commercial.subscriptionTrial',
       'commercial.subscriptionCheckout', 'commercial.invoices',
-      // Point of care (docs/POINT_OF_CARE_SPEC.md; proposed, 404 until served): payment setup, the price list, bills
-      // and their payments, receipts, and end of day.
-      'commercial.paymentSettings', 'commercial.catalogueItems', 'commercial.catalogueItem', 'commercial.bills',
-      'commercial.bill', 'commercial.billPayments', 'commercial.billPaymentVoid', 'commercial.billPaymentConfirm',
-      'commercial.billReceipt', 'commercial.billDefer', 'commercial.billPatient', 'commercial.currentShift', 'commercial.shifts',
-      'commercial.shiftClose'],
+      // Patient billing release 1 (hid-system BILL-1, 0162-0165; not live, 404 until served and switched on): payment
+      // setup, the price list and its unpriced codes, bills with their lines, payments, HMO cover, receipts and the Home
+      // summary, outstanding balances and what HMOs owe, and end of day. Paying online (BILL-14) is built but switched off.
+      'commercial.paymentSettings', 'commercial.catalogueItems', 'commercial.catalogueItem', 'commercial.catalogueUnpricedCodes',
+      'commercial.bills', 'commercial.billSummary', 'commercial.bill', 'commercial.billLines', 'commercial.billLineCancel',
+      'commercial.billPayments', 'commercial.billPaymentVoid', 'commercial.billPaymentConfirm', 'commercial.billHmoCoverCancel',
+      'commercial.billReceipt', 'commercial.billDefer', 'commercial.billPatient', 'commercial.billVoid',
+      'commercial.billOnlinePaymentLinks', 'commercial.outstanding', 'commercial.hmoReceivables',
+      'commercial.currentShift', 'commercial.shifts', 'commercial.shiftClose'],
   },
   'admin-web': {
     // Platform administration uses its own MFA-verified session (Stage 2A);

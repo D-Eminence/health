@@ -12,7 +12,7 @@ import { useDeptAccess } from '../parts/access'
 import { EndOfDay } from '../commerce/EndOfDay'
 import { PaymentSetup } from '../commerce/PaymentSetup'
 import { PriceList } from '../commerce/PriceList'
-import { pointOfCareShown } from '../commerce/served'
+import { labCounterShown, pointOfCareShown } from '../commerce/served'
 import { Laboratory } from './Laboratory'
 import { NewRequest } from './NewRequest'
 import { Results } from './Results'
@@ -61,12 +61,13 @@ export const laboratoryPage: EhrBluePage = {
   refusal: <LabUnavailable />,
 }
 
-// Every page here is partial, not live. New request, Tests & prices, Till, Settings and the old New walk-in address call
-// point-of-care addresses Health ID does not serve yet (parity report #20); the work list and Results work on Health ID,
-// but checking, releasing and collecting differ from today's page.
+// Every page here is partial, not live. Tests & prices, Till and Settings are patient billing's (hid-system BILL-1): they
+// show where billing answers (commerce/served.ts). New request and the old New walk-in address call the lab's walk-in
+// route, which no Health ID release serves yet (it comes with the lab stream): the demo facilities only. The work list
+// and Results work on Health ID, but checking, releasing and collecting differ from today's page.
 export const labPages: EhrBluePage[] = [
   { path: 'laboratory/new', group: GROUP, label: 'New request', tabOf: 'laboratory', permission: 'lab.walk-in.create', status: 'partial',
-    icon: icon(Plus), element: <NewRequest />, visible: pointOfCareShown },
+    icon: icon(Plus), element: <NewRequest />, visible: labCounterShown },
   { path: 'laboratory/work/*', group: GROUP, label: 'Work list', tabOf: 'laboratory', permission: 'lab.work-item.read', status: 'partial', keepsState: true,
     icon: icon(ClipboardList), element: <Laboratory />, refusal: <LabUnavailable /> },
   { path: 'laboratory/results/*', group: GROUP, label: 'Results', tabOf: 'laboratory', permission: 'lab.work-item.read', status: 'partial', keepsState: true,
@@ -81,5 +82,5 @@ export const labPages: EhrBluePage[] = [
     icon: icon(SlidersHorizontal), element: <PaymentSetup />, visible: pointOfCareShown },
   // The old New walk-in address: never listed and no tab, it opens New request (where New request shows).
   { path: 'laboratory/new-walk-in', group: GROUP, label: 'New request', permission: 'lab.walk-in.create', status: 'partial', listed: () => false,
-    icon: <FlaskConical aria-hidden strokeWidth={1.8} />, element: <Navigate replace to="/provider/laboratory/new" />, visible: pointOfCareShown },
+    icon: <FlaskConical aria-hidden strokeWidth={1.8} />, element: <Navigate replace to="/provider/laboratory/new" />, visible: labCounterShown },
 ]

@@ -23,8 +23,9 @@ import { StockPage } from './Stock'
 /**
  * Pharmacy (the owner's order of 2026-10-31: work first, identity optional). Seven pages, in this order, under one
  * group: in a pharmacy on its own they are the menu; in a hospital they are the Pharmacy group of the sidebar.
- * Sell, Sales & receipts, Stock, Products & prices, Till and Settings call point-of-care routes Health ID does not serve
- * yet: they show at the demo facilities only (commerce/served.ts). Prescriptions is today's pharmacy, at every facility.
+ * Sell, Sales & receipts, Stock, Products & prices, Till and Settings are patient billing release 1 with pharmacy
+ * point-of-care stock (hid-system BILL-1, not live yet): they show at the demo facilities, and wherever billing's routes
+ * answer (commerce/served.ts). Prescriptions is today's pharmacy, at every facility.
  */
 const GROUP = 'Pharmacy'
 const icon = (I: typeof ShoppingBag) => <I aria-hidden strokeWidth={1.8} />

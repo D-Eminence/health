@@ -4,11 +4,12 @@ import { ArrowRight, FileText, Trash2 } from 'lucide-react'
 import { FormActions, FormPage, Step } from '../../../kasuwa/parts'
 import { Alert, Badge, Button, EmptyState, Field, Input } from '../../../kasuwa/ui'
 import { useFocusById } from '../../../staff/focus'
-import { commerce, type CatalogueItem, type WalkInOrder } from '../commerce/api'
+import { BILLING_WORDS, commerce, type CatalogueItem, type WalkInOrder } from '../commerce/api'
 import { naira } from '../commerce/money'
 import { NOT_SET_UP_UNSAVED, NotSwitchedOn } from '../commerce/NotSwitchedOn'
 import { useOrderPhotoUpload } from '../commerce/orderPhoto'
 import { useDeptAccess } from '../parts/access'
+import { walkInQueueServed } from '../commerce/served'
 import { ItemCover } from './pointOfCare'
 import { drugFormFromCatalogue } from './pocFields'
 import {
@@ -19,11 +20,17 @@ import {
 const LIST = '/provider/pharmacy/prescriptions'
 const BACK = { to: LIST, label: 'Back to prescriptions' }
 const SEARCH_ID = 'paper-search'
+/** Queuing an outside prescription is switched off in release 1 (BILL-13): the backend refuses it 409. */
+const QUEUE_OFF = !walkInQueueServed()
 
 interface Line { readonly item: CatalogueItem; readonly onHand: number | null; quantity: number; dose: string; frequency: string }
 type LineErrors = Readonly<Record<string, 'dose' | 'frequency'>>
 
 /**
+ * Release 1 (hid-system BILL-13) takes counter sales only: queuing a paper prescription is refused 409
+ * WALK_IN_QUEUE_NOT_AVAILABLE, so this form is a design to review at the demo facilities, and its "Add and pick" is
+ * switched off with those words and a way to Sell instead. Nothing is sent.
+ *
  * A paper prescription brought to the counter (POINT_OF_CARE_SPEC §4): the doctor's details and a photo of the paper,
  * the drugs with how much and the directions for the label, and who it is for if they say (a name and phone, or their
  * Health ID: never needed). "Add to prescriptions" makes it once (POST walk-in-orders, one Idempotency-Key per order as
@@ -32,7 +39,7 @@ type LineErrors = Readonly<Record<string, 'dose' | 'frequency'>>
 export function PaperPrescription() {
   const { facilityId, permissions } = useDeptAccess()
   if (!facilityId || !permissions.includes('pharmacy.walk-in.create')) return <FormPage title="Paper prescription" back={BACK}>
-    <EmptyState icon={FileText} title="You can’t add prescriptions here" description="Your role needs permission to serve walk-in customers. Ask the pharmacist in charge." />
+    <EmptyState icon={FileText} title="You can’t add prescriptions here" description="Your role here does not include serving walk-in customers. Ask the pharmacist in charge." />
   </FormPage>
   return <PaperForm key={facilityId} facilityId={facilityId} withStock={permissions.includes('pharmacy.stock.read')} />
 }
@@ -77,7 +84,7 @@ function PaperForm({ facilityId, withStock }: { readonly facilityId: string; rea
   }
 
   async function send() {
-    if (sending || photoUpload.uploading) return
+    if (QUEUE_OFF || sending || photoUpload.uploading) return
     const errors = checkOutside(outside, true, new Date().toISOString().slice(0, 10))
     setOutsideErrors(errors)
     if (errors.prescriberName) return focus('paper-rx-prescriber')
@@ -106,7 +113,7 @@ function PaperForm({ facilityId, withStock }: { readonly facilityId: string; rea
 
   return <FormPage title="Paper prescription" back={BACK} wide>
     <Step n={1} title="Prescription" hint="As written on the paper.">
-      <OutsideFields idBase="paper-rx" outside={outside} errors={outsideErrors} contact={false} paper="prescription" photoUpload={photoUpload}
+      <OutsideFields idBase="paper-rx" outside={outside} errors={outsideErrors} contact={false} paper="prescription" photoUpload={photoUpload} photo={false}
         onPhoto={photo => { setOutside(current => ({ ...current, photo })); setOutsideErrors({}) }}
         onChange={next => { setOutside(next); setOutsideErrors({}) }} />
     </Step>
@@ -150,9 +157,11 @@ function PaperForm({ facilityId, withStock }: { readonly facilityId: string; rea
 
     {off ? <NotSwitchedOn message={NOT_SET_UP_UNSAVED} /> : null}
     {sendError ? <Alert intent="error" title="Not added">{sendError} Try again: it won’t be added twice.</Alert> : null}
+    {QUEUE_OFF ? <Alert intent="info" title="Not available yet" action={<Button size="sm" to="/provider/pharmacy/sell">Sell at the counter</Button>}>
+      {BILLING_WORDS.WALK_IN_QUEUE_NOT_AVAILABLE}</Alert> : null}
     <FormActions>
       <Button to={LIST}>Cancel</Button>
-      <Button variant="primary" size="lg" iconRight={ArrowRight} aria-busy={sending || undefined} aria-disabled={sending || photoUpload.uploading || undefined}
+      <Button variant="primary" size="lg" iconRight={ArrowRight} disabled={QUEUE_OFF} aria-busy={sending || undefined} aria-disabled={sending || photoUpload.uploading || undefined}
         onClick={() => void send()}>{sending ? 'Adding…' : 'Add and pick'}</Button>
     </FormActions>
   </FormPage>

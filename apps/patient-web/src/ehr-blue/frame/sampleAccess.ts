@@ -95,6 +95,9 @@ const DESIGN_ROLE_OF: Readonly<Record<string, DemoRole>> = {
   receptionist: 'Receptionist',
   records_officer: 'Records Officer',
   billing: 'Billing Officer',
+  // Patient billing's roles (hid-system BILL-1, 0162): the design's Billing Officer and Cashier.
+  billing_officer: 'Billing Officer',
+  cashier: 'Cashier',
 }
 
 /**

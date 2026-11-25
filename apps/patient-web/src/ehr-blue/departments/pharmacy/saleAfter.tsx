@@ -13,9 +13,9 @@ import type { MadeHealthId } from './walkIn'
  * on the finished sale and on a sale opened from Sales & receipts, only while the sale has no Health ID.
  */
 
-/** Whether a sale can still be given a Health ID: it has none, and the role may make one. */
+/** Whether a sale can still be given a Health ID: an anonymous counter sale (BILL-1 §3), and the role may make one. */
 export function canGiveHealthId(bill: Bill, permissions: readonly string[]): boolean {
-  return !bill.patient?.healthId && permissions.includes('identity.registration.write') && permissions.includes('identity.registration.approve')
+  return !bill.patient && bill.counter !== false && bill.source === 'pharmacy' && permissions.includes('identity.registration.write') && permissions.includes('identity.registration.approve')
 }
 
 type Attach = { kind: 'idle' } | { kind: 'busy' } | { kind: 'done' } | { kind: 'kept' } | { kind: 'error'; message: string }

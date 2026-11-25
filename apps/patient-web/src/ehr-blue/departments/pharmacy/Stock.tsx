@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { CalendarClock, ChevronRight, PackagePlus, PackageX, Search, SlidersHorizontal, TriangleAlert } from 'lucide-react'
+import { CalendarClock, ChevronRight, ListPlus, PackagePlus, PackageX, Search, Settings2, SlidersHorizontal, TriangleAlert } from 'lucide-react'
 import { Drawer, Segmented } from '../../../kasuwa/interactive'
 import { ConfirmSheet, PageState } from '../../../kasuwa/parts'
 import { Alert, Badge, Button, Field, FilterTabs, Input, PageHeader, Select, Textarea, cx } from '../../../kasuwa/ui'
 import { useBluePage } from '../../frame/pageContext'
-import { commerce, type ListPage, type StockAdjustment, type StockLine, type StockMovement } from '../commerce/api'
-import { NOT_SET_UP_UNSAVED, NotSwitchedOn } from '../commerce/NotSwitchedOn'
+import { commerce, type CatalogueItem, type ListPage, type StockAdjustment, type StockLine, type StockMovement } from '../commerce/api'
+import { BILLING_OFF, NOT_SET_UP_UNSAVED, NotSwitchedOn } from '../commerce/NotSwitchedOn'
 import { useCommerceRead } from '../commerce/useCommerceRead'
 import { useDeptAccess } from '../parts/access'
 import { ItemCover } from './pointOfCare'
@@ -30,8 +30,10 @@ function expiryOf(line: StockLine) {
   const first = batches[0]
   if (!first) return null
   const left = daysLeft(first.expiresOn)
-  return left < 0 ? { kind: 'expired' as const, batch: first } : left <= SOON_DAYS ? { kind: 'soon' as const, batch: first } : null
+  return first.expired || left < 0 ? { kind: 'expired' as const, batch: first } : left <= SOON_DAYS ? { kind: 'soon' as const, batch: first } : null
 }
+/** On hand in expired batches: never given out (BILL-12), waiting for an "Expired" adjustment. */
+const expiredOf = (line: StockLine) => line.expiredOnHand ?? line.batches.filter(batch => batch.expired).reduce((sum, batch) => sum + batch.quantity, 0)
 
 /**
  * Stock (POINT_OF_CARE_SPEC §5) at a pharmacy: every item on hand as a card (its picture or drawn form, name, strength,
@@ -55,17 +57,22 @@ function StockList() {
   const read = useCommerceRead<ListPage<StockLine>>(facilityId && canRead ? `stock:${facilityId}:${tab}:${q}` : null,
     signal => commerce.stock(facilityId!, { q, ...(tab === 'all' ? {} : { filter: tab }) }, signal))
   const [openId, setOpenId] = useState<string | null>(null)
+  const [counting, setCounting] = useState(false)
   const lines = read.data?.items ?? []
   const opened = lines.find(line => line.catalogueItemId === openId) ?? null
 
   if (!facilityId || !canRead) return <div className="flex flex-col gap-6">
     <PageHeader title="Stock" />
-    <Alert intent="info" title="You can’t see stock here">Your role needs permission to see the pharmacy’s stock.</Alert>
+    <Alert intent="info" title="You can’t see stock here">Your role here does not include the pharmacy’s stock.</Alert>
   </div>
+  if (read.status === 'off') return <div className="flex flex-col gap-6"><PageHeader title="Stock" /><NotSwitchedOn message={BILLING_OFF} /></div>
 
   return <div className="flex flex-col gap-5">
-    <PageHeader title="Stock" description="What is on the shelf, by item. Tap an item for its batches."
-      actions={canManage ? <Button variant="primary" icon={PackagePlus} to="/provider/pharmacy/stock/receive">Receive stock</Button> : undefined} />
+    <PageHeader title="Stock" description="What is on the shelf, by item. Tap an item for its batches. The batch that expires first is given out first; an expired batch never is."
+      actions={canManage ? <>
+        <Button icon={ListPlus} onClick={() => setCounting(true)}>Count stock for an item</Button>
+        <Button variant="primary" icon={PackagePlus} to="/provider/pharmacy/stock/receive">Receive stock</Button>
+      </> : undefined} />
     {/* Stock that answers 404 shows the normal empty state. */}
     <>
       <div className="flex flex-col gap-3 @3xl:flex-row @3xl:flex-wrap @3xl:items-center @3xl:justify-between">
@@ -82,7 +89,7 @@ function StockList() {
       {read.status === 'error' && lines.length > 0 ? <Alert intent="error" title="Couldn’t refresh stock" size="sm"
         action={<Button size="sm" onClick={read.reload}>Try again</Button>}>{read.error} What is shown may be out of date.</Alert> : null}
       <PageState loading={read.status === 'loading'} error={lines.length ? null : read.error} hasData={lines.length > 0} onRetry={read.reload}
-        what="stock" rows={4} empty={(read.status === 'ready' || read.status === 'off') && lines.length === 0 ? (q
+        what="stock" rows={4} empty={read.status === 'ready' && lines.length === 0 ? (q
           ? { icon: Search, title: 'Nothing matches', description: 'Check the spelling, or search by another name.' }
           : tab === 'low' ? { icon: PackagePlus, title: 'Nothing is running low', description: 'Items at or below their reorder level show here.' }
             : tab === 'expiring' ? { icon: CalendarClock, title: 'Nothing expiring soon', description: `Batches expiring in the next ${SOON_DAYS} days show here.` }
@@ -93,6 +100,7 @@ function StockList() {
       </PageState>
     </>
     <StockDrawer facilityId={facilityId} line={opened} canManage={canManage} onClose={() => setOpenId(null)} onChanged={read.reload} />
+    {counting ? <StockSettingsSheet facilityId={facilityId} line={null} onClose={() => setCounting(false)} onSaved={() => { setCounting(false); read.reload() }} /> : null}
   </div>
 }
 
@@ -117,6 +125,7 @@ function StockCard({ line, onOpen }: { readonly line: StockLine; readonly onOpen
             : low ? <Badge size="sm" tone="warn" icon={TriangleAlert}>Low stock · reorder at {line.reorderLevel}</Badge> : null}
           {expiry ? <Badge size="sm" tone={expiry.kind === 'expired' ? 'danger' : 'warn'} icon={CalendarClock}>
             {expiry.kind === 'expired' ? `Expired ${dayText(expiry.batch.expiresOn)}` : `Expiring soon · ${dayText(expiry.batch.expiresOn)}`}</Badge> : null}
+          {expiredOf(line) > 0 ? <Badge size="sm" tone="danger" icon={PackageX}>{expiredOf(line)} {line.unit} expired, not given out</Badge> : null}
         </span>
       </span>
       <ChevronRight className="mt-1 size-5 shrink-0 text-ink-3" aria-hidden />
@@ -128,7 +137,8 @@ function StockCard({ line, onOpen }: { readonly line: StockLine; readonly onOpen
 const MOVEMENT_WORD: Readonly<Record<string, string>> = {
   receipt: 'Received', received: 'Received', adjustment: 'Adjusted', adjusted: 'Adjusted', dispensing: 'Dispensed', dispensed: 'Dispensed',
   // A reversal corrects the record only: the medicine may never have come back, so it is not "returned".
-  sale: 'Sold', sold: 'Sold', reversal: 'Dispensing reversed', reversed: 'Dispensing reversed',
+  sale: 'Sold', sold: 'Sold', counter_sale: 'Sold at the counter', reversal: 'Dispensing reversed', reversed: 'Dispensing reversed',
+  dispensing_reversal: 'Dispensing reversed',
 }
 const REASON_WORD: Readonly<Record<StockAdjustment['reason'], string>> = {
   damaged: 'Damaged', expired: 'Expired', count: 'Count correction', returned: 'Returned to supplier',
@@ -142,6 +152,7 @@ function StockDrawer({ facilityId, line, canManage, onClose, onChanged }: {
   const movements = useCommerceRead<ListPage<StockMovement>>(line ? `movements:${facilityId}:${line.catalogueItemId}` : null,
     signal => commerce.stockMovements(facilityId, line!.catalogueItemId, signal))
   const [adjusting, setAdjusting] = useState<StockLine['batches'][number] | null>(null)
+  const [settingUp, setSettingUp] = useState(false)
   const [said, setSaid] = useState('')
   useEffect(() => { setSaid('') }, [line?.catalogueItemId])
   if (!line) return null
@@ -150,6 +161,8 @@ function StockDrawer({ facilityId, line, canManage, onClose, onChanged }: {
     icon={<ItemCover imageUrl={line.imageUrl} form={drugFormFromCatalogue(line.form)} />}>
     <div className="flex flex-col gap-6">
       <div role="status">{said ? <Alert intent="success" size="sm">{said}</Alert> : null}</div>
+      <p className="m-0 text-[14px] text-ink-2">Counted in {line.unit}. Reorder at {line.reorderLevel}.{expiredOf(line) > 0 ? ` ${expiredOf(line)} ${line.unit} in expired batches: never given out.` : ''}</p>
+      {canManage ? <Button size="sm" icon={Settings2} className="self-start" onClick={() => setSettingUp(true)}>Stock settings</Button> : null}
       <section aria-labelledby="stock-batches" className="flex flex-col gap-2">
         <h3 id="stock-batches" className="m-0 text-title-3 text-ink">Batches</h3>
         {batches.length === 0 ? <p className="m-0 text-[14px] text-ink-3">No batches on the shelf.</p> : null}
@@ -177,7 +190,7 @@ function StockDrawer({ facilityId, line, canManage, onClose, onChanged }: {
             <ul className="m-0 flex list-none flex-col divide-y divide-line p-0">
               {movements.data?.items.map(entry => <li key={entry.id} className="flex items-start justify-between gap-3 py-2.5">
                 <span className="min-w-0">
-                  <span className="block text-[14px] font-medium text-ink">{Object.hasOwn(MOVEMENT_WORD, entry.kind) ? MOVEMENT_WORD[entry.kind] : 'Stock change'}{entry.reason && Object.hasOwn(REASON_WORD, entry.reason) ? ` · ${REASON_WORD[entry.reason as StockAdjustment['reason']]}` : ''}</span>
+                  <span className="block text-[14px] font-medium text-ink">{Object.hasOwn(MOVEMENT_WORD, entry.kind) ? MOVEMENT_WORD[entry.kind] : 'Stock change'}{entry.batchNumber ? ` · Batch ${entry.batchNumber}` : ''}{entry.reason && Object.hasOwn(REASON_WORD, entry.reason) ? ` · ${REASON_WORD[entry.reason as StockAdjustment['reason']]}` : ''}</span>
                   <span className="block text-[13px] text-ink-3">{dayText(entry.at)}{entry.by ? ` · ${entry.by}` : ''}</span>
                 </span>
                 <span className={cx('shrink-0 text-[15px] font-semibold tabular', entry.change < 0 ? 'text-ink' : 'text-success-ink')}>{entry.change > 0 ? `+${entry.change}` : entry.change}</span>
@@ -188,6 +201,8 @@ function StockDrawer({ facilityId, line, canManage, onClose, onChanged }: {
     </div>
     <AdjustSheet facilityId={facilityId} line={line} batch={adjusting} onClose={() => setAdjusting(null)}
       onDone={text => { setAdjusting(null); setSaid(text); movements.reload(); onChanged() }} />
+    {settingUp ? <StockSettingsSheet facilityId={facilityId} line={line} onClose={() => setSettingUp(false)}
+      onSaved={next => { setSettingUp(false); setSaid(`Counted in ${next.unit}, reorder at ${next.reorderLevel}.`); onChanged() }} /> : null}
   </Drawer>
 }
 
@@ -243,6 +258,69 @@ function AdjustSheet({ facilityId, line, batch, onClose, onDone }: {
       </Field>
       <Field label="Note" htmlFor="adjust-note" optional={reason !== 'count'} hint={reason === 'count' ? 'What the count found.' : undefined}>
         <Textarea id="adjust-note" rows={2} maxLength={500} value={note} onChange={event => { setNote(event.target.value); setError('') }} />
+      </Field>
+      {off ? <NotSwitchedOn compact message={NOT_SET_UP_UNSAVED} /> : null}
+      {error ? <p role="alert" className="m-0 text-[13px] font-medium text-danger-ink">{error}</p> : null}
+    </div>
+  </ConfirmSheet>
+}
+
+/**
+ * Stock settings (BILL-1 §7): the unit an item is counted in and its reorder level. For an item already counted, change
+ * them (the unit can't change while any batch holds stock: STOCK_UNIT_LOCKED). With no item, choose a drug on the price
+ * list whose stock is not counted yet, and start counting it.
+ */
+function StockSettingsSheet({ facilityId, line, onClose, onSaved }: {
+  readonly facilityId: string; readonly line: StockLine | null; readonly onClose: () => void; readonly onSaved: (line: StockLine) => void
+}) {
+  const [query, setQuery] = useState('')
+  const [q, setQ] = useState('')
+  useEffect(() => { const timer = setTimeout(() => setQ(query.trim()), 250); return () => clearTimeout(timer) }, [query])
+  const found = useCommerceRead<ListPage<CatalogueItem>>(!line && q.length >= 2 ? `stock-setup:${facilityId}:${q}` : null,
+    signal => commerce.catalogueItems(facilityId, { kind: 'drug', q, active: true }, signal))
+  const choices = (found.data?.items ?? []).filter(item => !item.stockKept)
+  const [itemId, setItemId] = useState('')
+  const [unit, setUnit] = useState(line?.unit ?? '')
+  const [reorder, setReorder] = useState(line ? String(line.reorderLevel) : '')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [off, setOff] = useState(false)
+  const [key] = useState(() => crypto.randomUUID())
+  const hasStock = Boolean(line && (line.onHand > 0 || (line.expiredOnHand ?? 0) > 0))
+  async function save() {
+    if (busy) return
+    const target = line?.catalogueItemId ?? itemId
+    const level = Number(reorder)
+    if (!target) { setError('Choose the drug.'); return }
+    if (unit.trim().length < 1 || unit.trim().length > 40) { setError('Type the unit it is counted in, like tablet or bottle (up to 40 characters).'); return }
+    if (!/^\d+$/.test(reorder.trim()) || level > 1_000_000) { setError('Type the reorder level as a whole number, 0 to 1,000,000.'); return }
+    setBusy(true); setError('')
+    const result = await commerce.stockSettings(facilityId, target, { unit: unit.trim(), reorderLevel: level, expectedVersion: line?.version ?? 0 }, key)
+    setBusy(false)
+    if (result.ok) { onSaved(result.data); return }
+    if (result.notAvailable) { setOff(true); return }
+    setError(result.error)
+  }
+  return <ConfirmSheet open onClose={() => { if (!busy) onClose() }} title={line ? 'Stock settings' : 'Count stock for an item'} busy={busy}
+    confirmLabel={line ? 'Save settings' : 'Start counting'} onConfirm={() => void save()}
+    subject={line ? <p className="m-0 text-[15px] font-medium text-ink">{line.name}{line.strength ? ` ${line.strength}` : ''}</p> : null}
+    effect={line ? 'The unit stock is counted and dispensed in, and when it shows as low.' : 'Stock is then counted for this drug: receive it, and dispensing and counter sales take from it.'}
+    undo="Change these again at any time. The unit can’t change while there is stock.">
+    <div className="flex flex-col gap-4">
+      {!line ? <>
+        <Field label="Drug" htmlFor="stock-setup-q" hint="Type at least 2 letters of its name.">
+          <Input id="stock-setup-q" type="search" autoComplete="off" value={query} className="h-11" onChange={event => { setQuery(event.target.value); setItemId(''); setError('') }} />
+        </Field>
+        {q.length >= 2 ? <Select aria-label="Choose the drug" value={itemId} onChange={event => { setItemId(event.target.value); setError('') }}>
+          <option value="">{found.status === 'loading' ? 'Searching…' : choices.length ? 'Choose the drug' : 'No drug without stock counting matches'}</option>
+          {choices.map(item => <option key={item.id} value={item.id}>{item.name}{item.strength ? ` ${item.strength}` : ''}</option>)}
+        </Select> : null}
+      </> : null}
+      <Field label="Counted in" htmlFor="stock-setup-unit" hint={hasStock ? 'It has stock, so the unit can’t change now.' : 'The smallest unit given out: tablet, capsule, bottle, vial.'}>
+        <Input id="stock-setup-unit" autoComplete="off" maxLength={40} value={unit} disabled={hasStock} className="h-11" onChange={event => { setUnit(event.target.value); setError('') }} />
+      </Field>
+      <Field label="Reorder level" htmlFor="stock-setup-reorder" hint="It shows as low at or below this.">
+        <Input id="stock-setup-reorder" type="number" inputMode="numeric" min={0} value={reorder} className="h-11" onChange={event => { setReorder(event.target.value); setError('') }} />
       </Field>
       {off ? <NotSwitchedOn compact message={NOT_SET_UP_UNSAVED} /> : null}
       {error ? <p role="alert" className="m-0 text-[13px] font-medium text-danger-ink">{error}</p> : null}

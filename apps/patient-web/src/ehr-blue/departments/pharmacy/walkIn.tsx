@@ -63,14 +63,19 @@ export function outsideUsed(outside: OutsideDraft): boolean {
   return Boolean(outside.prescriberName.trim() || outside.facilityName.trim() || outside.writtenOn || outside.email.trim() || outside.phone.trim() || outside.photo)
 }
 
+/**
+ * The outside order as a walk-in sends it. `photoFileId` only when a photo was uploaded: a counter sale refuses the key
+ * itself (even empty) until the order-photo upload ships (BILL-1 §8).
+ */
 export function outsideOrder(outside: OutsideDraft) {
   return outsideUsed(outside) ? {
     prescriberName: outside.prescriberName.trim(), facilityName: outside.facilityName.trim() || null, writtenOn: outside.writtenOn || null,
-    prescriberEmail: outside.email.trim() || null, prescriberPhone: outside.phone.trim() ? normalizePhone(outside.phone) : null, photoFileId: outside.photo?.fileId ?? null,
+    prescriberEmail: outside.email.trim() || null, prescriberPhone: outside.phone.trim() ? normalizePhone(outside.phone) : null,
+    ...(outside.photo?.fileId ? { photoFileId: outside.photo.fileId } : {}),
   } : null
 }
 
-export function OutsideFields({ idBase, outside, errors, contact, paper, photoUpload, onChange, onPhoto }: {
+export function OutsideFields({ idBase, outside, errors, contact, paper, photoUpload, onChange, onPhoto, photo = true }: {
   readonly idBase: string; readonly outside: OutsideDraft; readonly errors: OutsideErrors
   /** The page's photo upload (useOrderPhotoUpload), so an upload outlives this step. */
   readonly photoUpload: OrderPhotoUpload
@@ -81,6 +86,8 @@ export function OutsideFields({ idBase, outside, errors, contact, paper, photoUp
   /** The paper's name: "prescription", "request form". */
   readonly paper: string
   readonly onChange: (next: OutsideDraft) => void
+  /** Whether to offer a photo of the paper. Off at the pharmacy counter until the order-photo upload ships (BILL-1). */
+  readonly photo?: boolean
 }) {
   const set = (patch: Partial<OutsideDraft>) => onChange({ ...outside, ...patch })
   const today = new Date().toISOString().slice(0, 10)
@@ -109,7 +116,7 @@ export function OutsideFields({ idBase, outside, errors, contact, paper, photoUp
         <Input id={`${idBase}-dphone`} type="tel" inputMode="tel" value={outside.phone} maxLength={32} autoComplete="off" className="h-11" onChange={event => set({ phone: event.target.value })} />
       </Field>
     </div> : null}
-    <div className="flex flex-col gap-2">
+    {photo ? <div className="flex flex-col gap-2">
       <span className="text-[13px] font-medium text-ink-2">Photo of the {paper} <span className="font-normal text-ink-3">(optional)</span></span>
       {outside.photo
         ? <div className="flex flex-wrap items-start gap-3">
@@ -128,7 +135,7 @@ export function OutsideFields({ idBase, outside, errors, contact, paper, photoUp
             }} />
         </label>}
       {photoUpload.error ? <p id={`${idBase}-photo-error`} role="alert" className="m-0 text-xs font-medium text-danger-ink">{photoUpload.error}</p> : null}
-    </div>
+    </div> : null}
   </div>
 }
 

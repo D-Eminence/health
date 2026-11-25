@@ -8,9 +8,10 @@ import { PriceList } from './PriceList'
 import { pointOfCareShown } from './served'
 
 /**
- * The point-of-care money pages (docs/POINT_OF_CARE_SPEC.md), under Finance in a hospital's sidebar and in the lab
- * product's own menu (frame/product.ts COUNTER_PAGES). Built against proposed routes: each page says so in one line when
- * they answer 404, and saves nothing. Until Health ID serves them, they show at the demo facilities only (served.ts).
+ * Patient billing release 1 (hid-system BILL-1, on docs/POINT_OF_CARE_SPEC.md), under Finance in a hospital's sidebar and
+ * in the lab product's own menu (frame/product.ts COUNTER_PAGES): Payments (with Outstanding balances), Price list, End
+ * of day and Payment setup. They show at the demo facilities, and at any facility whose billing routes answer
+ * (served.ts); a read that answers 404 says "Billing is not switched on at this facility yet" and saves nothing.
  */
 export const COMMERCE_PATHS = ['payments', 'price-list', 'end-of-day', 'payment-setup'] as const
 
@@ -28,8 +29,8 @@ export const financeListed = (session: StaffSession) => {
   return FINANCE_PERMISSIONS.some(permission => held.includes(permission)) || !COUNTER_MENU_PERMISSIONS.some(permission => held.includes(permission))
 }
 
-// Partial, not live (parity report 3.1 #20b): they call addresses Health ID does not serve yet. Partial, never sample,
-// which would change who may open them.
+// Partial, not live: BILL-1 is on hid-system claude/sprint-billing-backend and not signed yet (0162-0167). Partial, never
+// sample, which would change who may open them.
 export const commercePages: EhrBluePage[] = [
   { path: 'payments', group: 'Finance', label: 'Payments', permission: 'billing.bill.read', status: 'partial', icon: icon(Wallet), element: <Payments />, listed: financeListed, visible: pointOfCareShown },
   { path: 'price-list', group: 'Finance', label: 'Price list', permission: 'billing.catalogue.read', status: 'partial', icon: icon(Tags), element: <PriceList />, listed: financeListed, visible: pointOfCareShown },

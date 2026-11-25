@@ -11,23 +11,32 @@ import { DEMO_PHARMACY_ID } from '../harness'
 /*
  * The point-of-care pages (parity report 3.1 #20: Payments, Price list, End of day, Payment setup, the lab's New request,
  * Tests & prices, Till and Settings, the pharmacy's Sell, Sales & receipts, Stock, Products & prices, Till and Settings)
- * call routes Health ID does not serve yet. At a real facility none is listed or opens, and opening its address sends
- * none of those requests; the pharmacy's work list opens without reading payment settings. The live pages' ways into
- * point of care (Paper prescription on Prescriptions, a lab request's sample guess, sending a released result) are closed
- * there too. The four demo facilities keep every page and way in as they had them. The blue EHR runs as clinics have it:
- * the clinic switch on and the real, merged registry. Every account and facility here is fictional.
+ * are patient billing release 1 (hid-system BILL-1), except the lab's New request and sending a result, which no release
+ * serves yet. At a real facility the frame asks once whether billing answers there (GET commercial/bills/summary); while
+ * it answers 404 (BILLING_NOT_AVAILABLE: switched off until go-live, or a backend before BILL-1) none of the pages is
+ * listed or opens, and opening an address sends nothing else; the pharmacy's work list opens without reading payment
+ * settings. Once billing answers, the billing pages are listed and open there; the lab's walk-ins and Paper prescription
+ * stay at the demo facilities. The four demo facilities keep every page and way in as they had them. The blue EHR runs
+ * as clinics have it: the clinic switch on and the real, merged registry. Every account and facility here is fictional.
  */
 vi.mock('../../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
 vi.mock('../../../../ehr-blue/clinicSwitch', () => ({ BLUE_FOR_ALL: true }))
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules() })
 
-/** The point-of-care routes: proposed in the contract registry, served by no Health ID release yet. */
-const UNSERVED = HID_ENDPOINTS.filter(endpoint => endpoint.status === 'proposed' && endpoint.note?.startsWith('Point of care'))
+/** The point-of-care and BILL-1 routes: proposed in the contract registry, not live on any Health ID release yet. */
+const UNSERVED = HID_ENDPOINTS.filter(endpoint => endpoint.status === 'proposed' && (endpoint.note?.startsWith('Point of care') || endpoint.note?.startsWith('BILL-1')))
   .map(endpoint => new RegExp(`^(${endpoint.methods.join('|')}) ${endpoint.path.replace(/:[A-Za-z]+/g, '[^/]+')}$`))
-const unserved = (sent: readonly Sent[]) => sent.map(request => request.route).filter(route => UNSERVED.some(pattern => pattern.test(route)))
+/** The one question the frame asks at a real facility: whether billing answers there (numbers only, no patient). */
+const PROBE = 'GET /api/v1/commercial/bills/summary'
+/** Every billing or point-of-care request sent, the frame's one question left out. */
+const unserved = (sent: readonly Sent[]) => sent.map(request => request.route).filter(route => route !== PROBE && UNSERVED.some(pattern => pattern.test(route)))
+/** Billing switched off here (hid-system BILL-1 before go-live). */
+const billingOff = () => json({ code: 'BILLING_NOT_AVAILABLE', detail: 'Billing is not switched on at this facility yet.' }, 404)
+const SUMMARY = { date: '2026-11-26', billedKobo: 650000, collectedKobo: 300000, waivedKobo: 0, hmoCoveredKobo: 200000, outstandingKobo: 150000, billCount: 3 }
 
 // Every permission these pages ask for (docs/POINT_OF_CARE_SPEC.md), held here so that only the facility decides.
 const BILLING = ['billing.bill.read', 'billing.catalogue.read', 'billing.shift.own', 'billing.settings.manage', 'billing.payment.confirm']
+const LAB_COUNTER_ONLY = ['New request']
 const PHARMACY = ['pharmacy.work-item.read', 'pharmacy.walk-in.create', 'pharmacy.stock.read']
 const LAB = ['lab.work-item.read', 'lab.walk-in.create']
 const CLINICAL = ['identity.patient.read', 'ehr.encounter.read']
@@ -101,7 +110,7 @@ describe('the point-of-care page entries', () => {
 describe('at a real facility', () => {
   it.each(POINT_OF_CARE)('says /provider/%s is not available here, and sends none of the unserved requests', async (path, label) => {
     const here = riverside([...CLINICAL, ...BILLING, ...PHARMACY, ...LAB])
-    const sent = serve({ [SESSION]: [sessionAt(here, [here])] })
+    const sent = serve({ [SESSION]: [sessionAt(here, [here])], [PROBE]: [billingOff] })
     await openStaffApp(`/provider/${path}`)
     const nav = await screen.findByRole('navigation', { name: 'Main navigation' })
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(label)
@@ -111,12 +120,13 @@ describe('at a real facility', () => {
     for (const name of [...FINANCE, ...PHARMACY_COUNTER]) expect(listed).not.toContain(name)
     expect(listed).toContain('Prescriptions')
     expect(where()).toBe(`/provider/${path}`)
+    await waitFor(() => expect(sent.filter(request => request.route === PROBE)).toHaveLength(1))
     expect(unserved(sent)).toEqual([])
   })
 
   it('opens a pharmacy on Prescriptions, lists none of the counter pages, and reads no payment settings', async () => {
     const pharmacy = riverside([...PHARMACY, ...BILLING], 'Riverside Pharmacy (fictional)')
-    const sent = serve({ [SESSION]: [sessionAt(pharmacy, [pharmacy])], [PHARMACY_WORK]: [() => json({ items: [] })] })
+    const sent = serve({ [SESSION]: [sessionAt(pharmacy, [pharmacy])], [PHARMACY_WORK]: [() => json({ items: [] })], [PROBE]: [billingOff] })
     await openStaffApp('/provider')
     await waitFor(() => expect(where()).toBe('/provider/pharmacy/prescriptions'))
     expect(await screen.findByRole('heading', { level: 1, name: 'Prescriptions' })).toBeDefined()
@@ -129,7 +139,7 @@ describe('at a real facility', () => {
 
   it('lists a laboratory’s Work list and Results, and none of its counter pages', async () => {
     const lab = riverside([...LAB, ...BILLING], 'Riverside Laboratory (fictional)')
-    serve({ [SESSION]: [sessionAt(lab, [lab])] })
+    serve({ [SESSION]: [sessionAt(lab, [lab])], [PROBE]: [billingOff] })
     // Tests & prices, not the work list: the work list's own payment-settings read waits for #64 (Laboratory.tsx).
     await openStaffApp('/provider/laboratory/tests')
     const nav = await screen.findByRole('navigation', { name: 'Main navigation' })
@@ -139,10 +149,43 @@ describe('at a real facility', () => {
   })
 })
 
+describe('at a real facility where billing answers (hid-system BILL-1 switched on)', () => {
+  it('lists Finance’s pages once the frame has asked, and opens Payments, which reads its bills', async () => {
+    const here = riverside([...CLINICAL, ...BILLING])
+    const sent = serve({ [SESSION]: [sessionAt(here, [here])], [PROBE]: [() => json(SUMMARY)],
+      'GET /api/v1/commercial/bills': [() => json({ items: [], nextPage: null, page: 1 })],
+      'GET /api/v1/commercial/payment-settings': [() => json({ wherePaid: 'cashier', methods: ['cash'], payBefore: { pharmacy: false, lab: false },
+        allowDeferredFor: ['emergency'], hmos: [], dayCloseBy: 'facility', tills: [], version: 0 })] })
+    await openStaffApp('/provider/payments')
+    expect(await screen.findByRole('heading', { level: 1, name: 'Payments' })).toBeDefined()
+    expect(await screen.findByText('Nothing to pay right now')).toBeDefined()
+    const listed = linksIn(screen.getByRole('navigation', { name: 'Main navigation' }))
+    expect(listed).toEqual(expect.arrayContaining(FINANCE))
+    expect(screen.queryByText(/part of the Health ID demo only/)).toBeNull()
+    expect(sent.filter(request => request.route === PROBE)).toHaveLength(1)
+    // Billing's requests run for healthcare operations at the session's facility.
+    const bills = sent.find(request => request.route === 'GET /api/v1/commercial/bills')!
+    expect(bills.headers.get('X-Purpose-Of-Use')).toBe('healthcare-operations')
+    expect(bills.headers.get('X-Facility-ID')).toBe(REAL_FACILITY)
+  })
+
+  it('lists a laboratory’s Tests & prices, Till and Settings, but not New request, whose route no release serves yet', async () => {
+    const lab = riverside([...LAB, ...BILLING], 'Riverside Laboratory (fictional)')
+    serve({ [SESSION]: [sessionAt(lab, [lab])], [PROBE]: [() => json(SUMMARY)],
+      'GET /api/v1/commercial/catalogue-items': [() => json({ items: [], page: 1, pageSize: 50, more: false })],
+      'GET /api/v1/commercial/payment-settings': [() => billingOff()] })
+    await openStaffApp('/provider/laboratory/tests')
+    expect(await screen.findByRole('heading', { level: 1, name: 'Tests & prices' })).toBeDefined()
+    await waitFor(() => expect(linksIn(screen.getByRole('navigation', { name: 'Main navigation' }))).toEqual(expect.arrayContaining(['Tests & prices'])))
+    const listed = linksIn(screen.getByRole('navigation', { name: 'Main navigation' }))
+    for (const name of LAB_COUNTER_ONLY) expect(listed).not.toContain(name)
+  })
+})
+
 describe('the live pages that lead into point of care, at a real facility', () => {
   it('offers no Paper prescription, and takes its address to the list without sending anything unserved', async () => {
     const pharmacy = riverside([...PHARMACY, ...BILLING], 'Riverside Pharmacy (fictional)')
-    const sent = serve({ [SESSION]: [sessionAt(pharmacy, [pharmacy])], [PHARMACY_WORK]: [() => json({ items: [] }), () => json({ items: [] })] })
+    const sent = serve({ [SESSION]: [sessionAt(pharmacy, [pharmacy])], [PHARMACY_WORK]: [() => json({ items: [] }), () => json({ items: [] })], [PROBE]: [billingOff] })
     await openStaffApp('/provider/pharmacy/prescriptions/paper')
     await waitFor(() => expect(where()).toBe('/provider/pharmacy/prescriptions'))
     expect(await screen.findByText('No accepted prescriptions')).toBeDefined()
@@ -154,7 +197,7 @@ describe('the live pages that lead into point of care, at a real facility', () =
 
   it('opens a lab request waiting for its sample without reading the price list', async () => {
     const lab = riverside([...LAB, ...BILLING, 'lab.accession.create', 'lab.specimen.collect'], 'Riverside Laboratory (fictional)')
-    const sent = serve({ [SESSION]: [sessionAt(lab, [lab])], [LAB_WORK]: [() => json({ items: [toCollect] })] })
+    const sent = serve({ [SESSION]: [sessionAt(lab, [lab])], [LAB_WORK]: [() => json({ items: [toCollect] })], [PROBE]: [billingOff] })
     await openStaffApp('/provider/laboratory/work/work-item-1')
     expect(await screen.findByRole('heading', { level: 1, name: 'Haemoglobin' })).toBeDefined()
     await act(async () => {})

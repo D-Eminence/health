@@ -4,6 +4,9 @@ import { useSampleHref } from '../frame/pageContext'
 import { Alert, Badge, Button, Card, CardHeader } from '../../kasuwa/ui'
 import { LoadingRows } from '../../kasuwa/parts'
 import { billingTotals, naira, useStaffCount, useStaffHref } from './dashboardCards'
+import { commerce, lagosDay, type BillSummary } from '../departments/commerce/api'
+import { naira as nairaKobo } from '../departments/commerce/money'
+import { useCommerceRead } from '../departments/commerce/useCommerceRead'
 
 /**
  * An administrator's own Home cards (design audit item 7), drawn as the redesign draws Home: People, for whoever
@@ -47,5 +50,30 @@ export function HomeBillingCard() {
       <Figure label="Outstanding balance" value={naira(totals.due)} detail="All open invoices" />
     </div>
     {href ? <div className="px-5 py-4"><Button to={href} variant="link" size="sm" iconRight={ChevronRight}>View patient billing</Button></div> : null}
+  </Card>
+}
+
+/**
+ * Patient billing today, read live (hid-system BILL-1 GET bills/summary: numbers only, no patient): what was billed,
+ * collected, waived, owed by HMOs and still outstanding, for anyone who reads bills where billing answers. HMO cover is
+ * owed, not collected (BILL-8). A 404 (not switched on here) shows nothing.
+ */
+export function HomeBillingTodayCard({ facilityId }: { readonly facilityId: string }) {
+  const day = lagosDay()
+  const read = useCommerceRead<BillSummary>(`bill-summary:${facilityId}:${day}`, signal => commerce.billSummary(facilityId, day, signal))
+  if (read.status === 'off') return null
+  const data = read.data
+  return <Card aria-label="Patient billing today">
+    <CardHeader as="h2" title="Patient billing" description={data ? `Today · ${data.billCount} ${data.billCount === 1 ? 'bill' : 'bills'}` : 'Today'} icon={ReceiptText} />
+    {read.status === 'loading' && !data ? <LoadingRows rows={2} label="Loading today’s billing" /> : null}
+    {read.status === 'error' && !data ? <div className="px-5 pb-4"><Alert intent="error" size="sm" action={<Button size="sm" onClick={read.reload}>Try again</Button>}>{read.error}</Alert></div> : null}
+    {data ? <div className="grid grid-cols-1 gap-px bg-line">
+      <Figure label="Billed today" value={nairaKobo(data.billedKobo)} detail="Bills made today" />
+      <Figure label="Collected today" value={nairaKobo(data.collectedKobo)} detail="Cash, POS and checked transfers, less cancellations" />
+      <Figure label="HMO to pay" value={nairaKobo(data.hmoCoveredKobo)} detail="Recorded today, owed by HMOs, not collected" />
+      {data.waivedKobo > 0 ? <Figure label="Waived today" value={nairaKobo(data.waivedKobo)} detail="Not money collected" /> : null}
+      <Figure label="Outstanding" value={nairaKobo(data.outstandingKobo)} detail="Every open bill" />
+    </div> : null}
+    <div className="px-5 py-4"><Button to="/provider/payments" variant="link" size="sm" iconRight={ChevronRight}>Open payments</Button></div>
   </Card>
 }
