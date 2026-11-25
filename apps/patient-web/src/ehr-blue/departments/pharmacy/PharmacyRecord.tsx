@@ -42,25 +42,21 @@ import { billOf, billOwing, paysFirst, stockOf } from './pocFields'
 
 /**
  * What a failed dispensing or reversal says, as classic's PharmacyAction says it (staff/routes/Operations.tsx): errorText
- * with "Pharmacy action could not be recorded.", so no connection, signed out, Health ID unavailable, too many tries, a
- * prescription changed meanwhile and a reversal with nothing to reverse read as on classic (parity row 11b). Screens
- * never repeat the server's words: errorText says only the page's own sentences and the words every page shares. Three
- * refusals keep the blue page's sentence, as they change what the pharmacist does next: a refusal for the role says
- * Pharmacy's own refusal with the work refused (`refusedFor`, pharmacyRefusalText), so a facility's own administrator is
- * never told to ask themselves; a request with no answer in time may already be recorded; and a medicine already
- * recorded as handed over must never look like a passing glitch.
+ * with "Pharmacy action could not be recorded.", so no connection, no answer in time, signed out, no access, Health ID
+ * unavailable, too many tries, a prescription changed meanwhile, one already dispensed and a reversal with nothing to
+ * reverse read as on classic (parity row 11b). Screens never repeat the server's words: errorText says only the page's
+ * own sentences and the words every page shares.
  */
-function failureOf(caught: unknown, reverse: boolean, refusedFor: (work: string) => string): string {
-  if (isHidApiError(caught)) switch (caught.code) {
-    // Pharmacy may have recorded it before the wait ran out: the list says so before anything is pressed again.
-    case 'REQUEST_TIMEOUT': return 'Health ID took too long to answer, so this may already be recorded. Go back to Prescriptions '
-      + 'and refresh the list to check before you try again.'
-    case 'PHARMACY_ACCESS_DENIED': return refusedFor(reverse ? 'reversing a dispensing' : 'dispensing medicines')
-    case 'PHARMACY_WORK_ITEM_ALREADY_DISPENSED': return 'This prescription is already recorded as dispensed. Go back to '
-      + 'Prescriptions and refresh the list before you hand anything over.'
-  }
+function failureOf(caught: unknown): string {
   return errorText(caught, ACTION_FAILED)
 }
+
+/** Accept's words when Pharmacy may have recorded it before the wait ran out: the list says so before anything is pressed again. */
+const ACCEPT_TIMED_OUT = 'Health ID took too long to answer, so this may already be recorded. Go back to Prescriptions '
+  + 'and refresh the list to check before you try again.'
+/** Accept's words for a medicine already recorded as handed over, which must never look like a passing glitch. */
+const ACCEPT_ALREADY_DISPENSED = 'This prescription is already recorded as dispensed. Go back to '
+  + 'Prescriptions and refresh the list before you hand anything over.'
 
 /** Today's portal's words when a dispensing or reversal fails (staff/routes/Operations.tsx PharmacyAction). */
 const ACTION_FAILED = 'Pharmacy action could not be recorded.'
@@ -83,10 +79,11 @@ function acceptFailureOf(caught: unknown, refusedFor: (work: string) => string):
     case 'NETWORK_ERROR': return { text: 'We couldn’t reach Health ID. Check your internet connection and try again.', retry: true }
     case 'AUTHENTICATION_REQUIRED': return { text: 'Your session has ended. Sign in again to continue.', retry: false }
     case 'PHARMACY_ACCESS_DENIED': return { text: refusedFor('accepting prescriptions'), retry: false }
+    case 'REQUEST_TIMEOUT': return { text: ACCEPT_TIMED_OUT, retry: false }
+    case 'PHARMACY_WORK_ITEM_ALREADY_DISPENSED': return { text: ACCEPT_ALREADY_DISPENSED, retry: false }
   }
-  const text = failureOf(caught, false, refusedFor)
-  return { text, retry: !['REQUEST_TIMEOUT', 'PHARMACY_WORK_ITEM_ALREADY_DISPENSED', 'ORDER_ROUTE_CLOSED'].includes(caught.code)
-    && text !== MODULE_NOT_IN_SERVICE }
+  const text = failureOf(caught)
+  return { text, retry: caught.code !== 'ORDER_ROUTE_CLOSED' && text !== MODULE_NOT_IN_SERVICE }
 }
 
 /**
@@ -309,7 +306,7 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
         // Its dispensing form goes, so the work continues at the prescription.
         onUndispensable()
         focus(title, true)
-      } else setError(failureOf(caught, reverse, work => pharmacyRefusalText(work, facility, permissions)))
+      } else setError(failureOf(caught))
     }
     finally { setBusy(false); onBusy(false) }
   }
@@ -542,12 +539,11 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
         onClick={() => { setError(''); problems.clear(); setOpened(current => current === 'reverse' ? null : 'reverse') }}>Reverse dispensing</Button>}
       {reversing && <form id={`pharmacy-reverse-${item.id}`} className="flex flex-col gap-3" aria-label="Reverse dispensing" noValidate
         onSubmit={event => void submit(event, true)}>
-        <ActionField id={`pharmacy-reversal-${item.id}`} label="Reason" error={problems.error(`pharmacy-reversal-${item.id}`)}
-          hint="Why the dispensing is being reversed, for the record.">
-          <EhrTextarea name="reason" rows={3} minLength={8} maxLength={500} required {...control(`pharmacy-reversal-${item.id}`, true)} />
+        <ActionField id={`pharmacy-reversal-${item.id}`} label="Reversal reason" error={problems.error(`pharmacy-reversal-${item.id}`)}>
+          <EhrTextarea name="reason" rows={3} minLength={8} maxLength={500} required {...control(`pharmacy-reversal-${item.id}`)} />
         </ActionField>
         {failure}
-        <EhrButton type="submit" variant="secondary" busy={busy}>{busy ? 'Saving…' : 'Reverse dispensing'}</EhrButton>
+        <EhrButton type="submit" variant="secondary" busy={busy}>{busy ? 'Recording…' : 'Reverse dispensing'}</EhrButton>
       </form>}
       {ending && <DeptEmbedded className="hid-ehr-dept-pharmacy-endings"><OrderEndingActions base={`pharmacy-${item.id}`}
         service="pharmacy" facilityId={facilityId} route={{ id: route.id, version: route.version, reference: route.reference }}

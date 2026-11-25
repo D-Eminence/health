@@ -292,24 +292,25 @@ function StartForm({ facilityId, permissions, routed, onDone, onRefused, specime
   async function start(event: FormEvent) {
     event.preventDefault()
     if (busy) return
-    if (!details.trim()) { setError('Say what is being done, like “Run on the analyser”.'); document.getElementById(`lab-start-${id}`)?.focus(); return }
+    if (!details.trim()) { setError('Enter a reason to begin execution.'); document.getElementById(`lab-start-${id}`)?.focus(); return }
     setBusy(true); setProblem('')
     try { await staffApi.startLabExecution(facilityId, specimen, details.trim(), method); onDone(EXECUTION_WORDS.started) }
     catch (caught) { setProblem(errorText(caught, EXECUTION_WORDS.startFailed, routed)); onRefused(caught) }
     finally { setBusy(false) }
   }
   return <form className="@container flex flex-col gap-4" noValidate onSubmit={event => void start(event)}>
+    <p className="m-0 text-[15px] text-ink-2">Begin analysis for this received specimen. Health ID checks the exact specimen version and patient authorization.</p>
     <div className="grid gap-4 @md:grid-cols-2">
       <Field label="Method" htmlFor={`lab-method-${id}`} optional>
-        <Input id={`lab-method-${id}`} value={method} maxLength={240} autoComplete="off" className="h-11" placeholder="Analyser, microscopy…" onChange={event => setMethod(event.target.value)} />
+        <Input id={`lab-method-${id}`} value={method} maxLength={240} autoComplete="off" className="h-11" onChange={event => setMethod(event.target.value)} />
       </Field>
-      <Field label="What is being done" htmlFor={`lab-start-${id}`} error={error} errorId={`lab-start-${id}-error`}>
+      <Field label="Reason" htmlFor={`lab-start-${id}`} error={error} errorId={`lab-start-${id}-error`}>
         <Input id={`lab-start-${id}`} value={details} maxLength={500} autoComplete="off" className="h-11" aria-invalid={error ? true : undefined}
           aria-describedby={error ? `lab-start-${id}-error` : undefined} onChange={event => { setDetails(event.target.value); setError('') }} />
       </Field>
     </div>
     <Problem text={problem} />
-    <FormActions sticky={false}><Button type="submit" variant="primary" size="lg" icon={Play} loading={busy}>Start test</Button></FormActions>
+    <FormActions sticky={false}><Button type="submit" variant="primary" size="lg" icon={Play} loading={busy}>{busy ? 'Starting…' : 'Start execution'}</Button></FormActions>
   </form>
 }
 
@@ -328,11 +329,11 @@ function FinishForm({ facilityId, permissions, routed, onDone, onRefused, execut
   }
   return <form className="flex flex-col gap-4" noValidate onSubmit={event => void finish(event)}>
     <p className="m-0 text-[15px] text-ink">{execution.test.name}{execution.method ? <span className="text-ink-3"> · {execution.method}</span> : null}</p>
-    <Field label="Notes" htmlFor={`lab-finish-${execution.id}`} optional>
+    <Field label="Completion notes" htmlFor={`lab-finish-${execution.id}`} optional>
       <Input id={`lab-finish-${execution.id}`} value={notes} maxLength={1000} autoComplete="off" className="h-11" onChange={event => setNotes(event.target.value)} />
     </Field>
     <Problem text={problem} />
-    <FormActions sticky={false}><Button type="submit" variant="primary" size="lg" icon={Square} loading={busy}>Finish test</Button></FormActions>
+    <FormActions sticky={false}><Button type="submit" variant="primary" size="lg" icon={Square} loading={busy}>{busy ? 'Completing…' : 'Complete execution'}</Button></FormActions>
   </form>
 }
 
@@ -580,7 +581,7 @@ export function CheckStep({ facilityId, permissions, subject, routed, onDone, on
         <p className="m-0 text-title-3 text-ink">{execution.test.name}</p>
         <ResultValue result={result} />
       </div>
-      <Badge size="sm" tone={needsVerify ? 'warn' : 'info'}>{needsVerify ? 'To check' : 'Checked, not released'}</Badge>
+      <Badge size="sm" tone={needsVerify ? 'warn' : 'info'}>{needsVerify ? 'Entered, not verified' : 'Verified, not released'}</Badge>
     </div>
     {checkedBySame ? <p className="m-0 text-[14px] text-ink-2">{checkedBySame.text}.</p> : null}
     {selfCheck && can ? <p className="m-0 text-[14px] text-ink-2">{SELF_CHECK_HINT}</p> : null}
@@ -592,14 +593,11 @@ export function CheckStep({ facilityId, permissions, subject, routed, onDone, on
       effect={selfCheck
         ? <>Check version {result.currentVersion} of the {execution.test.name} result for <strong>{subject.name}</strong> yourself?</>
         : needsVerify
-          ? <>Verify version {result.currentVersion} of the {execution.test.name} result for <strong>{subject.name}</strong> after independent review?</>
-          : <>Release verified version {result.currentVersion} of the {execution.test.name} result for <strong>{subject.name}</strong> to authorized readers?</>}
+          ? <>Verify version {result.currentVersion} after independent review.</>
+          : <>Release verified version {result.currentVersion} to authorized readers.</>}
       undo={selfCheck
-        ? 'Your reason is kept with the check, and the result’s history shows it was checked by the same scientist who entered it. '
-          + 'It is released in a separate step; until then only the lab sees it.'
-        : needsVerify
-          ? 'The person who entered it cannot verify it. It is released in a separate step; until then only the lab sees it.'
-          : 'A wrong result can be corrected; every version is kept.'}
+        ? 'Your reason is kept with the check, and the result’s history shows it was checked by the same scientist who entered it.'
+        : needsVerify ? 'The person who entered it cannot verify it.' : undefined}
       confirmLabel={words.action} onConfirm={() => void run()}>
       <Field label={words.reason} htmlFor={reasonId} error={reasonError} errorId={`${reasonId}-error`}
         hint={selfCheck ? `${SELF_CHECK_HINT} ${typed} of ${SELF_CHECK_MAX} characters; at least ${SELF_CHECK_MIN}.` : undefined}
@@ -623,10 +621,10 @@ function sameScientist(entry: LabResultRevision) {
 }
 
 const RELEASE_WORDS: Readonly<Record<LabResultRevision['releaseStatus'], string>> = {
-  not_released: 'not released', verified_not_released: 'checked, not released', released: 'released',
+  not_released: 'not released', verified_not_released: 'verified, not released', released: 'released',
 }
 const CHECK_WORDS: Readonly<Record<LabResultRevision['verificationStatus'], string>> = {
-  unverified: 'Not checked', verified: 'Checked', entered_in_error: 'Entered in error',
+  unverified: 'Not verified', verified: 'Verified', entered_in_error: 'Entered in error',
 }
 
 /**
@@ -681,7 +679,7 @@ export function ResultHistory({ facilityId, execution, onRefused }: {
           <div className="px-4 pb-3"><DescriptionList items={[
             ['Value', `${revisionText(entry)}${entry.unit ? ` ${entry.unit}` : ''} · ${FLAG_WORDS[entry.abnormalFlag]}`],
             ['Entered', dateText(entry.enteredAt)],
-            ['Checked', CHECK_WORDS[entry.verificationStatus]],
+            ['Verification', CHECK_WORDS[entry.verificationStatus]],
             entry.releasedAt ? ['Released', dateText(entry.releasedAt)] : null,
             entry.referenceRange ? ['Normal range', entry.referenceRange] : null,
             entry.correctionReason ? ['Reason', entry.correctionReason] : null,
