@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import {
-  balanceText, gcsText, lagosInput, lagosInputToIso, meanArterialPressure, notServed, observationLines, patientFacts, patientName,
-  refusalWords, isChartAccessRefusal,
+  asNeededReasons, balanceText, doseDiffers, gcsText, lagosInput, lagosInputToIso, meanArterialPressure, notServed, observationLines,
+  patientFacts, patientName, refusalWords, isChartAccessRefusal,
 } from '../../../../ehr-blue/departments/nursing/nursingRules'
 import { observationBody } from '../../../../ehr-blue/departments/nursing/Observations'
 import { fluidBody } from '../../../../ehr-blue/departments/nursing/FluidBalance'
@@ -35,6 +35,40 @@ describe('names on ward lists (Q190 A)', () => {
     expect(patientName(hiddenCard())).toBe('B T')
     expect(patientFacts(card() as never)).toBe('Female · 54 years · NIN Verified')
     expect(patientFacts({ ...hiddenCard(), ageEstimated: true } as never)).toBe('Female · about 61 years · NIN Not Verified')
+  })
+})
+
+describe('an "as needed" dose (0175 ehr.mar_record)', () => {
+  const prn = (overrides: Record<string, unknown> = {}) => ({ asNeeded: { reason: 'Pain or fever', minIntervalMinutes: 240, maxDosesPer24h: 4,
+    givenLast24h: 1 }, lastGivenAt: '2026-12-03T07:00:00.000Z', ...overrides })
+  const at = (time: string) => `2026-12-03T${time}:00.000Z`
+
+  it('is sooner than ordered from the time entered, either side of a dose given, not from now', () => {
+    // Last given 08:00 Lagos (07:00Z), 4-hourly: a dose entered for 11:00 Lagos is inside the gap even when it is 13:00 now.
+    expect(asNeededReasons(prn(), [at('07:00')], at('10:00')).insideGap).toBe(true)
+    expect(asNeededReasons(prn(), [at('07:00')], at('11:00')).insideGap).toBe(false)
+    // A dose entered before one already given is inside its gap too (the server looks both ways).
+    expect(asNeededReasons(prn({ lastGivenAt: at('10:00') }), [at('10:00')], at('07:00')).insideGap).toBe(true)
+    // The order's last given time counts even when the dose is older than the page read.
+    expect(asNeededReasons(prn({ lastGivenAt: at('08:00') }), [], at('10:00')).insideGap).toBe(true)
+    expect(asNeededReasons(prn(), [at('07:00')], null)).toEqual({ insideGap: false, overMax: false })
+    expect(asNeededReasons({ asNeeded: null, lastGivenAt: at('07:00') }, [at('07:00')], at('07:30'))).toEqual({ insideGap: false, overMax: false })
+  })
+
+  it('is more often than ordered only with the most doses given in the 24 hours up to the time entered', () => {
+    const four = ['2026-12-02T10:30:00.000Z', at('00:00'), at('04:00'), at('08:00')]
+    // At 10:00Z yesterday's 10:30Z dose is still in the 24 hours; at 10:45Z it is not, whatever the read counted.
+    expect(asNeededReasons(prn({ lastGivenAt: at('08:00'), asNeeded: { ...prn().asNeeded, givenLast24h: 4 } }), four, at('12:00')).overMax).toBe(false)
+    expect(asNeededReasons(prn({ lastGivenAt: at('08:00') }), four, '2026-12-03T10:00:00.000Z').overMax).toBe(true)
+    expect(asNeededReasons(prn({ lastGivenAt: at('08:00') }), four, '2026-12-03T10:45:00.000Z').overMax).toBe(false)
+  })
+
+  it('compares a dose given with the order as the server does: the unit in any case', () => {
+    const order = { dose: { quantity: 500, unit: 'mg' } }
+    expect(doseDiffers(order, '500', ' MG ')).toBe(false)
+    expect(doseDiffers(order, '250', 'mg')).toBe(true)
+    expect(doseDiffers(order, '500', 'g')).toBe(true)
+    expect(doseDiffers({ dose: null }, '1', 'tablet')).toBe(false)
   })
 })
 

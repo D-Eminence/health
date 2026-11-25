@@ -1,4 +1,5 @@
 import { useCallback, useState, type FormEvent } from 'react'
+import { isHidApiError } from '@hid/http'
 import { EhrBadge, EhrButton, EhrEmptyState, EhrField, EhrInput, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
 import {
   DOSE_OUTCOMES, nursingApi, type DoseInput, type DoseOutcome, type DoseRecord, type MarOrder, type SupplySource,
@@ -10,9 +11,9 @@ import { useFacilityRead } from '../parts/useFacilityRead'
 import { useIdempotencyKeys, usePolling, useStaffNames, type IdempotencyKeys } from './hooks'
 import {
   DOSE_STATE_WORDS, EYEBROW, NURSING_REFUSED, OUTCOME_WORDS, PATIENT_BASE, PHARMACY_WORDS, REASONS_BY_OUTCOME, REASON_NEEDS_TEXT,
-  REASON_WORDS, ROUND_TITLE, SCHEDULE_WORDS, SUPPLY_WORDS, WARNING_WORDS, canReadRound, canRecordDose, dispensed,
-  doseStateTone, isChartAccessRefusal, lagosInput, lagosInputToIso, lagosTime, lagosWhen, learning, memberText, notServed,
-  refusalWords,
+  REASON_WORDS, ROUND_TITLE, SCHEDULE_WORDS, SUPPLY_WORDS, WARNING_WORDS, asNeededReasons, canReadRound, canRecordDose, dispensed,
+  doseDiffers as differsFromOrder, doseStateTone, isChartAccessRefusal, lagosInput, lagosInputToIso, lagosTime, lagosWhen, learning,
+  memberText, notServed, refusalWords,
 } from './nursingRules'
 import { ChartAccessNotice, PatientIdentity, PatientLink, ScreenWarning, WardPicker, WardsState, useWardChoice } from './parts'
 
@@ -53,6 +54,8 @@ function RoundList({ facilityId, wardId, range }: { readonly facilityId: string;
   const round = useFacilityRead(facilityId, true, loader, 'The medicine round could not be loaded.')
   usePolling(round.refresh, 60_000)
   const items = round.value?.items ?? []
+  // Doses are read from 24 hours before the round: one on another Lagos day than the round's carries its date.
+  const at = round.value ? Date.parse(round.value.at) : Date.now()
   return (
     <DeptSection title={round.value ? `Due on ${round.value.wardName} (${items.length})` : 'Due on the ward'} headingId="round-list"
       actions={<EhrButton variant="secondary" size="sm" onClick={() => void round.refresh()}>Refresh</EhrButton>}>
@@ -80,7 +83,7 @@ function RoundList({ facilityId, wardId, range }: { readonly facilityId: string;
                     <ul className="hid-ehr-dept-nursing-doses" aria-label={`Doses for ${item.patient.nameHidden ? item.patient.initials : item.patient.fullName ?? ''}`}>
                       {item.doses.map(dose => (
                         <li key={`${dose.prescriptionId}-${dose.scheduledFor}`}>
-                          <span>{lagosTime(dose.scheduledFor)}</span>
+                          <span>{lagosWhen(dose.scheduledFor, at)}</span>
                           <span>{[dose.medicationDisplay, dose.strength].filter(Boolean).join(' ')}</span>
                           <EhrBadge tone={doseStateTone(dose.state)}>{DOSE_STATE_WORDS[dose.state]}</EhrBadge>
                         </li>
@@ -115,25 +118,33 @@ export function PatientMedicines({ facilityId, admissionId }: { readonly facilit
   if (record.caught && isChartAccessRefusal(record.caught)) return <ChartAccessNotice />
   const orders = record.value ? [...record.value.orders].sort((a, b) => Number(a.schedule === null) - Number(b.schedule === null)) : []
   const doses = record.value?.administrations ?? []
+  // The form works from the order as last read (the record is read again as it opens, and after a refusal).
+  const recordingOrder = recording ? orders.find(order => order.prescriptionId === recording.order.prescriptionId) ?? recording.order : null
+  const givenTimes = (prescriptionId: string) => doses
+    .filter(dose => dose.prescriptionId === prescriptionId && dose.status === 'recorded' && dose.outcome === 'given').map(dose => dose.givenAt)
 
   return (
     <>
       {record.caught ? <DeptNotice role="alert" tone={notServed(record.caught) ? 'info' : 'critical'}>{refusalWords(record.caught, 'The medicines could not be loaded.')}</DeptNotice> : null}
       {record.value === null && record.loading ? <p className="hid-ehr-state-message" role="status">Loading the medicines…</p> : null}
       {done ? <p className="hid-ehr-state-message" role="status">{done}</p> : null}
-      {recording ? (
-        <DoseForm facilityId={facilityId} admissionId={admissionId} order={recording.order} scheduledFor={recording.scheduledFor}
-          keyFor={keyFor} onDone={saved => { setRecording(null); if (saved) { setDone(saved); void record.refresh() } }} />
+      {recording && recordingOrder ? (
+        <DoseForm key={`${recording.order.prescriptionId}-${recording.scheduledFor ?? 'any'}`} facilityId={facilityId} admissionId={admissionId}
+          order={recordingOrder} given={givenTimes(recordingOrder.prescriptionId)} scheduledFor={recording.scheduledFor} keyFor={keyFor}
+          onRefused={() => void record.refresh()}
+          onDone={saved => { setRecording(null); if (saved) { setDone(saved); void record.refresh() } }} />
       ) : null}
-      {record.value && orders.length === 0 ? <EhrEmptyState title="No medicines ordered" message="Medicines ordered for this stay show here." /> : null}
-      {orders.length > 0 ? (
-        <DeptSection title="Medicines" headingId="mar-orders">
-          <ul className="hid-ehr-dept-waiting-list" aria-labelledby="mar-orders">
-            {orders.map(order => (
-              <OrderRow key={order.prescriptionId} order={order} canRecord={canRecord && recording === null}
-                onRecord={scheduledFor => { setDone(''); setRecording({ order, scheduledFor }) }} />
-            ))}
-          </ul>
+      {record.value ? (
+        <DeptSection title="Medicines" headingId="mar-orders"
+          actions={<EhrButton variant="secondary" size="sm" onClick={() => void record.refresh()}>Refresh</EhrButton>}>
+          {orders.length === 0 ? <EhrEmptyState title="No medicines ordered" message="Medicines ordered for this stay show here." /> : (
+            <ul className="hid-ehr-dept-waiting-list" aria-labelledby="mar-orders">
+              {orders.map(order => (
+                <OrderRow key={order.prescriptionId} order={order} canRecord={canRecord && recording === null}
+                  onRecord={scheduledFor => { setDone(''); setRecording({ order, scheduledFor }); void record.refresh() }} />
+              ))}
+            </ul>
+          )}
         </DeptSection>
       ) : null}
       {record.value ? (
@@ -153,6 +164,8 @@ export function PatientMedicines({ facilityId, admissionId }: { readonly facilit
     </>
   )
 }
+
+const MAR_CHANGED = 'The medicines have changed since they were read. They have been read again: check the dose and save it again.'
 
 function orderTitle(order: Pick<MarOrder, 'medicationDisplay' | 'strength' | 'doseForm'>) {
   return [order.medicationDisplay, order.strength, order.doseForm].filter(Boolean).join(' ')
@@ -194,7 +207,7 @@ function OrderRow({ order, canRecord, onRecord }: {
                 <span>{lagosWhen(dose.scheduledFor)}</span>
                 <EhrBadge tone={doseStateTone(dose.state)}>{DOSE_STATE_WORDS[dose.state]}</EhrBadge>
                 {canRecord && active && !dose.administrationId && open.includes(dose)
-                  ? <EhrButton size="sm" variant="secondary" onClick={() => onRecord(dose.scheduledFor)}>{`Record ${lagosTime(dose.scheduledFor)} dose`}</EhrButton> : null}
+                  ? <EhrButton size="sm" variant="secondary" onClick={() => onRecord(dose.scheduledFor)}>{`Record ${lagosWhen(dose.scheduledFor)} dose`}</EhrButton> : null}
               </li>
             ))}
           </ul>
@@ -209,13 +222,25 @@ function OrderRow({ order, canRecord, onRecord }: {
   )
 }
 
-/** Route 6's form: the outcome, the time (Lagos, up to 12 hours ago), and what each outcome needs. */
-function DoseForm({ facilityId, admissionId, order, scheduledFor, keyFor, onDone }: {
+/** What the server asked for on a refusal, so the form shows that field whatever the page last read. */
+interface Asked { readonly differs: boolean; readonly supply: boolean; readonly overrideAt: string | null }
+
+/**
+ * Route 6's form: the outcome, the time (Lagos, up to 12 hours ago), and what each outcome needs. A reason for an "as
+ * needed" dose sooner or more often than ordered is asked from the time entered, as the server decides it, and sent
+ * only then (the server refuses one it does not need). When the server asks for a field the page did not expect (a
+ * dose given before the one it read, a dispensing reversed since), the field is shown and the record is read again.
+ */
+function DoseForm({ facilityId, admissionId, order, given: givenBefore, scheduledFor, keyFor, onRefused, onDone }: {
   readonly facilityId: string
   readonly admissionId: string
   readonly order: MarOrder
+  /** When each dose of this order read on the page was given (not entered in error). */
+  readonly given: readonly string[]
   readonly scheduledFor: string | null
   readonly keyFor: IdempotencyKeys
+  /** Reads the record again after a refusal, so what the form works out is from the latest. */
+  readonly onRefused: () => void
   readonly onDone: (saved: string | null) => void
 }) {
   const [outcome, setOutcome] = useState<DoseOutcome>('given')
@@ -231,17 +256,19 @@ function DoseForm({ facilityId, admissionId, order, scheduledFor, keyFor, onDone
   const [infusion, setInfusion] = useState<'' | 'started' | 'stopped'>('')
   const [problem, setProblem] = useState('')
   const [warnings, setWarnings] = useState<string[] | null>(null)
+  const [asked, setAsked] = useState<Asked>({ differs: false, supply: false, overrideAt: null })
 
   const given = outcome === 'given'
-  const doseDiffers = given && order.dose !== null && (Number(quantity) !== order.dose.quantity || unit.trim() !== order.dose.unit)
-  const needsSupply = given && !dispensed(order.pharmacyState)
-  const asNeededOver = given && order.asNeeded !== null && (order.asNeeded.givenLast24h >= order.asNeeded.maxDosesPer24h
-    || (order.nextAllowedAt !== null && Date.parse(order.nextAllowedAt) > Date.now()))
+  const givenAt = lagosInputToIso(time)
+  const doseDiffers = given && (asked.differs || differsFromOrder(order, quantity, unit))
+  const needsSupply = given && (asked.supply || !dispensed(order.pharmacyState))
+  const reasons = asNeededReasons(order, givenBefore, givenAt)
+  const asNeededOver = given && order.asNeeded !== null
+    && (reasons.insideGap || reasons.overMax || (givenAt !== null && asked.overrideAt === givenAt))
 
   async function submit(event: FormEvent) {
     event.preventDefault()
     setProblem('')
-    const givenAt = lagosInputToIso(time)
     if (!givenAt) { setProblem('Enter the time.'); return }
     const input: DoseInput = { prescriptionId: order.prescriptionId, scheduledFor, outcome, givenAt }
     if (given) {
@@ -274,7 +301,15 @@ function DoseForm({ facilityId, admissionId, order, scheduledFor, keyFor, onDone
       if (answer.warnings.length > 0) { setWarnings(answer.warnings); return }
       onDone(`${OUTCOME_WORDS[outcome]}: ${orderTitle(order)} recorded.`)
     } catch (caught) {
-      setProblem(refusalWords(caught, 'The dose could not be recorded. Try again.'))
+      const code = isHidApiError(caught) ? caught.code : ''
+      if (code === 'DOSE_DIFFERS_REASON_REQUIRED') setAsked(previous => ({ ...previous, differs: true }))
+      if (code === 'SUPPLY_SOURCE_REQUIRED') setAsked(previous => ({ ...previous, supply: true }))
+      if (code === 'AS_NEEDED_OVERRIDE_REASON_REQUIRED') setAsked(previous => ({ ...previous, overrideAt: givenAt }))
+      // A reason sent that the server does not need (a dose since entered in error): the record is read again, and the
+      // form no longer asks for it.
+      setProblem(code === 'VALIDATION_FAILED' && input.overrideReason !== undefined ? MAR_CHANGED
+        : refusalWords(caught, 'The dose could not be recorded. Try again.'))
+      onRefused()
     }
   }
 

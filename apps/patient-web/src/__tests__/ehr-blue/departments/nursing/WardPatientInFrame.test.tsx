@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { formatDate, formatDateTime, formatTime } from '@hid/ui/display'
 import { REAL_FACILITY, SESSION, facility, json, openStaffApp, problem, serve, sessionAt, where } from '../../frame/blueHarness'
+import { lagosInput, lagosInputToIso } from '../../../../ehr-blue/departments/nursing/nursingRules'
 import {
   ADMISSION, ADMISSION_READ, CHART, DOCTOR, DOSE, FLUIDS, MAR, NEW_FLUID, NURSE, ORDER, TASKS, VITALS, card, doseRecord, hiddenCard, many,
   noIdentityInAddresses, order, sentTo, task, withNursingPages,
@@ -18,6 +20,7 @@ afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules()
 
 const nurse = () => facility(REAL_FACILITY, 'Fictional Hospital', NURSE, ['nurse'])
 const BASE = `/provider/ward-patient/${ADMISSION}`
+const HOUR = 60 * 60 * 1000
 
 function chartOf(overrides: Record<string, unknown> = {}) {
   return () => json({ admissionId: ADMISSION, encounterId: 'e1', wardType: 'general', from: '2026-12-02T08:00:00.000Z', to: '2026-12-03T08:00:00.000Z',
@@ -119,8 +122,17 @@ describe('the observation chart', () => {
 })
 
 describe('the medicine administration record', () => {
-  const marOf = (orders = [order()], administrations = [doseRecord()]) => () =>
+  const marOf = (orders: unknown[] = [order()], administrations: unknown[] = [doseRecord()]) => () =>
     json({ admissionId: ADMISSION, from: '2026-12-02T08:00:00.000Z', to: '2026-12-04T08:00:00.000Z', orders, administrations })
+  const PRN = 'f0000000-0000-4000-8000-0000000000f2'
+  /** Paracetamol as needed, 4-hourly, at most 4 in 24 hours, dispensed; times relative to now. */
+  const prn = (overrides: Record<string, unknown> = {}) => order({ prescriptionId: PRN, medicationDisplay: 'Paracetamol', strength: '1 g',
+    doseForm: 'tablet', schedule: { kind: 'as_needed', times: null, firstDueAt: null, infusion: null }, doses: [], pharmacyState: 'dispensed',
+    dose: { quantity: 1, unit: 'tablet' }, asNeeded: { reason: 'Pain or fever', minIntervalMinutes: 240, maxDosesPer24h: 4, givenLast24h: 1 },
+    ...overrides })
+  const givenPrn = (at: number, id: string) => doseRecord({ administrationId: id, prescriptionId: PRN, scheduledFor: null,
+    givenAt: new Date(at).toISOString(), dose: { quantity: 1, unit: 'tablet' }, supplySource: null, pharmacyStateAtRecord: 'dispensed', warnings: [] })
+  const OVERRIDE = 'Why it is given sooner or more often than ordered'
 
   it('shows each order’s due doses and pharmacy state, and records a late dose with where it came from', async () => {
     const member = nurse()
@@ -137,8 +149,8 @@ describe('the medicine administration record', () => {
     expect(within(amoxicillin).getByText('Set times: 06:00, 14:00, 22:00')).toBeDefined()
     expect(within(amoxicillin).getByText('Late')).toBeDefined()
     expect(within(amoxicillin).getByText('Upcoming')).toBeDefined()
-    // An upcoming dose waits until it is due.
-    expect(within(amoxicillin).queryByRole('button', { name: 'Record 22:00 dose' })).toBeNull()
+    // An upcoming dose waits until it is due. A dose not on today's Lagos day carries its date.
+    expect(within(amoxicillin).queryByRole('button', { name: /^Record .*22:00 dose$/ })).toBeNull()
     const paracetamol = within(medicines).getByRole('listitem', { name: 'Paracetamol 1 g tablet' })
     expect(within(paracetamol).getByText('4 of at most 4')).toBeDefined()
     expect(within(paracetamol).getByText('Pain or fever')).toBeDefined()
@@ -147,7 +159,7 @@ describe('the medicine administration record', () => {
     expect(within(recorded).getByText('Ward stock')).toBeDefined()
     expect(within(recorded).getByText('Given before the pharmacy dispensed it.')).toBeDefined()
 
-    fireEvent.click(within(amoxicillin).getByRole('button', { name: 'Record 14:00 dose' }))
+    fireEvent.click(within(amoxicillin).getByRole('button', { name: 'Record 3 Dec 2026, 14:00 dose' }))
     const form = screen.getByRole('form', { name: 'Record a dose' })
     fireEvent.change(within(form).getByLabelText('Time (Lagos time)'), { target: { value: '2026-12-03T15:05' } })
     fireEvent.click(within(form).getByRole('button', { name: 'Save the dose' }))
@@ -168,11 +180,12 @@ describe('the medicine administration record', () => {
       [MAR]: many(marOf([order({ pharmacyState: 'dispensed' }), order({ prescriptionId: 'f0000000-0000-4000-8000-0000000000f2',
         medicationDisplay: 'Paracetamol', strength: '1 g', doseForm: 'tablet', schedule: { kind: 'as_needed', times: null, firstDueAt: null, infusion: null },
         doses: [], asNeeded: { reason: 'Pain or fever', minIntervalMinutes: 240, maxDosesPer24h: 4, givenLast24h: 1 }, pharmacyState: 'dispensed',
-        dose: { quantity: 1, unit: 'tablet' }, nextAllowedAt: '2999-12-03T15:00:00.000Z' })], [])),
+        dose: { quantity: 1, unit: 'tablet' }, lastGivenAt: new Date(Date.now() - HOUR).toISOString(),
+        nextAllowedAt: new Date(Date.now() + 3 * HOUR).toISOString() })], [])),
       [DOSE]: [() => problem(409, 'DOSE_ALREADY_RECORDED', 'Conflict')] })
     await openStaffApp(`${BASE}/medicines`)
     const amoxicillin = await screen.findByRole('listitem', { name: 'Amoxicillin 500 mg capsule' })
-    fireEvent.click(within(amoxicillin).getByRole('button', { name: 'Record 14:00 dose' }))
+    fireEvent.click(within(amoxicillin).getByRole('button', { name: 'Record 3 Dec 2026, 14:00 dose' }))
     let form = screen.getByRole('form', { name: 'Record a dose' })
     fireEvent.change(within(form).getByLabelText('What happened'), { target: { value: 'held' } })
     fireEvent.click(within(form).getByRole('button', { name: 'Save the dose' }))
@@ -194,6 +207,87 @@ describe('the medicine administration record', () => {
     form = screen.getByRole('form', { name: 'Record a dose' })
     expect(within(form).getByLabelText('Why it is given sooner or more often than ordered')).toBeDefined()
     expect(within(form).queryByLabelText('Where the medicine came from')).toBeNull()
+  })
+
+  it('asks why an as-needed dose is sooner than ordered from the time entered, not from now, and sends the reason only then', async () => {
+    const member = nurse()
+    const now = Date.now()
+    // Last given 5 hours ago, 4-hourly: allowed again an hour ago, but a dose given 2 hours ago was inside the gap.
+    const sent = serve({ [SESSION]: [sessionAt(member, [member])], [ADMISSION_READ]: [() => json({ admission: card(), movements: [] })],
+      [MAR]: many(marOf([prn({ lastGivenAt: new Date(now - 5 * HOUR).toISOString(), nextAllowedAt: new Date(now - HOUR).toISOString() })],
+        [givenPrn(now - 5 * HOUR, 'p1')]), 10),
+      [DOSE]: [() => json({ administration: givenPrn(now - 2 * HOUR, 'p2'), warnings: ['as_needed_inside_gap'], replayed: false }, 201),
+        () => json({ administration: givenPrn(now, 'p3'), warnings: [], replayed: false }, 201)] })
+    await openStaffApp(`${BASE}/medicines`)
+    fireEvent.click(within(await screen.findByRole('listitem', { name: 'Paracetamol 1 g tablet' })).getByRole('button', { name: 'Record an as-needed dose' }))
+    let form = screen.getByRole('form', { name: 'Record a dose' })
+    // Given now: no reason asked.
+    expect(within(form).queryByLabelText(OVERRIDE)).toBeNull()
+    fireEvent.change(within(form).getByLabelText('Time (Lagos time)'), { target: { value: lagosInput(now - 2 * HOUR) } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Save the dose' }))
+    expect(await within(form).findByText('This is sooner or more often than ordered. Say why.')).toBeDefined()
+    expect(sentTo(sent, DOSE)).toHaveLength(0)
+    fireEvent.change(within(form).getByLabelText(OVERRIDE), { target: { value: 'Fever 39.2, doctor asked for it' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Save the dose' }))
+    expect(await screen.findByText('Sooner than the order allows.')).toBeDefined()
+    expect(sentTo(sent, DOSE)[0]!.body).toMatchObject({ prescriptionId: PRN, scheduledFor: null, overrideReason: 'Fever 39.2, doctor asked for it',
+      givenAt: lagosInputToIso(lagosInput(now - 2 * HOUR)) })
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+
+    // Recorded at the time it is allowed again: no reason, and none sent.
+    fireEvent.click(within(await screen.findByRole('listitem', { name: 'Paracetamol 1 g tablet' })).getByRole('button', { name: 'Record an as-needed dose' }))
+    form = screen.getByRole('form', { name: 'Record a dose' })
+    expect(within(form).queryByLabelText(OVERRIDE)).toBeNull()
+    fireEvent.click(within(form).getByRole('button', { name: 'Save the dose' }))
+    await waitFor(() => expect(sentTo(sent, DOSE)).toHaveLength(2))
+    expect(sentTo(sent, DOSE)[1]!.body).not.toHaveProperty('overrideReason')
+  })
+
+  it('asks for no reason once a stale count has moved on, and asks for what the server asks for on a refusal', async () => {
+    const member = nurse()
+    const now = Date.now()
+    // Read with 4 given in 24 hours, the oldest 24 hours and 15 minutes ago now: only 3 count for a dose given now.
+    const doses = [givenPrn(now - 24 * HOUR - 15 * 60_000, 'p1'), givenPrn(now - 20 * HOUR, 'p2'), givenPrn(now - 16 * HOUR, 'p3'),
+      givenPrn(now - 12 * HOUR, 'p4')]
+    const sent = serve({ [SESSION]: [sessionAt(member, [member])], [ADMISSION_READ]: [() => json({ admission: card(), movements: [] })],
+      [MAR]: many(marOf([prn({ asNeeded: { reason: 'Pain or fever', minIntervalMinutes: 240, maxDosesPer24h: 4, givenLast24h: 4 },
+        lastGivenAt: new Date(now - 12 * HOUR).toISOString(), nextAllowedAt: new Date(now - 8 * HOUR).toISOString() })], doses), 10),
+      // A dose the page never read (given before its window), and a dispensing reversed since the read.
+      [DOSE]: [() => problem(400, 'SUPPLY_SOURCE_REQUIRED', 'Bad Request'), () => problem(400, 'AS_NEEDED_OVERRIDE_REASON_REQUIRED', 'Bad Request'),
+        () => json({ administration: givenPrn(now, 'p5'), warnings: [], replayed: false }, 201)] })
+    await openStaffApp(`${BASE}/medicines`)
+    fireEvent.click(within(await screen.findByRole('listitem', { name: 'Paracetamol 1 g tablet' })).getByRole('button', { name: 'Record an as-needed dose' }))
+    const form = screen.getByRole('form', { name: 'Record a dose' })
+    expect(within(form).queryByLabelText(OVERRIDE)).toBeNull()
+    expect(within(form).queryByLabelText('Where the medicine came from')).toBeNull()
+    fireEvent.click(within(form).getByRole('button', { name: 'Save the dose' }))
+    expect(await within(form).findByText('The pharmacy has not dispensed this medicine. Say where it came from.')).toBeDefined()
+    expect(sentTo(sent, DOSE)[0]!.body).not.toHaveProperty('overrideReason')
+    fireEvent.change(within(form).getByLabelText('Where the medicine came from'), { target: { value: 'ward_stock' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Save the dose' }))
+    expect(await within(form).findByText('This is sooner or more often than ordered. Say why.')).toBeDefined()
+    fireEvent.change(within(form).getByLabelText(OVERRIDE), { target: { value: 'Pain 8 of 10 after the dressing change' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Save the dose' }))
+    expect(await screen.findByText('Given: Paracetamol 1 g tablet recorded.')).toBeDefined()
+    expect(sentTo(sent, DOSE)[2]!.body).toMatchObject({ supplySource: 'ward_stock', overrideReason: 'Pain 8 of 10 after the dressing change' })
+    // The record is read as the form opens and after each refusal, so the form works from the latest.
+    expect(sentTo(sent, MAR).length).toBeGreaterThanOrEqual(4)
+  })
+
+  it('names a late dose from yesterday by its date, so it is never taken for today’s', async () => {
+    const member = nurse()
+    const now = Date.now()
+    // The same clock time a day apart: due now, and late since yesterday.
+    const yesterday = new Date(now - 24 * HOUR).toISOString()
+    const today = new Date(now).toISOString()
+    serve({ [SESSION]: [sessionAt(member, [member])], [ADMISSION_READ]: [() => json({ admission: card(), movements: [] })],
+      [MAR]: many(marOf([order({ pharmacyState: 'dispensed', doses: [{ scheduledFor: yesterday, state: 'late', administrationId: null },
+        { scheduledFor: today, state: 'due', administrationId: null }] })], [])) })
+    await openStaffApp(`${BASE}/medicines`)
+    const amoxicillin = await screen.findByRole('listitem', { name: 'Amoxicillin 500 mg capsule' })
+    const names = within(amoxicillin).getAllByRole('button', { name: /^Record .* dose$/ }).map(button => button.textContent)
+    expect(names).toEqual([`Record ${formatDateTime(yesterday)} dose`, `Record ${formatTime(today)} dose`])
+    expect(names[0]).toContain(formatDate(yesterday))
   })
 
   it('marks a dose entered in error with a reason, and offers no recording to a member who can only read', async () => {

@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import { isHidApiError } from '@hid/http'
 import { formatDate, formatDateTime, formatTime, formatTimeOrDateTime, lagosClock, lagosDay } from '@hid/ui/display'
-import type { DoseState, ObservationValues, PharmacyState, ShiftDuty, SupplySource, WardPatientCard } from '../../../staff/api'
+import type { DoseState, MarOrder, ObservationValues, PharmacyState, ShiftDuty, SupplySource, WardPatientCard } from '../../../staff/api'
 import { errorText } from '../parts/errors'
 
 /**
@@ -268,6 +268,38 @@ export const PHARMACY_WORDS: Readonly<Record<PharmacyState, string>> = {
 }
 /** Whether the pharmacy has handed the medicine over (else a given dose says where it came from, Q198 A). */
 export const dispensed = (state: PharmacyState) => state === 'dispensed' || state === 'part_dispensed'
+
+const MINUTE = 60_000
+const DAY = 24 * 60 * MINUTE
+
+/**
+ * Whether an "as needed" dose given at `givenAt` is sooner or more often than ordered, worked out as 0175's
+ * ehr.mar_record works it out: from the time entered, not from now. Sooner: another dose given within the order's gap
+ * either side of that time. More often: the order's most doses already given in the 24 hours up to it. `given` is the
+ * time of each dose of the order given and not entered in error that the page has read; the order's last given time is
+ * counted too. A dose the page has not read (given more than 24 hours before the read) can still make the server ask:
+ * the form then asks too.
+ */
+export function asNeededReasons(order: Pick<MarOrder, 'asNeeded' | 'lastGivenAt'>, given: readonly string[], givenAt: string | null): {
+  insideGap: boolean
+  overMax: boolean
+} {
+  const at = givenAt ? Date.parse(givenAt) : Number.NaN
+  if (!order.asNeeded || !Number.isFinite(at)) return { insideGap: false, overMax: false }
+  const gap = order.asNeeded.minIntervalMinutes * MINUTE
+  const times = [...new Set([...given, ...(order.lastGivenAt ? [order.lastGivenAt] : [])].map(time => Date.parse(time)))]
+    .filter(time => Number.isFinite(time))
+  return {
+    insideGap: times.some(time => time > at - gap && time <= at + gap),
+    overMax: times.filter(time => time > at - DAY && time <= at).length >= order.asNeeded.maxDosesPer24h,
+  }
+}
+
+/** Whether a dose given differs from the order, as the server compares them (the unit in any case, trimmed). */
+export function doseDiffers(order: Pick<MarOrder, 'dose'>, quantity: string, unit: string): boolean {
+  return order.dose !== null
+    && (Number(quantity) !== order.dose.quantity || unit.trim().toLowerCase() !== order.dose.unit.trim().toLowerCase())
+}
 
 export const SUPPLY_WORDS: Readonly<Record<SupplySource, string>> = {
   ward_stock: 'Ward stock', patient_own: 'The patient’s own', bought_outside: 'Bought outside',
