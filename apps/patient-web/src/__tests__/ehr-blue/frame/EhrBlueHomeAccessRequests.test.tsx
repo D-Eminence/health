@@ -66,17 +66,57 @@ describe('Home: the Access requests card, as today\'s Overview', () => {
     expect(card().getByRole('link', { name: 'Review requests' }).getAttribute('href')).toBe('/provider/requests')
   })
 
-  it('says the read error when the read fails', async () => {
+  // Parity report 15b and 28: classic says the error sentence alone in the card's one line (Dashboard.tsx:272), with no
+  // title and no Try again.
+  it('says the read error when the read fails, in the card\'s one line, as classic does', async () => {
     const failure = new HidApiError(503, 'Unavailable', { code: 'UNAVAILABLE' })
     vi.mocked(staffApi.listAccessRequests).mockRejectedValue(failure)
     home(READS)
-    expect(await card().findByText(accessRequestsError(failure))).toBeDefined()
+    const words = await card().findByText(accessRequestsError(failure))
+    expect(words.tagName).toBe('P')
     expect(card().queryByText('Loading requests…')).toBeNull()
-    // Said once, on the card, with Try again: Needs attention says nothing of the requests.
+    // Said once, on the card: Needs attention says nothing of the requests.
     expect(screen.getAllByText(accessRequestsError(failure))).toHaveLength(1)
-    expect(screen.getAllByText('Couldn’t load access requests')).toHaveLength(1)
-    expect(card().getByRole('button', { name: 'Try again' })).toBeDefined()
+    expect(screen.queryByText('Couldn’t load access requests')).toBeNull()
+    expect(card().queryByRole('alert')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
+    // The card is classic's: its heading, the sentence and the way to the requests, nothing more.
+    expect(card().getAllByRole('link').map(link => link.textContent)).toEqual(['Review requests'])
+    expect(card().queryAllByRole('button')).toHaveLength(0)
     expect(attention().queryByText(/request/)).toBeNull()
+  })
+
+  it('says the same plain sentence for a role that may not read them', async () => {
+    const failure = new HidApiError(403, 'Forbidden', { code: 'CONSENT_COMMAND_DENIED' })
+    vi.mocked(staffApi.listAccessRequests).mockRejectedValue(failure)
+    home(READS)
+    expect(await card().findByText('Your role here can’t see access requests. Ask your facility administrator if you need to.')).toBeDefined()
+    expect(screen.queryByText('Couldn’t load access requests')).toBeNull()
+    expect(screen.getByLabelText('Access requests').textContent).not.toMatch(/permission/i)
+  })
+
+  // Parity report 28b: Needs attention says "All clear" only for what was read, the card's requests included.
+  it('does not say all clear while the card\'s read is on its way, nor after it fails', async () => {
+    let fail: (reason: unknown) => void = () => {}
+    vi.mocked(staffApi.listAccessRequests).mockReturnValue(new Promise((_resolve, reject) => { fail = reject }))
+    home(READS)
+    expect(card().getByText('Loading requests…')).toBeDefined()
+    expect(attention().getByRole('status', { name: 'Loading what needs attention' })).toBeDefined()
+    expect(attention().queryByText('All clear')).toBeNull()
+    expect(attention().queryByText('Nothing is waiting for you.')).toBeNull()
+    fail(new HidApiError(503, 'Unavailable', { code: 'UNAVAILABLE' }))
+    expect(await attention().findByText('We couldn’t check everything that needs attention just now.')).toBeDefined()
+    expect(attention().queryByText('All clear')).toBeNull()
+    expect(attention().queryByText('Nothing is waiting for you.')).toBeNull()
+    expect(attention().queryByText(/request/)).toBeNull()
+  })
+
+  it('says all clear once the card\'s read has worked and nothing else waits', async () => {
+    vi.mocked(staffApi.listAccessRequests).mockResolvedValue([] as unknown as Requests)
+    home(READS)
+    expect(await card().findByText('0 pending requests')).toBeDefined()
+    expect(attention().getByText('All clear')).toBeDefined()
+    expect(attention().getByText('Nothing is waiting for you.')).toBeDefined()
   })
 
   it('says the pending count once on Home: on the card, not again in Needs attention', async () => {
