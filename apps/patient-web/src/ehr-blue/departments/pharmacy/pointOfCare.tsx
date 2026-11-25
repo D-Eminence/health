@@ -49,7 +49,8 @@ const REASON_WORD: Readonly<Record<'emergency' | 'inpatient', string>> = { emerg
  * - where a cashier does (cashier or both), "Send to cashier" with the bill's number and amount, and "Check again";
  * - "Bill follows" serves an emergency or inpatient now and bills afterwards, with billing.bill.defer, confirmed with
  *   the reason.
- * Once the bill is paid or set to follow, `onCleared` hears its summary and the work goes on.
+ * Once the bill is paid or set to follow, `onCleared` hears its summary, and the bill as it now stands (a payment changes
+ * its version, which a hand-over sends), and the work goes on.
  */
 export function PaymentStep({ facilityId, summary, settings, permissions, subject, verb, headingId, onCleared, counterSale = false }: {
   readonly facilityId: string
@@ -61,7 +62,7 @@ export function PaymentStep({ facilityId, summary, settings, permissions, subjec
   /** What waits for payment, as a verb: "dispense", "take the sample". */
   readonly verb: string
   readonly headingId: string
-  readonly onCleared: (summary: NonNullable<WorkItemBill>) => void
+  readonly onCleared: (summary: NonNullable<WorkItemBill>, bill: Bill) => void
   /** A counter sale: always paid first, whatever pay-before says, and never "Bill follows" (BILL-1 §8). */
   readonly counterSale?: boolean
 }) {
@@ -90,7 +91,7 @@ export function PaymentStep({ facilityId, summary, settings, permissions, subjec
   const number = bill?.number
 
   function cleared(next: Bill) {
-    if (next.status === 'paid' || (!counterSale && (next.status === 'deferred' || next.status === 'void'))) onCleared(summaryOf(next))
+    if (next.status === 'paid' || (!counterSale && (next.status === 'deferred' || next.status === 'void'))) onCleared(summaryOf(next), next)
     else setSaid(next.status === 'part_paid' ? `Part paid. ${naira(next.dueKobo)} still due.` : `Not paid yet. ${naira(next.dueKobo)} still due.`)
   }
 
@@ -115,7 +116,7 @@ export function PaymentStep({ facilityId, summary, settings, permissions, subjec
     setDeferBusy(true); setDeferError('')
     const result = await commerce.deferBill(facilityId, summary.billId, reason, deferKey.current)
     setDeferBusy(false)
-    if (result.ok) { setDeferring(false); read.replace(result.data); onCleared(summaryOf(result.data)); return }
+    if (result.ok) { setDeferring(false); read.replace(result.data); onCleared(summaryOf(result.data), result.data); return }
     if (result.notAvailable) { setDeferring(false); setDeferOff(true); return }
     setDeferError(result.error)
   }

@@ -16,7 +16,7 @@ import { useDeptAccess } from '../parts/access'
 import { ItemCover, PaymentStep, usePaymentSettings } from './pointOfCare'
 import { Breakable } from './PharmacyQueue'
 import { drugFormFromCatalogue, summaryOf } from './pocFields'
-import { canGiveHealthId, GiveHealthId } from './saleAfter'
+import { canGiveHealthId, GiveHealthId, SALE_CHANGED } from './saleAfter'
 import {
   checkOutside, EMPTY_OUTSIDE, normalizeHealthId, normalizePhone, OutsideFields, outsideOrder, PickCard, Stepper, useAttemptKey,
   type OutsideDraft, type OutsideErrors, type PickItem,
@@ -200,7 +200,7 @@ function Counter({ facilityId, permissions }: { readonly facilityId: string; rea
     paying={paying} onPayingChange={setPaying} onSale={setSale} onStartAgain={startAgain}
     onCleared={() => { setStage('handover'); focus('sell-handover-title') }} />
   if (sale && stage === 'handover') return <HandOverStage facilityId={facilityId} sale={sale} lines={lines} permissions={permissions}
-    onHandedOver={bill => { setSale(bill); setStage('done'); focus('sell-done-title') }} />
+    onSale={setSale} onHandedOver={bill => { setSale(bill); setStage('done'); focus('sell-done-title') }} />
   if (sale && stage === 'done') return <DoneStage facilityId={facilityId} sale={sale} settings={settings} permissions={permissions}
     onSale={setSale} onNext={startAgain} />
 
@@ -386,7 +386,11 @@ function PrescriptionForm({ drug, start, photoUpload, onClose, onSave }: {
   </Modal>
 }
 
-/** Pay: the bill, and the payment step (Take payment, Send to cashier, Bill follows, by the payment setup). */
+/**
+ * Pay: the bill, and the payment step (Take payment, Send to cashier, Bill follows, by the payment setup). However it
+ * was paid (this drawer, the payment step's own, or at the cashier and then Check again), the sale as paid is kept: the
+ * hand-over sends its version.
+ */
 function PayStage({ facilityId, sale, settings, permissions, paying, onPayingChange, onSale, onCleared, onStartAgain }: {
   readonly facilityId: string; readonly sale: Bill; readonly settings: PaymentSettings | null; readonly permissions: readonly string[]
   readonly paying: boolean; readonly onPayingChange: (open: boolean) => void; readonly onSale: (bill: Bill) => void
@@ -398,7 +402,7 @@ function PayStage({ facilityId, sale, settings, permissions, paying, onPayingCha
     <PageHeader title={<span id="sell-pay-title" tabIndex={-1} className="outline-none">Pay</span>} description={`${billName(sale)} · Bill ${sale.number}`} />
     <BillSummary bill={sale} />
     {settings ? <PaymentStep key={sale.version} facilityId={facilityId} summary={summaryOf(sale)} settings={settings} permissions={permissions}
-      subject={null} verb="hand over" headingId="sell-payment" onCleared={() => onCleared()} counterSale />
+      subject={null} verb="hand over" headingId="sell-payment" onCleared={(_summary, bill) => { onSale(bill); onCleared() }} counterSale />
       : <NotSwitchedOn />}
     <FormActions sticky={false} align="start">
       <Button variant="ghost" onClick={onStartAgain}>Start again</Button>
@@ -409,24 +413,33 @@ function PayStage({ facilityId, sale, settings, permissions, paying, onPayingCha
   </div>
 }
 
-/** Hand over: what goes across the counter, then one press records it (stock comes off the shelf). */
-function HandOverStage({ facilityId, sale, lines, permissions, onHandedOver }: {
+/**
+ * Hand over: what goes across the counter, then one press records it (stock comes off the shelf), with the version of the
+ * sale as paid. Refused because the sale changed meanwhile (nothing was recorded), it is read again and the next press
+ * is a new request; one someone else already handed over is finished.
+ */
+function HandOverStage({ facilityId, sale, lines, permissions, onSale, onHandedOver }: {
   readonly facilityId: string; readonly sale: Bill; readonly lines: readonly Line[]; readonly permissions: readonly string[]
-  readonly onHandedOver: (bill: Bill) => void
+  readonly onSale: (bill: Bill) => void; readonly onHandedOver: (bill: Bill) => void
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [off, setOff] = useState(false)
-  const [key] = useState(() => crypto.randomUUID())
+  const [key, setKey] = useState(() => crypto.randomUUID())
   const may = permissions.includes('pharmacy.dispensing.create')
   async function handOver() {
     if (busy) return
     setBusy(true); setError(''); setOff(false)
     const result = await commerce.handOverSale(facilityId, sale.id, key, sale.version)
+    if (result.ok) { setBusy(false); onHandedOver(result.data.bill); return }
+    if (result.notAvailable) { setBusy(false); setOff(true); return }
+    if (result.code !== 'VERSION_CONFLICT' && result.code !== 'PRECONDITION_FAILED') { setBusy(false); setError(result.error); return }
+    setKey(crypto.randomUUID())
+    const fresh = await commerce.bill(facilityId, sale.id)
     setBusy(false)
-    if (result.ok) { onHandedOver(result.data.bill); return }
-    if (result.notAvailable) setOff(true)
-    else setError(result.error)
+    if (!fresh.ok) { setError(result.error); return }
+    if (fresh.data.handedOverAt) { onHandedOver(fresh.data); return }
+    onSale(fresh.data); setError(SALE_CHANGED)
   }
   return <div data-layout="column" className="mx-auto flex w-full max-w-2xl flex-col gap-4">
     <PageHeader title={<span id="sell-handover-title" tabIndex={-1} className="outline-none">Hand over</span>}

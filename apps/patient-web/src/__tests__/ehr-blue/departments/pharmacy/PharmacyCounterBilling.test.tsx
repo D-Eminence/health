@@ -6,7 +6,7 @@ import { PaperPrescription } from '../../../../ehr-blue/departments/pharmacy/Pap
 import { ReceiveStock } from '../../../../ehr-blue/departments/pharmacy/ReceiveStock'
 import { Sales } from '../../../../ehr-blue/departments/pharmacy/Sales'
 import { outsideOrder, EMPTY_OUTSIDE } from '../../../../ehr-blue/departments/pharmacy/walkIn'
-import type { CatalogueItem, StockLine } from '../../../../ehr-blue/departments/commerce/api'
+import type { Bill, CatalogueItem, PaymentSettings, StockLine } from '../../../../ehr-blue/departments/commerce/api'
 import { DEMO_PHARMACY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
 import { billOf } from '../commerce/billingFixtures'
 
@@ -44,6 +44,17 @@ const PARACETAMOL: CatalogueItem = { id: 'cat-para', kind: 'drug', name: 'Parace
   prices: { cashKobo: 20000, hmo: [] }, stockKept: false, active: true, version: 1 }
 const CIPRO: CatalogueItem = { id: 'cat-cipro', kind: 'drug', name: 'Ciprofloxacin', strength: '500 mg', form: 'tablet', prescriptionOnly: true,
   prices: { cashKobo: 90000, hmo: [] }, stockKept: true, active: true, version: 1 }
+
+/** A counter sale of one Paracetamol at version 1, as made (nothing paid yet). */
+const madeSale = (patch: Partial<Bill> = {}) => billOf({ id: 'sale-1', number: 'B-000600', source: 'pharmacy', status: 'unpaid', counter: true,
+  patient: null, visit: null, lines: [{ id: 'line-para', catalogueItemId: 'cat-para', name: 'Paracetamol 500 mg', kind: 'drug', quantity: 1,
+    unitKobo: 20000, totalKobo: 20000, workItemId: null, origin: 'counter', cancelled: false }],
+  totalKobo: 20000, paidKobo: 0, hmoCoveredKobo: 0, dueKobo: 20000, payments: [], hmoCovers: [], receiptNumber: null, version: 1, ...patch })
+const paidSale = (version: number) => madeSale({ status: 'paid', paidKobo: 20000, dueKobo: 0, receiptNumber: 'R-2026-000601', version,
+  payments: [{ id: 'pay-c', method: 'cash', amountKobo: 20000, receivedBy: 'Bola Cashier', receivedAt: '2026-11-26T09:05:00Z', voided: false,
+    status: 'recorded', receiptNumber: 'R-2026-000601' }] })
+const sellSettings = (wherePaid: PaymentSettings['wherePaid']): PaymentSettings => ({ wherePaid, methods: ['cash'], payBefore: { pharmacy: false, lab: false },
+  allowDeferredFor: ['emergency'], hmos: [], dayCloseBy: 'facility', tills: [], version: 1 })
 
 beforeEach(() => {
   for (const key of Object.keys(commerceApi)) delete commerceApi[key]
@@ -145,6 +156,52 @@ describe('a counter sale', () => {
     fireEvent.click(await screen.findByRole('button', { name: /^Add: Oral rehydration salts/ }))
     fireEvent.click((await screen.findAllByRole('button', { name: /Take payment/ }))[0]!)
     expect(await screen.findByText('Hand over')).toBeTruthy()
+  })
+
+  it('hands over a sale paid at the cashier with the version it has once paid, after Check again', async () => {
+    commerceApi.catalogueItems = async () => ok({ items: [PARACETAMOL], nextPage: null })
+    commerceApi.stock = async () => ok({ items: [], nextPage: null })
+    commerceApi.paymentSettings = async () => ok(sellSettings('cashier'))
+    commerceApi.pharmacyWalkIn = async () => ok({ workItemIds: [], bill: madeSale() })
+    // The cashier takes the money meanwhile: every payment moves the bill's version on.
+    let atCashier = false
+    commerceApi.bill = async () => ok(atCashier ? paidSale(2) : madeSale())
+    const handOver = vi.fn(async (..._args: unknown[]) => ok({ handedOverAt: '2026-11-26T09:10:00Z', bill: { ...paidSale(3), handedOverAt: '2026-11-26T09:10:00Z' } }))
+    commerceApi.handOverSale = handOver
+    renderDept(<Sell />)
+    fireEvent.click(await screen.findByRole('button', { name: /^Add: Paracetamol 500 mg/ }))
+    fireEvent.click((await screen.findAllByRole('button', { name: /Send to cashier/ }))[0]!)
+    const check = await screen.findByRole('button', { name: 'Check again' })
+    atCashier = true
+    fireEvent.click(check)
+    fireEvent.click(await screen.findByRole('button', { name: 'Handed over' }))
+    await waitFor(() => expect(handOver).toHaveBeenCalled())
+    expect(handOver.mock.calls[0]![1]).toBe('sale-1')
+    expect(handOver.mock.calls[0]![3]).toBe(2)
+    expect(await screen.findByText('Sale complete')).toBeTruthy()
+    expect(screen.queryByText(/Someone else changed this/)).toBeNull()
+  })
+
+  it('reads a sale again when the hand-over is refused because it changed, and sends the next press anew', async () => {
+    const ors: CatalogueItem = { ...PARACETAMOL, id: 'cat-para', prices: { cashKobo: 0, hmo: [] } }
+    commerceApi.catalogueItems = async () => ok({ items: [ors], nextPage: null })
+    commerceApi.stock = async () => ok({ items: [], nextPage: null })
+    commerceApi.paymentSettings = async () => ok(sellSettings('both'))
+    commerceApi.pharmacyWalkIn = async () => ok({ workItemIds: [], bill: madeSale({ status: 'paid', totalKobo: 0, dueKobo: 0, version: 1 }) })
+    commerceApi.bill = async () => ok(madeSale({ status: 'paid', totalKobo: 0, dueKobo: 0, version: 4 }))
+    const handOver = vi.fn()
+      .mockResolvedValueOnce({ ok: false, error: 'Someone else changed this. Reload it and try again.', code: 'VERSION_CONFLICT', status: 412 })
+      .mockResolvedValueOnce(ok({ handedOverAt: '2026-11-26T09:10:00Z', bill: madeSale({ status: 'paid', totalKobo: 0, dueKobo: 0, version: 5, handedOverAt: '2026-11-26T09:10:00Z' }) }))
+    commerceApi.handOverSale = handOver
+    renderDept(<Sell />)
+    fireEvent.click(await screen.findByRole('button', { name: /^Add: Paracetamol 500 mg/ }))
+    fireEvent.click((await screen.findAllByRole('button', { name: /Take payment/ }))[0]!)
+    fireEvent.click(await screen.findByRole('button', { name: 'Handed over' }))
+    expect(await screen.findByText('Someone else changed this sale meanwhile. It has been read again: check it, then press Handed over again.')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Handed over' }))
+    expect(await screen.findByText('Sale complete')).toBeTruthy()
+    expect(handOver.mock.calls.map(call => call[3])).toEqual([1, 4])
+    expect(handOver.mock.calls[1]![2]).not.toBe(handOver.mock.calls[0]![2])
   })
 
   it('leaves photoFileId out of an outside order without a photo', () => {

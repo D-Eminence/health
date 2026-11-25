@@ -13,7 +13,7 @@ import { Receipt } from '../commerce/Receipt'
 import { TakePayment } from '../commerce/TakePayment'
 import { useCommerceRead } from '../commerce/useCommerceRead'
 import { useDeptAccess } from '../parts/access'
-import { canGiveHealthId, GiveHealthId } from './saleAfter'
+import { canGiveHealthId, GiveHealthId, SALE_CHANGED } from './saleAfter'
 import { printReceipt } from '../../../print/printPaper'
 
 const LIST = '/provider/pharmacy/sales'
@@ -156,6 +156,10 @@ function SaleRecord({ billId }: { readonly billId: string }) {
     setHanding({ busy: true, error: '', key })
     const result = await commerce.handOverSale(facilityId, bill.id, key, bill.version)
     if (result.ok) { read.replace(result.data.bill); setHanding({ busy: false, error: '', key: '' }); toast.success({ title: 'Handed over', message: `Bill ${bill.number}` }); return }
+    // Refused because the sale changed since it was read (nothing was recorded): read it again, and press again anew.
+    if (!result.notAvailable && (result.code === 'VERSION_CONFLICT' || result.code === 'PRECONDITION_FAILED')) {
+      read.reload(); setHanding({ busy: false, error: SALE_CHANGED, key: '' }); return
+    }
     setHanding({ busy: false, error: result.notAvailable ? NOT_SWITCHED_ON : result.error, key })
   }
   const refundable = bill.payments.filter(payment => !payment.voided)
