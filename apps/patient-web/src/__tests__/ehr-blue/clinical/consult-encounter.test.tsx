@@ -1319,8 +1319,9 @@ describe('Consultation record: documents', () => {
     expect(within(documents.getByText('referral-letter.pdf').closest('li') as HTMLElement).getByRole('link', { name: 'Extract with OCR' })).toBeTruthy()
   })
 
-  // hid-system 0136 (Q112 A): starting a reading needs ocr.job.start, which doctors no longer hold.
-  it('item 3: gives a doctor who may not start a reading Find its reading and a plain sentence, never Extract with OCR', async () => {
+  // hid-system 0136 (Q112 A): starting a reading needs ocr.job.start. Doctors hold it again since 0150 (Q141 B), so this is
+  // a role that follows readings without it.
+  it('item 3: gives a role that may not start a reading Find its reading and a plain sentence, never Extract with OCR', async () => {
     staff.permissions = [...ALL, 'ocr.job.read', 'ocr.job.write', 'ocr.validation.write']
     renderWithOcr()
     expect(await screen.findByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()

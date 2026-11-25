@@ -281,7 +281,7 @@ function PatientRecord({ chart, onClosed }: { chart: Chart; onClosed: () => void
                   member here; owner, 5 Nov 2026) also covers bringing in paper records while it lasts. Whichever it is, the open
                   record's grant is what Identity answers for, so the line asks nothing about how access came: adults only, to a
                   role that brings them in (one that starts readings: the front desk, nurses and clinicians since hid-system
-                  0136, not doctors), once the grant is known to allow adding to the record (canWrite: never emergency, never
+                  0136, and doctors again since 0150), once the grant is known to allow adding to the record (canWrite: never emergency, never
                   while the check is still answering). */}
               {chart.canWrite && scanAccess(permissions).startsReadings && isAdult(facts.dateOfBirth) ? <p className="m-0 mt-1 text-[12px] text-ink-3">{STAFF_ACCESS_COVERS_PAPER}</p> : null}
             </div>

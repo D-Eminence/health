@@ -280,7 +280,7 @@ describe('Reading quality, for a facility’s own manager (hid-system #236)', ()
   it('a manager without OCR job read still gets Migrate’s own refusal: the page that offers it is not open to them', async () => {
     session.permissions = ['workforce.manage']
     renderDept(<Migrate />)
-    expect(screen.getByRole('alert').textContent).toBe('Scanning paper records is done by the front desk, nurses and clinicians here.')
+    expect(screen.getByRole('alert').textContent).toBe('Scanning paper records is done by the front desk, doctors, nurses and clinicians here.')
     expect(screen.queryByRole('button', { name: 'Reading quality' })).toBeNull()
     expect(qualityCalls()).toHaveLength(0)
   })

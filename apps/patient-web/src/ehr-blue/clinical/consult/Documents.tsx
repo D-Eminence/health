@@ -30,7 +30,7 @@ const MAX_BYTES = 52_428_800
 const OCR_PATH = '/provider/ocr'
 const OCR_LABEL = 'Extract with OCR'
 /**
- * The same hand-off for someone who follows readings but does not start them (a doctor since hid-system 0136): Migrate
+ * The same hand-off for someone who follows readings but does not start them (no doctor since hid-system 0150): Migrate
  * holds the document in Find document job and looks its reading up at once, opening it when there is one; it never
  * starts one.
  */
@@ -65,7 +65,7 @@ export const DOCUMENTS_FAILED = 'Documents could not be loaded.'
  * The encounter's documents (today's Documents tab), 50 to a page: each with its type, size and scan result, "Open
  * file" only once the virus scan is clean, today's "Extract with OCR" for a clean one when the role may start a reading
  * (OCR job write and start, and OCR job read or its own uploads' read: hid-system 0136, Q112 A), and "Find its reading"
- * with a sentence saying who starts them when it follows readings but may not start one (a doctor), never a link that
+ * with a sentence saying who starts them when it follows readings but may not start one (no doctor since 0150), never a link that
  * would only be refused (the ids go in router state, never in the address, as today), and "Upload a document".
  * Opening and uploading re-check access first, as today. The front desk lists only the documents it uploaded, and the
  * card says so.
