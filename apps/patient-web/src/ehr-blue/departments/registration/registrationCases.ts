@@ -140,15 +140,20 @@ export function useRegistrationCases(facilityId: string, canApprove: boolean) {
 
   /**
    * A case as Identity last answered it (opened, decided, enrolled): its row, where the list shows it, says the same.
-   * Its name, date of birth and times stay the list's.
+   * Its name, date of birth and start stay the list's. A case Identity has changed since the list was read (a later
+   * version) was updated now, as far as this page knows; one whose status no longer matches the Status filter leaves
+   * the list, which then shows only what the filter asks for (it stays under "Find registration case" for this visit).
    */
   const patch = useCallback((item: RegistrationCase) => {
     setList(previous => {
       if (previous.kind !== 'ready' || !previous.items.some(row => row.caseId === item.caseId)) return previous
+      const status = shown.current.status
+      if (status && item.status !== status) return { ...previous, items: previous.items.filter(row => row.caseId !== item.caseId) }
       return {
         ...previous,
         items: previous.items.map(row => (row.caseId === item.caseId ? {
           ...row, status: item.status, version: item.version, candidateCount: item.candidateCount,
+          ...(item.version > row.version ? { updatedAt: new Date().toISOString() } : {}),
           ...(item.patient ? { patient: item.patient } : {}),
           ...(item.ninStatus ? { ninStatus: item.ninStatus } : {}),
           ...(item.identityEvidence ? { identityEvidence: item.identityEvidence } : {}),

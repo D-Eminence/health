@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { DEMO_HOSPITAL_ID, renderDept } from '../harness'
 import { PatientRegistration } from '../../../../ehr-blue/departments/registration/Registration'
+import { dateText } from '../../../../ehr-blue/departments/parts/format'
 
 /*
  * SX-10 in the blue Patient registration: "My registrations" for the desk (GET identity/registration-cases?view=mine)
@@ -104,7 +105,7 @@ describe('My registrations', () => {
     const rows = within(region).getAllByRole('row').slice(1)
     expect(rows.map(row => within(row).getAllByRole('button')[0]?.textContent)).toEqual(['Patient One', 'Patient Two'])
     const one = rowOf(region, 'Patient One')
-    expect(within(one).getByText('Born 2 Jan 1990')).toBeTruthy()
+    expect(within(one).getByText('Born 2 Jan 1990 · Started by you')).toBeTruthy()
     expect(within(one).getByText('HID-ZDEMAAA2')).toBeTruthy()
     expect(within(one).getByText('NIN Verified')).toBeTruthy()
     expect(within(one).getByText('New Health ID')).toBeTruthy()
@@ -113,8 +114,9 @@ describe('My registrations', () => {
     expect(within(two).getByText('No Health ID yet')).toBeTruthy()
     expect(within(two).getByText('NIN Not Verified')).toBeTruthy()
     expect(within(two).getByText('Possible match')).toBeTruthy()
-    // Every row here is the member's own: nothing more is said of who started it.
-    expect(within(region).queryByText(/Started by you/)).toBeNull()
+    // "Started by you" wherever the member started it, here too; nobody else is named.
+    expect(within(two).getByText('Born 6 May 2019')).toBeTruthy()
+    expect(within(region).getAllByText(/Started by you/)).toHaveLength(1)
     // A member who does not approve registrations is offered neither all of them nor the NIN filter.
     expect(screen.queryByRole('button', { name: 'All registrations' })).toBeNull()
     expect(screen.queryByRole('combobox', { name: 'NIN' })).toBeNull()
@@ -265,12 +267,29 @@ describe('Load more', () => {
     renderDept(<PatientRegistration />)
     await table()
     fireEvent.click(screen.getByRole('button', { name: 'Load more' }))
-    expect(await screen.findByText('This list changed, so it was loaded again from the top.')).toBeTruthy()
+    expect(await screen.findByText('The next page could not be loaded, so the list was loaded again from the first page.')).toBeTruthy()
     await waitFor(() => expect(within(screen.getByRole('region', { name: 'My registrations' })).getAllByRole('row').slice(1)).toHaveLength(2))
     expect(api.listRegistrationCases.mock.calls.map(call => call[1])).toEqual([{ view: 'mine' }, { view: 'mine', cursor: 'next-page_2' }, { view: 'mine' }])
-    expect(document.activeElement).toBe(screen.getByText('This list changed, so it was loaded again from the top.').closest('.hid-ehr-dept-notice'))
+    expect(document.activeElement).toBe(screen.getByText('The next page could not be loaded, so the list was loaded again from the first page.').closest('.hid-ehr-dept-notice'))
     expect(screen.queryByText('Every registration in this list is shown.')).toBeNull()
     expectPlainScreen()
+  })
+
+  it('drops a page that answers after the list or a filter has changed', async () => {
+    const later = deferred<unknown>()
+    api.listRegistrationCases.mockResolvedValueOnce(page([ONE], 'next-page_2')).mockReturnValueOnce(later.promise)
+      .mockResolvedValueOnce(page([THREE]))
+    renderDept(<PatientRegistration />)
+    await table()
+    fireEvent.click(screen.getByRole('button', { name: 'Load more' }))
+    await screen.findByRole('button', { name: 'Loading…' })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Status' }), { target: { value: 'pending_new_identity_approval' } })
+    const region = await table()
+    await waitFor(() => expect(within(region).getByRole('button', { name: 'Patient Three' })).toBeTruthy())
+    await act(async () => { later.resolve(page([TWO])) })
+    expect(within(region).queryByRole('button', { name: 'Patient Two' })).toBeNull()
+    expect(within(region).getAllByRole('row').slice(1)).toHaveLength(1)
+    expect(screen.queryByText('More registrations added below.')).toBeNull()
   })
 
   it('goes back to the member’s own registrations when Identity refuses a later page of all of them', async () => {
@@ -380,7 +399,7 @@ describe('opening a registration from the list', () => {
       patient: { patientId: PATIENT, hid: 'HID-ZDEMAAA2' } })
     renderDept(<PatientRegistration />)
     const region = await table()
-    expect(within(rowOf(region, 'Patient Three')).getByText('Date of birth not given')).toBeTruthy()
+    expect(within(rowOf(region, 'Patient Three')).getByText('Date of birth not given · Started by you')).toBeTruthy()
     fireEvent.click(within(region).getByRole('button', { name: 'Patient Three' }))
     await screen.findByRole('heading', { level: 1, name: 'Registration for Patient Three' })
     const actions = screen.getByRole('heading', { name: 'Available actions' }).closest('section') as HTMLElement
@@ -392,7 +411,54 @@ describe('opening a registration from the list', () => {
     const row = rowOf(await table(), 'Patient Three')
     expect(within(row).getByText('New Health ID')).toBeTruthy()
     expect(within(row).getByText('HID-ZDEMAAA2')).toBeTruthy()
+    // Updated when the decision was made, not when the list was read.
+    expect(within(row).queryByText(dateText(THREE.updatedAt))).toBeNull()
+    const today = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+    expect(within(row).getByText(new RegExp(`^${today}, \\d{2}:\\d{2}$`))).toBeTruthy()
     expect(api.listRegistrationCases).toHaveBeenCalledTimes(1)
+  })
+
+  it('a decision that takes a registration out of the Status chosen takes it out of that list', async () => {
+    session.permissions = [WRITE, APPROVE]
+    api.listRegistrationCases.mockResolvedValueOnce(page([THREE, ONE])).mockResolvedValueOnce(page([THREE]))
+    api.registrationCase.mockResolvedValue(detail(THREE))
+    api.approveNewRegistration.mockResolvedValue({ caseId: THIRD_CASE, status: 'approved_new_identity', version: 2, candidateCount: 0,
+      patient: { patientId: PATIENT, hid: 'HID-ZDEMAAA2' } })
+    renderDept(<PatientRegistration />)
+    await table()
+    fireEvent.change(screen.getByRole('combobox', { name: 'Status' }), { target: { value: 'pending_new_identity_approval' } })
+    await waitFor(() => expect(within(screen.getByRole('region', { name: 'My registrations' })).queryByRole('button', { name: 'Patient One' })).toBeNull())
+    fireEvent.click(within(await table()).getByRole('button', { name: 'Patient Three' }))
+    await screen.findByRole('heading', { level: 1, name: 'Registration for Patient Three' })
+    const actions = screen.getByRole('heading', { name: 'Available actions' }).closest('section') as HTMLElement
+    fireEvent.click(within(actions).getByRole('button', { name: 'Create Health ID' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Why (for the record)' }), { target: { value: 'Checked at the desk.' } })
+    fireEvent.click(within(screen.getByRole('form', { name: 'Create Health ID' })).getByRole('button', { name: 'Create Health ID' }))
+    await waitFor(() => expect(document.getElementById('registration-status')?.textContent).toBe('New Health ID created.'))
+    fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
+    // No longer under "Needs approval": listed with the ones opened on this visit, where focus returns.
+    expect(await screen.findByText('No matching registrations')).toBeTruthy()
+    const visit = screen.getByRole('region', { name: 'Opened on this visit' })
+    expect(within(visit).getByText('New Health ID')).toBeTruthy()
+    await waitFor(() => expect(document.activeElement?.textContent).toBe('Registration for Patient Three'))
+    expect(api.listRegistrationCases).toHaveBeenCalledTimes(2)
+  })
+
+  it('"Opening…" stays with the registration being opened when the list is read again meanwhile', async () => {
+    const opening = deferred<unknown>()
+    api.registrationCase.mockReturnValueOnce(opening.promise)
+    renderDept(<PatientRegistration />)
+    const region = await table()
+    fireEvent.click(within(region).getByRole('button', { name: 'Patient One' }))
+    expect(within(rowOf(region, 'Patient One')).getByRole('button', { name: /^Opening…/ })).toBeTruthy()
+    api.listRegistrationCases.mockResolvedValueOnce(page([TWO, ONE]))
+    fireEvent.change(screen.getByRole('combobox', { name: 'Status' }), { target: { value: 'review_required' } })
+    await waitFor(() => expect(within(screen.getByRole('region', { name: 'My registrations' })).getAllByRole('button')[0]?.textContent).toBe('Patient Two'))
+    const now = screen.getByRole('region', { name: 'My registrations' })
+    expect(within(rowOf(now, 'Patient Two')).queryByText('Opening…')).toBeNull()
+    expect(within(rowOf(now, 'Patient One')).getByText('Opening…')).toBeTruthy()
+    await act(async () => { opening.resolve(detail(ONE)) })
+    expect(await screen.findByRole('heading', { level: 1, name: 'Registration for Patient One' })).toBeTruthy()
   })
 
   it('a registration without a NIN this approver started waits for another approver, as the list says', async () => {

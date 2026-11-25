@@ -59,6 +59,25 @@ describe('listRegistrationCases', () => {
     await expect(odd.staffApi.listRegistrationCases(FACILITY, { view: 'mine' })).rejects.not.toHaveProperty('code')
   })
 
+  it.each([
+    ['without a case ID', { caseId: undefined }],
+    ['without a status', { status: undefined }],
+    ['without a name', { fullName: undefined }],
+    ['with a date of birth in another shape', { dateOfBirth: 19900102 }],
+    ['without when it was started', { createdAt: undefined }],
+    ['without when it was updated', { updatedAt: undefined }],
+    ['without who started it', { createdByMe: 'yes' }],
+  ])('refuses the whole page when a row comes %s, rather than show part of it as all of it', async (_, change) => {
+    const { staffApi } = await listWith({ view: 'mine', cases: [ITEM, { ...ITEM, caseId: 'c0000000-0000-4000-8000-000000000002', ...change }], nextCursor: null })
+    await expect(staffApi.listRegistrationCases(FACILITY, { view: 'mine' })).rejects.toThrow('The registration list answered in a shape this page does not read.')
+  })
+
+  it('takes a row without a date of birth', async () => {
+    const answer = { view: 'mine', cases: [{ ...ITEM, dateOfBirth: null }], nextCursor: null }
+    const { staffApi } = await listWith(answer)
+    expect(await staffApi.listRegistrationCases(FACILITY, { view: 'mine' })).toEqual(answer)
+  })
+
   it('passes Identity’s refusal on by its code, for the page to word', async () => {
     const { staffApi } = await listWith({ code: 'REGISTRATION_CASE_LIST_DENIED', message: 'Only staff who approve registrations can see every case at this facility.' }, 403)
     await expect(staffApi.listRegistrationCases(FACILITY, { view: 'facility' })).rejects.toMatchObject({ status: 403, code: 'REGISTRATION_CASE_LIST_DENIED' })

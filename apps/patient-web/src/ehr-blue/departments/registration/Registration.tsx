@@ -244,11 +244,11 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
 
   // SX-10: a row of the registration list opens its registration as GET :caseId reads it (with its possible matches),
   // by the name the list gives. Its ID never goes in "Find registration case", the address or the history.
-  async function openListed(item: RegistrationCaseListItem, row: number) {
+  async function openListed(item: RegistrationCaseListItem) {
     setMessage('')
     setError(null); caseProblems.clear()
     const asked = viewSeq.current
-    setCaseLoading({ row })
+    setCaseLoading({ caseId: item.caseId })
     try {
       const value = await staffApi.registrationCase(facilityId, item.caseId)
       if (!live.current) return
@@ -467,7 +467,7 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
       onFind={() => { if (!caseLoading && !busy) void loadCase(caseIdInput, 'find') }}
       onNew={() => go({ kind: 'new' })}
       onOpen={visit => go({ kind: 'case', caseId: visit.item.caseId })}
-      onOpenListed={(item, row) => void openListed(item, row)} />
+      onOpenListed={item => void openListed(item)} />
   )
   let content
   if (view.kind === 'new') {

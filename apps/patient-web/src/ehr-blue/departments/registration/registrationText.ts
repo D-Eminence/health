@@ -351,7 +351,7 @@ export const OPENING = 'Opening…'
 /** 403 REGISTRATION_CASE_LIST_DENIED: all registrations asked for without approving them. The list goes back to the member's own. */
 export const LIST_DENIED = 'Only staff who approve registrations can see every registration at this facility. Showing your registrations instead.'
 /** 400 REGISTRATION_CASE_CURSOR_INVALID: a next page Identity did not issue. The list is read again from its first page. */
-export const LIST_RESTARTED = 'This list changed, so it was loaded again from the top.'
+export const LIST_RESTARTED = 'The next page could not be loaded, so the list was loaded again from the first page.'
 const LIST_NO_ACCESS = 'You can’t see the registrations at this facility. Ask your facility administrator if you need to.'
 /** Every refusal the list can answer, by code, in plain words: never Identity's own text or the code. */
 const LIST_REFUSALS: Readonly<Record<string, string>> = {

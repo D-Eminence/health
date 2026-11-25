@@ -71,7 +71,7 @@ export type ReviewAction = 'approve' | 'link'
 export type ErrorAt = 'find' | 'list' | 'refresh' | 'resolve' | 'without' | ReviewAction | 'enroll'
 /**
  * Which case read is running (Registration.tsx 55: one at a time), so only the control that asked says "Loading…": a
- * row of the list (SX-10) names its row by its place in the list.
+ * row of the list (SX-10) names its row by its case, so it stays with that case if the list is read again meanwhile.
  */
-export type CaseLoading = 'find' | 'refresh' | { readonly row: number } | null
+export type CaseLoading = 'find' | 'refresh' | { readonly caseId: string } | null
 export interface ShownError { readonly text: string; readonly at: ErrorAt }

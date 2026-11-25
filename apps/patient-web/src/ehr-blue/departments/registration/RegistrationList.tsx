@@ -53,7 +53,7 @@ export function RegistrationList({ availability, cases, caseIdInput, onCaseIdInp
   readonly onFind: () => void
   readonly onNew: () => void
   readonly onOpen: (visit: VisitCase) => void
-  readonly onOpenListed: (item: RegistrationCaseListItem, row: number) => void
+  readonly onOpenListed: (item: RegistrationCaseListItem) => void
 }) {
   const listed = cases.list.kind === 'ready' ? new Set(cases.list.items.map(item => item.caseId)) : new Set<string>()
   // A registration opened here that the list shows is listed there only.
@@ -122,7 +122,7 @@ function CaseList({ cases, caseLoading, busy, error, onOpen }: {
   readonly caseLoading: CaseLoading
   readonly busy: boolean
   readonly error: string
-  readonly onOpen: (item: RegistrationCaseListItem, row: number) => void
+  readonly onOpen: (item: RegistrationCaseListItem) => void
 }) {
   const { filter, list, notice, canSeeAll, choose, reload } = cases
   // What "Load more" added, announced. After the last page, focus goes to the line that says every one is shown; after
@@ -132,8 +132,8 @@ function CaseList({ cases, caseLoading, busy, error, onOpen }: {
   const all = filter.view === 'facility'
   const filtered = filter.status !== '' || filter.evidence !== ''
   const items = list.kind === 'ready' ? list.items : []
-  const opening = caseLoading !== null && typeof caseLoading === 'object' ? caseLoading.row : null
-  const open = (item: RegistrationCaseListItem, row: number) => { if (caseLoading === null && !busy) onOpen(item, row) }
+  const opening = caseLoading !== null && typeof caseLoading === 'object' ? caseLoading.caseId : null
+  const open = (item: RegistrationCaseListItem) => { if (caseLoading === null && !busy) onOpen(item) }
 
   async function loadMore() {
     setSaid('')
@@ -146,10 +146,9 @@ function CaseList({ cases, caseLoading, busy, error, onOpen }: {
   const columns: EhrDataTableColumn<{ readonly item: RegistrationCaseListItem; readonly row: number }>[] = [
     {
       id: 'patient', header: 'Patient', cell: ({ item, row }) => (
-        <DeptRecordName id={listRowId(row)} name={item.fullName} onOpen={() => open(item, row)}
-          // "Started by you" only where the member started it: nobody else who started one is named. In "My
-          // registrations" every row is the member's own, so it says nothing more there.
-          reference={[bornText(item.dateOfBirth), all && item.createdByMe ? STARTED_BY_YOU : null].filter(Boolean).join(' · ')} />
+        <DeptRecordName id={listRowId(row)} name={item.fullName} onOpen={() => open(item)}
+          // "Started by you" wherever the member started it: nobody else who started one is named.
+          reference={[bornText(item.dateOfBirth), item.createdByMe ? STARTED_BY_YOU : null].filter(Boolean).join(' · ')} />
       ),
     },
     { id: 'hid', header: 'Health ID', cell: ({ item }) => item.patient?.hid ?? <span className="hid-ehr-dept-muted">{NO_HID_YET}</span> },
@@ -163,8 +162,8 @@ function CaseList({ cases, caseLoading, busy, error, onOpen }: {
     {
       id: 'actions', header: <span className="hid-ehr-sr-only">Actions</span>, cell: ({ item, row }) => (
         <div className="hid-ehr-dept-table-actions">
-          <DeptLinkButton describedBy={listRowId(row)} onClick={() => open(item, row)}>
-            {opening === row ? OPENING : <>Open <span aria-hidden="true">→</span></>}
+          <DeptLinkButton describedBy={listRowId(row)} onClick={() => open(item)}>
+            {opening === item.caseId ? OPENING : <>Open <span aria-hidden="true">→</span></>}
           </DeptLinkButton>
         </div>
       ),

@@ -202,19 +202,26 @@ export interface RegistrationCaseListQuery {
   cursor?: string
 }
 
+/** A row as the page reads it: the fields every row shows, and the ones it is opened and kept by. */
+function isRegistrationCaseListItem(item: unknown): item is RegistrationCaseListItem {
+  if (!item || typeof item !== 'object') return false
+  const row = item as Partial<Record<keyof RegistrationCaseListItem, unknown>>
+  return typeof row.caseId === 'string' && typeof row.status === 'string' && typeof row.version === 'number'
+    && typeof row.fullName === 'string' && (row.dateOfBirth === null || typeof row.dateOfBirth === 'string')
+    && typeof row.createdAt === 'string' && typeof row.updatedAt === 'string' && typeof row.createdByMe === 'boolean'
+}
+
 /**
- * The list as sent. An answer in another shape is an ordinary Error, which the page words with its own fallback, so a
- * half-read list is never shown as the whole of it.
+ * The list as sent. An answer in another shape, or with any row in another shape, is an ordinary Error, which the page
+ * words with its own fallback, so a half-read list is never shown as the whole of it.
  */
 export function parseRegistrationCaseList(value: unknown): RegistrationCaseList {
   const answer = value as Partial<RegistrationCaseList> | null
-  if (!answer || typeof answer !== 'object' || !Array.isArray(answer.cases)
+  if (!answer || typeof answer !== 'object' || !Array.isArray(answer.cases) || !answer.cases.every(isRegistrationCaseListItem)
     || (answer.nextCursor !== null && answer.nextCursor !== undefined && typeof answer.nextCursor !== 'string')) {
     throw new Error('The registration list answered in a shape this page does not read.')
   }
-  const cases = answer.cases.filter((item): item is RegistrationCaseListItem =>
-    Boolean(item) && typeof item === 'object' && typeof item.caseId === 'string' && typeof item.status === 'string')
-  return { view: answer.view === 'facility' ? 'facility' : 'mine', cases, nextCursor: answer.nextCursor ?? null }
+  return { view: answer.view === 'facility' ? 'facility' : 'mine', cases: answer.cases, nextCursor: answer.nextCursor ?? null }
 }
 
 /**
