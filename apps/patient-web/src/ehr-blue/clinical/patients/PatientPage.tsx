@@ -28,6 +28,7 @@ import { readReportedHealth } from '../parts/reportedHealth'
 import type { ActivePatient } from '../../../staff/App'
 import { isAdult, STAFF_ACCESS_COVERS_PAPER } from '../../../paperRecordsWording'
 import { scanAccess } from '../../../scanAccess'
+import { useInpatientServed } from '../../departments/inpatient/inpatientRules'
 import { AllergiesCard } from './AllergiesCard'
 import { ChartSummary } from './ChartSummary'
 import { CHART_SUMMARY_PERMISSIONS } from './chartSummary'
@@ -187,6 +188,8 @@ function PatientRecord({ chart, onClosed }: { chart: Chart; onClosed: () => void
   const href = useWorkspaceHref()
   const navigate = useNavigate()
   const sampleCan = useSampleCan()
+  // False once an inpatient read has answered 503 INPATIENT_NOT_AVAILABLE (or an ehr-api before ADT-1 answered 404).
+  const inpatientServed = useInpatientServed()
   const [error, setError] = useState('')
   const [ending, setEnding] = useState(false)
   const emergency = chart.purpose === 'emergency'
@@ -245,8 +248,10 @@ function PatientRecord({ chart, onClosed }: { chart: Chart; onClosed: () => void
   const showSummary = opens('emergency')
   // Request admission (hid-system ADT-1 route 10): doctors and clinicians (ehr.admission.read and .decide) with a grant
   // that allows changes, as the request needs write access to the chart. The new admission page reads this open patient.
+  // Not offered once inpatient care is known to be switched off (INPATIENT_ENABLED, until the owner's go-live): the new
+  // admission page says so too, before any form, for a doctor who comes before anything has been read.
   const showAdmission = !readOnly && chart.can('ehr.encounter.write') && permissions.includes('ehr.admission.read')
-    && permissions.includes('ehr.admission.decide') && opens('inpatient')
+    && permissions.includes('ehr.admission.decide') && opens('inpatient') && inpatientServed !== false
   const noSteps = !showStart && !showVitals && !showWalkIn && !showEmergency && !showAdmission
 
   /**

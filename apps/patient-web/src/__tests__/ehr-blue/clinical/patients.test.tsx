@@ -759,6 +759,23 @@ describe('The open patient’s page', () => {
     await waitFor(() => expect(nextSteps()).toEqual(['Start a consultation', 'Record vitals']))
   })
 
+  it('does not offer Request admission once inpatient care is known to be switched off (503 INPATIENT_NOT_AVAILABLE)', async () => {
+    const { forgetInpatientServed, learnFrom } = await import('../../../ehr-blue/departments/inpatient/inpatientRules')
+    staff.permissions = [...ALL, ...WRITES, 'ehr.admission.read', 'ehr.admission.decide']
+    staff.activePatient = activePatient()
+    try {
+      // An inpatient page read earlier in this session answered that INPATIENT_ENABLED is off (production until go-live).
+      learnFrom(new HidApiError(503, 'INPATIENT_NOT_AVAILABLE', { code: 'INPATIENT_NOT_AVAILABLE', retryable: false }))
+      open('/open')
+      await waitFor(() => expect(nextSteps()).toEqual(['Start a consultation', 'Record vitals']))
+      // Switched on (any other answer): offered again.
+      act(() => { learnFrom() })
+      await waitFor(() => expect(nextSteps()).toEqual(['Start a consultation', 'Record vitals', 'Request admission']))
+    } finally {
+      forgetInpatientServed()
+    }
+  })
+
   it('hand-off 01: offers Open chart and the visits only with ehr.encounter.read, Consultation’s permission, and reads no encounters without it', async () => {
     staff.permissions = ['identity.patient.read', 'identity.consent.write']
     staff.activePatient = activePatient()

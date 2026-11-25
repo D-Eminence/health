@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { json, problem, serve, type Sent } from '../../frame/blueHarness'
-import { ENCOUNTER, NURSE, PATIENT, REQUEST, WARDS, WARD_FEMALE, ADMISSION, card, ward, waiting } from './fixtures'
+import { ENCOUNTER, NURSE, PATIENT, REQUEST, WARDS, WARD_FEMALE, ADMISSION, card, many, ward, waiting } from './fixtures'
 
 /*
  * New admission (hid-system ADT-1 route 10): a doctor or clinician asks for an admission for the patient whose record is
@@ -37,6 +37,8 @@ async function renderNew() {
   </Routes></div></MemoryRouter>)
 }
 const sentTo = (sent: readonly Sent[], route: string) => sent.filter(call => call.route === route)
+/** Another patient: the newborn's mother. */
+const MOTHER = 'b0000000-0000-4000-8000-0000000000b9'
 
 beforeEach(async () => {
   staff.permissions = DOCTOR
@@ -94,7 +96,7 @@ describe('New admission', () => {
       [ENCOUNTERS]: [() => json({ items: [], nextCursor: null })],
       [QUEUE]: [() => json({ items: [{ entryId: 'q0000000-0000-4000-8000-000000000001', patientId: PATIENT, stage: 'ready' }], hasMore: false, limit: 200 })],
       ['GET /api/v1/ehr/admissions']: [() => json({ items: [card({ admissionId: 'a0000000-0000-4000-8000-0000000000m1', fullName: 'Bisi Mother',
-        admissionNumber: 'A-2026-000100' })], hasMore: false, limit: 500 })],
+        patientId: MOTHER, admissionNumber: 'A-2026-000100' })], hasMore: false, limit: 500 })],
       [REQUEST]: [() => problem(409, 'ADMISSION_ALREADY_OPEN', 'x')],
     })
     await renderNew()
@@ -113,7 +115,59 @@ describe('New admission', () => {
     expect(screen.getByRole('link', { name: 'Find their admission on the list' }).getAttribute('href')).toBe('/provider/inpatient')
     expect(sentTo(sent, REQUEST)[0]!.body).toEqual({ patientId: PATIENT, source: 'waiting_list', visitQueueEntryId: 'q0000000-0000-4000-8000-000000000001',
       reason: 'Neonatal jaundice', responsibleMembershipId: 'm0000000-0000-4000-8000-0000000000aa', motherAdmissionId: 'a0000000-0000-4000-8000-0000000000m1' })
-    expect(vi.mocked(fetch).mock.calls.map(([url]) => String(url)).find(url => url.includes('/admissions'))).toContain('wardType=maternity')
+    // Every open admission here, whatever the ward (the backend's own rule), not only maternity wards.
+    const listed = vi.mocked(fetch).mock.calls.map(([url]) => String(url)).find(url => url.includes('/admissions'))!
+    expect(listed).toContain('status=open')
+    expect(listed).not.toContain('wardType')
+  })
+
+  it('offers a newborn’s mother on any ward or waiting for a bed, maternity first, never the baby’s own admission', async () => {
+    const MATERNITY = 'd0000000-0000-4000-8000-0000000000d8'
+    const ICU = 'd0000000-0000-4000-8000-0000000000d3'
+    serve({
+      [WARDS]: [() => json({ items: [ward(MATERNITY, 'Labour Ward', { wardType: 'maternity' }), ward(ICU, 'ICU A', { wardType: 'icu' })] })],
+      [ENCOUNTERS]: [() => json({ items: [], nextCursor: null })],
+      [QUEUE]: [() => json({ items: [], hasMore: false, limit: 200 })],
+      ['GET /api/v1/ehr/admissions']: [() => json({ items: [
+        // Moved to ICU after a haemorrhage.
+        card({ admissionId: 'a0000000-0000-4000-8000-0000000000m2', patientId: MOTHER, fullName: 'Chika Mother', admissionNumber: 'A-2026-000101',
+          wardId: ICU, wardName: 'ICU A', bedName: 'ICU bed 1', requestedWardId: ICU }),
+        // Waiting for a bed, no ward wanted.
+        waiting({ admissionId: 'a0000000-0000-4000-8000-0000000000m3', patientId: 'b0000000-0000-4000-8000-0000000000b8', fullName: 'Dayo Mother',
+          admissionNumber: 'A-2026-000102', requestedWardId: null }),
+        card({ admissionId: 'a0000000-0000-4000-8000-0000000000m4', patientId: 'b0000000-0000-4000-8000-0000000000b7', fullName: 'Efe Mother',
+          admissionNumber: 'A-2026-000103', wardId: MATERNITY, wardName: 'Labour Ward', bedName: 'Bed 2', requestedWardId: MATERNITY }),
+        // The open patient's own admission is never a mother's.
+        waiting({ admissionId: 'a0000000-0000-4000-8000-0000000000m5', fullName: 'Ada Wardone', admissionNumber: 'A-2026-000104' }),
+      ], hasMore: false, limit: 500 })],
+    })
+    await renderNew()
+    fireEvent.click(screen.getByRole('checkbox', { name: /newborn baby/ }))
+    const mother = screen.getByRole('combobox', { name: 'Mother’s admission' })
+    await waitFor(() => expect((mother as HTMLSelectElement).options).toHaveLength(4))
+    expect(Array.from((mother as HTMLSelectElement).options, option => option.textContent)).toEqual([
+      'Choose the mother',
+      'Efe Mother (A-2026-000103, Labour Ward, Bed 2)',
+      'Chika Mother (A-2026-000101, ICU A, ICU bed 1)',
+      'Dayo Mother (A-2026-000102, waiting for a bed)',
+    ])
+  })
+
+  it('says inpatient care is not switched on yet (503) at once, instead of a form that cannot be sent', async () => {
+    const { forgetInpatientServed } = await import('../../../../ehr-blue/departments/inpatient/inpatientRules')
+    forgetInpatientServed()
+    const sent = serve({
+      // A read is tried again after a 503: every answer says the same.
+      [WARDS]: many(() => problem(503, 'INPATIENT_NOT_AVAILABLE', 'Service unavailable'), 3),
+      [ENCOUNTERS]: [() => json({ items: [], nextCursor: null })],
+      [QUEUE]: [() => json({ items: [], hasMore: false, limit: 200 })],
+    })
+    await renderNew()
+    expect(await screen.findByText('Inpatient care is not switched on yet.', undefined, { timeout: 4000 })).toBeDefined()
+    expect(screen.queryByRole('button', { name: 'Request admission' })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: 'Admission reason' })).toBeNull()
+    expect(sentTo(sent, REQUEST)).toEqual([])
+    forgetInpatientServed()
   })
 
   it('needs the patient’s record open under direct care, and is a doctor’s or clinician’s', async () => {

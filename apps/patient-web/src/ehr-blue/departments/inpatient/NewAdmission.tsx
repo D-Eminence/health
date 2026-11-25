@@ -13,8 +13,8 @@ import { DeptNotice } from '../parts/DeptNotice'
 import { DeptPage, DeptUnavailable } from '../parts/DeptPage'
 import { useIdempotencyKeys } from './hooks'
 import {
-  DECIDE_REFUSED, EYEBROW, INPATIENT_BASE, canDecide, cardName, isCancelled, lagosDateTime, learnFrom, lengthProblem,
-  refusalWords, wardTypeText,
+  DECIDE_REFUSED, EYEBROW, INPATIENT_BASE, NOT_AVAILABLE, canDecide, cardName, isCancelled, lagosDateTime, learnFrom, lengthProblem,
+  notServed, placeText, refusalWords, useInpatientServed, wardTypeText,
 } from './inpatientRules'
 
 const OPEN_VISIT = new Set(['planned', 'in_progress'])
@@ -22,6 +22,21 @@ const OPEN_QUEUE = new Set(['waiting', 'triage', 'ready', 'with_clinician'])
 const ENCOUNTER_PAIR = ['ehr.encounter.read', 'ehr.encounter.write']
 
 type Source = 'direct' | 'consultation' | 'waiting_list'
+
+/**
+ * Whose admission a newborn's may name (Q-ADT-17, route 10's motherAdmissionId): any other patient's open admission here,
+ * whatever the ward (a mother moved to ICU, a facility with general wards only) or none yet (waiting for a bed). Those on
+ * a maternity ward come first; the backend still checks (MOTHER_ADMISSION_INVALID).
+ */
+export function motherChoices(cards: readonly AdmissionCard[], patientId: string, wards: readonly Pick<Ward, 'wardId' | 'wardType'>[]): AdmissionCard[] {
+  const maternity = new Set(wards.filter(ward => ward.wardType === 'maternity').map(ward => ward.wardId))
+  const onMaternity = (card: AdmissionCard) => maternity.has(card.wardId ?? card.requestedWardId ?? '')
+  return cards
+    .filter(card => card.patientId !== patientId && ['requested', 'admitted', 'discharge_ready'].includes(card.status))
+    .map((card, index) => ({ card, index }))
+    .sort((a, b) => Number(onMaternity(b.card)) - Number(onMaternity(a.card)) || a.index - b.index)
+    .map(item => item.card)
+}
 
 /**
  * New admission (ADT-1 route 10, Q184 A and Q185 A): a doctor or clinician asks for an admission for the patient whose
@@ -50,16 +65,28 @@ export function NewAdmission({ facilityId }: { readonly facilityId: string }) {
   const [careTeam, setCareTeam] = useState('')
   const [wardId, setWardId] = useState('')
   const [newborn, setNewborn] = useState(false)
-  const [mothers, setMothers] = useState<AdmissionCard[] | null>(null)
+  const [openAdmissions, setOpenAdmissions] = useState<AdmissionCard[] | null>(null)
+  const mothers = openAdmissions === null ? null : motherChoices(openAdmissions, patientId, wards)
   const [motherId, setMotherId] = useState('')
   const [problem, setProblem] = useState('')
   const [refusal, setRefusal] = useState<{ text: string; alreadyOpen: boolean } | null>(null)
   const [busy, setBusy] = useState(false)
+  // Inpatient care switched off (503) or an ehr-api without it (404): said at once, before any form is filled in.
+  const served = useInpatientServed()
+  const [notAvailable, setNotAvailable] = useState(false)
+  const unavailable = served === false || notAvailable
 
   useEffect(() => {
     if (!patientId) return
     let live = true
-    void inpatientApi.wards(facilityId).then(answer => { if (live) setWards(answer.items.filter(ward => ward.active)) }, () => {})
+    void inpatientApi.wards(facilityId).then(answer => {
+      learnFrom()
+      if (live) { setWards(answer.items.filter(ward => ward.active)); setNotAvailable(false) }
+    }, caught => {
+      if (isCancelled(caught)) return
+      learnFrom(caught)
+      if (live && notServed(caught)) setNotAvailable(true)
+    })
     void staffApi.encounters(facilityId, patientId).then(page => {
       if (live) setVisits(page.items.filter(visit => OPEN_VISIT.has(visit.status) && visit.encounterType !== 'inpatient'))
     }, () => {})
@@ -72,15 +99,23 @@ export function NewAdmission({ facilityId }: { readonly facilityId: string }) {
   }, [facilityId, patientId, permissions])
 
   useEffect(() => {
-    if (!newborn || mothers !== null) return
+    if (!newborn || openAdmissions !== null) return
     let live = true
-    void inpatientApi.admissions(facilityId, { wardType: 'maternity' }).then(list => {
-      if (live) setMothers(list.items.filter(card => card.status === 'admitted' || card.status === 'discharge_ready'))
-    }, () => { if (live) setMothers([]) })
+    void inpatientApi.admissions(facilityId, { status: 'open' }).then(list => {
+      if (live) setOpenAdmissions(list.items)
+    }, () => { if (live) setOpenAdmissions([]) })
     return () => { live = false }
-  }, [newborn, mothers, facilityId])
+  }, [newborn, openAdmissions, facilityId])
 
   if (!canDecide(permissions)) return <DeptUnavailable title="New admission" message={DECIDE_REFUSED} />
+
+  if (unavailable) {
+    return (
+      <DeptPage eyebrow={EYEBROW} title="New admission" onBack={() => navigate(INPATIENT_BASE)} backLabel="Back to the list">
+        <DeptNotice role="alert" tone="info">{NOT_AVAILABLE}</DeptNotice>
+      </DeptPage>
+    )
+  }
 
   if (!patient) {
     return (
@@ -169,10 +204,12 @@ export function NewAdmission({ facilityId }: { readonly facilityId: string }) {
           <span><input type="checkbox" checked={newborn} onChange={event => setNewborn(event.target.checked)} /> This is a newborn baby of a mother admitted here</span>
         </label>
         {newborn ? (
-          <EhrField label="Mother’s admission" controlId="new-admission-mother" hint="The two bands carry the same pair code.">
+          <EhrField label="Mother’s admission" controlId="new-admission-mother" hint="Any ward, maternity first. The two bands carry the same pair code.">
             <EhrSelect value={motherId} onChange={event => setMotherId(event.target.value)}>
-              <option value="">{mothers === null ? 'Loading…' : mothers.length === 0 ? 'No mother is admitted on a maternity ward' : 'Choose the mother'}</option>
-              {(mothers ?? []).map(card => <option key={card.admissionId} value={card.admissionId}>{`${cardName(card)} (${card.admissionNumber})`}</option>)}
+              <option value="">{mothers === null ? 'Loading…' : mothers.length === 0 ? 'No other patient is admitted or waiting for a bed here' : 'Choose the mother'}</option>
+              {(mothers ?? []).map(card => <option key={card.admissionId} value={card.admissionId}>
+                {`${cardName(card)} (${[card.admissionNumber, placeText(card) || 'waiting for a bed'].join(', ')})`}
+              </option>)}
             </EhrSelect>
           </EhrField>
         ) : null}
