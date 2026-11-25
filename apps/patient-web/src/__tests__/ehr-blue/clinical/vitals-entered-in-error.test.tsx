@@ -5,7 +5,7 @@ import { ConsultWorkspace } from '../../../ehr-blue/clinical/consult/ConsultWork
 import { NO_CONSENT, OPEN_PATIENT_AGAIN } from '../../../ehr-blue/clinical/consult/encounters'
 import { TriageWorkspace } from '../../../ehr-blue/clinical/triage/TriageWorkspace'
 import {
-  EIE_ALREADY, EIE_CHANGED, EIE_DONE, EIE_NOT_FOUND, EIE_NO_ROLE, EIE_UNAVAILABLE, EIE_WARNING, RETRACTED_SINCE, RETRACTED_TEXT, vitalName,
+  EIE_ALREADY, EIE_CHANGED, EIE_DONE, EIE_FAILED, EIE_NOT_FOUND, EIE_NO_ROLE, EIE_UNAVAILABLE, EIE_WARNING, RETRACTED_SINCE, RETRACTED_TEXT, vitalName,
 } from '../../../ehr-blue/clinical/triage/vitals'
 import { consultationLabel } from '../../../plainLabels'
 import { ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, activePatient, allowedLookup, labelled, renderPage } from './harness'
@@ -222,12 +222,40 @@ describe('Triage & Vitals record: Mark as entered in error', () => {
     noCodesOrServerWords()
   })
 
-  it.each(['CHANGE_REASON_REQUIRED', 'VALIDATION_FAILED'])('puts %s on the reason', async code => {
-    api.markVitalEnteredInError.mockRejectedValue(refused(400, code))
+  it('puts a missing reason (CHANGE_REASON_REQUIRED) on the reason', async () => {
+    api.markVitalEnteredInError.mockRejectedValue(refused(400, 'CHANGE_REASON_REQUIRED'))
     await openRecord()
     await withdraw(actions())
     confirm()
     expect(await actions().findByText('Give a reason of at least 3 characters.')).toBeTruthy()
+    noCodesOrServerWords()
+  })
+
+  it('puts a VALIDATION_FAILED that names the reason at the reason', async () => {
+    api.markVitalEnteredInError.mockRejectedValue(new HidApiError(400, SERVER_WORDS, {
+      code: 'VALIDATION_FAILED', details: [{ field: 'changeReason', messages: ['changeReason must be shorter than or equal to 500 characters'] }],
+    }))
+    await openRecord()
+    await withdraw(actions())
+    confirm()
+    expect(await actions().findByText('Use 500 characters or fewer.')).toBeTruthy()
+    noCodesOrServerWords()
+  })
+
+  it.each([
+    ['naming another field', [{ field: 'expectedRowVersion', messages: ['expectedRowVersion must not be less than 1'] }]],
+    ['naming no field', undefined],
+  ])('says a VALIDATION_FAILED %s in the form, never pointing at the reason', async (_case, details) => {
+    api.markVitalEnteredInError.mockRejectedValue(new HidApiError(400, SERVER_WORDS, { code: 'VALIDATION_FAILED', details }))
+    await openRecord()
+    await withdraw(actions())
+    confirm()
+    expect((await actions().findByRole('alert')).textContent).toBe(EIE_FAILED)
+    expect(actions().queryByText('Give a reason of at least 3 characters.')).toBeNull()
+    const reason = actions().getByLabelText(labelled('Reason for change')) as HTMLInputElement
+    expect(reason.getAttribute('aria-invalid')).not.toBe('true')
+    expect(reason.value).toBe(REASON)
+    expect(screen.queryByText(EIE_DONE)).toBeNull()
     noCodesOrServerWords()
   })
 
@@ -279,6 +307,26 @@ describe('Triage & Vitals record: Mark as entered in error', () => {
     expect(actions().getByLabelText(labelled('Reason for change'))).toBeTruthy()
     fireEvent.click(actions().getByRole('button', { name: 'Close' }))
     expect(actions().queryByLabelText(labelled('Reason for change'))).toBeNull()
+  })
+})
+
+describe('New triage & vitals: earlier vitals', () => {
+  it('leaves a reading entered in error out of the earlier vitals, and reads no corrections for it', async () => {
+    const OTHER_ID = 'f0000000-0000-4000-8000-000000000002'
+    vitals = [
+      { ...WITHDRAWN, systolicMmhg: 180, diastolicMmhg: 110, currentCorrectionNo: 1 },
+      { ...VITAL, id: OTHER_ID, createdAt: '2026-10-30T08:30:00.000Z', pulseBpm: 64 },
+    ]
+    renderPage(<TriageWorkspace />, 'triage', '/new')
+    expect(await screen.findByRole('button', { name: 'Save record' })).toBeTruthy()
+    const context = within(screen.getByRole('region', { name: 'Allergies and earlier vitals' }))
+    await waitFor(() => expect(context.getAllByText(/^Vitals · /)).toHaveLength(1))
+    expect(vitalsReads()[0]![4]).toEqual({ includeEnteredInError: true })
+    expect(context.queryByText(/Entered in error/)).toBeNull()
+    expect(context.queryByText(/180/)).toBeNull()
+    expect(context.getByText('64')).toBeTruthy()
+    expect(api.vitalCorrections).not.toHaveBeenCalled()
+    noCodesOrServerWords()
   })
 })
 

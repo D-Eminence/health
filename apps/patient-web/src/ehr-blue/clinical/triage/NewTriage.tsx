@@ -17,7 +17,7 @@ import {
   NO_COMPLAINT, NO_CREATE, NO_ENCOUNTERS, NO_RECORD_ACCESS, NO_WRITE, RECORD_NOT_SAVED, isoNow, onAnotherPage, recordKey, recordedAt,
   refusedFieldErrors, usePatientRecords, type VisitRecord,
 } from './records'
-import { CORRECTION_UNREAD, LOADING_CORRECTION, NEW_TITLE, VITAL_FIELDS, currentValues, measurementItems, orderedMeasurements, useCorrections, vitalStatus } from './vitals'
+import { CORRECTION_UNREAD, LOADING_CORRECTION, NEW_TITLE, VITAL_FIELDS, currentValues, isRetracted, measurementItems, orderedMeasurements, useCorrections, vitalStatus } from './vitals'
 import { VitalsForm, type VitalsInput } from './VitalsForm'
 
 /** "New triage & vitals": the design's create page for the open patient, or the chart's own state. */
@@ -143,8 +143,11 @@ function SampleTriage() {
  * patient entered in their Health ID portal, each labelled; on a backend before 0117, the patient's text alone. A read
  * that failed, was refused or is not served says so: "none" is said only after a read that found none.
  */
-function PatientContext({ chart, prior }: { chart: Chart; prior: readonly VisitRecord[] | null }) {
+function PatientContext({ chart, prior: read }: { chart: Chart; prior: readonly VisitRecord[] | null }) {
   const { state: allergies } = useAllergies(chart)
+  // Novu's vitals are read with those entered in error (listRead) for the lists that strike them through. They are not
+  // earlier vitals of this patient (one may be another patient's), so they are left out here, as EHR's latest vitals do.
+  const prior = read?.filter(item => !isRetracted(item.record)) ?? null
   const corrections = useCorrections(chart, prior?.map(item => ({ encounterId: item.encounter.id, vital: item.record })) ?? null)
 
   return (

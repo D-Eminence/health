@@ -426,7 +426,9 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
     if (code === 'VISIT_HAS_OPEN_ORDERS') return <>{OPEN_ORDERS}{showsOrders ? <> <JumpLink to={ORDERS_ANCHOR}>{GO_TO_ORDERS}</JumpLink></> : null}</>
     if (code === 'VISIT_HAS_SIGNED_NOTES') return <>{SIGNED_NOTES}{reads.notes ? <> <JumpLink to={NOTES_ANCHOR}>{GO_TO_NOTES}</JumpLink></> : null}</>
     if (code === 'IMPORTED_VISIT_NOT_ENTERED_IN_ERROR') return IMPORTED_VISIT
-    if (code === 'ENCOUNTER_NOT_FOUND') return ENCOUNTER_NOT_FOUND
+    // EHR answers a visit it cannot find for this patient and facility with its general 404; ENCOUNTER_NOT_FOUND only
+    // when the visit goes while it is being changed. Both are this visit, so both say the same.
+    if (code === 'ENCOUNTER_NOT_FOUND' || code === 'CLINICAL_RESOURCE_NOT_FOUND') return ENCOUNTER_NOT_FOUND
     if (code === 'CONSENT_REQUIRED') return NO_CONSENT
     if (code === 'PURPOSE_OF_USE_REQUIRED') return OPEN_PATIENT_AGAIN
     return null

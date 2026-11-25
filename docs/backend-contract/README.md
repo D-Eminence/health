@@ -10,6 +10,7 @@ These files are copies of parts of the backend contract, for frontend developers
 - Branch: `staging-novu-ci-20261005`
 - Commit: `092cd248566aaedee897910ded783c7826c79b98`
 - Copied on: 19 November 2026
+- Except: in [EHR_LIVE_CONTRACT.md](EHR_LIVE_CONTRACT.md), section EHR-C8b (vitals marked entered in error) and the EHR-C3 rule that names it, copied on 25 November 2026 from commit `d519e5d1cb40fdae4598251387989879aff415bb` (backend release C), which the website's services are pinned to
 
 ## What each file holds
 

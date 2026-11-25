@@ -90,7 +90,9 @@ function withdrawalRefused(caught: HidApiError): SubmitOutcome {
   }
   if (caught.code === 'VALIDATION_FAILED') {
     const fieldErrors = refusedFieldErrors(caught, name => name === 'changeReason' ? 'reason' : undefined)
-    return Object.keys(fieldErrors).length > 0 ? { formError: refusalText(caught, EIE_FAILED), fieldErrors } : { fieldErrors: { reason: REASON_SHORT } }
+    // A refusal that names the reason is shown at it; one about anything else (the form checked the reason already)
+    // says only that nothing was marked, never pointing at the reason.
+    return Object.keys(fieldErrors).length > 0 ? { formError: refusalText(caught, EIE_FAILED), fieldErrors } : { formError: EIE_FAILED }
   }
   return { formError: refusalText(caught, EIE_FAILED) }
 }

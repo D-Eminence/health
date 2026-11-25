@@ -204,6 +204,8 @@ describe('Consultation: a completed visit marked as entered in error (EHR-C8a)',
   it.each([
     ['IMPORTED_VISIT_NOT_ENTERED_IN_ERROR', 409, IMPORTED_VISIT],
     ['ENCOUNTER_NOT_FOUND', 404, ENCOUNTER_NOT_FOUND],
+    // EHR's usual answer for a visit missing, or not this patient's or facility's, is its general 404.
+    ['CLINICAL_RESOURCE_NOT_FOUND', 404, ENCOUNTER_NOT_FOUND],
     ['CONSENT_REQUIRED', 403, NO_CONSENT],
     ['PURPOSE_OF_USE_REQUIRED', 400, OPEN_PATIENT_AGAIN],
   ])('says %s in plain words, the form kept', async (code, status, words) => {
