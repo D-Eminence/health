@@ -1,10 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import {
   ADMIT_DEPARTMENTS, ED_REFUSALS, NOT_AVAILABLE, arrivalMoment, canArrive, canDecide, canRead, canTriage, cardName, complaintProblem,
   complaintText, historyText, lagosTime, leaveLabel, minutesText, notServed, reasonProblem, refusalWords, statusWords, unknownRefusal,
-  visitAttempt,
+  startEmergencyVisit, visitAttempt, type VisitKeyBody,
 } from '../../../../ehr-blue/departments/emergency/edRules'
+import { lagosDay } from '@hid/ui/display'
 import { TRIAGE_LEVELS, triageText, triageTone } from '../../../../ehr-blue/departments/parts/triageLevels'
 import { triageText as waitingTriageText } from '../../../../ehr-blue/departments/waiting/waitingRules'
 
@@ -111,5 +112,73 @@ describe('emergency board rules', () => {
     const again = visitAttempt({ ...card, encounterId: 'c0000000-0000-4000-8000-0000000000c1' }, times, () => new Date('2026-12-03T09:00:00.000Z'))
     expect(again.startedAt).toBe('2026-12-03T09:00:00.000Z')
     expect(again.keyBody).not.toEqual(first.keyBody)
+  })
+
+  describe('the visit link across Lagos midnight (REUSE_OPEN_VISIT_STARTED_AT_NOT_TODAY)', () => {
+    const card = { attendanceId: 'e0000000-0000-4000-8000-0000000000e1', patientId: 'b0000000-0000-4000-8000-0000000000f1', encounterId: null }
+    /** ehr-api's EHR-C1 check: a reuse visit must start on today's Lagos day ("today" is the clock below). */
+    function ehrApi(clock: { now: Date }) {
+      const sent: { startedAt: string; keyBody: VisitKeyBody }[] = []
+      const send = vi.fn(async (startedAt: string, keyBody: VisitKeyBody) => {
+        sent.push({ startedAt, keyBody })
+        if (lagosDay(new Date(startedAt)) !== lagosDay(clock.now)) {
+          throw new HidApiError(400, 'To use the open visit today, the visit must start today (Lagos time).', { code: 'REUSE_OPEN_VISIT_STARTED_AT_NOT_TODAY' })
+        }
+        return { id: `visit-${startedAt}` }
+      })
+      return { sent, send }
+    }
+
+    it('starts the attempt again with a new time and key when the first try was before midnight', async () => {
+      const times = new Map<string, string>()
+      const clock = { now: new Date('2026-12-03T22:58:00.000Z') } // 23:58 in Lagos
+      const { sent, send } = ehrApi(clock)
+      const forget = vi.fn()
+      // 23:58: the visit is made, but the link answers a version conflict (a colleague triaged at that moment).
+      await startEmergencyVisit(card, times, send, forget, () => clock.now)
+      expect(sent[0]!.startedAt).toBe('2026-12-03T22:58:00.000Z')
+      // 00:03 the next day in Lagos: the same attempt is tried again.
+      clock.now = new Date('2026-12-03T23:03:00.000Z')
+      const visit = await startEmergencyVisit(card, times, send, forget, () => clock.now)
+      expect(sent.map(call => call.startedAt)).toEqual(['2026-12-03T22:58:00.000Z', '2026-12-03T22:58:00.000Z', '2026-12-03T23:03:00.000Z'])
+      expect(visit).toEqual({ id: 'visit-2026-12-03T23:03:00.000Z' })
+      // The refused body's key is dropped, and the new request has a body (so a key) of its own.
+      expect(forget).toHaveBeenCalledOnce()
+      expect(forget).toHaveBeenCalledWith(sent[1]!.keyBody)
+      expect(sent[2]!.keyBody).not.toEqual(sent[1]!.keyBody)
+      // A later retry of this attempt is the new request again, the same body.
+      clock.now = new Date('2026-12-03T23:10:00.000Z')
+      await startEmergencyVisit(card, times, send, forget, () => clock.now)
+      expect(sent[3]).toEqual(sent[2])
+    })
+
+    it('within the same Lagos day sends the same request again (no new time)', async () => {
+      const times = new Map<string, string>()
+      const clock = { now: new Date('2026-12-03T08:20:00.000Z') }
+      const { sent, send } = ehrApi(clock)
+      const forget = vi.fn()
+      await startEmergencyVisit(card, times, send, forget, () => clock.now)
+      clock.now = new Date('2026-12-03T08:25:00.000Z')
+      await startEmergencyVisit(card, times, send, forget, () => clock.now)
+      expect(sent[1]).toEqual(sent[0])
+      expect(forget).not.toHaveBeenCalled()
+    })
+
+    it('tries a new time only once, and says plainly when this device\'s clock is wrong', async () => {
+      const send = vi.fn(async () => { throw refused(400, 'REUSE_OPEN_VISIT_STARTED_AT_NOT_TODAY') })
+      const caught = await startEmergencyVisit(card, new Map(), send, vi.fn(), () => new Date('2026-12-03T08:20:00.000Z'))
+        .catch((error: unknown) => error)
+      expect(send).toHaveBeenCalledTimes(2)
+      expect(refusalWords(caught, 'The emergency visit could not be started. Try again.'))
+        .toBe('The emergency visit was not started. The date or time on this device looks wrong. Check it, then try again.')
+    })
+
+    it('passes any other refusal on without a second try', async () => {
+      const send = vi.fn(async () => { throw refused(403, 'CONSENT_REQUIRED') })
+      const forget = vi.fn()
+      await expect(startEmergencyVisit(card, new Map(), send, forget)).rejects.toMatchObject({ code: 'CONSENT_REQUIRED' })
+      expect(send).toHaveBeenCalledOnce()
+      expect(forget).not.toHaveBeenCalled()
+    })
   })
 })

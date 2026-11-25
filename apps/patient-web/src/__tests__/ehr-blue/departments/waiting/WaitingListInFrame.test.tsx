@@ -395,6 +395,28 @@ describe('Waiting list in the frame', () => {
     expect(within(other).getByRole('button', { name: 'Change' })).toBeDefined()
   })
 
+  it('with the emergency board switched off, shows a board patient’s row as an ordinary row that can be finished (ED-1 kill switch)', async () => {
+    // hid-system 0168 with ED_BOARD_ENABLED off: ehr-api sends no ED record for the row, so it is the waiting list's again.
+    const doctor = facility(REAL_FACILITY, 'Fictional Clinic', NURSE, ['doctor'])
+    const sent = serve({
+      [SESSION]: [sessionAt(doctor, [doctor])],
+      [LIST]: [listOf(card({ stage: 'with_clinician', triageLevel: 2, checkInBasis: 'emergency', edAttendanceId: null })),
+        listOf()],
+      [PATCH]: [() => json(card({ stage: 'finished', triageLevel: 2, checkInBasis: 'emergency', closedAt: '2026-11-23T10:00:00.000Z',
+        rowVersion: 4, edAttendanceId: null }))],
+    })
+    await openStaffApp('/provider/waiting-list')
+    const row = await screen.findByRole('listitem', { name: 'Testa Queueperson' })
+    expect(within(row).queryByText('Emergency department')).toBeNull()
+    expect(within(row).queryByRole('link', { name: 'Open on the emergency board' })).toBeNull()
+    expect(within(row).queryByText('Their stage, triage level and who sees them are changed on the emergency board.')).toBeNull()
+    expect(within(row).getByRole('button', { name: 'Change' })).toBeDefined()
+    fireEvent.click(within(row).getByRole('button', { name: 'Finished' }))
+    await waitFor(() => expect(sent.filter(call => call.route === PATCH)).toHaveLength(1))
+    expect(sent.find(call => call.route === PATCH)!.body).toEqual({ expectedRowVersion: 3, stage: 'finished' })
+    directCare(sent, PATCH)
+  })
+
   it('says plainly when a row went onto the emergency board meanwhile (VISIT_QUEUE_ON_ED_BOARD), and loads the list again', async () => {
     const desk = facility(REAL_FACILITY, 'Fictional Clinic', FRONT_DESK, ['receptionist'])
     const sent = serve({

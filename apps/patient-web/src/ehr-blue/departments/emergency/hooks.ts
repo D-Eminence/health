@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { FACILITY_STAFF_NAMES_MAX_IDS, staffApi } from '../../../staff/api'
 import { newKey } from './edRules'
 
@@ -7,17 +7,25 @@ import { newKey } from './edRules'
  * the server answers its first answer ("replayed") and records nothing twice; any other body gets a key of its own, as
  * the server refuses a key reused for another body (IDEMPOTENCY_KEY_REUSED). In memory for the page's life only.
  */
-export function useIdempotencyKeys(): (action: string, body: unknown) => string {
-  const keys = useRef(new Map<string, string>())
-  return useCallback((action: string, body: unknown) => {
-    const signature = `${action}\n${JSON.stringify(body)}`
-    let key = keys.current.get(signature)
-    if (!key) {
-      key = newKey()
-      keys.current.set(signature, key)
-    }
-    return key
-  }, [])
+export interface IdempotencyKeys {
+  (action: string, body: unknown): string
+  /** Drops a body's key: a request that can never succeed as it was (the visit link across Lagos midnight). */
+  forget(action: string, body: unknown): void
+}
+export function useIdempotencyKeys(): IdempotencyKeys {
+  const [keyFor] = useState<IdempotencyKeys>(() => {
+    const keys = new Map<string, string>()
+    const signature = (action: string, body: unknown) => `${action}\n${JSON.stringify(body)}`
+    return Object.assign((action: string, body: unknown) => {
+      let key = keys.get(signature(action, body))
+      if (!key) {
+        key = newKey()
+        keys.set(signature(action, body), key)
+      }
+      return key
+    }, { forget: (action: string, body: unknown) => { keys.delete(signature(action, body)) } })
+  })
+  return keyFor
 }
 
 /**

@@ -3294,7 +3294,9 @@ export interface VisitQueueCard {
   dateOfBirthEstimated?: boolean
   /**
    * hid-system ED-1 (0168): the open or decided emergency department record of the row, or null (also null on a database
-   * without 0168). Absent before ED-1. The row then shows "Emergency department" and links to the board.
+   * without 0168, and always null while ED_BOARD_ENABLED is off: the row is then an ordinary waiting-list row, and a
+   * change to it also closes its ED record). Absent before ED-1. The row then shows "Emergency department" and links to
+   * the board.
    */
   edAttendanceId?: string | null
 }

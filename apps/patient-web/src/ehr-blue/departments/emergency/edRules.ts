@@ -143,7 +143,7 @@ export const COMPLAINT_MAX = 120
  * "Link again" once a visit is linked is a new attempt, with a start time and key of its own.
  */
 export function visitAttempt(card: Pick<EdCard, 'attendanceId' | 'encounterId' | 'patientId'>, startedAtFor: Map<string, string>,
-  now: () => Date = () => new Date()): { readonly startedAt: string; readonly keyBody: { attempt: string; patientId: string; startedAt: string } } {
+  now: () => Date = () => new Date()): { readonly startedAt: string; readonly keyBody: VisitKeyBody } {
   const attempt = `${card.attendanceId}:${card.encounterId ?? ''}`
   let startedAt = startedAtFor.get(attempt)
   if (!startedAt) {
@@ -151,6 +151,31 @@ export function visitAttempt(card: Pick<EdCard, 'attendanceId' | 'encounterId' |
     startedAtFor.set(attempt, startedAt)
   }
   return { startedAt, keyBody: { attempt, patientId: card.patientId, startedAt } }
+}
+export interface VisitKeyBody { readonly attempt: string; readonly patientId: string; readonly startedAt: string }
+
+/** EHR-C1's refusal of a visit "reusing the open visit today" whose start time is not today in Lagos. */
+export const VISIT_NOT_TODAY = 'REUSE_OPEN_VISIT_STARTED_AT_NOT_TODAY'
+
+/**
+ * Sends one attempt's emergency visit request (visitAttempt). When ehr-api answers that its start time is not today
+ * (the attempt began before Lagos midnight and is retried after it, or a lost answer is retried then), the request can
+ * never succeed as it was: the attempt's start time and Idempotency-Key are dropped and it is sent once more with a new
+ * time. Any other answer, or the same refusal again (this device's clock is wrong), is the caller's.
+ */
+export async function startEmergencyVisit<Visit>(card: Pick<EdCard, 'attendanceId' | 'encounterId' | 'patientId'>,
+  startedAtFor: Map<string, string>, send: (startedAt: string, keyBody: VisitKeyBody) => Promise<Visit>,
+  forgetKey: (keyBody: VisitKeyBody) => void, now: () => Date = () => new Date()): Promise<Visit> {
+  const first = visitAttempt(card, startedAtFor, now)
+  try {
+    return await send(first.startedAt, first.keyBody)
+  } catch (caught) {
+    if (!isHidApiError(caught) || caught.code !== VISIT_NOT_TODAY) throw caught
+    startedAtFor.delete(first.keyBody.attempt)
+    forgetKey(first.keyBody)
+  }
+  const fresh = visitAttempt(card, startedAtFor, now)
+  return send(fresh.startedAt, fresh.keyBody)
 }
 export const FACILITY_NAME_MIN = 2
 export const FACILITY_NAME_MAX = 120
@@ -300,6 +325,7 @@ export const ED_REFUSALS: Readonly<Record<string, string>> = {
   ED_NOTHING_TO_CHANGE: 'Choose a stage or who will see the patient.',
   ED_ASSIGNEE_INVALID: 'Choose a nurse, clinician or doctor who works at this facility.',
   ED_VISIT_INVALID: 'Choose a visit of this patient at this facility, started for this arrival.',
+  [VISIT_NOT_TODAY]: 'The emergency visit was not started. The date or time on this device looks wrong. Check it, then try again.',
   ED_ADMIT_DEPARTMENT_INVALID: 'Choose a department of this facility to admit the patient to.',
   ED_REASON_REQUIRED: 'Say why in at least 8 characters.',
   ED_ATTENDANCE_NOT_FOUND: 'This patient is not on this facility’s emergency board.',

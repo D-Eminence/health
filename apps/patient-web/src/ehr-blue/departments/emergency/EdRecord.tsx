@@ -16,7 +16,7 @@ import {
   ADMIT_DEPARTMENTS, ARRIVAL_BASIS_WORDS, BASE, COMPLAINT_MAX, EYEBROW, FACILITY_NAME_MAX, FACILITY_NAME_MIN, KEEPS_ON_BOARD,
   MOVE_STAGES, OUTCOMES, OUTCOME_HINTS, OUTCOME_WORDS, REASON_MAX, RELOAD_AFTER, arrivalModeText, canArrive, canDecide,
   canTriage, cardName, complaintProblem, complaintText, departmentText, historyText, lagosDateTime, lagosTime, leaveLabel,
-  learnFrom, memberText, minutesText, notServed, reasonProblem, refusalWords, stageText, statusWords, visitAttempt,
+  learnFrom, memberText, minutesText, notServed, reasonProblem, refusalWords, stageText, startEmergencyVisit, statusWords,
 } from './edRules'
 import { useIdempotencyKeys, useStaffNames } from './hooks'
 
@@ -242,7 +242,8 @@ function VisitLink({ card, facilityId, busy, write }: {
 }) {
   const { activePatient } = useStaff()
   const keyFor = useIdempotencyKeys()
-  // One start time per attempt to link, kept while the page is open (visitAttempt): a retry is the same request.
+  // One start time per attempt to link, kept while the page is open (visitAttempt): a retry is the same request, except
+  // across Lagos midnight, when the attempt starts again with a new time and key (startEmergencyVisit).
   const startedAtFor = useRef(new Map<string, string>())
   const [problem, setProblem] = useState('')
   const opened = activePatient?.purpose === 'direct-care' && activePatient.lookup.patient.patientId === card.patientId
@@ -260,8 +261,9 @@ function VisitLink({ card, facilityId, busy, write }: {
     setProblem('')
     let encounterId: string
     try {
-      const { startedAt, keyBody } = visitAttempt(card, startedAtFor.current)
-      const visit = await edBoardApi.emergencyVisit(facilityId, card.patientId, startedAt, keyFor('visit', keyBody))
+      const visit = await startEmergencyVisit(card, startedAtFor.current,
+        (startedAt, keyBody) => edBoardApi.emergencyVisit(facilityId, card.patientId, startedAt, keyFor('visit', keyBody)),
+        keyBody => keyFor.forget('visit', keyBody))
       encounterId = visit.id
     } catch (caught) {
       setProblem(refusalWords(caught, 'The emergency visit could not be started. Try again.'))
