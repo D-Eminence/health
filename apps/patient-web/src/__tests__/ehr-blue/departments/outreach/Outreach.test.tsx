@@ -1030,7 +1030,7 @@ describe('a case\'s phone number and notes', () => {
     await openCase()
     expect(within(registration()).getAllByRole('term').map(term => term.textContent)).toEqual(
       ['Full name', 'Age', 'Sex', 'Phone number', 'Status', 'Campaign', 'Created', 'Notes for the team'])
-    expect(within(registration()).getByText(PHONE)).toBeTruthy()
+    expect(within(registration()).getByText('0803 123 4567')).toBeTruthy()
     expect(within(registration()).queryByText(/••••/)).toBeNull()
     const notes = within(registration()).getByText(/^Met at the market stall\./)
     expect(notes.textContent).toBe('Met at the market stall.\nNeeds a follow-up visit.')

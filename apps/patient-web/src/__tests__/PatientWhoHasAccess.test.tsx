@@ -1,3 +1,4 @@
+import { formatDateTime } from '@hid/ui/display'
 import { describe, expect, it } from 'vitest'
 import { fireEvent, screen, within } from '@testing-library/react'
 import type { AccessHistory, AccessRequest } from '../api'
@@ -42,7 +43,7 @@ const facility = (name: string) => {
   return { counts: heading.nextElementSibling?.textContent, rows: within(heading.parentElement!.nextElementSibling as HTMLElement).getAllByRole('listitem') }
 }
 /** A time as the page shows it (en-NG, this browser's time zone): "11 Nov 2026, 14:45". */
-const at = (value: string) => new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+const at = (value: string) => formatDateTime(value)
 const facilityHeadings = () => screen.getAllByRole('heading', { level: 3 }).map(heading => heading.textContent)
 
 describe('who has access, counted and grouped by facility', () => {

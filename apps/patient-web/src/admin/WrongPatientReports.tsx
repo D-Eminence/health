@@ -1,3 +1,4 @@
+import { formatDate } from '@hid/ui/display'
 import { useCallback, useState, type FormEvent } from 'react'
 import { FilterTabs } from '../kasuwa/ui'
 import { Link } from 'react-router-dom'
@@ -127,9 +128,7 @@ function undoneText(report: WrongPatientReport): string {
 
 /** A calendar day sent as YYYY-MM-DD, shown as that day wherever the browser is. */
 function dayOf(value: string): string {
-  const plain = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
-  return plain ? new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeZone: 'UTC' })
-    .format(new Date(Date.UTC(Number(plain[1]), Number(plain[2]) - 1, Number(plain[3])))) : date(value)
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? formatDate(value, value) : date(value)
 }
 
 /** The actions a review requires (D17-6), in support's words: "Referred to the data protection officer and Ordering facility told". */

@@ -1,3 +1,4 @@
+import { formatDate } from '@hid/ui/display'
 import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { OutreachCampaign, OutreachCase } from '../../../staff/api'
@@ -48,16 +49,12 @@ export function useSlipPrint() {
 
 /** The last day a claim code works, as "14 May 2027", or '' when not known. */
 function untilText(value: string | undefined): string {
-  if (!value) return ''
-  const day = new Date(value)
-  return Number.isNaN(day.getTime()) ? '' : day.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+  return formatDate(value)
 }
 
 /** A day as "14 Nov 2026". */
 function dayText(value: string | null | undefined): string {
-  if (!value) return ''
-  const day = new Date(value)
-  return Number.isNaN(day.getTime()) ? '' : day.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+  return formatDate(value)
 }
 
 /** The campaign's day, or its first and last day when it runs over more than one. */

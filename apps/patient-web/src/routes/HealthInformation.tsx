@@ -1,3 +1,4 @@
+import { formatDateTime } from '@hid/ui/display'
 import { useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { isHidApiError, plainErrorText } from '@hid/http'
 import { useSession } from '../session'
@@ -96,9 +97,7 @@ const CONFLICT = 'Your health information was changed somewhere else, so this wa
 const TOO_LONG = 'This is too long to save. Shorten the longer answers, then save again.'
 
 function savedOn(value: string | null) {
-  if (!value) return null
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? null : new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short' }).format(parsed)
+  return formatDateTime(value) || null
 }
 
 /**

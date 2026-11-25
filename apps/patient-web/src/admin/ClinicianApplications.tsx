@@ -1,3 +1,4 @@
+import { formatDate } from '@hid/ui/display'
 import { useCallback, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { FilterTabs } from '../kasuwa/ui'
 import { Link, useParams } from 'react-router-dom'
@@ -124,14 +125,12 @@ function permissionLabel(code: string): string {
   return code
 }
 
-const DAY = new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeZone: 'UTC' })
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/
 
 /** A calendar date (`YYYY-MM-DD`, as the licence expiry is) without a time or a time-zone shift. */
 function day(value: string | null | undefined) {
   if (!value || !ISO_DAY.test(value)) return date(value)
-  const parsed = new Date(`${value}T00:00:00Z`)
-  return Number.isNaN(parsed.getTime()) ? 'Not available' : DAY.format(parsed)
+  return formatDate(value, 'Not available')
 }
 
 function shiftDay(value: string, years: number, days = 0): string {

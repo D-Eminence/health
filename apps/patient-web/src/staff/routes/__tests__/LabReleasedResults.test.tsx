@@ -1,3 +1,4 @@
+import { formatDateTime } from '@hid/ui/display'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -114,7 +115,7 @@ describe('released Lab results of a lab request', () => {
       const item = shown.closest<HTMLElement>('.staff-list-item')!
       expect(item.textContent).toMatch(/high/)
       expect(item.textContent).toMatch(/Reference range: 12\.0-15\.5/)
-      expect(item.textContent).toMatch(new RegExp(`Released ${new Date('2026-10-10T10:00:00.000Z').toLocaleString().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))
+      expect(item.textContent).toMatch(new RegExp(`Released ${formatDateTime('2026-10-10T10:00:00.000Z').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))
     })
 
     it('marks a revision entered in error, and says when versions were never released', async () => {

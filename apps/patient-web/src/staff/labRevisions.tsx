@@ -1,8 +1,9 @@
+import { formatDateTime } from '@hid/ui/display'
 import { Badge } from '@hid/ui'
 import type { LabResultRevision } from './api'
 
 function dateText(value: string | null | undefined) {
-  return value ? new Date(value).toLocaleString() : 'Not available'
+  return formatDateTime(value, 'Not available')
 }
 
 /** A revision's value as entered: a number with its unit, or text. */

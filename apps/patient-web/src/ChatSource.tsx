@@ -1,3 +1,4 @@
+import { formatDate } from '@hid/ui/display'
 import { useEffect,useRef,useState } from 'react'
 import type { StagingPatientChatSource } from '@hid/contracts'
 import { useSession } from './session'
@@ -49,7 +50,7 @@ export function ChatSourceContent({source,loadSource,staff=false}:{source:Stagin
   return <li><span className="record-chat-source-number">[{source.number}]</span><div><strong>{cleanAssistantText(source.title)}</strong>
     {origin&&<span className="record-chat-source-origin">{origin}</span>}
     <span>{'kind' in source?`${source.provenance} · ${source.quality}`:`Revision ${source.revisionNo} · Signed`}
-      {date?' · '+new Date(date).toLocaleDateString('en-NG',{day:'numeric',month:'short',year:'numeric'}):' · Date not recorded'}</span>
+      {date?' · '+formatDate(date,'Date not recorded'):' · Date not recorded'}</span>
     {'kind' in source&&<button type="button" onClick={()=>void open()} disabled={loading}>{loading?'Loading record…':'View source record'}</button>}
     {error&&<p role="alert">{error}</p>}{detail&&<details open><summary>Source details</summary>{fields(detail.fields)}</details>}
   </div></li>

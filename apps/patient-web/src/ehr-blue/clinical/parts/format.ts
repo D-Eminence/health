@@ -1,23 +1,21 @@
 /** Shared text formats for the clinical workspaces, as the design prints them. */
 
+import { ageInYears as lagosAge, formatDate as lagosDate, formatDateTime } from '@hid/ui/display'
+
 /*
  * Clinical safety: a date is never written all in numbers. "3/4/1991" is 4 March in Lagos and 3 April in an American
- * template; "4 Mar 1991" is one day everywhere. Times use the 24-hour clock, as wards do.
+ * template; "4 Mar 1991" is one day everywhere. Times use the 24-hour clock, as wards do, and are Lagos time whatever
+ * the device's zone (owner decisions Q181 A and Q182 A; the one helper is @hid/ui/display).
  */
-const DAY: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', year: 'numeric' }
 
-/** "26 Oct 2026, 12:41"; '' when the value is missing or not a date. */
+/** "26 Oct 2026, 12:41" in Lagos; '' when the value is missing or not a date. */
 export function formatWhen(value: string | null | undefined): string {
-  if (!value) return ''
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? '' : date.toLocaleString('en-GB', { ...DAY, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+  return formatDateTime(value)
 }
 
 /** "26 Oct 2026", for a date of birth or a date-only value. Date-only strings are read as calendar dates. */
 export function formatDate(value: string | null | undefined): string {
-  if (!value) return ''
-  const day = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T00:00:00`) : new Date(value)
-  return Number.isNaN(day.getTime()) ? '' : day.toLocaleDateString('en-GB', DAY)
+  return lagosDate(value)
 }
 
 /**
@@ -52,13 +50,7 @@ export function keyLabel(key: string): string {
   return spaced.replace(/\b\w/g, letter => letter.toUpperCase())
 }
 
-/** Whole years from a date of birth, or null when the date is missing, not a date or in the future. */
-export function ageInYears(dateOfBirth: string | null | undefined, today = new Date()): number | null {
-  if (!dateOfBirth) return null
-  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateOfBirth)
-  if (!match) return null
-  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])]
-  let age = today.getFullYear() - year
-  if (today.getMonth() + 1 < month || (today.getMonth() + 1 === month && today.getDate() < day)) age -= 1
-  return age >= 0 && age < 150 ? age : null
+/** Whole years from a date of birth to today in Lagos, or null when the date is missing, not a date or in the future. */
+export function ageInYears(dateOfBirth: string | null | undefined, today: Date = new Date()): number | null {
+  return lagosAge(dateOfBirth, today)
 }
