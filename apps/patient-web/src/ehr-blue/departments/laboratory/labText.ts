@@ -148,6 +148,9 @@ export const RESULT_WORDS = {
   entered: 'A result was recorded, not yet verified.',
   corrected: 'A new result revision was recorded, not yet verified.',
   failed: 'Result could not be recorded. Refresh before retrying.',
+  /** The save step's button and its confirm (classic's "Record unverified result" and "Record new revision", parity 3.3-68). */
+  record: 'Record result, not yet verified',
+  correct: 'Record new revision',
 } as const
 
 /** Verifying or releasing a result (classic ResultGovernance). */

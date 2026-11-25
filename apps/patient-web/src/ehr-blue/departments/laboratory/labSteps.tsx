@@ -393,11 +393,11 @@ export function ResultForm({ facilityId, subject, routed, onDone, onRefused, exe
   function check(event: FormEvent) {
     event.preventDefault()
     const found: ResultErrors = {}
-    if (kind === 'numeric' && (!value.trim() || !Number.isFinite(Number(value)))) found.value = 'Enter a number.'
-    if (kind === 'text' && !value.trim()) found.value = 'Type the result.'
+    if (kind === 'numeric' && (!value.trim() || !Number.isFinite(Number(value)))) found.value = 'Enter a valid numeric result.'
+    if (kind === 'text' && !value.trim()) found.value = 'Enter the text result.'
     // A number without its unit can't be read safely (mg/dL or mmol/L?): the unit is required.
     if (kind === 'numeric' && !unit.trim()) found.unit = 'Enter the unit, like g/dL or mmol/L.'
-    if (result && !reason.trim()) found.reason = 'Say why it is changed.'
+    if (result && !reason.trim()) found.reason = 'Explain the correction or amendment.'
     setErrors(found); setProblem('')
     const first = (['value', 'unit', 'reason'] as const).find(field => found[field])
     if (first) { document.getElementById(`lab-${first}-${id}`)?.focus(); return }
@@ -418,6 +418,8 @@ export function ResultForm({ facilityId, subject, routed, onDone, onRefused, exe
       setProblem(errorText(caught, RESULT_WORDS.failed, routed)); onRefused(caught)
     } finally { setBusy(false) }
   }
+  // Classic's button (Operations.tsx ResultEntry), saying "not yet verified" where classic says "unverified" (parity 3.3-68).
+  const saveLabel = result ? RESULT_WORDS.correct : RESULT_WORDS.record
   const control = (field: keyof ResultErrors) => ({
     id: `lab-${field}-${id}`, 'aria-invalid': errors[field] ? true : undefined,
     'aria-describedby': errors[field] ? `lab-${field}-${id}-error` : undefined,
@@ -425,44 +427,44 @@ export function ResultForm({ facilityId, subject, routed, onDone, onRefused, exe
   return <form className="@container flex flex-col gap-4" noValidate onSubmit={check} aria-label={`${result ? 'Correct' : 'Enter'} result: ${execution.test.name}`}>
     <div className="flex flex-wrap items-center justify-between gap-2">
       <p className="m-0 min-w-0 text-title-3 text-ink break-words">{execution.test.name}</p>
-      <Segmented ariaLabel="Kind of result" value={kind} onChange={next => { setKind(next); setErrors({}) }}
-        options={[{ value: 'numeric', label: 'Number' }, { value: 'text', label: 'Text' }]} />
+      <Segmented ariaLabel="Result type" value={kind} onChange={next => { setKind(next); setErrors({}) }}
+        options={[{ value: 'numeric', label: 'Numeric' }, { value: 'text', label: 'Text' }]} />
     </div>
     {kind === 'numeric' ? <div className="grid gap-4 @md:grid-cols-2 @xl:grid-cols-3">
-      <Field label="Result" htmlFor={`lab-value-${id}`} error={errors.value} errorId={`lab-value-${id}-error`}>
+      <Field label="Numeric value" htmlFor={`lab-value-${id}`} error={errors.value} errorId={`lab-value-${id}-error`}>
         <Input {...control('value')} type="number" step="any" inputMode="decimal" value={value} className="h-12 text-[17px] font-semibold tabular"
           onChange={event => { setValue(event.target.value); setErrors({}); follow(event.target.value, range) }} />
       </Field>
       <Field label="Unit" htmlFor={`lab-unit-${id}`} error={errors.unit} errorId={`lab-unit-${id}-error`}>
         <Input {...control('unit')} value={unit} maxLength={80} autoComplete="off" placeholder="g/dL" className="h-12" onChange={event => { setUnit(event.target.value); setErrors({}) }} />
       </Field>
-      <Field label="Normal range" htmlFor={`lab-range-${id}`} optional>
+      <Field label="Reference range" htmlFor={`lab-range-${id}`} optional>
         <Input id={`lab-range-${id}`} value={range} maxLength={240} autoComplete="off" placeholder="12-16" className="h-12"
           onChange={event => { setRange(event.target.value); follow(value, event.target.value) }} />
       </Field>
     </div> : <>
-      <Field label="Result" htmlFor={`lab-value-${id}`} error={errors.value} errorId={`lab-value-${id}-error`}>
+      <Field label="Text value" htmlFor={`lab-value-${id}`} error={errors.value} errorId={`lab-value-${id}-error`}>
         <Textarea {...control('value')} rows={3} maxLength={4000} value={value} onChange={event => { setValue(event.target.value); setErrors({}) }} />
       </Field>
       <div className="grid gap-4 @md:grid-cols-2">
         <Field label="Unit" htmlFor={`lab-unit-${id}`} optional>
           <Input id={`lab-unit-${id}`} value={unit} maxLength={80} autoComplete="off" className="h-11" onChange={event => setUnit(event.target.value)} />
         </Field>
-        <Field label="Normal range" htmlFor={`lab-range-${id}`} optional>
+        <Field label="Reference range" htmlFor={`lab-range-${id}`} optional>
           <Input id={`lab-range-${id}`} value={range} maxLength={240} autoComplete="off" className="h-11" onChange={event => setRange(event.target.value)} />
         </Field>
       </div>
     </>}
-    <Field label="Flag" htmlFor={`lab-flag-${id}`} hint={auto ? 'Set from the normal range. You can change it.' : undefined} hintId={`lab-flag-${id}-hint`}>
+    <Field label="Abnormal flag" htmlFor={`lab-flag-${id}`} hint={auto ? 'Set from the reference range. You can change it.' : undefined} hintId={`lab-flag-${id}-hint`}>
       <Select id={`lab-flag-${id}`} value={flag} aria-describedby={auto ? `lab-flag-${id}-hint` : undefined} className="[&>select]:h-11"
         onChange={event => { setFlag(event.target.value as LabAbnormalFlag); setChosen(true) }}>
         {ABNORMAL_FLAGS.map(option => <option key={option} value={option}>{FLAG_WORDS[option]}</option>)}
       </Select>
     </Field>
     {result ? <>
-      <Segmented ariaLabel="Type of change" value={revisionKind} onChange={setRevisionKind} className="self-start"
+      <Segmented ariaLabel="Revision type" value={revisionKind} onChange={setRevisionKind} className="self-start"
         options={[{ value: 'correction', label: 'Correction' }, { value: 'amendment', label: 'Amendment' }]} />
-      <Field label="Why it is changed" htmlFor={`lab-reason-${id}`} error={errors.reason} errorId={`lab-reason-${id}-error`}>
+      <Field label="Reason" htmlFor={`lab-reason-${id}`} error={errors.reason} errorId={`lab-reason-${id}-error`}>
         <Textarea {...control('reason')} rows={2} maxLength={500} value={reason} onChange={event => { setReason(event.target.value); setErrors({}) }} />
       </Field>
     </> : null}
@@ -470,11 +472,11 @@ export function ResultForm({ facilityId, subject, routed, onDone, onRefused, exe
     <Problem text={problem} />
     <FormActions sticky={false}>
       {onCancel ? <Button onClick={onCancel}>Cancel</Button> : null}
-      <Button type="submit" variant="primary" size="lg" icon={Save}>{result ? 'Save correction' : 'Save result'}</Button>
+      <Button type="submit" variant="primary" size="lg" icon={Save}>{saveLabel}</Button>
     </FormActions>
-    <ConfirmSheet open={asking} onClose={() => setAsking(false)} title={result ? 'Save the correction' : 'Save the result'} subject={subject.banner} busy={busy}
+    <ConfirmSheet open={asking} onClose={() => setAsking(false)} title={saveLabel} subject={subject.banner} busy={busy}
       effect={<>Save <strong className="tabular">{value.trim()}{unit.trim() ? ` ${unit.trim()}` : ''}</strong> as the {execution.test.name} result for <strong>{subject.name}</strong>?</>}
-      undo="It is checked and released in the next step; until then only the lab sees it." confirmLabel={result ? 'Save correction' : 'Save result'} onConfirm={() => void save()} />
+      undo="It is checked and released in the next step; until then only the lab sees it." confirmLabel={saveLabel} onConfirm={() => void save()} />
   </form>
 }
 
