@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "Each service pinned to its live source_commit. All services: production release backend-45649090315-1-03d2b78867300345 (deployed 2026-11-25 about 16:06 UTC), built from 557cddb5 (hid-system#339 gateway libexpat 2.11.0-r0 and OpenSSL 3.5.9-r1, Q291 A, Q292 A; no migration; all 13 components rebuilt). Re-pin under standing approval Q94 4/5.",
+  "review_reference": "Each service pinned to its live source_commit. All services: production release backend-45657497614-1-9ad293c7963d6f06 (Release E, deployed 2026-11-25 about 17:04 UTC), built from 0cfddcc9 (0152 diagnosis list, 0153 recent diagnoses, ORD-3 batch; all 13 components rebuilt). Re-pin under standing approval Q94 4/5.",
   "backend_commits": {
-    "gateway": "557cddb50a6fc3563640d180b18f9979e8807aae",
-    "identity-api": "557cddb50a6fc3563640d180b18f9979e8807aae",
-    "ehr-api": "557cddb50a6fc3563640d180b18f9979e8807aae",
-    "lab-api": "557cddb50a6fc3563640d180b18f9979e8807aae",
-    "pharmacy-api": "557cddb50a6fc3563640d180b18f9979e8807aae",
-    "ocr-api": "557cddb50a6fc3563640d180b18f9979e8807aae",
-    "outreach-api": "557cddb50a6fc3563640d180b18f9979e8807aae",
-    "support-api": "557cddb50a6fc3563640d180b18f9979e8807aae",
-    "notification-api": "557cddb50a6fc3563640d180b18f9979e8807aae"
+    "gateway": "0cfddcc9c8df6a00ac05637186b552fb2e12eb5d",
+    "identity-api": "0cfddcc9c8df6a00ac05637186b552fb2e12eb5d",
+    "ehr-api": "0cfddcc9c8df6a00ac05637186b552fb2e12eb5d",
+    "lab-api": "0cfddcc9c8df6a00ac05637186b552fb2e12eb5d",
+    "pharmacy-api": "0cfddcc9c8df6a00ac05637186b552fb2e12eb5d",
+    "ocr-api": "0cfddcc9c8df6a00ac05637186b552fb2e12eb5d",
+    "outreach-api": "0cfddcc9c8df6a00ac05637186b552fb2e12eb5d",
+    "support-api": "0cfddcc9c8df6a00ac05637186b552fb2e12eb5d",
+    "notification-api": "0cfddcc9c8df6a00ac05637186b552fb2e12eb5d"
   }
 }
