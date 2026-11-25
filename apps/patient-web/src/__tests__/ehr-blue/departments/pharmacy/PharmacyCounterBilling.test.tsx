@@ -1,6 +1,6 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { StockPage } from '../../../../ehr-blue/departments/pharmacy/Stock'
+import { batchExpired, daysLeft, expiryOf, StockPage } from '../../../../ehr-blue/departments/pharmacy/Stock'
 import { Sell } from '../../../../ehr-blue/departments/pharmacy/Sell'
 import { PaperPrescription } from '../../../../ehr-blue/departments/pharmacy/PaperPrescription'
 import { ReceiveStock } from '../../../../ehr-blue/departments/pharmacy/ReceiveStock'
@@ -110,6 +110,43 @@ describe('Stock', () => {
     fireEvent.change(within(sheet).getByLabelText(/^Reorder level/), { target: { value: '80' } })
     fireEvent.click(within(sheet).getByRole('button', { name: 'Save settings' }))
     expect(await within(sheet).findByText('The unit cannot change while there is stock.')).toBeTruthy()
+  })
+
+  it('counts Lagos days to a batch’s expiry: on its expiry day it is still given out, so it is not "Expired"', () => {
+    const lagos = (iso: string) => Date.parse(iso)
+    // 1 Dec 2026 at 00:30, 10:00 and 23:30 in Lagos (UTC+1), then 00:30 on 2 Dec.
+    expect(daysLeft('2026-12-01', lagos('2026-11-30T23:30:00Z'))).toBe(0)
+    expect(daysLeft('2026-12-01', lagos('2026-12-01T09:00:00Z'))).toBe(0)
+    expect(daysLeft('2026-12-01', lagos('2026-12-01T22:30:00Z'))).toBe(0)
+    expect(daysLeft('2026-12-01', lagos('2026-12-01T23:30:00Z'))).toBe(-1)
+    expect(daysLeft('2026-12-01', lagos('2026-11-30T22:30:00Z'))).toBe(1)
+    // The server's word decides; a copy without it counts Lagos days.
+    expect(batchExpired({ expiresOn: '2026-12-01', expired: false }, lagos('2026-12-01T23:30:00Z'))).toBe(false)
+    expect(batchExpired({ expiresOn: '2026-12-01' }, lagos('2026-12-01T09:00:00Z'))).toBe(false)
+    expect(batchExpired({ expiresOn: '2026-12-01' }, lagos('2026-12-01T23:30:00Z'))).toBe(true)
+    expect(expiryOf({ batches: [{ batchId: 'b', batchNumber: 'AMX-3001', expiresOn: '2026-12-01', quantity: 20, expired: false }] },
+      lagos('2026-12-01T09:00:00Z'))?.kind).toBe('soon')
+  })
+
+  it('shows a batch on its expiry day as expiring, not expired, as the server gives it out first that day', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-12-01T09:00:00Z'))
+    try {
+      const today: StockLine = { ...AMOXICILLIN, onHand: 20, expiredOnHand: 0,
+        batches: [{ batchId: 'batch-today', batchNumber: 'AMX-3001', expiresOn: '2026-12-01', quantity: 20, expired: false }] }
+      commerceApi.stock = async () => ok({ items: [today], nextPage: null })
+      commerceApi.stockMovements = async () => ok({ items: [], nextPage: null })
+      renderDept(<StockPage />)
+      const card = await screen.findByRole('button', { name: /Amoxicillin/ })
+      expect(within(card).getByText('Expiring soon · 1 Dec 2026')).toBeTruthy()
+      expect(card.textContent).not.toMatch(/Expired/)
+      fireEvent.click(card)
+      const drawer = await screen.findByRole('dialog')
+      expect(within(drawer).getByText('Expiring soon: 1 Dec 2026')).toBeTruthy()
+      expect(drawer.textContent).not.toMatch(/Expired/)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('says billing is not switched on when stock answers 404', async () => {

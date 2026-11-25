@@ -1,11 +1,11 @@
-import { formatDate } from '@hid/ui/display'
+import { formatDate, lagosDay } from '@hid/ui/display'
 import { useEffect, useRef, useState } from 'react'
 import { CalendarClock, ChevronRight, ListPlus, PackagePlus, PackageX, Search, Settings2, SlidersHorizontal, TriangleAlert } from 'lucide-react'
 import { Drawer, Segmented } from '../../../kasuwa/interactive'
 import { ConfirmSheet, PageState } from '../../../kasuwa/parts'
 import { Alert, Badge, Button, Field, FilterTabs, Input, PageHeader, Select, Textarea, cx } from '../../../kasuwa/ui'
 import { useBluePage } from '../../frame/pageContext'
-import { commerce, type CatalogueItem, type ListPage, type StockAdjustment, type StockLine, type StockMovement } from '../commerce/api'
+import { commerce, type CatalogueItem, type ListPage, type StockAdjustment, type StockBatch, type StockLine, type StockMovement } from '../commerce/api'
 import { BILLING_OFF, NOT_SET_UP_UNSAVED, NotSwitchedOn } from '../commerce/NotSwitchedOn'
 import { useCommerceRead } from '../commerce/useCommerceRead'
 import { useDeptAccess } from '../parts/access'
@@ -20,15 +20,23 @@ const DAY = 86_400_000
 type StockTab = 'all' | 'low' | 'expiring'
 
 const dayText = (iso: string) => formatDate(iso, iso)
-const daysLeft = (iso: string, now = Date.now()) => Math.floor((Date.parse(iso) - now) / DAY)
+/** Midnight UTC of a calendar day ("2026-12-01"), to count whole days between two of them. */
+const dayStart = (day: string) => Date.parse(`${day.slice(0, 10)}T00:00:00Z`)
+/**
+ * Whole Lagos days from today to a batch's expiry day: 0 on the expiry day itself, which the backend still gives out
+ * (0166: a batch is expired only once its day is before today's in Lagos), and below 0 after it.
+ */
+export const daysLeft = (expiresOn: string, now: number = Date.now()) => Math.round((dayStart(expiresOn) - dayStart(lagosDay(now))) / DAY)
+/** Whether a batch is expired, never given out: the server says so; a copy without its word counts Lagos days. */
+export const batchExpired = (batch: Pick<StockBatch, 'expiresOn' | 'expired'>, now: number = Date.now()) => batch.expired ?? daysLeft(batch.expiresOn, now) < 0
 
 /** What a line's batches say about expiry: the first batch that has expired or expires soon, if any. */
-function expiryOf(line: StockLine) {
+export function expiryOf(line: Pick<StockLine, 'batches'>, now: number = Date.now()) {
   const batches = line.batches.filter(batch => batch.quantity > 0).sort((a, b) => a.expiresOn.localeCompare(b.expiresOn))
   const first = batches[0]
   if (!first) return null
-  const left = daysLeft(first.expiresOn)
-  return first.expired || left < 0 ? { kind: 'expired' as const, batch: first } : left <= SOON_DAYS ? { kind: 'soon' as const, batch: first } : null
+  return batchExpired(first, now) ? { kind: 'expired' as const, batch: first }
+    : daysLeft(first.expiresOn, now) <= SOON_DAYS ? { kind: 'soon' as const, batch: first } : null
 }
 /** On hand in expired batches: never given out (BILL-12), waiting for an "Expired" adjustment. */
 const expiredOf = (line: StockLine) => line.expiredOnHand ?? line.batches.filter(batch => batch.expired).reduce((sum, batch) => sum + batch.quantity, 0)
@@ -166,12 +174,13 @@ function StockDrawer({ facilityId, line, canManage, onClose, onChanged }: {
         {batches.length === 0 ? <p className="m-0 text-[14px] text-ink-3">No batches on the shelf.</p> : null}
         <ul className="m-0 flex list-none flex-col gap-2 p-0">
           {batches.map(batch => {
-            const left = daysLeft(batch.expiresOn)
+            const expired = batchExpired(batch)
+            const soon = !expired && daysLeft(batch.expiresOn) <= SOON_DAYS
             return <li key={batch.batchId} className="flex flex-wrap items-center justify-between gap-3 rounded-lg px-3 py-2.5 ring-1 ring-inset ring-line">
               <span className="min-w-0">
                 <span className="block text-[15px] font-medium text-ink">Batch {batch.batchNumber}</span>
-                <span className={cx('block text-[13px]', left < 0 ? 'font-medium text-danger-ink' : left <= SOON_DAYS ? 'font-medium text-warn-ink' : 'text-ink-3')}>
-                  {left < 0 ? 'Expired' : left <= SOON_DAYS ? 'Expiring soon:' : 'Expires'} {dayText(batch.expiresOn)}</span>
+                <span className={cx('block text-[13px]', expired ? 'font-medium text-danger-ink' : soon ? 'font-medium text-warn-ink' : 'text-ink-3')}>
+                  {expired ? 'Expired' : soon ? 'Expiring soon:' : 'Expires'} {dayText(batch.expiresOn)}</span>
               </span>
               <span className="flex items-center gap-3">
                 <span className="text-[16px] font-semibold text-ink tabular">{batch.quantity} <span className="text-[13px] font-normal text-ink-2">{line.unit}</span></span>
