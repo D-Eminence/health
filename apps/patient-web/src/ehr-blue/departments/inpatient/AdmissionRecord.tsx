@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
+import { lagosDay } from '@hid/ui/display'
 import { EhrButton, EhrField, EhrInput, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
 import {
   DISCHARGE_CONDITIONS, DISCHARGE_OUTCOMES, REPRINT_REASONS, inpatientApi, staffApi, type AdmissionCard, type AdmissionChange,
@@ -15,7 +16,7 @@ import { DeptPage, DeptSection } from '../parts/DeptPage'
 import { useIdempotencyKeys, useStaffNames } from './hooks'
 import {
   CONDITION_WORDS, DEATH_RECORD_OFF, EYEBROW, OUTCOME_HINTS, OUTCOME_WORDS, RELOAD_AFTER, REPRINT_WORDS, SIGN_WORD,
-  canAllocate, canDecide, canPrintBand, canReadAdmission, cardName, daysText, isCancelled, lagosDateTime, lagosInputToUtc,
+  canAllocate, canDecide, canPrintBand, canReadAdmission, cardName, daysText, dischargedText, isCancelled, lagosDateTime, lagosInputToUtc,
   learnFrom, lengthProblem, memberText, movementText, notServed, outcomeText, placeText, refusalWords, sourceText,
   takesText, utcToLagosInput, dayText,
 } from './inpatientRules'
@@ -143,6 +144,8 @@ export function AdmissionRecordPage({ facilityId, admissionId, base }: {
     try {
       const answer = await inpatientApi.handover(facilityId, card.admissionId, movementId)
       setHandovers(previous => ({ ...previous, [movementId]: answer.handover }))
+      // The button is replaced by the text: focus goes to the text, so it is read out and the place is kept.
+      focus(handoverId(movementId))
     } catch (caught) {
       if (isCancelled(caught)) return
       setNotice({ tone: 'critical', text: refusalWords(caught, 'The handover could not be read. Try again.') })
@@ -254,7 +257,7 @@ export function AdmissionRecordPage({ facilityId, admissionId, base }: {
         {action === 'discharge' ? (
           <DischargeForm card={card} busy={busy} onCancel={() => setAction(null)}
             onSave={body => write('discharge', body, key => inpatientApi.discharge(facilityId, card, body, key),
-              { text: `${name} is discharged: ${OUTCOME_WORDS[body.outcome].toLowerCase()}.`, printSummary: Boolean(body.summary) },
+              { text: dischargedText(name, body.outcome, body.referredToFacilityName), printSummary: Boolean(body.summary) },
               'Check the discharge details.')} />
         ) : null}
         {action === 'cancel' ? (
@@ -282,8 +285,9 @@ export function AdmissionRecordPage({ facilityId, admissionId, base }: {
                 <span>{memberText(movement.byMembershipId, membershipId, names, '')}</span>
                 {movement.handoverRecorded && canReadAdmission(permissions) ? (
                   handovers[movement.movementId] !== undefined
-                    ? <span className="hid-clinical-paper-note">Handover: {handovers[movement.movementId]}</span>
-                    : <EhrButton size="sm" variant="quiet" onClick={() => void readHandover(movement.movementId)}>Read the handover</EhrButton>
+                    ? <span id={handoverId(movement.movementId)} tabIndex={-1} className="hid-clinical-paper-note">Handover: {handovers[movement.movementId]}</span>
+                    : <EhrButton size="sm" variant="quiet" aria-label={`Read the handover of ${lagosDateTime(movement.at)}`}
+                      onClick={() => void readHandover(movement.movementId)}>Read the handover</EhrButton>
                 ) : null}
               </li>
             ))}
@@ -294,6 +298,8 @@ export function AdmissionRecordPage({ facilityId, admissionId, base }: {
     </DeptPage>
   )
 }
+
+const handoverId = (movementId: string) => `handover-${movementId}`
 
 function printedBands(record: AdmissionRecord | null): number {
   return (record?.movements ?? []).filter(movement => movement.kind === 'wristband_printed').length
@@ -413,6 +419,24 @@ function BedForm({ facilityId, card, transfer, chartOpen, busy, onCancel, onSave
 
 // ---- Prepare discharge ----------------------------------------------------------------------------------
 
+/**
+ * The days an expected discharge may be, as the backend checks them (routes 15 and 18): from the Lagos day of admission
+ * (of the request, while waiting for a bed) to a year from today in Lagos. Never the UTC day: 23:30 UTC on 1 Dec is
+ * already 2 Dec in Lagos.
+ */
+export function expectedDayRange(card: Pick<AdmissionCard, 'admittedAt' | 'requestedAt'>, now: number = Date.now()): { readonly min: string; readonly max: string } {
+  return { min: lagosDay(card.admittedAt ?? card.requestedAt), max: lagosDay(now + 365 * 86_400_000) }
+}
+
+/** The problem with an expected discharge day, or '' (none given is no problem). */
+export function expectedDayProblem(value: string, range: { readonly min: string; readonly max: string }): string {
+  if (!value) return ''
+  if ((range.min && value < range.min) || (range.max && value > range.max)) {
+    return `Choose an expected discharge date from ${dayText(range.min) || 'the admission day'} to ${dayText(range.max) || 'a year from today'}.`
+  }
+  return ''
+}
+
 /** The stay's prescriptions that can go home with the patient: none in error, cancelled or still a draft. */
 export function dischargeMedicines(records: readonly ClinicalRecord[]): ClinicalRecord[] {
   return records.filter(record => !['entered_in_error', 'cancelled', 'draft'].includes(String(record.status ?? '')))
@@ -431,6 +455,10 @@ function PrepareForm({ facilityId, card, busy, onCancel, onSave }: {
   const [medicinesNote, setMedicinesNote] = useState('')
   const [chosen, setChosen] = useState<ReadonlySet<string>>(new Set())
   const [problem, setProblem] = useState('')
+  const range = expectedDayRange(card)
+  // Sent again while discharge ready, the plan and the medicines on discharge replace the ones saved before (route 15),
+  // and the card does not carry them: the doctor is told to give them again.
+  const again = card.status === 'discharge_ready'
 
   useEffect(() => {
     let live = true
@@ -444,7 +472,7 @@ function PrepareForm({ facilityId, card, busy, onCancel, onSave }: {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const text = lengthProblem(plan, 1, 2000, 'the follow-up plan', true)
+    const text = lengthProblem(plan, 1, 2000, 'the follow-up plan', true) || expectedDayProblem(expected, range)
     if (text) { setProblem(text); return }
     if (chosen.size > 50) { setProblem('Choose at most 50 medicines.'); return }
     setProblem('')
@@ -454,12 +482,17 @@ function PrepareForm({ facilityId, card, busy, onCancel, onSave }: {
 
   return (
     <form className="hid-ehr-dept-inpatient-form" noValidate onSubmit={event => void submit(event)} aria-labelledby="prepare-title">
-      <h3 id="prepare-title">Prepare discharge</h3>
+      <h3 id="prepare-title">{again ? 'Change the discharge plan' : 'Prepare discharge'}</h3>
+      {again ? (
+        <DeptNotice tone="caution">
+          Saving replaces the follow-up plan and the medicines on discharge saved before. Write the plan again, and tick every medicine that goes home.
+        </DeptNotice>
+      ) : null}
       <EhrField label="Follow-up plan" controlId="prepare-plan" hint="Up to 2,000 characters: clinic review, tests to repeat, who to see.">
         <EhrTextarea value={plan} rows={3} maxLength={2000} onChange={event => setPlan(event.target.value)} />
       </EhrField>
       <EhrField label="Expected discharge date (optional)" controlId="prepare-expected">
-        <EhrInput type="date" value={expected} min={card.admittedAt ? card.admittedAt.slice(0, 10) : undefined}
+        <EhrInput type="date" value={expected} min={range.min || undefined} max={range.max || undefined}
           onChange={event => setExpected(event.target.value)} />
       </EhrField>
       <fieldset className="hid-ehr-dept-inpatient-choices">
@@ -502,9 +535,10 @@ const EMPTY_SUMMARY: SummaryValues = {
   presentingProblem: '', courseInHospital: '', proceduresDone: '', conditionAtDischarge: '', followUpPlan: '', patientAdvice: '',
 }
 
-/** What the form sends, or the first problem with it. */
-export function dischargeBody(outcome: DischargeOutcome, values: SummaryValues, extra: { dischargedAt: string; diedAt: string;
+/** What the form sends, or the first problem with it. No outcome is ever assumed: the doctor chooses one. */
+export function dischargeBody(outcome: DischargeOutcome | '', values: SummaryValues, extra: { dischargedAt: string; diedAt: string;
   referredTo: string; signature: string }, now: number = Date.now()): DischargeInput | string {
+  if (!outcome) return 'Choose the outcome.'
   const filled = values.presentingProblem.trim() !== '' || values.courseInHospital.trim() !== ''
   if (needsSummary(outcome) || filled) {
     const problem = lengthProblem(values.presentingProblem, 1, 4000, 'the presenting problem', true)
@@ -551,7 +585,9 @@ function DischargeForm({ card, busy, onCancel, onSave }: {
   readonly onSave: (body: DischargeInput) => Promise<unknown>
 }) {
   const prepared = card.status === 'discharge_ready'
-  const [outcome, setOutcome] = useState<DischargeOutcome>(prepared ? 'routine' : 'dama')
+  // A prepared discharge is most often routine. Otherwise nothing is chosen: a signed outcome (against medical advice,
+  // say) is never one the doctor did not pick.
+  const [outcome, setOutcome] = useState<DischargeOutcome | ''>(prepared ? 'routine' : '')
   const [values, setValues] = useState<SummaryValues>(EMPTY_SUMMARY)
   const [dischargedAt, setDischargedAt] = useState('')
   const [diedAt, setDiedAt] = useState('')
@@ -586,7 +622,8 @@ function DischargeForm({ card, busy, onCancel, onSave }: {
           )
         })}
       </fieldset>
-      <p className="hid-ehr-dept-inpatient-hint">{OUTCOME_HINTS[outcome]}</p>
+      {!prepared ? <p className="hid-ehr-dept-inpatient-hint">A routine discharge or a referral to another facility needs Prepare discharge first.</p> : null}
+      {outcome ? <p className="hid-ehr-dept-inpatient-hint">{OUTCOME_HINTS[outcome]}</p> : null}
       {outcome === 'referred_out' ? (
         <EhrField label="Facility the patient goes to" controlId="discharge-referred">
           <EhrInput value={referredTo} maxLength={120} onChange={event => setReferredTo(event.target.value)} />
@@ -601,7 +638,7 @@ function DischargeForm({ card, busy, onCancel, onSave }: {
         <EhrInput type="datetime-local" value={dischargedAt} max={now} onChange={event => setDischargedAt(event.target.value)} />
       </EhrField>
       <fieldset className="hid-ehr-dept-inpatient-choices">
-        <legend>{needsSummary(outcome) ? 'Discharge summary' : 'Discharge summary (optional)'}</legend>
+        <legend>{!outcome || needsSummary(outcome) ? 'Discharge summary' : 'Discharge summary (optional)'}</legend>
         <EhrField label="Presenting problem" controlId="discharge-problem">
           <EhrTextarea value={values.presentingProblem} rows={2} maxLength={4000} onChange={event => change({ presentingProblem: event.target.value })} />
         </EhrField>
@@ -679,6 +716,7 @@ function ChangeForm({ card, membershipId, busy, onCancel, onSave }: {
   const mine = membershipId !== undefined && card.responsibleMembershipId?.toLowerCase() === membershipId.toLowerCase()
   const [takeOver, setTakeOver] = useState(false)
   const [problem, setProblem] = useState('')
+  const range = expectedDayRange(card)
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -693,7 +731,11 @@ function ChangeForm({ card, membershipId, busy, onCancel, onSave }: {
       if (text) { setProblem(text); return }
       change.reason = reason.trim()
     }
-    if (expected && expected !== card.expectedDischargeOn) change.expectedDischargeOn = expected
+    if (expected && expected !== card.expectedDischargeOn) {
+      const text = expectedDayProblem(expected, range)
+      if (text) { setProblem(text); return }
+      change.expectedDischargeOn = expected
+    }
     if (takeOver && membershipId) change.responsibleMembershipId = membershipId
     if (Object.keys(change).length === 0) { setProblem('Change at least one detail.'); return }
     setProblem('')
@@ -712,7 +754,7 @@ function ChangeForm({ card, membershipId, busy, onCancel, onSave }: {
         <EhrInput value={careTeam} maxLength={80} onChange={event => setCareTeam(event.target.value)} />
       </EhrField>
       <EhrField label="Expected discharge date" controlId="change-expected">
-        <EhrInput type="date" value={expected} onChange={event => setExpected(event.target.value)} />
+        <EhrInput type="date" value={expected} min={range.min || undefined} max={range.max || undefined} onChange={event => setExpected(event.target.value)} />
       </EhrField>
       {!mine && membershipId ? (
         <label className="hid-ehr-dept-inpatient-choices">

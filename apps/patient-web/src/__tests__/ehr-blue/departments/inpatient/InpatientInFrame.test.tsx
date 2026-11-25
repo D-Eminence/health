@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { REAL_FACILITY, SESSION, facility, json, openStaffApp, problem, serve, sessionAt, where, type Sent } from '../../frame/blueHarness'
 import {
   ADMISSION, ADMISSIONS, ADMISSION_THREE, ADMISSION_TWO, BED_1, BED_4, BOARD, DOCTOR, NURSE, RECORD, WARDS, WARD_FEMALE, WARD_ICU, WARD_MALE,
@@ -302,7 +302,7 @@ describe('an admission’s record', () => {
     expect(await screen.findByText('Type SIGN to sign.')).toBeDefined()
     fireEvent.change(screen.getByRole('textbox', { name: 'Type SIGN to sign the discharge' }), { target: { value: 'SIGN' } })
     fireEvent.click(screen.getByRole('button', { name: 'Sign and discharge' }))
-    expect(await screen.findByText('Ada Wardone is discharged: routine discharge.')).toBeDefined()
+    expect(await screen.findByText('Ada Wardone is discharged.')).toBeDefined()
     const discharge = sentTo(sent, action('discharge'))[0]!
     expect(discharge.body).toEqual({ expectedRowVersion: 5, outcome: 'routine', signature: 'SIGN',
       summary: { presentingProblem: 'Fever and cough', courseInHospital: 'Improved on antibiotics.', conditionAtDischarge: 'improved' } })
@@ -332,8 +332,9 @@ describe('an admission’s record', () => {
     })
     await openStaffApp(`/provider/inpatient/${ADMISSION}`)
     fireEvent.click(await screen.findByRole('button', { name: 'Discharge patient' }))
-    // Not prepared yet: routine and referred out wait for Prepare discharge.
+    // Not prepared yet: routine and referred out wait for Prepare discharge, and no outcome is chosen for the doctor.
     expect(screen.getByRole('radio', { name: 'Routine discharge (prepare the discharge first)' })).toHaveProperty('disabled', true)
+    for (const radio of screen.getAllByRole('radio')) expect(radio).toHaveProperty('checked', false)
     fireEvent.click(screen.getByRole('radio', { name: 'Died' }))
     fireEvent.change(screen.getByLabelText('Time of death'), { target: { value: '2026-11-20T05:40' } })
     fireEvent.change(screen.getByRole('textbox', { name: 'Type SIGN to sign the discharge' }), { target: { value: 'SIGN' } })
@@ -341,7 +342,8 @@ describe('an admission’s record', () => {
     await waitFor(() => expect(sentTo(sent, action('discharge'))).toHaveLength(1))
     expect(await screen.findByText('Enter the time of death.')).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: 'Sign and discharge' }))
-    expect(await screen.findByText('Ada Wardone is discharged: died.')).toBeDefined()
+    expect(await screen.findByText('Ada Wardone’s death is recorded.')).toBeDefined()
+    expect(document.body.textContent).not.toMatch(/discharged: died/i)
     expect(sentTo(sent, action('discharge'))[1]!.body).toEqual({ expectedRowVersion: 3, outcome: 'died', signature: 'SIGN', diedAt: '2026-11-20T04:40:00.000Z' })
     expect(await screen.findByText('The death certificate is not switched on yet. The outcome and time of death are recorded.')).toBeDefined()
     expect(screen.getByText('20 Nov 2026, 05:40')).toBeDefined()
@@ -390,11 +392,67 @@ describe('an admission’s record', () => {
     const view = await openStaffApp(`/provider/inpatient/${ADMISSION}`)
     expect(await screen.findByText('Moved bed')).toBeDefined()
     expect(screen.queryByText(/Oxygen weaned/)).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Read the handover' }))
-    expect(await screen.findByText('Handover: Oxygen weaned to room air.')).toBeDefined()
+    // Each row's button says whose handover it is by its time (Lagos), so two transfers' buttons can be told apart.
+    const read = screen.getByRole('button', { name: 'Read the handover of 1 Dec 2026, 22:00' })
+    read.focus()
+    fireEvent.click(read)
+    const text = await screen.findByText('Handover: Oxygen weaned to room air.')
+    // The button is replaced by the text, and focus goes to it: never lost to the page.
+    await waitFor(() => expect(document.activeElement).toBe(text))
+    expect(text.getAttribute('tabindex')).toBe('-1')
     view.unmount()
     await openStaffApp(`/provider/inpatient/${ADMISSION_TWO}`)
     expect(await screen.findByText('This ward, bed or admission is not at this facility.')).toBeDefined()
+  })
+})
+
+describe('the discharge’s choices', () => {
+  const prescriptions = `GET /api/v1/ehr/patients/b0000000-0000-4000-8000-0000000000b1/encounters/e0000000-0000-4000-8000-0000000000e1/prescriptions`
+
+  it('chooses no outcome for an admission not prepared, and signs nothing until the doctor picks one', async () => {
+    const doctor = facility(REAL_FACILITY, 'Fictional Hospital', DOCTOR, ['doctor'])
+    const sent = serve({ [SESSION]: [sessionAt(doctor, [doctor])], [RECORD]: [recordOf()] })
+    await openStaffApp(`/provider/inpatient/${ADMISSION}`)
+    fireEvent.click(await screen.findByRole('button', { name: 'Discharge patient' }))
+    for (const radio of screen.getAllByRole('radio')) expect(radio).toHaveProperty('checked', false)
+    expect(screen.getByText('A routine discharge or a referral to another facility needs Prepare discharge first.')).toBeDefined()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Presenting problem' }), { target: { value: 'Fever and cough' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Course in hospital' }), { target: { value: 'Improved on antibiotics.' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Type SIGN to sign the discharge' }), { target: { value: 'SIGN' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Sign and discharge' }))
+    expect(await screen.findByText('Choose the outcome.')).toBeDefined()
+    expect(sentTo(sent, action('discharge'))).toEqual([])
+    expect(document.body.textContent).not.toContain('The patient chose to leave.')
+  })
+
+  it('says changing the discharge plan replaces the plan and medicines saved before, and limits dates to Lagos days', async () => {
+    const doctor = facility(REAL_FACILITY, 'Fictional Hospital', DOCTOR, ['doctor'])
+    const ready = card({ status: 'discharge_ready', dischargeReady: true, preparedAt: '2026-12-03T08:00:00.000Z', expectedDischargeOn: '2026-12-04', rowVersion: 5 })
+    const sent = serve({
+      [SESSION]: [sessionAt(doctor, [doctor])], [RECORD]: [recordOf(ready)],
+      [prescriptions]: [() => json({ items: [], nextCursor: null })],
+    })
+    await openStaffApp(`/provider/inpatient/${ADMISSION}`)
+    fireEvent.click(await screen.findByRole('button', { name: 'Change the discharge plan' }))
+    expect(screen.getByRole('heading', { level: 3, name: 'Change the discharge plan' })).toBeDefined()
+    expect(screen.getByText('Saving replaces the follow-up plan and the medicines on discharge saved before. Write the plan again, and tick every medicine that goes home.')).toBeDefined()
+    // Admitted at 23:30 UTC on 1 Dec, which is 00:30 on 2 Dec in Lagos: the first day the backend takes is 2 Dec.
+    const date = screen.getByLabelText('Expected discharge date (optional)')
+    expect(date.getAttribute('min')).toBe('2026-12-02')
+    expect(date.getAttribute('max')).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    fireEvent.change(screen.getByRole('textbox', { name: 'Follow-up plan' }), { target: { value: 'Clinic in 2 weeks.' } })
+    fireEvent.change(date, { target: { value: '2026-12-01' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save discharge plan' }))
+    expect(await screen.findByText(/^Choose an expected discharge date from 2 Dec 2026 to \d{1,2} [A-Z][a-z]{2} \d{4}\.$/)).toBeDefined()
+    expect(sentTo(sent, action('prepare-discharge'))).toEqual([])
+
+    fireEvent.click(screen.getByRole('button', { name: 'Change details' }))
+    const changed = screen.getByLabelText('Expected discharge date')
+    expect(changed.getAttribute('min')).toBe('2026-12-02')
+    fireEvent.change(changed, { target: { value: '2026-12-01' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    expect(await screen.findByText(/^Choose an expected discharge date from 2 Dec 2026 to /)).toBeDefined()
+    expect(sentTo(sent, `PATCH /api/v1/ehr/admissions/${ADMISSION}`)).toEqual([])
   })
 })
 
@@ -429,5 +487,24 @@ describe('ICU', () => {
     await openStaffApp('/provider/icu')
     expect(await screen.findByText('This facility has no ICU ward yet.')).toBeDefined()
     expect(screen.getByText('An admin can add one in Ward configuration.')).toBeDefined()
+  })
+})
+
+describe('the wristband paper', () => {
+  const band = { fullName: 'Ada Wardone', unknownLabel: null, sex: 'female', dateOfBirth: '1972-05-14', ageEstimated: false,
+    healthId: 'HID-FICT0042', admissionNumber: 'A-2026-000123', facilityName: 'Fictional Hospital', wardName: 'Female Medical Ward',
+    allergyAlert: false, barcode: 'A-2026-000123', pairCode: null, printNumber: 1, printedAt: '2026-12-03T09:00:00.000Z', replayed: false }
+
+  it('labels the date of birth as on the screen: "Born", and "Born about" for an estimate', async () => {
+    const { BandPaper } = await import('../../../../ehr-blue/departments/inpatient/prints')
+    const known = render(<BandPaper band={band} />)
+    expect(known.getByText('Female · Born 14 May 1972')).toBeDefined()
+    known.unmount()
+    const estimated = render(<BandPaper band={{ ...band, ageEstimated: true }} />)
+    expect(estimated.getByText('Female · Born about 14 May 1972')).toBeDefined()
+    expect(estimated.container.textContent).not.toMatch(/About 14 May/)
+    estimated.unmount()
+    const noDate = render(<BandPaper band={{ ...band, dateOfBirth: null, ageEstimated: true }} />)
+    expect(noDate.getByText('Female · Estimated age')).toBeDefined()
   })
 })

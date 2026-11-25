@@ -124,7 +124,8 @@ export function DischargeSummaryPaper({ print }: { readonly print: DischargeSumm
 /** Routes 20 and 21: the band, with the Health ID on it (this paper is the only place the page puts it). */
 export function BandPaper({ band }: { readonly band: WristbandPrint }) {
   const name = band.unknownLabel ?? band.fullName ?? 'Patient'
-  const born = band.dateOfBirth ? `${band.ageEstimated ? 'About ' : 'Born '}${dayText(band.dateOfBirth)}` : band.ageEstimated ? 'Estimated age' : ''
+  // Labelled as on the screen (AdmissionIdentity): "Born 14 May 1972", or "Born about 14 May 1972" for an estimate.
+  const born = band.dateOfBirth ? `${band.ageEstimated ? 'Born about' : 'Born'} ${dayText(band.dateOfBirth)}` : band.ageEstimated ? 'Estimated age' : ''
   return (
     <div className="hid-inpatient-band" data-paper="band">
       <div>

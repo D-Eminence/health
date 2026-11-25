@@ -2,14 +2,16 @@ import { describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import {
   INPATIENT_REFUSALS, NOT_AVAILABLE, ageText, canAllocate, canDecide, canManageWards, canPrintBand, canReadWards, canSetBedStatus,
-  cardName, censusRange, daysText, forgetInpatientServed, inpatientServed, lagosInputToUtc, learnFrom, lengthProblem,
+  cardName, censusRange, daysText, dischargedText, forgetInpatientServed, inpatientServed, lagosInputToUtc, learnFrom, lengthProblem,
   memberText, movementText, ninText, notServed, outcomeText, refusalWords, utcToLagosInput,
 } from '../../../../ehr-blue/departments/inpatient/inpatientRules'
 import { bedMoves } from '../../../../ehr-blue/departments/inpatient/BedBoard'
 import {
-  dischargeBody, dischargeMedicines, freeBeds, needsPreparing, needsSummary, sexDiffers,
+  dischargeBody, dischargeMedicines, expectedDayProblem, expectedDayRange, freeBeds, needsPreparing, needsSummary, sexDiffers,
 } from '../../../../ehr-blue/departments/inpatient/AdmissionRecord'
-import type { Ward } from '../../../../staff/api'
+import { goneText, teamChoice, teamStaffOf } from '../../../../ehr-blue/departments/inpatient/WardConfig'
+import { motherChoices } from '../../../../ehr-blue/departments/inpatient/NewAdmission'
+import type { AdmissionCard, FacilityStaffMember, Ward } from '../../../../staff/api'
 
 vi.mock('../../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
 
@@ -72,6 +74,18 @@ describe('Lagos time, whatever the device’s zone (P2-4)', () => {
     expect(lagosInputToUtc('soon')).toBeNull()
     expect(utcToLagosInput('2026-11-30T23:30:00.000Z')).toBe('2026-12-01T00:30')
   })
+  it('limits an expected discharge to Lagos days, from the admission’s day to a year from today', () => {
+    const now = Date.parse('2026-12-03T12:00:00.000Z')
+    // 23:30 UTC on 1 Dec is 00:30 on 2 Dec in Lagos: the UTC day (1 Dec) would be refused by the backend.
+    const range = expectedDayRange({ admittedAt: '2026-12-01T23:30:00.000Z', requestedAt: '2026-12-01T21:00:00.000Z' }, now)
+    expect(range).toEqual({ min: '2026-12-02', max: '2027-12-03' })
+    // Waiting for a bed: the request's Lagos day.
+    expect(expectedDayRange({ admittedAt: null, requestedAt: '2026-11-30T23:15:00.000Z' }, now).min).toBe('2026-12-01')
+    expect(expectedDayProblem('', range)).toBe('')
+    expect(expectedDayProblem('2026-12-02', range)).toBe('')
+    expect(expectedDayProblem('2026-12-01', range)).toBe('Choose an expected discharge date from 2 Dec 2026 to 3 Dec 2027.')
+    expect(expectedDayProblem('2027-12-04', range)).toBe('Choose an expected discharge date from 2 Dec 2026 to 3 Dec 2027.')
+  })
   it('lets the census go up to 90 Lagos days back', () => {
     // 23:30 UTC on 30 Nov is already 1 Dec in Lagos.
     expect(censusRange(Date.parse('2026-11-30T23:30:00.000Z'))).toEqual({ min: '2026-09-02', max: '2026-12-01' })
@@ -119,6 +133,10 @@ describe('the discharge (route 16)', () => {
   const extra = { dischargedAt: '', diedAt: '', referredTo: '', signature: 'SIGN' }
   const now = Date.parse('2026-12-03T12:00:00.000Z')
 
+  it('never assumes an outcome: none chosen is refused before anything else', () => {
+    expect(dischargeBody('', summary, extra, now)).toBe('Choose the outcome.')
+    expect(dischargeBody('', empty, { ...extra, signature: '' }, now)).toBe('Choose the outcome.')
+  })
   it('needs preparing for routine and referred out, and a summary for routine, DAMA and referred out', () => {
     expect(['routine', 'dama', 'referred_out', 'absconded', 'died'].map(value => needsPreparing(value as never))).toEqual([true, false, true, false, false])
     expect(['routine', 'dama', 'referred_out', 'absconded', 'died'].map(value => needsSummary(value as never))).toEqual([true, true, true, false, false])
@@ -158,9 +176,21 @@ describe('words', () => {
     expect(outcomeText('dama')).toBe('Discharged against medical advice')
     expect(outcomeText('unknown')).toBe('Outcome not known')
     expect(movementText({ kind: 'transferred', outcome: null, printNumber: null, reprintReason: null })).toBe('Moved bed')
-    expect(movementText({ kind: 'discharged', outcome: 'died', printNumber: null, reprintReason: null })).toBe('Discharged: died')
+    // The outcome alone, never "Discharged: died" or "Discharged: discharged against medical advice".
+    expect(movementText({ kind: 'discharged', outcome: 'died', printNumber: null, reprintReason: null })).toBe('Died')
+    expect(movementText({ kind: 'discharged', outcome: 'dama', printNumber: null, reprintReason: null })).toBe('Discharged against medical advice')
+    expect(movementText({ kind: 'discharged', outcome: 'routine', printNumber: null, reprintReason: null })).toBe('Routine discharge')
+    expect(movementText({ kind: 'discharged', outcome: null, printNumber: null, reprintReason: null })).toBe('Discharged')
     expect(movementText({ kind: 'wristband_printed', outcome: null, printNumber: 2, reprintReason: 'lost' }))
       .toBe('Wristband printed again (print 2): the band was lost')
+  })
+  it('says each discharge in one plain sentence', () => {
+    expect(dischargedText('Ada Wardone', 'routine')).toBe('Ada Wardone is discharged.')
+    expect(dischargedText('Ada Wardone', 'dama')).toBe('Ada Wardone left against medical advice. The discharge is recorded.')
+    expect(dischargedText('Ada Wardone', 'referred_out', ' Fictional Teaching Hospital ')).toBe('Ada Wardone is discharged to Fictional Teaching Hospital.')
+    expect(dischargedText('Ada Wardone', 'referred_out')).toBe('Ada Wardone is discharged to another facility.')
+    expect(dischargedText('Ada Wardone', 'absconded')).toBe('Ada Wardone is recorded as having left without notice.')
+    expect(dischargedText('Ada Wardone', 'died')).toBe('Ada Wardone’s death is recorded.')
   })
   it('checks lengths and control characters', () => {
     expect(lengthProblem(' ', 1, 300, 'the reason')).toBe('Enter the reason.')
@@ -198,5 +228,35 @@ describe('refusals and whether the routes are served', () => {
     learnFrom(problem(404, 'API_ROUTE_NOT_FOUND'))
     expect(inpatientServed()).toBe(true)
     forgetInpatientServed()
+  })
+})
+
+describe('a ward’s team (route 6)', () => {
+  const member = (membershipId: string, name: string, roles: string[]): FacilityStaffMember => ({ membershipId, version: 1, accountId: 'a',
+    name, email: 'x@example.test', roles, isAdministrator: false, isSelf: false, joinedAt: null, licence: null })
+  const staff = teamStaffOf([member('m-1', 'Nurse Bisi Fiction', ['nurse']), member('m-2', 'Dr Femi Fiction', ['doctor']),
+    member('m-3', 'Tolu Fiction', ['cashier'])]) as Extract<ReturnType<typeof teamStaffOf>, { state: 'ready' }>
+  it('offers nurses, clinicians and doctors, and sends only them: a member who left or changed role is dropped and named', () => {
+    expect(staff.members.map(item => item.name)).toEqual(['Nurse Bisi Fiction', 'Dr Femi Fiction'])
+    const choice = teamChoice(['M-1', 'm-3', 'm-9'], new Set(['m-1', 'm-3', 'm-9', 'm-2']), staff)
+    expect(choice.send).toEqual(['m-1', 'm-2'])
+    expect(choice.gone).toEqual(['m-3', 'm-9'])
+    expect(goneText(choice.gone, staff.names)).toBe('Tolu Fiction and 1 former staff member')
+    expect(goneText(['m-9', 'm-8'], staff.names)).toBe('2 former staff members')
+    expect(goneText(['m-3'], staff.names)).toBe('Tolu Fiction')
+    expect(teamChoice(undefined, new Set(), staff)).toEqual({ send: [], gone: [] })
+  })
+})
+
+describe('a newborn’s mother (Q-ADT-17)', () => {
+  const open = (admissionId: string, patientId: string, status: string, wardId: string | null, requestedWardId: string | null = null) =>
+    ({ admissionId, patientId, status, wardId, requestedWardId }) as unknown as AdmissionCard
+  it('offers any other patient’s open admission here, on any ward or none, maternity first', () => {
+    const wards = [{ wardId: 'w-maternity', wardType: 'maternity' as const }, { wardId: 'w-icu', wardType: 'icu' as const }]
+    const cards = [
+      open('a-icu', 'p-1', 'admitted', 'w-icu'), open('a-waiting', 'p-2', 'requested', null), open('a-labour', 'p-3', 'discharge_ready', 'w-maternity'),
+      open('a-wanted', 'p-4', 'requested', null, 'w-maternity'), open('a-own', 'p-baby', 'requested', null), open('a-gone', 'p-5', 'discharged', 'w-maternity'),
+    ]
+    expect(motherChoices(cards, 'p-baby', wards).map(card => card.admissionId)).toEqual(['a-labour', 'a-wanted', 'a-icu', 'a-waiting'])
   })
 })

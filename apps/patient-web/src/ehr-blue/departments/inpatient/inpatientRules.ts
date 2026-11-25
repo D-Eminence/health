@@ -120,15 +120,28 @@ export const statusText = (value: string | null | undefined) => has(STATUS_WORDS
 export const outcomeText = (value: string | null | undefined) => has(OUTCOME_WORDS, value) ? OUTCOME_WORDS[value] : 'Outcome not known'
 export const sourceText = (value: string | null | undefined) => has(SOURCE_WORDS, value) ? SOURCE_WORDS[value] : ''
 
-/** One movement in plain words; a reprint says why. */
+/** One movement in plain words: a discharge by its outcome alone ("Died", never "Discharged: died"); a reprint says why. */
 export function movementText(movement: Pick<AdmissionMovement, 'kind' | 'outcome' | 'printNumber' | 'reprintReason'>): string {
   const base = has(MOVEMENT_WORDS, movement.kind) ? MOVEMENT_WORDS[movement.kind] : 'Changed'
-  if (movement.kind === 'discharged' && movement.outcome) return `Discharged: ${outcomeText(movement.outcome).toLowerCase()}`
+  if (movement.kind === 'discharged' && has(OUTCOME_WORDS, movement.outcome)) return OUTCOME_WORDS[movement.outcome]
   if (movement.kind === 'wristband_printed' && movement.printNumber && movement.printNumber > 1) {
     const why = movement.reprintReason && has(REPRINT_WORDS, movement.reprintReason) ? `: ${REPRINT_WORDS[movement.reprintReason].toLowerCase()}` : ''
     return `Wristband printed again (print ${movement.printNumber})${why}`
   }
   return base
+}
+
+/** What the page says once a discharge is saved: one plain sentence per outcome. */
+export function dischargedText(name: string, outcome: DischargeOutcome, referredTo?: string | null): string {
+  const facility = referredTo?.trim()
+  const said: Readonly<Record<DischargeOutcome, string>> = {
+    routine: `${name} is discharged.`,
+    dama: `${name} left against medical advice. The discharge is recorded.`,
+    referred_out: `${name} is discharged to ${facility || 'another facility'}.`,
+    absconded: `${name} is recorded as having left without notice.`,
+    died: `${name}’s death is recorded.`,
+  }
+  return said[outcome] ?? `${name} is discharged.`
 }
 
 // ---- Who the card is for (Q190 A) ------------------------------------------------------------
