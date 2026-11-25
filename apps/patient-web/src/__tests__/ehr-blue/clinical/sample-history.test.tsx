@@ -6,7 +6,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { statusWords } from '../../../ehr-blue/clinical/parts/format'
 import { SAMPLE_NOTICE } from '../../../ehr-blue/clinical/parts/SampleBanner'
-import { SAMPLE_DEFINITIONS, SAMPLE_WORKSPACE_IDS } from '../../../ehr-blue/clinical/sample/definitions'
+import { LIVE_AT_ADDRESS, SAMPLE_DEFINITIONS, SAMPLE_WORKSPACE_IDS } from '../../../ehr-blue/clinical/sample/definitions'
 import { ENCOUNTERS, IDS, PATIENTS, SEED_CONNECTED } from '../../../ehr-blue/clinical/sample/seed'
 import { displayItems, listedRecords, matchesSearch, refChoices, sampleLabel, sampleState } from '../../../ehr-blue/clinical/sample/store'
 import { SampleWorkspace, resetSampleStore } from '../../../ehr-blue/clinical/sample/SampleWorkspace'
@@ -199,6 +199,37 @@ describe('audit 17: the design’s connected history rows from the live modules,
     expect(landed.getAttribute('data-state')).toBe('null')
     view.unmount()
     expect(touched.api).toBe(false)
+    expect(network).not.toHaveBeenCalled()
+  })
+
+  it('a row of a sample whose address a live page now serves (Inpatient / Wards, ICU) opens that page’s list, never by its sample id', () => {
+    // hid-system ADT-1: the live pages hold these addresses, and no registry mounts their samples any more.
+    const registries = sources().filter(file => /(^|\/)(pages\.ts|page\.tsx)$/.test(relative(EHR_BLUE, file))).map(file => readFileSync(file, 'utf8')).join('\n')
+    expect([...LIVE_AT_ADDRESS].sort()).toEqual(['icu', 'inpatient', 'ward-config', 'wards'])
+    for (const id of LIVE_AT_ADDRESS) {
+      expect(registries).toContain(`path: '${id}/*'`)
+      expect(registries).not.toContain(`sample('${id}')`)
+    }
+
+    // The design's nurse on Taylor's nursing task: the admission row opens the live list, carrying nothing.
+    staff.roles = ['nurse']
+    const task = open('nursing-tasks', IDS.taskObs)
+    const admission = within(historyCard()).getByRole('link', { name: 'Inpatient / Wards · Observation (fictional)' })
+    expect(admission.getAttribute('href')).toBe(`${BASE}/inpatient`)
+    expect(within(historyCard()).getAllByRole('link').map(link => link.getAttribute('href')).some(href => href?.includes(IDS.admitTaylor))).toBe(false)
+    fireEvent.click(admission)
+    expect(screen.getByTestId('landed').textContent).toBe(`${BASE}/inpatient`)
+    expect(screen.getByTestId('landed').getAttribute('data-state')).toBe('null')
+    task.unmount()
+
+    // Riley's ICU admission, from Riley's maternity record: the ICU list.
+    staff.roles = undefined
+    const maternity = open('maternity', IDS.maternity)
+    const icu = within(historyCard()).queryAllByRole('link').filter(link => (link.textContent ?? '').startsWith('ICU · '))
+    expect(icu.map(link => link.textContent)).toEqual(['ICU · Close monitoring (fictional)'])
+    for (const link of icu) expect(link.getAttribute('href')).toBe(`${BASE}/icu`)
+    expect(within(historyCard()).queryAllByRole('link').every(link => !link.getAttribute('href')?.includes(IDS.icuRiley))).toBe(true)
+    maternity.unmount()
     expect(network).not.toHaveBeenCalled()
   })
 

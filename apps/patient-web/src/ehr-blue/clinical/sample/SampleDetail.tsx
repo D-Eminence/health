@@ -9,7 +9,7 @@ import { SampleBanner } from '../parts/SampleBanner'
 import { useWorkspaceHref } from '../parts/Workspace'
 import { useSampleAccess } from './access'
 import { useStandaloneSample } from './context'
-import { DEFAULT_ACTION_PERMISSION, isSampleWorkspace, type SampleAction, type SampleDefinition, type SampleField } from './definitions'
+import { DEFAULT_ACTION_PERMISSION, opensAsSample, type SampleAction, type SampleDefinition, type SampleField } from './definitions'
 import { formFields, toData } from './fields'
 import { UNKNOWN_SAMPLE } from './SampleList'
 import type { SampleRecord } from './seed'
@@ -67,9 +67,9 @@ function RecordPage({ definition, record, current }: { definition: SampleDefinit
   const available = definition.actions.filter(item => item.from.includes(record.status) && can(definition.id, item.permission ?? DEFAULT_ACTION_PERMISSION))
   const action = available.find(item => item.id === selected)
   const history = historyFor(current, definition, record, workspace => can(workspace))
-  // Only ever another sample workspace's create page, never a live one (whose form would open on the chart's patient),
-  // and only one the viewer may create in (src/workflows.tsx:574).
-  const handoffs = (definition.continueCare ?? []).filter(handoff => isSampleWorkspace(handoff.workspace) && can(handoff.workspace, 'create'))
+  // Only ever another sample workspace's create page, never a live one (whose form would open on the chart's patient,
+  // Inpatient / Wards' New admission included), and only one the viewer may create in (src/workflows.tsx:574).
+  const handoffs = (definition.continueCare ?? []).filter(handoff => opensAsSample(handoff.workspace) && can(handoff.workspace, 'create'))
 
   const ask = (label: string, word: string | undefined) => new Promise<boolean>(resolve => {
     setAsking({ label, word, answer: resolve })
@@ -137,7 +137,8 @@ function RecordPage({ definition, record, current }: { definition: SampleDefinit
             items={history.map(entry => ({
               key: entry.key,
               label: `${entry.title} · ${entry.name}`,
-              // A fictional connected row exists nowhere live: it opens its workspace's list, carrying nothing.
+              // A fictional connected row exists nowhere live, and a live page at a sample's address (Inpatient / Wards)
+              // knows nothing of its sample records: either opens its workspace's list, carrying nothing.
               href: entry.recordId ? href.to(entry.workspace, entry.recordId) : href.to(entry.workspace),
               status: entry.status,
             }))}

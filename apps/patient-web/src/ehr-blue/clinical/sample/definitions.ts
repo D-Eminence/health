@@ -303,6 +303,19 @@ export function isSampleWorkspace(id: string): id is SampleWorkspaceId {
 }
 
 /**
+ * Sample workspaces whose addresses a live page now serves (departments/inpatient, hid-system ADT-1): Inpatient / Wards,
+ * Wards & Beds, ICU and Ward configuration. Their definitions and records stay for the demo (Nursing tasks' admissions,
+ * the beds' wards), but none of their records is linked by its id: the live page would send the fictional id to the
+ * API. A row of theirs opens the live page's list, carrying nothing, as a fictional connected row does.
+ */
+export const LIVE_AT_ADDRESS: ReadonlySet<string> = new Set(['inpatient', 'wards', 'icu', 'ward-config'])
+
+/** Whether a workspace opens as a sample at its address, so a link may carry one of its sample records' ids. */
+export function opensAsSample(id: string): id is SampleWorkspaceId {
+  return isSampleWorkspace(id) && !LIVE_AT_ADDRESS.has(id)
+}
+
+/**
  * Connected hospital history order: the design's module order (catalog.ts), audit item 17's list. Sample workspaces
  * list their records; the live ones (triage, clinical, laboratory, pharmacy, nursing) list only the seed's fictional
  * history rows (SEED_CONNECTED). Record kinds a ref field picks from map to the workspaces that hold them.
