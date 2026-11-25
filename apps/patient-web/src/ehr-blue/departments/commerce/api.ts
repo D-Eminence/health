@@ -98,8 +98,8 @@ export interface BillLine {
   /** The pharmacy's quantity was not in the item's unit: the cashier checks it. */
   checkQuantity?: boolean; note?: string | null; cancelled?: boolean
   /**
-   * The work item's dispensing was reversed. The server cancels such a line when the bill can lose it; one still live
-   * was paid for, so a refund is due (cancel the payment, then the line).
+   * The work item's dispensing was reversed. The server always takes such a line off the bill (cancelled, "Dispensing
+   * reversed"), paid or not, so its unpaid balance is never asked for; what was paid for it is the bill's refundDueKobo.
    */
   dispensingReversed?: boolean
 }
@@ -128,7 +128,10 @@ export interface BillPatient { patientId: string | null; displayName: string; he
 export type DeferredReason = 'emergency' | 'inpatient' | 'unknown_patient'
 export interface Bill {
   id: string; number: string; source: BillSource; status: BillStatus
-  /** null: an anonymous counter sale (then `displayName` is the name the customer gave, or "Counter sale"). */
+  /**
+   * null: an anonymous counter sale or walk-in lab bill (then `displayName` is the name the customer gave, or "Counter
+   * sale", or "Walk-in" for a lab bill).
+   */
   patient: BillPatient | null
   displayName?: string | null
   /** A counter sale (POST pharmacy/walk-in-orders). */
@@ -137,6 +140,12 @@ export interface Bill {
   lines: BillLine[]
   totalKobo: number; paidKobo: number; dueKobo: number
   waivedKobo?: number; hmoCoveredKobo?: number; pendingCheckKobo?: number
+  /**
+   * What a dispensing reversal left collected beyond the bill's total: the patient's money to give back (refundDueKobo,
+   * given back first), and a waiver or HMO cover now larger than the bill (coverOverKobo: cancel it and record the
+   * right amount). Both 0 on any other bill; nothing is due while either is above 0.
+   */
+  refundDueKobo?: number; coverOverKobo?: number
   payments: Payment[]; hmoCovers?: HmoCover[]
   deferred?: { reason: DeferredReason; by: 'system' | 'staff'; at: string } | null
   receiptNumber?: string | null; createdAt: string; version: number
@@ -147,8 +156,11 @@ export interface Bill {
 export type WorkItemBill = {
   billId: string; status: BillStatus; dueKobo: number; receiptNumber?: string | null
   pendingCheckKobo?: number; deferred?: DeferredReason | null
-  /** The dispensing was reversed after its line was paid: a refund is due. */
-  dispensingReversed?: boolean
+  /**
+   * The work item's dispensing was reversed (its line came off the bill) and money paid for it is still to be given
+   * back: refundDueKobo is the bill's refund due. Once it is given back the work item has no badge ("Not billed").
+   */
+  dispensingReversed?: boolean; refundDueKobo?: number
 } | null
 
 export interface PaymentInput {

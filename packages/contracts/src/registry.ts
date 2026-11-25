@@ -1367,17 +1367,20 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     {GET:['billing.bill.read'],POST:['billing.bill.create']}, `${BILL_1} GET ?status (or open)&source visit|pharmacy|lab&q (2-60: a `
     + 'bill or receipt number or a name, never a Health ID or NIN)&date&page, 25 per page, audited per patient shown. POST '
     + '{ source, patient: { visitQueueEntryId } | { anonymous: true, name? }, lines }: one bill per visit (merged: true). An '
-    + 'anonymous pharmacy bill is a counter sale and takes no prescription-only medicine (422 PRESCRIPTION_REQUIRED).')),
+    + 'anonymous pharmacy bill is a counter sale and takes no prescription-only medicine (422 PRESCRIPTION_REQUIRED); an '
+    + 'anonymous lab bill is a walk-in lab bill (counter false, the name only, displayName "Walk-in" with none).')),
   proposed(r('commercial.billSummary','commercial','/api/v1/commercial/bills/summary',G,false,one('GET','billing.bill.read'),
     `${BILL_1} ?date (a Lagos day): { date, billedKobo, collectedKobo, waivedKobo, hmoCoveredKobo, outstandingKobo, billCount }. `
     + 'Numbers only, no patient.')),
   proposed(r('commercial.bill','commercial','/api/v1/commercial/bills/:billId',G,false,one('GET','billing.bill.read'),
     `${BILL_1} The bill: patient { patientId, displayName, healthIdLast4 } (never the whole Health ID), lines, payments, hmoCovers, `
-    + 'deferred, sums.')),
+    + 'deferred, sums, refundDueKobo and coverOverKobo (what a dispensing reversal left collected beyond the total: the '
+    + 'patient\'s money first, then waiver or HMO cover; nothing is due while either is above 0).')),
   proposed(r('commercial.billLines','commercial','/api/v1/commercial/bills/:billId/lines',P,false,one('POST','billing.bill.create'),
     `${BILL_1} { catalogueItemId, quantity, note?, expectedVersion }. Not on a void bill; on a counter sale, never after its `
     + 'hand-over (409 ALREADY_HANDED_OVER) and never a prescription-only medicine (422 PRESCRIPTION_REQUIRED). A line '
-    + 'answers dispensingReversed: a paid one still live means a refund is due.')),
+    + 'answers dispensingReversed: the server always takes such a line off the bill (cancelled), paid or not, and what was paid '
+    + 'for it is the bill\'s refundDueKobo.')),
   proposed(r('commercial.billLineCancel','commercial','/api/v1/commercial/bills/:billId/lines/:lineId/cancel',P,false,
     one('POST','billing.bill.adjust'), `${BILL_1} { reason (8-500), expectedVersion }; 409 LINE_CANCEL_BELOW_PAID.`)),
   proposed(r('commercial.billPayments','commercial','/api/v1/commercial/bills/:billId/payments',P,false,

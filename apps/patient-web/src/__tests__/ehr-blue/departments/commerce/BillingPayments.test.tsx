@@ -4,6 +4,8 @@ import { Payments } from '../../../../ehr-blue/departments/commerce/Payments'
 import { TakePayment } from '../../../../ehr-blue/departments/commerce/TakePayment'
 import { Receipt } from '../../../../ehr-blue/departments/commerce/Receipt'
 import { BillBadge } from '../../../../ehr-blue/departments/commerce/BillBadge'
+import { naira } from '../../../../ehr-blue/departments/commerce/money'
+import type { Bill } from '../../../../ehr-blue/departments/commerce/api'
 import { DEMO_HOSPITAL_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
 import { HMO_ID, TILL_ID, billOf, off, ok, refused, settingsOf, unpaidBill } from './billingFixtures'
 
@@ -181,19 +183,37 @@ describe('a bill’s actions', () => {
     expect(within(drawer).queryByRole('button', { name: 'Emergency: bill follows' })).toBeNull()
   })
 
-  it('says a refund is due when a paid medicine\'s dispensing was reversed, and marks its line', async () => {
-    as(OFFICER)
+  /** The server's answer after a part-paid medicine's dispensing was reversed: its line is off the bill, nothing is due,
+   * and only the money paid beyond the bill's new total is to give back. */
+  const reversedBill = (patch: Partial<Bill> = {}) => {
     const paid = billOf()
-    const drawer = await openBill(billOf({ lines: [paid.lines[0]!, { ...paid.lines[1]!, dispensingReversed: true }] }))
-    expect(within(drawer).getByText('Refund due')).toBeTruthy()
-    expect(within(drawer).getByText(/The dispensing of Paracetamol 500 mg tablet was reversed after it was paid for/)).toBeTruthy()
-    expect(within(within(drawer).getByRole('list', { name: 'Lines' })).getByText(/dispensing reversed/)).toBeTruthy()
+    return billOf({ status: 'paid', totalKobo: 500000, paidKobo: 400000, hmoCoveredKobo: 200000, dueKobo: 0,
+      refundDueKobo: 100000, coverOverKobo: 0,
+      lines: [paid.lines[0]!, { ...paid.lines[1]!, cancelled: true, dispensingReversed: true }],
+      payments: [{ ...paid.payments[0]!, amountKobo: 400000 }], ...patch })
+  }
+
+  it('says how much refund is due when a part-paid medicine\'s dispensing was reversed, with the line off the bill', async () => {
+    as(OFFICER)
+    const drawer = await openBill(reversedBill(), 'Paid')
+    expect(within(drawer).getAllByText((_, element) => element?.textContent === `Refund due ${naira(100000)}`).length).toBeGreaterThan(0)
+    expect(within(drawer).getByText(/The dispensing of Paracetamol 500 mg tablet was reversed, so it is off the bill/)).toBeTruthy()
+    expect(within(within(drawer).getByRole('list', { name: 'Lines' })).queryByText(/Paracetamol/)).toBeNull()
+    expect(within(drawer).queryByText('HMO cover or waiver is more than the bill')).toBeNull()
   })
 
-  it('says nothing of a refund when no dispensing was reversed', async () => {
+  it('says when an HMO cover or waiver is more than the bill after a reversal', async () => {
     as(OFFICER)
-    const drawer = await openBill()
-    expect(within(drawer).queryByText('Refund due')).toBeNull()
+    const drawer = await openBill(reversedBill({ paidKobo: 0, payments: [], refundDueKobo: 0, hmoCoveredKobo: 650000, coverOverKobo: 150000 }), 'Paid')
+    expect(within(drawer).getByText('HMO cover or waiver is more than the bill')).toBeTruthy()
+    expect(within(drawer).queryByText(/^Refund due/)).toBeNull()
+  })
+
+  it('says nothing of a refund when a reversed medicine was never paid for, or none was reversed', async () => {
+    as(OFFICER)
+    const drawer = await openBill(reversedBill({ status: 'part_paid', paidKobo: 300000, hmoCoveredKobo: 0, dueKobo: 200000,
+      refundDueKobo: 0, payments: [billOf().payments[0]!] }))
+    expect(within(drawer).queryByText(/^Refund due/)).toBeNull()
     expect(within(drawer).queryByText(/dispensing reversed/)).toBeNull()
   })
 
@@ -246,13 +266,14 @@ describe('Take payment', () => {
     expect(await screen.findByText('Paper receipt 0457')).toBeTruthy()
   })
 
-  it('marks a line whose dispensing was reversed: a refund is due', async () => {
+  it('never asks for a medicine whose dispensing was reversed: its line is off the bill', async () => {
     const paid = billOf()
-    const bill = billOf({ lines: [paid.lines[0]!, { ...paid.lines[1]!, dispensingReversed: true }] })
+    const bill = unpaidBill({ totalKobo: 500000, dueKobo: 500000, lines: [paid.lines[0]!, { ...paid.lines[1]!, cancelled: true, dispensingReversed: true }] })
     commerceApi.bill = async () => ok(bill)
     commerceApi.catalogueItems = async () => ok({ items: [], nextPage: null })
     renderDept(<TakePayment open bill={bill} onClose={() => undefined} />)
-    expect(await screen.findByText(/dispensing reversed, refund due/)).toBeTruthy()
+    expect(await screen.findByText('Consultation')).toBeTruthy()
+    expect(screen.queryByText(/Paracetamol/)).toBeNull()
   })
 
   it('says to open the day first, with the way to End of day', async () => {
@@ -319,11 +340,15 @@ describe('the receipt', () => {
 })
 
 describe('a work item’s bill badge', () => {
-  it('says Refund due when the dispensing was reversed after its line was paid, and Paid otherwise', () => {
-    const { unmount } = renderDept(<BillBadge bill={{ billId: 'b-1', status: 'paid', dueKobo: 0, dispensingReversed: true }} />)
-    expect(screen.getByText('Refund due')).toBeTruthy()
+  it('says Refund due with the amount while money paid for a reversed medicine is to give back, and Paid otherwise', () => {
+    const { unmount } = renderDept(<BillBadge bill={{ billId: 'b-1', status: 'paid', dueKobo: 0, dispensingReversed: true, refundDueKobo: 20000 }} />)
+    expect(screen.getAllByText((_, element) => element?.textContent === `Refund due ${naira(20000)}`).length).toBeGreaterThan(0)
     expect(screen.queryByText('Paid')).toBeNull()
     unmount()
+    const again = renderDept(<BillBadge bill={{ billId: 'b-1', status: 'paid', dueKobo: 0, dispensingReversed: true, refundDueKobo: 0 }} />)
+    expect(screen.queryByText(/Refund due/)).toBeNull()
+    expect(screen.getByText('Paid')).toBeTruthy()
+    again.unmount()
     renderDept(<BillBadge bill={{ billId: 'b-1', status: 'paid', dueKobo: 0 }} />)
     expect(screen.getByText('Paid')).toBeTruthy()
   })

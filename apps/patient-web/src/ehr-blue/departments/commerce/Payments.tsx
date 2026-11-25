@@ -195,7 +195,8 @@ function BillCard({ bill, onPay, onView }: {
           </div>
           {waiting ? <Badge size="sm" tone="info" icon={Hourglass}>Waiting for check</Badge>
             : bill.deferred ? <Badge size="sm" tone="info">Bill follows · {DEFERRED_LABEL[bill.deferred.reason] ?? 'Later'}</Badge>
-              : <BillBadge bill={{ billId: bill.id, status: bill.status, dueKobo: bill.dueKobo, receiptNumber: bill.receiptNumber ?? null }} />}
+              : <BillBadge bill={{ billId: bill.id, status: bill.status, dueKobo: bill.dueKobo, receiptNumber: bill.receiptNumber ?? null,
+                dispensingReversed: (bill.refundDueKobo ?? 0) > 0, refundDueKobo: bill.refundDueKobo ?? 0 }} />}
         </div>
       </div>
       <div className="flex flex-wrap gap-2 border-t border-line px-4 py-3 [&>*]:flex-[1_1_auto] [&>*]:whitespace-nowrap">

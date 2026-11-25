@@ -45,7 +45,9 @@ export function BillActions({ bill, onChanged, onPrint }: {
   const payments = bill.payments.filter(payment => !payment.voided)
   const covers = (bill.hmoCovers ?? []).filter(cover => cover.status === 'pending_claim')
   const lines = bill.lines.filter(line => !line.cancelled)
-  const reversed = lines.filter(line => line.dispensingReversed)
+  const reversed = bill.lines.filter(line => line.dispensingReversed).map(line => line.name)
+  const refundDue = bill.refundDueKobo ?? 0
+  const coverOver = bill.coverOverKobo ?? 0
   const nothingTaken = payments.length === 0 && covers.length === 0
 
   return <section aria-labelledby={`bill-actions-${bill.id}`} className="flex flex-col gap-4">
@@ -54,9 +56,15 @@ export function BillActions({ bill, onChanged, onPrint }: {
       {bill.deferred.reason === 'unknown_patient' ? 'An unknown patient: served first, billed when they are identified.'
         : bill.deferred.reason === 'emergency' ? 'An emergency: served first, billed later. It can still be paid.' : 'Admitted: billed at discharge.'}
     </Alert> : null}
-    {open && reversed.length > 0 ? <Alert size="sm" intent="warning" live={false} title="Refund due">
-      The dispensing of {reversed.map(line => line.name).join(', ')} was reversed after it was paid for. Refund the payment,
-      then cancel the line.
+    {open && refundDue > 0 ? <Alert size="sm" intent="warning" live={false} title={<>Refund due <span className="tabular">{naira(refundDue)}</span></>}>
+      {reversed.length > 0 ? <>The dispensing of {reversed.join(', ')} was reversed, so it is off the bill. </> : null}
+      <span className="tabular">{naira(refundDue)}</span> was paid beyond what this bill now comes to. Give it back: choose
+      Cancel or refund on the payment, then take again anything still owed.
+    </Alert> : null}
+    {open && coverOver > 0 ? <Alert size="sm" intent="warning" live={false} title="HMO cover or waiver is more than the bill">
+      {reversed.length > 0 ? <>The dispensing of {reversed.join(', ')} was reversed, so it is off the bill. </> : null}
+      The HMO cover or waiver is <span className="tabular">{naira(coverOver)}</span> more than this bill now comes to. Cancel
+      it and record the right amount.
     </Alert> : null}
 
     {payments.length > 0 ? <ul aria-label="Payments" className="m-0 flex list-none flex-col divide-y divide-line rounded-lg p-0 ring-1 ring-line">
