@@ -3409,6 +3409,8 @@ export interface AppointmentListQuery {
   statuses?: readonly AppointmentStatus[]
   cursor?: string
   limit?: number
+  /** Cancels the read: a newer one (another day, clinic or status) takes its place. */
+  signal?: AbortSignal
 }
 
 /** A booking: exactly one of matchRef (a search card, 10 minutes) or patientId (this facility's own patient). */
@@ -3442,7 +3444,7 @@ function directCareWrite(facilityId: string, idempotencyKey: string) {
 export const appointmentsApi = {
   list: (facilityId: string, query: AppointmentListQuery) =>
     client.get<AppointmentList>('/api/v1/ehr/appointments', {
-      headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false,
+      headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false, ...(query.signal ? { signal: query.signal } : {}),
       query: {
         day: query.day,
         ...(query.clinicId ? { clinicId: query.clinicId } : {}),
@@ -3494,9 +3496,9 @@ export const appointmentsApi = {
     client.request<AppointmentSettings & { replayed?: boolean }>({ method: 'PATCH', path: '/api/v1/ehr/appointment-settings',
       body: { expectedRowVersion: current.rowVersion, defaultLengthMinutes }, headers: directCareWrite(facilityId, idempotencyKey) }),
   /** The printable call list (identity-api, which holds the contact key): booked appointments that day, with the phone. */
-  callList: (facilityId: string, query: { day: string; clinicId?: string; clinicianMembershipId?: string }) =>
+  callList: (facilityId: string, query: { day: string; clinicId?: string; clinicianMembershipId?: string; signal?: AbortSignal }) =>
     client.get<{ items: AppointmentCallListItem[] }>('/api/v1/identity/appointment-call-list', {
-      headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false, retry: NO_RETRY,
+      headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false, retry: NO_RETRY, ...(query.signal ? { signal: query.signal } : {}),
       query: { day: query.day, ...(query.clinicId ? { clinicId: query.clinicId } : {}),
         ...(query.clinicianMembershipId ? { clinicianMembershipId: query.clinicianMembershipId } : {}) },
     }),

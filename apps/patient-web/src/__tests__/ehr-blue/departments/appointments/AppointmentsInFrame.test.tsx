@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import type * as BlueRoutes from '../../../../ehr-blue/routes'
-import { REAL_FACILITY, SESSION, facility, json, openStaffApp, problem, serve, sessionAt, where, type Sent } from '../../frame/blueHarness'
+import { REAL_FACILITY, SESSION, facility, json, openStaffApp, problem, serve, sessionAt, where, type Answer, type Sent } from '../../frame/blueHarness'
 import { lagosToday } from '../../../../ehr-blue/departments/waiting/waitingRules'
 import {
   BOOKED_DONE, CANCELLED_DONE, forgetAppointmentsServed,
@@ -100,6 +100,30 @@ const keyOf = (sent: readonly Sent[], route: string, index = 0) => sent.filter(i
 const noPermissionWord = () => expect(document.body.textContent).not.toMatch(/permission/i)
 /** A fact's value on the appointment's card ("With", "Booked"). */
 const fact = (label: string) => screen.getByText(label, { selector: 'dt' }).nextElementSibling?.textContent
+/** The signal the `index`th request to `route` was sent with (aborted once a newer read took its place). */
+function signalOf(route: string, index: number) {
+  const [method, path] = route.split(' ')
+  const calls = vi.mocked(fetch).mock.calls.filter(([url, init]) => String(init?.method ?? 'GET') === method && new URL(String(url)).pathname === path)
+  return calls[index]?.[1]?.signal ?? undefined
+}
+/** An answer held back until the test releases it, as a slow connection delivers it after a later one. */
+function later() {
+  let send: ((response: Response) => void) | null = null
+  const answer: Answer = () => new Promise<Response>(resolve => { send = resolve })
+  return {
+    answer,
+    release: async (response: Response) => {
+      await act(async () => {
+        send?.(response)
+        await new Promise(resolve => setTimeout(resolve, 100))
+      })
+    },
+  }
+}
+const callItem = (overrides: Record<string, unknown> = {}) => ({
+  appointmentId: APPOINTMENT, startsAt: '2026-12-03T08:00:00.000Z', clinicName: 'Medical outpatients', clinicianMembershipId: DOCTOR,
+  fullName: 'Testa Bookperson', healthIdLast4: 'ZZ33', phone: '+2348000000001', phoneSource: 'facility_contact', ...overrides,
+})
 
 describe('Appointments in the frame', () => {
   it('is listed under Front desk and shows the day in Lagos time, with the default statuses asked for', async () => {
@@ -451,6 +475,112 @@ describe('Appointments in the frame', () => {
     // Nothing here sends a text message: SMS reminders are built but switched off.
     expect(document.body.textContent).not.toMatch(/text message|SMS/i)
     noIdentityInAddresses()
+  })
+
+  it('keeps the call list to the day chosen last when an earlier day’s answer comes after it', async () => {
+    const desk = deskAt()
+    const fourth = later()
+    serve({
+      [SESSION]: [sessionAt(desk, [desk])],
+      [CALL_LIST]: [
+        () => json({ items: [callItem({ fullName: 'Today Person', phone: '+2348030000001' })] }),
+        fourth.answer,
+        () => json({ items: [callItem({ appointmentId: 'a0000000-0000-4000-8000-00000000a005', startsAt: '2026-12-05T09:00:00.000Z',
+          fullName: 'Fifth Dec Person', phone: '+2348031234567' })] }),
+      ],
+    })
+    await openStaffApp('/provider/appointments/call-list')
+    expect(await screen.findByText('Today Person')).toBeDefined()
+
+    fireEvent.change(screen.getByLabelText('Day'), { target: { value: '2026-12-04' } })
+    await waitFor(() => expect(urlsOf(CALL_LIST)).toHaveLength(2))
+    // While 4 Dec loads, today's list is not shown under 4 Dec's heading, and there is nothing to print.
+    expect(screen.queryByText('Today Person')).toBeNull()
+    expect(screen.getByText('Loading the call list…')).toBeDefined()
+    expect((screen.getByRole('button', { name: 'Print' }) as HTMLButtonElement).disabled).toBe(true)
+
+    fireEvent.change(screen.getByLabelText('Day'), { target: { value: '2026-12-05' } })
+    expect(await screen.findByText('Fifth Dec Person')).toBeDefined()
+    // Choosing 5 Dec cancelled the 4 Dec read.
+    expect(signalOf(CALL_LIST, 1)?.aborted).toBe(true)
+    await fourth.release(json({ items: [callItem({ appointmentId: 'a0000000-0000-4000-8000-00000000a004', startsAt: '2026-12-04T09:00:00.000Z',
+      fullName: 'Fourth Dec Person', phone: '+2348030000004' })] }))
+
+    expect(screen.getByRole('heading', { name: 'Booked for Saturday 5 Dec 2026' })).toBeDefined()
+    const table = screen.getByRole('table')
+    expect(within(table).getByText('Fifth Dec Person')).toBeDefined()
+    expect(within(table).getByRole('link', { name: '0803 123 4567' })).toBeDefined()
+    expect(screen.queryByText('Fourth Dec Person')).toBeNull()
+    expect(document.body.textContent).not.toContain('0803 000 0004')
+
+  })
+
+  it('shows only the day chosen last when an earlier day’s answer comes after it', async () => {
+    const desk = deskAt()
+    const fourth = later()
+    serve({
+      [SESSION]: [sessionAt(desk, [desk])],
+      [LIST]: [
+        listOf(card({ fullName: 'Today Person', appointmentDay: today() })),
+        fourth.answer,
+        listOf(card({ appointmentId: 'a0000000-0000-4000-8000-00000000a005', fullName: 'Fifth Dec Person', appointmentDay: '2026-12-05',
+          startsAt: '2026-12-05T08:00:00.000Z', endsAt: '2026-12-05T08:30:00.000Z' })),
+      ],
+    })
+    await openStaffApp('/provider/appointments')
+    expect(await screen.findByRole('listitem', { name: 'Today Person' })).toBeDefined()
+
+    fireEvent.change(screen.getByLabelText('Day'), { target: { value: '2026-12-04' } })
+    await waitFor(() => expect(urlsOf(LIST)).toHaveLength(2))
+    fireEvent.change(screen.getByLabelText('Day'), { target: { value: '2026-12-05' } })
+    const list = await screen.findByRole('list', { name: 'Appointments on this day' })
+    expect(within(list).getByRole('listitem', { name: 'Fifth Dec Person' })).toBeDefined()
+    // Choosing 5 Dec cancelled the 4 Dec read.
+    expect(urlsOf(LIST).map(url => url.searchParams.get('day'))).toEqual([today(), '2026-12-04', '2026-12-05'])
+    expect(signalOf(LIST, 1)?.aborted).toBe(true)
+
+    await fourth.release(listOf(card({ appointmentId: 'a0000000-0000-4000-8000-00000000a004', fullName: 'Fourth Dec Person',
+      appointmentDay: '2026-12-04', startsAt: '2026-12-04T08:00:00.000Z', endsAt: '2026-12-04T08:30:00.000Z' }))())
+
+    // The day shown keeps its own list: not blank, not the 4 Dec one.
+    expect(screen.getByRole('heading', { name: 'Saturday 5 Dec 2026 (1)' })).toBeDefined()
+    expect(within(screen.getByRole('list', { name: 'Appointments on this day' })).getByRole('listitem', { name: 'Fifth Dec Person' })).toBeDefined()
+    expect(screen.queryByText('Fourth Dec Person')).toBeNull()
+    expect(screen.queryByText('Loading appointments…')).toBeNull()
+  })
+
+  it('asks for nothing and lists nothing while no status is ticked', async () => {
+    const desk = deskAt()
+    serve({
+      [SESSION]: [sessionAt(desk, [desk])],
+      [LIST]: [
+        listOf(card({ fullName: 'Booked Person' })),
+        listOf(card({ fullName: 'Arrived Person', status: 'checked_in' })),
+        listOf(card({ fullName: 'Cancelled Person', status: 'cancelled' })),
+      ],
+    })
+    await openStaffApp('/provider/appointments')
+    expect(await screen.findByRole('listitem', { name: 'Booked Person' })).toBeDefined()
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Booked' }))
+    expect(await screen.findByRole('listitem', { name: 'Arrived Person' })).toBeDefined()
+    expect(urlsOf(LIST).at(-1)!.searchParams.get('status')).toBe('checked_in')
+
+    // Unticking the last one: the backend would read no status as every status, so nothing is asked for or listed.
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Checked in' }))
+    expect(await screen.findByText('Choose at least one status to show.')).toBeDefined()
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)) })
+    expect(urlsOf(LIST)).toHaveLength(2)
+    expect(screen.queryByRole('list', { name: 'Appointments on this day' })).toBeNull()
+    expect(screen.queryByText('Arrived Person')).toBeNull()
+    expect(screen.queryByText('No appointments')).toBeNull()
+    expect(screen.getByRole('heading', { name: 'Today' })).toBeDefined()
+
+    // Ticking one again asks for that one alone.
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Cancelled' }))
+    expect(await screen.findByRole('listitem', { name: 'Cancelled Person' })).toBeDefined()
+    expect(urlsOf(LIST)).toHaveLength(3)
+    expect(urlsOf(LIST).at(-1)!.searchParams.get('status')).toBe('cancelled')
+    expect(screen.queryByText('Choose at least one status to show.')).toBeNull()
   })
 
   it('says a patient seen today can still be checked in after a no-show', async () => {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { formatPhone } from '@hid/ui/display'
@@ -20,6 +20,9 @@ import { useStaffNames } from './staffNames'
  * code as booking). No reason, visit type or date of birth is on it. Printed, it carries the frame's facility header and
  * this list's footer: it holds patient phone numbers, so it stays at the desk and is shredded after use. Reminders by
  * text message are built but switched off (Q-APPT-3 A), so nothing here sends one.
+ *
+ * Only the latest read is shown: changing the day or clinic cancels the read before it, and every list is kept with the
+ * day and clinic it was read for, so a slow answer for another day never shows (or prints) under this day's heading.
  */
 export function CallList({ facilityId, day }: { readonly facilityId: string; readonly day: string }) {
   const { permissions } = useDeptAccess()
@@ -34,26 +37,42 @@ function CallListPage({ facilityId, initialDay }: { readonly facilityId: string;
   const { clinics } = useBookingChoices(facilityId)
   const [day, setDay] = useState(initialDay)
   const [clinicId, setClinicId] = useState('')
-  const [items, setItems] = useState<readonly AppointmentCallListItem[] | null>(null)
+  const [list, setList] = useState<{ key: string; items: readonly AppointmentCallListItem[] } | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const reading = useRef<AbortController | null>(null)
+  const key = JSON.stringify([day, clinicId])
 
   const load = useCallback(async () => {
-    if (!isDay(day)) return
+    reading.current?.abort()
+    reading.current = null
+    if (!isDay(day)) { setLoading(false); setError(''); return }
+    const controller = new AbortController()
+    reading.current = controller
+    const { signal } = controller
     setLoading(true); setError('')
     try {
-      const answer = await appointmentsApi.callList(facilityId, { day, clinicId: clinicId || undefined })
+      const answer = await appointmentsApi.callList(facilityId, { day, clinicId: clinicId || undefined, signal })
+      if (signal.aborted) return
       learnFrom()
-      setItems(answer.items)
+      setList({ key, items: answer.items })
     } catch (caught) {
-      if (isHidApiError(caught) && caught.code === 'REQUEST_CANCELLED') return
+      if (signal.aborted || (isHidApiError(caught) && caught.code === 'REQUEST_CANCELLED')) return
       learnFrom(caught)
-      setItems(null)
+      setList(null)
       setError(notServed(caught) ? NOT_AVAILABLE : refusalWords(caught, 'The call list could not be loaded. Try again.', 'write'))
-    } finally { setLoading(false) }
-  }, [facilityId, day, clinicId])
-  useEffect(() => { void load() }, [load])
+    } finally {
+      if (!signal.aborted) setLoading(false)
+      if (reading.current === controller) reading.current = null
+    }
+  }, [facilityId, day, clinicId, key])
+  useEffect(() => {
+    void load()
+    return () => { reading.current?.abort() }
+  }, [load])
 
+  // Only the list read for the day and clinic chosen now: never another's, even for a moment.
+  const items = list?.key === key ? list.items : null
   const names = useStaffNames(facilityId, (items ?? []).map(item => item.clinicianMembershipId))
 
   return (

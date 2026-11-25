@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { EhrBadge, EhrButton, EhrEmptyState, EhrField, EhrInput, EhrSelect } from '@hid/ui/ehr'
@@ -86,31 +86,47 @@ function DayList({ facilityId, filters, onFilters }: {
   const [error, setError] = useState<{ text: string; unavailable: boolean } | null>(null)
   const [more, setMore] = useState(false)
   const key = JSON.stringify(filters)
+  // No status ticked asks for nothing: the backend reads a list with no status as every status.
+  const choosing = filters.statuses.length === 0
+  /** The read in flight. A newer one (other filters, Refresh, Show more) cancels it, so only the latest answer is shown. */
+  const reading = useRef<AbortController | null>(null)
 
   const load = useCallback(async (cursor?: string) => {
-    if (!isDay(filters.day)) return
+    reading.current?.abort()
+    reading.current = null
+    if (!isDay(filters.day) || filters.statuses.length === 0) { setLoading(false); setMore(false); setError(null); return }
+    const controller = new AbortController()
+    reading.current = controller
+    const { signal } = controller
     if (cursor) setMore(true); else setLoading(true)
     setError(null)
     try {
       const answer: AppointmentList = await appointmentsApi.list(facilityId, {
         day: filters.day, clinicId: filters.clinicId || undefined, clinicianMembershipId: filters.clinicianMembershipId || undefined,
-        statuses: filters.statuses.length === STATUSES.length ? undefined : filters.statuses, cursor,
+        statuses: filters.statuses.length === STATUSES.length ? undefined : filters.statuses, cursor, signal,
       })
+      if (signal.aborted) return
       learnFrom()
       setList(previous => ({ key, items: cursor && previous?.key === key ? [...previous.items, ...answer.items] : answer.items,
         nextCursor: answer.nextCursor }))
     } catch (caught) {
-      if (isHidApiError(caught) && caught.code === 'REQUEST_CANCELLED') return
+      if (signal.aborted || (isHidApiError(caught) && caught.code === 'REQUEST_CANCELLED')) return
       learnFrom(caught)
       if (isHidApiError(caught) && caught.code === 'INVALID_CURSOR') setList(null)
       setError({ text: refusalWords(caught, 'The appointments could not be loaded. Try again.'), unavailable: notServed(caught) })
-    } finally { setLoading(false); setMore(false) }
+    } finally {
+      if (!signal.aborted) { setLoading(false); setMore(false) }
+      if (reading.current === controller) reading.current = null
+    }
   }, [facilityId, filters, key])
 
-  useEffect(() => { void load() }, [load])
+  useEffect(() => {
+    void load()
+    return () => { reading.current?.abort() }
+  }, [load])
 
   const names = useStaffNames(facilityId, [...staff, ...(list?.items ?? []).map(card => card.clinicianMembershipId)])
-  const items = list?.key === key ? list.items : []
+  const items = list?.key === key && !choosing ? list.items : []
   const today = lagosToday()
 
   function set(next: Partial<DayFilters>) { onFilters({ ...filters, ...next }) }
@@ -170,21 +186,21 @@ function DayList({ facilityId, filters, onFilters }: {
         </fieldset>
       </DeptSection>
 
-      <DeptSection title={isDay(filters.day) ? `${filters.day === today ? 'Today' : dayText(filters.day)}${list?.key === key ? ` (${items.length}${list.nextCursor ? '+' : ''})` : ''}` : 'Appointments'}
+      <DeptSection title={isDay(filters.day) ? `${filters.day === today ? 'Today' : dayText(filters.day)}${list?.key === key && !choosing ? ` (${items.length}${list.nextCursor ? '+' : ''})` : ''}` : 'Appointments'}
         headingId="appointments-day-title">
         {error ? <DeptNotice role="alert" tone="critical">{error.text}</DeptNotice> : null}
         {!isDay(filters.day) ? <p className="hid-ehr-state-message">Choose a day to see its appointments.</p> : null}
         {loading && list?.key !== key ? <p className="hid-ehr-state-message" role="status">Loading appointments…</p> : null}
-        {list?.key === key && items.length === 0 && filters.statuses.length > 0
+        {list?.key === key && items.length === 0 && !choosing
           ? <EhrEmptyState title="No appointments" message="No appointments match this day and these choices." />
           : null}
-        {filters.statuses.length === 0 ? <p className="hid-ehr-state-message">Choose at least one status to show.</p> : null}
+        {choosing ? <p className="hid-ehr-state-message">Choose at least one status to show.</p> : null}
         {items.length > 0 ? (
           <ul className="hid-ehr-dept-appointments-list" aria-label="Appointments on this day">
             {items.map(card => <DayCard key={card.appointmentId} card={card} names={names} membershipId={membershipId} />)}
           </ul>
         ) : null}
-        {list?.key === key && list.nextCursor ? (
+        {list?.key === key && !choosing && list.nextCursor ? (
           <EhrButton variant="secondary" busy={more} onClick={() => void load(list.nextCursor ?? undefined)}>Show more</EhrButton>
         ) : null}
       </DeptSection>
