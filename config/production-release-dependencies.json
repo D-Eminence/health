@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "Each service pinned to its live source_commit. identity-api, ehr-api, ocr-api and outreach-api: production release backend-45502696619-1-956b7cb17fc4bf33 (deployed 2026-11-24 about 22:52 UTC), built from 95fa1e52 (0150 Q141 B doctors start readings, 0151 QA-2 logins). Every other service: backend release C backend-45470922218-1-2d646f0d4a7bd8f4 (d519e5d1), unchanged. Re-pin under standing approval Q94 4/5.",
+  "review_reference": "Each service pinned to its live source_commit. All services: production release backend-45649090315-1-03d2b78867300345 (deployed 2026-11-25 about 16:06 UTC), built from 557cddb5 (hid-system#339 gateway libexpat 2.11.0-r0 and OpenSSL 3.5.9-r1, Q291 A, Q292 A; no migration; all 13 components rebuilt). Re-pin under standing approval Q94 4/5.",
   "backend_commits": {
-    "gateway": "d519e5d1cb40fdae4598251387989879aff415bb",
-    "identity-api": "95fa1e5235c327005ccb626762d7049db6c5f0b1",
-    "ehr-api": "95fa1e5235c327005ccb626762d7049db6c5f0b1",
-    "lab-api": "d519e5d1cb40fdae4598251387989879aff415bb",
-    "pharmacy-api": "d519e5d1cb40fdae4598251387989879aff415bb",
-    "ocr-api": "95fa1e5235c327005ccb626762d7049db6c5f0b1",
-    "outreach-api": "95fa1e5235c327005ccb626762d7049db6c5f0b1",
-    "support-api": "d519e5d1cb40fdae4598251387989879aff415bb",
-    "notification-api": "d519e5d1cb40fdae4598251387989879aff415bb"
+    "gateway": "557cddb50a6fc3563640d180b18f9979e8807aae",
+    "identity-api": "557cddb50a6fc3563640d180b18f9979e8807aae",
+    "ehr-api": "557cddb50a6fc3563640d180b18f9979e8807aae",
+    "lab-api": "557cddb50a6fc3563640d180b18f9979e8807aae",
+    "pharmacy-api": "557cddb50a6fc3563640d180b18f9979e8807aae",
+    "ocr-api": "557cddb50a6fc3563640d180b18f9979e8807aae",
+    "outreach-api": "557cddb50a6fc3563640d180b18f9979e8807aae",
+    "support-api": "557cddb50a6fc3563640d180b18f9979e8807aae",
+    "notification-api": "557cddb50a6fc3563640d180b18f9979e8807aae"
   }
 }
