@@ -519,11 +519,10 @@ describe('registering the sample (the accession), with lab.accession.create alon
     fireEvent.click(within(card).getByRole('button', { name: 'Create accession' }))
     expect(await refusalOf(sampleBox())).toBe('Enter a specimen type and clinical reason.')
     expect(document.activeElement).toBe(sampleBox())
-    // A common sample is one press away.
-    const blood = within(screen.getByRole('group', { name: 'Common samples' })).getByRole('button', { name: 'Blood' })
-    fireEvent.click(blood)
-    expect(blood.getAttribute('aria-pressed')).toBe('true')
-    expect((sampleBox() as HTMLInputElement).value).toBe('Blood')
+    // Classic's one field, with its placeholder and no quick picks (parity 12).
+    expect(screen.queryByRole('group', { name: 'Common samples' })).toBeNull()
+    expect(sampleBox().getAttribute('placeholder')).toBe('Blood, urine, swab…')
+    fireEvent.change(sampleBox(), { target: { value: 'Blood' } })
     fireEvent.click(within(card).getByRole('button', { name: 'Create accession' }))
     expect(await refusalOf(reasonBox())).toBe('Enter a specimen type and clinical reason.')
     expect(document.activeElement).toBe(reasonBox())
@@ -1027,7 +1026,9 @@ describe('testing and results', () => {
     // Classic's status words (result.status with '_' as a space), saying "not verified", never "unverified" (parity row 10).
     expect(within(card).getByText('Entered, not verified')).toBeTruthy()
     expect(within(card).getByText('7.1')).toBeTruthy()
-    expect(within(card).getByText('Normal range 12.0-15.5')).toBeTruthy()
+    // The saved value uses the form's word, classic's 'Reference range', so the screen names the field one way.
+    expect(within(card).getByText('Reference range 12.0-15.5')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/Normal range/)
     // Even to a member who may also release, a draft offers only Verify.
     expect(within(card).queryByRole('button', { name: /release/i })).toBeNull()
     fireEvent.click(within(card).getByRole('button', { name: 'Verify result version' }))
@@ -1217,6 +1218,7 @@ describe('testing and results', () => {
     // badge above ('Verified, not released'), with 'Not verified' kept in place of 'unverified'.
     expect(within(history).getByText('Version 3 · verified, not released · Recalibrated analyser')).toBeTruthy()
     expect(within(history).getAllByText('Verification')).toHaveLength(3)
+    expect(history.textContent).not.toMatch(/Normal range/)
     expect(within(history).getAllByText('Verified')).toHaveLength(2)
     expect(within(history).getByText('Not verified')).toBeTruthy()
     expect(within(history).queryByText(/checked/i)).toBeNull()

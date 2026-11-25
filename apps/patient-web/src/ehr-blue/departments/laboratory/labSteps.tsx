@@ -3,7 +3,7 @@ import { HidApiError, isHidApiError } from '@hid/http'
 import { CheckCheck, Droplet, FlaskConical, History, PackageCheck, Play, RotateCcw, Save, Square, X } from 'lucide-react'
 import { Segmented } from '../../../kasuwa/interactive'
 import { ConfirmSheet, FormActions, Value } from '../../../kasuwa/parts'
-import { Alert, Badge, Button, Card, CardHeader, DescriptionList, Field, Input, Select, Textarea, cx } from '../../../kasuwa/ui'
+import { Alert, Badge, Button, Card, CardHeader, DescriptionList, Field, Input, Select, Textarea } from '../../../kasuwa/ui'
 import {
   staffApi, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultRevision, type LabResultValue, type LabSpecimen,
   type LabWorkItem,
@@ -39,8 +39,6 @@ interface StepBase {
   readonly onDone: (message: string) => void
   readonly onRefused: (caught: unknown) => void
 }
-
-const SAMPLE_TYPES = ['Blood', 'Urine', 'Stool', 'Swab', 'Sputum'] as const
 
 function Problem({ text }: { readonly text: string }) {
   return text ? <Alert intent="error" size="sm">{text}</Alert> : null
@@ -103,8 +101,9 @@ export function CollectStep({ facilityId, permissions, subject, routed, onDone, 
 const ACCESSION_REASON_MAX = 500
 
 /**
- * Classic's accession form (Operations.tsx AccessionForm): the specimen type, and the clinical reason typed by the
- * scientist. The reason starts empty, as on classic: nothing is filled in for them (parity row 12).
+ * Classic's accession form (Operations.tsx AccessionForm): the specimen type, typed into one field with classic's
+ * placeholder and no quick picks, and the clinical reason typed by the scientist. Both start empty, as on classic (parity
+ * row 12); only at the demo facilities, where the price list is served, the type starts with the price list's guess.
  */
 function RegisterForm({ facilityId, permissions, routed, onDone, onRefused, item, defaultType, onRegistered, onListChanged }: StepBase & {
   readonly item: LabWorkItem; readonly defaultType?: string | null
@@ -146,12 +145,6 @@ function RegisterForm({ facilityId, permissions, routed, onDone, onRefused, item
         aria-invalid={errors.type ? true : undefined} aria-describedby={errors.type ? 'lab-collect-type-error' : undefined}
         onChange={event => { setType(event.target.value); setErrors({}) }} />
     </Field>
-    <div className="flex flex-wrap gap-2" role="group" aria-label="Common samples">
-      {SAMPLE_TYPES.map(option => <button key={option} type="button" aria-pressed={type === option}
-        onClick={() => { setType(option); setErrors({}) }}
-        className={cx('inline-flex min-h-11 cursor-pointer items-center rounded-full border-0 px-4 text-[14px] font-medium ring-1 ring-inset',
-          type === option ? 'bg-brand-soft text-brand-ink ring-brand-line' : 'bg-surface text-ink ring-line-strong hover:bg-subtle')}>{option}</button>)}
-    </div>
     <Field label={ACCESSION_WORDS.reason} htmlFor="lab-collect-reason" error={errors.reason} errorId="lab-collect-reason-error">
       <Textarea id="lab-collect-reason" rows={2} maxLength={ACCESSION_REASON_MAX} value={reason}
         aria-invalid={errors.reason ? true : undefined} aria-describedby={errors.reason ? 'lab-collect-reason-error' : undefined}
@@ -486,7 +479,7 @@ export function ResultValue({ result }: { readonly result: LabResult }) {
   if (!current) return <span className="text-ink-3">Not recorded</span>
   return <span className="flex flex-col gap-0.5">
     <span className="text-[17px]"><Value value={revisionText(current)} unit={current.unit} flag={flagLevel(current.abnormalFlag)} /></span>
-    {current.referenceRange ? <span className="text-caption text-ink-3">Normal range {current.referenceRange}</span> : null}
+    {current.referenceRange ? <span className="text-caption text-ink-3">Reference range {current.referenceRange}</span> : null}
   </span>
 }
 
@@ -683,7 +676,7 @@ export function ResultHistory({ facilityId, execution, onRefused }: {
             ['Entered', dateText(entry.enteredAt)],
             ['Verification', CHECK_WORDS[entry.verificationStatus]],
             entry.releasedAt ? ['Released', dateText(entry.releasedAt)] : null,
-            entry.referenceRange ? ['Normal range', entry.referenceRange] : null,
+            entry.referenceRange ? ['Reference range', entry.referenceRange] : null,
             entry.correctionReason ? ['Reason', entry.correctionReason] : null,
           ]} />{sameScientist(entry)}</div>
         </details></li>)}
