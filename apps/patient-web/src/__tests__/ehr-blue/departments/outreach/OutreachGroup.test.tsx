@@ -859,7 +859,8 @@ describe('the campaigns a volunteer can register into', () => {
     expect(screen.queryByRole('option', { name: 'Ajegunle health week' })).toBeNull()
 
     await press(screen.getByRole('button', { name: 'Back to list' }))
-    await press(await screen.findByRole('button', { name: 'Refresh' }))
+    // The page's Refresh, above the empty lists' own (parity 3.3-72).
+    await press((await screen.findAllByRole('button', { name: 'Refresh' }))[0]!)
     await waitFor(() => expect(api.outreachCampaignMembers).toHaveBeenCalledTimes(2))
     await press((await screen.findAllByRole('button', { name: 'New registration' }))[0]!)
     expect(await screen.findByRole('option', { name: 'Ajegunle health week' })).toBeTruthy()

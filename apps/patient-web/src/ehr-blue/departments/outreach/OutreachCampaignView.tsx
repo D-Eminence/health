@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { EhrBadge, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
 import { isHidApiError } from '@hid/http'
-import { UserSearch, Users } from 'lucide-react'
+import { RotateCcw, UserSearch, Users } from 'lucide-react'
 import { FormActions, PageState } from '../../../kasuwa/parts'
 import { Alert, Button, Card } from '../../../kasuwa/ui'
 import { useConfirm } from '../../clinical/parts/confirm'
@@ -16,7 +16,7 @@ import { healthIdUnavailable, noConnection } from './offlineQueue'
 import { OutreachNumbers, useOutreachTotals } from './outreachNumbers'
 import {
   CAMPAIGN_ROLES, CAMPAIGN_STALE, CAMPAIGN_STATUS_FAILED, campaignErrorText, campaignFacts, campaignOpenNow, campaignStarted, campaignStatusLabel,
-  COMPLETE_FIELD, controlProps, ErrorBox, MEMBER_ADD_FAILED, memberRoleLabel, MEMBERS_NOT_LOADED, NO_ACTIONS, NO_CASES, NO_MEMBERS, OutreachField, REASON_LENGTH,
+  COMPLETE_FIELD, controlProps, EMPTY_REFRESH, ErrorBox, MEMBER_ADD_FAILED, memberRoleLabel, MEMBERS_NOT_LOADED, NO_ACTIONS, NO_CASES, NO_MEMBERS, OutreachField, REASON_LENGTH,
   RETRY_NOTE,
   servicesText, STAFF_NOT_LOADED, type FieldErrors, type MembersRead,
 } from './outreachParts'
@@ -366,7 +366,8 @@ export function OutreachCampaignView({ facilityId, campaign, members, manage, gr
       <DeptSection title="Members">
         <PageState loading={loading} error={items ? null : members?.error || null} hasData={items !== null} what="members" rows={2}
           onRetry={members ? () => void members.refresh() : undefined}
-          empty={items?.length === 0 ? { icon: Users, title: NO_MEMBERS, description: 'No facility memberships are listed for this campaign.' } : null}>
+          empty={items?.length === 0 ? { icon: Users, title: NO_MEMBERS, description: EMPTY_REFRESH, action: members
+            ? <Button icon={RotateCcw} onClick={() => { if (!members.loading) void members.refresh() }}>Refresh</Button> : undefined } : null}>
           <ul className="hid-ehr-dept-rows">
             {(items ?? []).map(member => (
               <li key={member.id}>
@@ -407,7 +408,8 @@ function CampaignRegistrations({ facilityId, campaign, canLink, group, onOpen }:
       <PageState loading={cases.loading} error={cases.value ? null : cases.error || null} hasData={cases.value !== null} what="registrations" rows={2}
         onRetry={() => void cases.refresh()}
         empty={cases.value?.length === 0 && !cases.more.available
-          ? { icon: UserSearch, title: NO_CASES, description: 'People registered into this campaign show here.' } : null}>
+          ? { icon: UserSearch, title: NO_CASES, description: EMPTY_REFRESH,
+            action: <Button icon={RotateCcw} onClick={() => { if (!cases.loading) void cases.refresh() }}>Refresh</Button> } : null}>
         <div className="flex flex-col gap-3">
           <OutreachNumbers cases={cases.value} more={cases.more.available} totals={totals} label={`Numbers for ${campaign.name}`} />
           <ul aria-label={`Registrations in ${campaign.name}`} className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3 p-0">

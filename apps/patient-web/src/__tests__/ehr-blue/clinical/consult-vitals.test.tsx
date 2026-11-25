@@ -106,18 +106,17 @@ async function vitalsCard() {
 }
 
 describe('Consultation record: Vitals card', () => {
-  it('shows each vital with its values and units, its status and when it was recorded, reading the vitals once', async () => {
+  it('row 3: titles each vital as classic ("Vitals recorded"), with classic’s one-line summary and when it was recorded, no status badge, reading the vitals once', async () => {
     const card = await openEncounter()
-    const link = await card.findByRole('link', { name: `Vitals · ${formatWhen(VITAL.createdAt)}` })
+    const link = await card.findByRole('link', { name: 'Vitals recorded' })
     expect(link.getAttribute('href')).toBe(`/provider/triage/${ENCOUNTER_ID}~vital-1`)
     const row = link.closest('li') as HTMLElement
-    expect(within(row).getByText('120/80')).toBeTruthy()
-    expect(within(row).getByText('mmHg')).toBeTruthy()
-    expect(within(row).getByText('bpm')).toBeTruthy()
-    expect(within(row).getByText('36.6')).toBeTruthy()
-    expect(within(row).getByText('97.5')).toBeTruthy()
-    expect(within(row).getByText('Final')).toBeTruthy()
+    // Classic's vitalSummary (staff/routes/Clinical.tsx:403-413), values as sent.
+    expect(within(row).getByText('BP 120/80 mmHg · 36.60 °C · 80 bpm · SpO₂ 97.50%')).toBeTruthy()
+    // Classic's row has a badge only for vitals entered in error (Clinical.tsx:779).
+    expect(within(row).queryByText('Final')).toBeNull()
     expect(within(row).getByText(`Recorded: ${formatWhen(VITAL.createdAt)}`)).toBeTruthy()
+    expect(card.queryByRole('link', { name: `Vitals · ${formatWhen(VITAL.createdAt)}` })).toBeNull()
     // The card shows the encounter page's own vitals list: no second read, and no correction read for an uncorrected vital.
     expect(vitalsReads()).toEqual([[FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'vitals']])
     expect(api.vitalCorrections).not.toHaveBeenCalled()
@@ -159,14 +158,11 @@ describe('Consultation record: Vitals card', () => {
   it('shows a corrected vital’s current correction, its reason and time, and what was first recorded', async () => {
     vitals = [CORRECTED]
     const card = await openEncounter()
-    const corrected = await card.findByText(/^Corrected \(correction 1\):/)
-    expect(within(corrected).getByText('118/76')).toBeTruthy()
-    expect(within(corrected).getByText('92')).toBeTruthy()
+    expect(await card.findByText('Corrected (correction 1): BP 118/76 mmHg · 92 bpm')).toBeTruthy()
     expect(card.getByText('Reason: Repeat reading')).toBeTruthy()
     expect(card.getByText(`Corrected at: ${formatWhen(CORRECTION.createdAt)}`)).toBeTruthy()
-    const original = card.getByText(/^Originally recorded:/)
-    expect(within(original).getByText('120/80')).toBeTruthy()
-    expect(card.getAllByText('120/80')).toHaveLength(1)
+    expect(card.getByText('Originally recorded: BP 120/80 mmHg · 36.60 °C · 80 bpm · SpO₂ 97.50%')).toBeTruthy()
+    expect(card.getAllByText(/BP 120\/80 mmHg/)).toHaveLength(1)
     // Today's read of the corrections, no access re-check of its own.
     expect(api.vitalCorrections).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'vital-1')
   })
@@ -179,8 +175,8 @@ describe('Consultation record: Vitals card', () => {
     expect(await card.findByText(LOADING_CORRECTION)).toBeTruthy()
     expect(card.queryByText(/^Corrected \(correction 1\):/)).toBeNull()
     // The first values show only as what was first recorded, never as the current ones.
-    expect(card.getAllByText('120/80')).toHaveLength(1)
-    expect(within(card.getByText(/^Originally recorded:/)).getByText('120/80')).toBeTruthy()
+    expect(card.getAllByText(/BP 120\/80 mmHg/)).toHaveLength(1)
+    expect(card.getByText(/^Originally recorded: BP 120\/80 mmHg/)).toBeTruthy()
     await act(async () => answer([CORRECTION]))
     expect(card.queryByText(LOADING_CORRECTION)).toBeNull()
     expect(card.getByText(/^Corrected \(correction 1\):/)).toBeTruthy()
@@ -192,7 +188,7 @@ describe('Consultation record: Vitals card', () => {
     const card = await openEncounter()
     const alert = await card.findByRole('alert')
     expect(alert.textContent?.startsWith(`${CORRECTION_UNREAD} `)).toBe(true)
-    expect(within(card.getByText(/^Originally recorded:/)).getByText('120/80')).toBeTruthy()
+    expect(card.getByText(/^Originally recorded: BP 120\/80 mmHg/)).toBeTruthy()
     expect(card.queryByText(/^Corrected \(correction 1\):/)).toBeNull()
   })
 
@@ -217,11 +213,12 @@ describe('Consultation record: Vitals card', () => {
     const pager = await card.findByRole('navigation', { name: 'Record pages' })
     expect(within(pager).getByText('Page 1')).toBeTruthy()
     fireEvent.click(within(pager).getByRole('button', { name: 'Next page' }))
-    const link = await card.findByRole('link', { name: `Vitals · ${formatWhen(later.createdAt)}` })
+    expect(await card.findByText(/· 88 bpm/)).toBeTruthy()
+    const link = card.getByRole('link', { name: 'Vitals recorded' })
     expect(link.getAttribute('href')).toBe(`/provider/triage/${ENCOUNTER_ID}~vital-2`)
     expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'vitals', { cursor: 'vitals-2', fresh: false })
     expect(within(pager).getByText('Page 2')).toBeTruthy()
-    expect(card.queryByRole('link', { name: `Vitals · ${formatWhen(VITAL.createdAt)}` })).toBeNull()
+    expect(card.queryByText(/· 80 bpm/)).toBeNull()
     // History lists the page the card shows, with no pager of its own for it.
     const history = within(screen.getByRole('heading', { level: 2, name: 'History' }).closest('section') as HTMLElement)
     expect(history.getByRole('link', { name: `Vitals · ${formatWhen(later.createdAt)}` })).toBeTruthy()

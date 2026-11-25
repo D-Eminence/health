@@ -110,18 +110,6 @@ export function ownSendOffered({ record, actor, facilityId, canWrite, routed, ha
   return writtenBy(record, actor, facilityId) && progressStatus(record) === 'not_received'
 }
 
-/**
- * Whether today's pharmacist hand-off ("Send to Pharmacy") may still be offered: Pharmacy keeps one item of its own per
- * prescription and refuses the hand-off once it holds one (sent by itself on activation, or with Send to pharmacy). So
- * only while this hospital's pharmacy has not received it (`ownProgress.status` `not_received`), or the EHR could not
- * say (no `ownProgress`, from an EHR before it, or `unknown`), and no answer on this page says it was sent.
- */
-export function pharmacistHandoffOffered(record: ClinicalRecord, handoff: PharmacyHandoff | null): boolean {
-  if (handoff?.status === 'sent') return false
-  const status = progressStatus(record)
-  return status === '' || status === 'not_received' || status === 'unknown'
-}
-
 /** 503 OWN_PHARMACY_SEND_UNAVAILABLE: a database without 0133. */
 export const OWN_SEND_UNAVAILABLE = 'Send to pharmacy isn’t available here yet. Try again later.'
 export const OWN_SEND_FAILED = 'Send to pharmacy could not be completed.'

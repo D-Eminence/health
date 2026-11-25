@@ -121,8 +121,13 @@ describe('3.3-47, 3.3-48: Where are you working?', () => {
     expect(screen.getByText('You work at more than one facility. Choose where you are working before you continue. Patient access, records and requests use the facility you choose, and you can switch later from “Working at”.')).toBeDefined()
     // Nothing is preselected, and Continue with nothing chosen says so and sends nothing.
     for (const radio of screen.getAllByRole('radio')) expect((radio as HTMLInputElement).checked).toBe(false)
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    expect(screen.getByRole('alert').textContent).toBe('Choose a facility to continue.')
+    // Said at the options, which Continue moves focus into, as classic's FacilityChoice does (an alert only for Enter on
+    // an option: ParityFrameChooserSignIn.test.tsx).
+    const proceed = screen.getByRole('button', { name: 'Continue' })
+    proceed.focus()
+    fireEvent.click(proceed)
+    expect(screen.getByText('Choose a facility to continue.')).toBeDefined()
+    expect(document.activeElement).toBe(screen.getByRole('radio', { name: /^Demo Hospital/ }))
     expect(sent.some(call => call.route === FACILITY)).toBe(false)
     fireEvent.click(screen.getByRole('radio', { name: /^Demo Hospital/ }))
     expect(screen.queryByText('Choose a facility to continue.')).toBeNull()

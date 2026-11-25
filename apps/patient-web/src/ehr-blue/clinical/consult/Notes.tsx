@@ -3,7 +3,7 @@ import { useRef, useState } from 'react'
 import { staffApi, type ClinicalRecord } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import type { Chart } from '../parts/chart'
-import { ActionList, ConfirmAction } from '../parts/Detail'
+import { ActionList, ConfirmAction, SubHeading } from '../parts/Detail'
 import { formatWhen } from '../parts/format'
 import { KeyValueList } from '../parts/KeyValueList'
 import { ErrorBox, Loading } from '../parts/Notices'
@@ -46,7 +46,10 @@ export function ListPaging({ list }: { list: RecordList<unknown> }) {
  * included, as classic listed them in one Notes tab, on today's record pages (History links each nursing observation
  * of the page shown here to its own page). Each note offers today's NotePanel: "Review note content" (its revisions,
  * read when opened), then, once read, "Sign note" (a draft; the design's typed SIGN dialog) and "Mark entered in
- * error" (a plain confirm), each with a reason, and "Add a note revision". Every change re-checks access first.
+ * error" (sent from its reasoned form in one press, as classic's status form, Clinical.tsx:122-126: the design's
+ * decision dialog confirms only delete, cancel, void, refund, revoke and sign, sample/definitions.ts:322), each with a
+ * reason, and classic's "Add a note revision" form, shown as soon as the content is open (Clinical.tsx:872-880). Every
+ * change re-checks access first.
  */
 export function NotesCard({ chart, encounterId, list, canWrite, onSaved, onError, onReloadFailed }: {
   chart: Chart
@@ -87,7 +90,7 @@ export function NotesCard({ chart, encounterId, list, canWrite, onSaved, onError
   )
 }
 
-type Selected = NoteStatusChange | 'revise'
+type Selected = NoteStatusChange
 
 function NoteRow({ chart, encounterId, note, canWrite, ask, list, onSaved, onError, onReloadFailed }: {
   chart: Chart
@@ -103,6 +106,8 @@ function NoteRow({ chart, encounterId, note, canWrite, ask, list, onSaved, onErr
   const { facilityId, patientId } = chart
   const [open, setOpen] = useState(false)
   const [selected, setSelected] = useState<Selected | null>(null)
+  // Classic clears its revision form once the revision is recorded (formElement.reset()): a new form each time.
+  const [revisionForm, setRevisionForm] = useState(0)
   const [notice, setNotice] = useState('')
   const attempt = useRef<{ signature: string; key: string } | null>(null)
   const titleId = `note-${note.id}-title`
@@ -123,11 +128,14 @@ function NoteRow({ chart, encounterId, note, canWrite, ask, list, onSaved, onErr
     if (failure !== undefined) onReloadFailed(failure, false)
   }
 
-  /** Today's changeRecordStatus: the version shown, the dialog, the access re-check, then the PATCH with the typed reason. */
+  /**
+   * Today's changeRecordStatus: the version shown, the access re-check, then the PATCH with the typed reason. Signing
+   * asks for SIGN typed first (the design's dialog); entered in error is sent in one press, as classic sends it.
+   */
   const changeStatus = (to: NoteStatusChange, label: string) => async (values: FormValues): Promise<SubmitOutcome> => {
     const expectedRowVersion = rowVersion(note.rowVersion)
     if (expectedRowVersion === null) return { formError: RELOAD_RECORD }
-    if (!(await ask(label, to === 'signed' ? 'SIGN' : undefined))) return false
+    if (to === 'signed' && !(await ask(label, 'SIGN'))) return false
     begin()
     try {
       await chart.verify()
@@ -157,7 +165,7 @@ function NoteRow({ chart, encounterId, note, canWrite, ask, list, onSaved, onErr
       return { formError: refusalText(caught, REVISION_FAILED), fieldErrors: refusedFieldErrors(caught, { content: 'content', changeReason: 'reason' }) }
     }
     attempt.current = null
-    setSelected(null)
+    setRevisionForm(count => count + 1)
     setNotice(REVISION_RECORDED)
     focusTitle()
     // The revisions are read again (a failure shows in place of the content, as today), then the list.
@@ -195,13 +203,12 @@ function NoteRow({ chart, encounterId, note, canWrite, ask, list, onSaved, onErr
               { label: 'Recorded', value: `${formatWhen(revision.createdAt)} · ${revision.changeReason}` },
             ]} />
           ))}
-          {changes.length > 0 || canRevise ? (
+          {changes.length > 0 ? (
             <div className="hid-ehr-clinical-note">
               <ActionList>
                 {changes.map(item => (
                   <EhrButton key={item.status} variant="secondary" aria-expanded={selected === item.status} onClick={() => toggle(item.status)}>{item.label}</EhrButton>
                 ))}
-                {canRevise ? <EhrButton variant="secondary" aria-expanded={selected === 'revise'} onClick={() => toggle('revise')}>{ADD_REVISION_LABEL}</EhrButton> : null}
               </ActionList>
             </div>
           ) : null}
@@ -216,9 +223,11 @@ function NoteRow({ chart, encounterId, note, canWrite, ask, list, onSaved, onErr
               onSubmit={changeStatus(change.status, change.label)}
             />
           ) : null}
-          {canRevise && selected === 'revise' ? (
+          {/* Classic's revision form, under its heading, whenever the content is open and the note takes a revision. */}
+          {canRevise ? <SubHeading>{ADD_REVISION_LABEL}</SubHeading> : null}
+          {canRevise ? (
             <RecordForm
-              key={`revise-${String(note.rowVersion)}`}
+              key={`revise-${String(note.rowVersion)}-${revisionForm}`}
               fields={REVISION_FIELDS}
               submitLabel={RECORD_REVISION}
               busyLabel={RECORDING}

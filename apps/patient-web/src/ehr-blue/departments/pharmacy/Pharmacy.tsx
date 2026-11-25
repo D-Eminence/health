@@ -235,7 +235,8 @@ function PrescriptionQueue() {
       primaryAction={!selected && pointOfCareOpen(facilityId) && permissions.includes('pharmacy.walk-in.create')
         ? <Button variant="primary" icon={FileText} to={`${PRESCRIPTIONS}/paper`}>Paper prescription</Button> : undefined}
       secondaryActions={selected ? undefined : refresh}>
-      {read.error && (listed || selected) && <Alert intent="error" title="Couldn’t refresh prescriptions"
+      {/* Classic's list says its failure alone (Operations.tsx ListState), with no title (parity 3.3-69, Q143 B). */}
+      {read.error && (listed || selected) && <Alert intent="error"
         action={<EhrButton variant="secondary" size="sm" onClick={() => void read.refresh()}>Try again</EhrButton>}>{read.error} What is shown may be out of date.</Alert>}
       <SaidAboveTheList service="pharmacy" said={ended} facilityId={here} onClose={() => setEnded(null)} />
       {notCompleted.endings.length > 0 && <DeptEmbedded><CannotCompleteEndings service="pharmacy" endings={notCompleted.endings}
@@ -279,7 +280,7 @@ function PrescriptionQueue() {
             onClick={() => { if (current + 1 < pages) setPage(current + 1) }}>Next page</EhrButton>
         </nav>}
         <PageState loading={read.loading} error={listed ? null : read.error || null} hasData={listed} onRetry={() => void read.refresh()}
-          what="prescriptions" rows={3}
+          what="prescriptions" errorTitle={null} rows={3}
           empty={!listed ? emptyList : matching.length === 0 ? (search
             ? { icon: Search, title: 'No matching prescriptions', description: 'Check the spelling, or search by another drug or patient name.' }
             : emptyTab) : null}>

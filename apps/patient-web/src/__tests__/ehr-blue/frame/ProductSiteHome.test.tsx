@@ -408,16 +408,19 @@ describe('Home on a product site links only to pages that site opens', () => {
     expect(orders.asked).toEqual(['incoming lab'])
   })
 
-  it('an order accepted for the wrong person is still told, with no way to open it in Consultation, which lab. does not open', async () => {
+  // Classic shows "Orders accepted for the wrong person" only where the clinical record is offered (`&& clinicalHere`,
+  // staff/routes/Dashboard.tsx:275): lab. opens no Consultation, so Home there neither reads nor shows the card.
+  it('shows no "Orders accepted for the wrong person" card on lab., which does not open Consultation, and reads none', async () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
     answer({ 'wrong-patient': WRONG_PATIENT })
     staff.activePatient = openPatient
-    await settle(LAB, ['audit.read', 'identity.patient.read', 'ehr.order-route.send'])
-    expect(await screen.findByText(/Hilltop Laboratory \(fictional\) reports that it accepted it/)).toBeTruthy()
+    const landed = await settle(LAB, ['audit.read', 'identity.patient.read', 'ehr.order-route.send'])
+    expect(landed.where).toBe('/provider')
+    expect(screen.queryByRole('heading', { name: 'Orders accepted for the wrong person' })).toBeNull()
+    expect(screen.queryByText(/Hilltop Laboratory \(fictional\)/)).toBeNull()
     expect(screen.queryByRole('link', { name: /Open the lab request/ })).toBeNull()
     expect(document.querySelector('a[href="/provider/clinical"]')).toBeNull()
-    // Nor sent round Patients to a consultation it cannot open here.
-    expect(screen.queryByText(/To see it/)).toBeNull()
+    expect(orders.asked).not.toContain('wrong-patient')
   })
 
   it('in the EHR, the same order still opens in Consultation', async () => {
@@ -426,6 +429,8 @@ describe('Home on a product site links only to pages that site opens', () => {
     staff.activePatient = openPatient
     await settle(EHR, ['identity.patient.read', 'ehr.encounter.read', 'ehr.order-route.send'])
     expect((await screen.findByRole('link', { name: /Open the lab request/ })).getAttribute('href')).toBe('/provider/clinical')
+    expect(screen.getByRole('heading', { name: 'Orders accepted for the wrong person' })).toBeTruthy()
+    expect(orders.asked).toContain('wrong-patient')
   })
 
 })

@@ -31,7 +31,7 @@ import { guideFor, SAMPLE_GUIDE } from './pageGuides'
 import { BluePageProvider, BluePagesProvider, OpenPagesProvider, TodayPageProvider } from './pageContext'
 import { basePath, pageHrefOf } from './pageHref'
 import { TODAY_PAGES } from './pages'
-import { pageShownHere } from './pageAccess'
+import { pageOpensForEveryRole, pageShownHere } from './pageAccess'
 import { RedirectNotice } from './RedirectNotice'
 import { useRoleView } from './roleView'
 import { AccountSamplePanel, DemoChip, NotificationsButton, WorkspaceSearch } from './TopBarParts'
@@ -205,11 +205,15 @@ const NO_PARENT_ROUTE = { outlet: null, matches: [], isDataRoute: false }
  */
 const READS_BEFORE_REFUSING: ReadonlySet<string> = new Set(['requests', 'clinical'])
 
+/** Classic's sidebar footer sentence (staff/App.tsx:1102), without "and server permissions" (parity report 16a). */
+export const ACCESS_LIMITED = 'Access is limited to your active facility.'
+
 /**
  * The blue Hospital EHR's frame: EhrAppShell with the design's sidebar and top bar, and the page
  * the address opens. Session, sign-out and facility switch are today's (useStaff). A page another folder exports
  * replaces the frame's stand-in for its path. A page this session may not open says so in its place, in its own words
- * where it has a refusal, as each classic page refused where it stood (parity report 3.3-50), never a trip Home; an
+ * where it has a refusal, as each classic page refused where it stood (parity report 3.3-50), never a trip Home (the
+ * five clinical pages classic opened for every role open, and say per card what the role can't do); an
  * address no page takes says "Page not found", as today's portal does.
  */
 export function BlueFrame() {
@@ -289,9 +293,12 @@ function BlueFrameBody({ drawer, closed }: { drawer: RouteDrawerState | null; cl
   // address ("Page not found · Health ID Provider" below a page it does not know), so a move between two addresses that
   // share one label would otherwise leave its name (parity report 3.3-51). The product's own name ("Health ID Pharmacy")
   // in place of classic's "Health ID Provider" follows the owner's per-product sites (answer to Q88; contract section 53).
+  // Named again when a drawer closes (`closed` counts them): the page under a drawer keeps its address, so closing one
+  // changes no address here, and the page drawn in it (Find a patient) may have named the tab after itself (parity
+  // report 3.3-51).
   useEffect(() => {
     if (lock === null && session) document.title = `${shownTitle} · Health ID ${info.name}`
-  }, [shownTitle, lock, session, info.name, location.pathname])
+  }, [shownTitle, lock, session, info.name, location.pathname, closed])
   if (!session) return null
   // The access requests the bell counts stay with the frame through its own redirects below: each redirect is wrapped
   // in the same provider as the page, so it neither forgets them nor reads them again (attention.tsx).
@@ -342,6 +349,10 @@ function BlueFrameBody({ drawer, closed }: { drawer: RouteDrawerState | null; cl
   const shownHere = match === null || pageShownHere(match.page, session)
   const todayRefuses = match !== null && TODAY_PAGES.has(match.page) && shownHere
     && !READS_BEFORE_REFUSING.has(basePath(match.page.path))
+  // Patients, Consultation, Triage & Vitals, Nursing observations and Emergency access open for every role, as classic's
+  // did, and say on each card what the role can't do (pageAccess.ts pageOpensForEveryRole; parity report 3.3-50). A
+  // stand-in for today's page keeps today's rule above.
+  const opensInPlace = match !== null && !TODAY_PAGES.has(match.page) && pageOpensForEveryRole(match.page, session)
   // The first item: Home in the EHR, and a single product's own first page. A product site whose own page this session
   // may not open leads Home instead, where it landed, rather than to a refusal.
   const home: NavItem = product === 'ehr' || !ownPageOpen ? { to: '/provider', label: 'Home', icon: House, end: true }
@@ -359,7 +370,7 @@ function BlueFrameBody({ drawer, closed }: { drawer: RouteDrawerState | null; cl
     ? <ProductNotForAccount product={SITE_NAMES[here.key]} facility={facility?.name ?? 'this facility'} arrival={arrival}
       usable={usableSites(allowed, session, hostname, backPath)} choosing={session.actor.facilities.length > 1} />
     : match
-    ? pageAllowed(match.page, session, viewing) || todayRefuses
+    ? pageAllowed(match.page, session, viewing) || todayRefuses || opensInPlace
       ? <BluePageProvider value={match}>{match.page.element}</BluePageProvider>
       : <Refused page={match.page} session={session} shownHere={shownHere} />
     // Today's "Page not found", not the design's silent trip Home (admin/unknown-route). Today's own route opens only
@@ -369,9 +380,9 @@ function BlueFrameBody({ drawer, closed }: { drawer: RouteDrawerState | null; cl
   const name = session.actor.displayName ?? session.actor.email ?? 'Staff member'
   // Role names, never codes (parity report 3.1 #16): "Facility administrator, Doctor", not "org_admin, doctor". A role
   // the list does not name reads "Staff", as classic's badge said it ("Doctor, Staff": roleLabels; parity report 3.3-54).
-  // Classic's sidebar footer also said "Access is limited to your active facility and server permissions." It is
-  // dropped on purpose (parity report 16a): blue staff screens never use the word "permission" (house rule), and the
-  // facility named above and the role named here already say whose access this is.
+  // Classic's sidebar footer, under the role, said "Access is limited to your active facility and server permissions."
+  // (staff/App.tsx:1102). The sidebar's footer says its first half (ACCESS_LIMITED; parity report 16a): blue staff
+  // screens never use the word "permission" (house rule), so "and server permissions" is left out.
   const roles = roleLabels(facility?.roles ?? []) || 'Staff'
   // In the EHR a page that joins another's tabs has no sidebar entry; in a single product (a pharmacy or lab on its own)
   // each is listed by its tab name ("To dispense", "New sale", "Stock").
@@ -461,6 +472,7 @@ function BlueFrameBody({ drawer, closed }: { drawer: RouteDrawerState | null; cl
               </ul>,
             }}
             nav={nav}
+            extraFooter={<p className="hid-ehr-blue-access-note m-0 px-5 pb-3 text-xs text-ink-3">{ACCESS_LIMITED}</p>}
             person={{ name, detail: session.actor.email ?? roles }}
             onSignOut={leave}
             signingOut={signingOut}
@@ -546,7 +558,7 @@ function DrawnPage({ drawer, session, viewing, todayPage }: {
 }) {
   const match = matchBluePage(BLUE_PAGES, drawer.drawn.pathname)
   if (!match || !session) return null
-  const allowedHere = pageAllowed(match.page, session, viewing)
+  const allowedHere = pageAllowed(match.page, session, viewing) || (!TODAY_PAGES.has(match.page) && pageOpensForEveryRole(match.page, session))
   return (
     <AtLocation location={drawer.drawn}>
       <RouteDrawerPanel drawer={drawer} fallbackTitle={match.page.label}>
