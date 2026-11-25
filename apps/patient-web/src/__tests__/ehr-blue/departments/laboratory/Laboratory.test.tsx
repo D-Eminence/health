@@ -599,6 +599,8 @@ describe('registering the sample (the accession), with lab.accession.create alon
     const register = within(card).getByRole('button', { name: 'Create accession' })
     press(register)
     await waitFor(() => expect(register.getAttribute('aria-busy')).toBe('true'))
+    // Classic's busy words (Operations.tsx AccessionForm, parity 12).
+    expect(register.textContent).toBe('Creating…')
     expect(register.getAttribute('aria-disabled')).toBe('true')
     expect((register as HTMLButtonElement).disabled).toBe(false)
     expect(document.activeElement).toBe(register)
@@ -610,6 +612,7 @@ describe('registering the sample (the accession), with lab.accession.create alon
     await waitFor(() => expect(alertsIn(card)).toEqual([`Error: ${SAID_UNAVAILABLE}`]))
     expect(card.textContent).not.toMatch(/Upstream|SERVICE_/)
     expect(register.getAttribute('aria-disabled')).toBeNull()
+    expect(register.textContent).toBe('Create accession')
     expect(document.activeElement).toBe(register)
     // Not a conflict: the list is not read again for it.
     expect(api.labWorkItems).toHaveBeenCalledTimes(1)
@@ -833,6 +836,8 @@ describe('sample custody', () => {
     const receive = within(stageCard()).getByRole('button', { name: 'Mark received' })
     press(receive)
     await waitFor(() => expect(receive.getAttribute('aria-disabled')).toBe('true'))
+    // Classic's busy words on its Record step (Operations.tsx, parity 12).
+    expect(receive.textContent).toBe('Saving…')
     expect((receive as HTMLButtonElement).disabled).toBe(false)
     expect(document.activeElement).toBe(receive)
     press(receive)
@@ -840,6 +845,7 @@ describe('sample custody', () => {
     await act(async () => { pending.reject(problem(503, 'SERVICE_UNAVAILABLE', 'Upstream lab-service timed out')) })
     await waitFor(() => expect(alertsIn(stageCard())).toEqual([`Error: ${SAID_UNAVAILABLE}`]))
     expect(stageCard().textContent).not.toMatch(/Upstream|SERVICE_/)
+    expect(receive.textContent).toBe('Mark received')
     expect(document.activeElement).toBe(receive)
   })
 

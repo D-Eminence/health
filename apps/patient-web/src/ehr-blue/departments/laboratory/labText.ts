@@ -113,6 +113,8 @@ export const ACCESSION_WORDS = {
   reason: 'Reason',
   missing: 'Enter a specimen type and clinical reason.',
   button: 'Create accession',
+  /** Classic's busy words on Create accession (Operations.tsx AccessionForm, parity 12). */
+  creating: 'Creating…',
   failed: 'Accession could not be created.',
 } as const
 
@@ -126,6 +128,8 @@ export const SPECIMEN_WORDS = {
   collect: 'Mark collected',
   receive: 'Mark received',
   reject: 'Reject specimen',
+  /** Classic's busy words on its "Record step" (Operations.tsx SpecimenTransitionForm, parity 12), on each step's button. */
+  saving: 'Saving…',
   notes: 'Notes or condition',
   rejectReason: 'Rejection reason',
   rejectMissing: 'Enter a rejection reason.',

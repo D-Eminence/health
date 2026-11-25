@@ -160,7 +160,7 @@ function RegisterForm({ facilityId, permissions, routed, onDone, onRefused, item
     <Problem text={problem} />
     {/* Marked busy, not disabled, as on today's page: focus stays on it while it runs, a second press does nothing, and a
         refusal is read beside it. */}
-    <FormActions sticky={false}><Button type="submit" variant="primary" size="lg" icon={Droplet} {...busyMark(busy)}>{ACCESSION_WORDS.button}</Button></FormActions>
+    <FormActions sticky={false}><Button type="submit" variant="primary" size="lg" icon={Droplet} {...busyMark(busy)}>{busy ? ACCESSION_WORDS.creating : ACCESSION_WORDS.button}</Button></FormActions>
   </form>
 }
 
@@ -271,8 +271,8 @@ function SpecimenForm({ facilityId, permissions, subject, routed, onDone, onRefu
       <FormActions sticky={false}>
         {canReject && !rejecting ? <Button id={`lab-reject-open-${id}`} variant="danger" icon={X} onClick={() => reject(true)}>{SPECIMEN_WORDS.reject}</Button> : null}
         {rejecting ? <Button onClick={() => reject(false)}>Cancel</Button> : null}
-        {rejecting ? <Button type="submit" variant="destructive" size="lg" {...busyMark(busy)}>{SPECIMEN_WORDS.reject}</Button>
-          : canStep ? <Button type="submit" variant="primary" size="lg" icon={next.icon} {...busyMark(busy)}>{next.button}</Button> : null}
+        {rejecting ? <Button type="submit" variant="destructive" size="lg" {...busyMark(busy)}>{busy ? SPECIMEN_WORDS.saving : SPECIMEN_WORDS.reject}</Button>
+          : canStep ? <Button type="submit" variant="primary" size="lg" icon={next.icon} {...busyMark(busy)}>{busy ? SPECIMEN_WORDS.saving : next.button}</Button> : null}
       </FormActions>
     </form> : null}
     {next.action === 'collect' ? <ConfirmSheet open={asking} onClose={() => setAsking(false)} title="Collect the sample" subject={subject.banner} busy={busy}
