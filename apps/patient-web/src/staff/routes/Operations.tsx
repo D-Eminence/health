@@ -1,3 +1,4 @@
+import { formatDateTime } from '@hid/ui/display'
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { isHidApiError, PlainError } from '@hid/http'
@@ -83,7 +84,7 @@ function errorText(error: unknown, fallback: string, routed = false) {
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 function dateText(value: string | undefined) {
-  return value ? new Date(value).toLocaleString() : 'Not available'
+  return formatDateTime(value, 'Not available')
 }
 
 function PageHead({ eyebrow, title, children }: { eyebrow: string; title: string; children: ReactNode }) {

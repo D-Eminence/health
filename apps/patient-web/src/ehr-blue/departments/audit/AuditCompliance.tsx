@@ -1,3 +1,4 @@
+import { formatDateTime } from '@hid/ui/display'
 import { useEffect, useLayoutEffect, useState } from 'react'
 import { EhrBadge, EhrButton, EhrEmptyState, EhrField, EhrSelect, EhrSkeleton, type EhrBadgeTone } from '@hid/ui/ehr'
 import { isHidApiError, plainErrorText } from '@hid/http'
@@ -58,10 +59,9 @@ function loadProblemText(caught: unknown): string {
   return plainErrorText(caught, 'Audit events could not be loaded.', { audience: 'facility' })
 }
 
-/** When it happened, as the classic page writes it (the browser's own date and time), or that it is not available. */
+/** When it happened, in Lagos time ("18 Nov 2026, 14:05"), or that it is not available. */
 export function eventTime(value: string): string {
-  const time = new Date(value)
-  return Number.isNaN(time.getTime()) ? 'Time unavailable' : time.toLocaleString()
+  return formatDateTime(value, 'Time unavailable')
 }
 
 /** Each outcome's badge, as the classic page colours it: Allowed, Refused, Failed, and anything else plain. */

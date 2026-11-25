@@ -1,3 +1,4 @@
+import { formatDateTime } from '@hid/ui/display'
 import { useEffect, useState } from 'react'
 import { Badge, Button, EmptyState, Field, Input, Select } from '@hid/ui'
 import { isHidApiError, plainErrorText } from '@hid/http'
@@ -18,8 +19,7 @@ type LoadedPage = { facilityId: string; cursor: string | undefined; page: Facili
 type LoadProblem = { facilityId: string; cursor: string | undefined; forbidden: boolean; message: string }
 
 function displayTime(value: string): string {
-  const time = new Date(value)
-  return Number.isNaN(time.getTime()) ? 'Time unavailable' : time.toLocaleString()
+  return formatDateTime(value, 'Time unavailable')
 }
 
 function outcomeTone(outcome: AuditRow['outcome']): 'success' | 'warning' | 'danger' | 'neutral' {

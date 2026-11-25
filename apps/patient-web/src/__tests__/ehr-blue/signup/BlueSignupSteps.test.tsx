@@ -342,7 +342,7 @@ describe('step 5, Check and send', () => {
     await toReview({ product: 'migrate' })
     expect(within(progress()).getByText('Step 5 of 5 · Check and send')).toBeTruthy()
     const facts = [...document.querySelectorAll('.hid-ehr-signup-facts > div')].map(row => row.textContent)
-    expect(facts).toEqual([`Full name${NAME}`, 'Your phone+2348031234567', `Email${EMAIL}`, 'Role at the facilityOwner',
+    expect(facts).toEqual([`Full name${NAME}`, 'Your phone0803 123 4567', `Email${EMAIL}`, 'Role at the facilityOwner',
       'Facility name (the name people use)Demo Hospital', 'Facility typeHospital', 'OwnershipPrivate', 'Level of careSecondary',
       'Address1 Example Road', 'City or townIkeja', 'StateLagos', 'Local government areaIkeja', 'GPS latitude6.601234',
       'GPS longitude3.351234', 'Facility phone+23412345678', 'Facility emaildesk@demo-hospital.example.test', 'Bed count40',

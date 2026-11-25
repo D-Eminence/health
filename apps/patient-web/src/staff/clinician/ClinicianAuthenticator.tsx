@@ -1,3 +1,4 @@
+import { formatTime } from '@hid/ui/display'
 import { useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type FormEvent, type ReactNode } from 'react'
 import { isHidApiError } from '@hid/http'
 import { Field, Input } from '@hid/ui'
@@ -200,8 +201,7 @@ async function attempt<T>(call: () => Promise<T>, step: StepName, problems: Retu
 }
 
 function clockTime(expiresAt: string): string | null {
-  const time = new Date(expiresAt)
-  return Number.isNaN(time.getTime()) ? null : time.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  return formatTime(expiresAt) || null
 }
 
 function Deadline({ expiresAt }: { expiresAt: string }) {

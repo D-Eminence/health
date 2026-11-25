@@ -1,3 +1,4 @@
+import { formatTime } from '@hid/ui/display'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createRegisteredBrowserClient } from '@hid/api'
 import { createApiClient, HidApiError } from '@hid/http'
@@ -145,7 +146,7 @@ describe('Identity’s answers for a NIN check it could not finish, in plain wor
   it('a held NIN says the time to try again, in the person’s time zone, rounded up to the minute', () => {
     const problem = ninCheckProblem(new HidApiError(409, 'x', { code: 'NIN_CHECK_HELD', retryInSeconds: 290 }), NOW)
     expect(problem?.heldUntil).toBe(NOW + 290_000)
-    const clock = new Date(2026, 10, 18, 14, 25, 0).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    const clock = formatTime(new Date(2026, 10, 18, 14, 25, 0))
     expect(problem?.text).toBe(`This NIN check is on hold. Try again after ${clock}.`)
     // Six hours on, past midnight: said as tomorrow.
     expect(ninHeldText(new Date(2026, 10, 19, 2, 0, 0).getTime(), new Date(2026, 10, 18, 20, 0, 0).getTime())).toMatch(/ tomorrow\.$/)

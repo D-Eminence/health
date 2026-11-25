@@ -1,3 +1,4 @@
+import { formatDate } from '@hid/ui/display'
 import { useRef, useState, type ReactNode } from 'react'
 import { CircleCheck, Mail, MessageSquare, Send } from 'lucide-react'
 import { Segmented } from '../../../kasuwa/interactive'
@@ -10,10 +11,7 @@ import { normalizePhone } from './labText'
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const PHONE = /^\+\d{10,15}$/
-const dayText = (iso: string) => {
-  const date = new Date(iso)
-  return Number.isNaN(date.getTime()) ? iso : new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(date)
-}
+const dayText = (iso: string) => formatDate(iso, iso)
 
 /**
  * Sends a released result (POINT_OF_CARE_SPEC §6, POST accessions/:id/result-shares { channel, to }): to the patient by

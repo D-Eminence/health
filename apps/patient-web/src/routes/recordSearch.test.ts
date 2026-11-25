@@ -25,20 +25,21 @@ describe('searching the records on the page', () => {
 })
 
 describe('records under their day', () => {
-  it('takes the day in this browser\'s time zone, and a date without a time as its own day', () => {
-    const at = new Date(2026, 2, 12, 23, 30)
-    expect(dayOf(at.toISOString())).toBe('2026-03-12')
+  it('takes the day in Lagos, and a date without a time as its own day', () => {
+    // 23:30 UTC on 12 March is 00:30 on the 13th in Lagos.
+    expect(dayOf('2026-03-12T23:30:00Z')).toBe('2026-03-13')
+    expect(dayOf('2026-03-12T22:30:00Z')).toBe('2026-03-12')
     expect(dayOf('2026-03-12')).toBe('2026-03-12')
     expect(dayOf('not a date')).toBeNull()
     expect(dayOf(null)).toBeNull()
   })
 
   it('names the day in full', () => {
-    expect(dayLabel('2026-03-12')).toBe(new Intl.DateTimeFormat('en-NG', { dateStyle: 'full' }).format(new Date(2026, 2, 12)))
+    expect(dayLabel('2026-03-12')).toBe('Thursday 12 Mar 2026')
   })
 
   it('gives a record\'s day heading for the search, so its month and weekday words find it', () => {
-    expect(dayWords(new Date(2026, 2, 3, 9).toISOString())).toBe(dayLabel('2026-03-03'))
+    expect(dayWords('2026-03-03T09:00:00Z')).toBe(`${dayLabel('2026-03-03')} March`)
     expect(matchesQuery([dayWords('2026-03-03')], 'tuesday march')).toBe(true)
     expect(dayWords('garbled')).toBeNull()
     expect(dayWords(null)).toBeNull()

@@ -1,3 +1,4 @@
+import { formatDate, formatDateTime, lagosDay as lagosCalendarDay } from '@hid/ui/display'
 import { isHidApiError, isPlainError } from '@hid/http'
 import type {
   CorrectableOrderRoute, CorrectableOrderRouteDetails, Facility, LabCannotCompleteReason, OrderRouteDeclineReason,
@@ -15,20 +16,13 @@ import { selfServiceReview, selfServiceType } from './staffAccess'
  * services decide everything; these only say it.
  */
 
-/** Dates as Nigerian staff read them, in West Africa Time. */
-const DAY = new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeZone: 'Africa/Lagos' })
-const MOMENT = new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Africa/Lagos' })
-
+/** Dates as Nigerian staff read them, in Lagos time: "18 Nov 2026" and "18 Nov 2026, 14:05" (Q181 A, Q182 A). */
 export function routeDay(value: string | null | undefined): string {
-  if (!value) return 'an unknown date'
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? 'an unknown date' : DAY.format(parsed)
+  return formatDate(value, 'an unknown date')
 }
 
 export function routeMoment(value: string | null | undefined): string {
-  if (!value) return 'an unknown time'
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? 'an unknown time' : MOMENT.format(parsed)
+  return formatDateTime(value, 'an unknown time')
 }
 
 /**
@@ -36,10 +30,7 @@ export function routeMoment(value: string | null | undefined): string {
  * browser is.
  */
 export function calendarDate(value: string | null | undefined): string {
-  const plain = value ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(value) : null
-  if (!plain) return value ? routeDay(value) : 'Not recorded'
-  return new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeZone: 'UTC' })
-    .format(new Date(Date.UTC(Number(plain[1]), Number(plain[2]) - 1, Number(plain[3]))))
+  return value ? routeDay(value) : 'Not recorded'
 }
 
 /** The stored states with a route in force (SPEC-FINAL §3.2). */
@@ -996,15 +987,9 @@ export const DISCOVERED_BY: ReadonlyArray<{ value: OrderRouteDiscoveredBy; label
   { value: 'other', label: 'Another way' },
 ]
 
-const LAGOS_PARTS = new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Lagos', year: 'numeric', month: '2-digit', day: '2-digit' })
-
 /** The day in Lagos (YYYY-MM-DD) of a time, as the services check the day a facility found out (D17); null when unreadable. */
 export function lagosDay(value: Date | string | null | undefined): string | null {
-  if (!value) return null
-  const parsed = value instanceof Date ? value : new Date(value)
-  if (Number.isNaN(parsed.getTime())) return null
-  const parts = Object.fromEntries(LAGOS_PARTS.formatToParts(parsed).map(part => [part.type, part.value]))
-  return parts.year && parts.month && parts.day ? `${parts.year}-${parts.month}-${parts.day}` : null
+  return lagosCalendarDay(value ?? null) || null
 }
 
 /** "21 Oct 2026", "21 Oct 2026 and 3 Nov 2026", "a, b and c": the days of these times, each once, in order. */

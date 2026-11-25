@@ -140,7 +140,7 @@ describe('the source panel', () => {
     const notices = within(dialog).getByRole('note', { name: 'Please note' })
     expect(notices.textContent).toContain('The lab is correcting this result.')
     expect(notices.textContent).toContain('Not checked by a clinician.')
-    for (const text of ['Test', 'Haemoglobin', 'Value', '11.2', 'Unit', 'g/dL', 'Recorded by a health worker', 'Laboratory result', '30 Sept 2026']) {
+    for (const text of ['Test', 'Haemoglobin', 'Value', '11.2', 'Unit', 'g/dL', 'Recorded by a health worker', 'Laboratory result', '30 Sep 2026']) {
       expect(dialog.textContent).toContain(text)
     }
     fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }))

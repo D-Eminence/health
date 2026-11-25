@@ -1,3 +1,4 @@
+import { formatDateTime } from '@hid/ui/display'
 import type { PatientApi } from '../../api'
 import { buttonClass } from '../../kasuwa/ui'
 import { FacilityList } from './FacilityList'
@@ -11,10 +12,7 @@ export const groupedDeskCode = (code: string) => code.length === 10 ? `${code.sl
 const spelled = (code: string) => code.split('').join(' ')
 
 function until(iso: string | null) {
-  if (!iso) return null
-  const date = new Date(iso)
-  if (!Number.isFinite(date.getTime())) return null
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
+  return formatDateTime(iso) || null
 }
 
 interface FacilityStepProps {
