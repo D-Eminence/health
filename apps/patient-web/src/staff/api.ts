@@ -3317,3 +3317,372 @@ export const visitQueueApi = {
     client.request<VisitQueueCard>({ method: 'PATCH', path: `/api/v1/ehr/visit-queue/${encodeURIComponent(entry.entryId)}`,
       body: { expectedRowVersion: entry.rowVersion, ...change }, headers: facilityHeaders(facilityId, 'direct-care') }),
 }
+
+/**
+ * Nursing on the ward (hid-system NUR-1, migrations 0174-0177, provisional; Release D; INTERFACE_CONTRACT.md "NUR-1"),
+ * built on claude/sprint-inpatient-backend (hid-system #343) and not live: an ehr-api before it answers 404, and while
+ * NURSING_ENABLED or ADT-1's INPATIENT_ENABLED is off every route answers 503 NURSING_NOT_AVAILABLE. Direct care at the
+ * X-Facility-ID facility; clinical shift setup is healthcare operations. No Health ID or NIN in any path, query, body or
+ * answer: admissions, orders, doses, tasks, entries, shifts and sheets by UUID. Times are ISO UTC; schedules, shifts and
+ * fluid days are Lagos time. Every write sends an Idempotency-Key the caller keeps per request body.
+ */
+
+/**
+ * ADT-1's admission card (hid-system 0170-0173), as every NUR-1 ward list and ADT-1's admission read give it. Under Q190
+ * A (the DPO's switch off, as shipped) `fullName`, `dateOfBirth` and `healthIdLast4` are there only for a patient whose
+ * chart the member can read now; otherwise `nameHidden` is true and the card shows `initials`, `sex` and `ageYears`.
+ */
+export interface WardPatientCard {
+  admissionId: string
+  admissionNumber: string
+  patientId: string
+  fullName: string | null
+  nameHidden: boolean
+  initials: string
+  recordKind: 'standard' | 'unknown'
+  unknownLabel: string | null
+  sex: string | null
+  dateOfBirth: string | null
+  dateOfBirthEstimated: boolean
+  ageYears: number | null
+  ageEstimated: boolean
+  healthIdLast4: string | null
+  ninStatus: 'verified' | 'not_verified'
+  chartBlocked: boolean
+  encounterId: string | null
+  status: 'requested' | 'admitted' | 'discharge_ready' | 'discharged' | 'cancelled'
+  wardId: string | null
+  wardName: string | null
+  bedId: string | null
+  bedName: string | null
+  daysAdmitted: number | null
+  rowVersion: number
+}
+
+/** ADT-1 route 1: the facility's wards (counts only; with includeBeds, the ward's staff membership ids too). */
+export interface WardSummary {
+  wardId: string
+  name: string
+  wardType: 'general' | 'paediatric' | 'maternity' | 'icu' | 'private' | 'other'
+  active: boolean
+  bedCount: number
+  occupied: number
+  staffMembershipIds?: string[]
+  rowVersion: number
+}
+
+export type ObservationMeasure = 'systolicMmhg' | 'diastolicMmhg' | 'pulseBpm' | 'temperatureC' | 'respiratoryRate'
+  | 'oxygenSaturationPercent' | 'weightKg' | 'heightCm' | 'painScore' | 'avpu' | 'bloodGlucoseMmolL' | 'oxygenDevice'
+  | 'oxygenFlowLPerMin' | 'fio2Percent' | 'gcsEye' | 'gcsVerbal' | 'gcsVerbalNotTestable' | 'gcsMotor'
+export type ObservationValues = Partial<Record<ObservationMeasure, number | string | boolean | null>>
+
+export interface ObservationReading {
+  vitalId: string
+  recordedAt: string
+  status: string
+  corrected: boolean
+  values: ObservationValues
+  /** VIT-1's soft flags, each value its own; never a total or a score (Q199 A). */
+  flags: { measure: string; level: string }[]
+  recordedByMembershipId: string | null
+  rowVersion: number
+}
+
+export interface ObservationChart {
+  admissionId: string
+  encounterId: string
+  wardType: string
+  from: string
+  to: string
+  readings: ObservationReading[]
+  /** The ICU hourly grid: by default on an ICU ward, and with view=hourly. */
+  hours?: { hourStart: string; readingIds: string[]; fluidInMl: number; fluidOutMl: number; runningBalanceMl: number }[]
+  rangesVersion: string | null
+  /** Always null: no early-warning or severity score is computed (Q199 A). Never shown. */
+  score: null
+}
+
+export const DOSE_OUTCOMES = ['given', 'held', 'refused', 'omitted', 'not_available'] as const
+export type DoseOutcome = (typeof DOSE_OUTCOMES)[number]
+export type DoseState = 'upcoming' | 'due' | 'late' | DoseOutcome
+export type PharmacyState = 'not_sent' | 'sent' | 'accepted' | 'dispensed' | 'part_dispensed' | 'not_dispensable' | 'reversed'
+export type SupplySource = 'ward_stock' | 'patient_own' | 'bought_outside'
+
+export interface DoseAmount { quantity: number; unit: string }
+
+/** One recorded dose (route 6's `administration`). Never edited or deleted; entered in error is one way. */
+export interface DoseRecord {
+  administrationId: string
+  admissionId: string
+  prescriptionId: string
+  scheduledFor: string | null
+  outcome: DoseOutcome
+  givenAt: string
+  recordedAt: string
+  recordedLate: boolean
+  late: boolean
+  dose: DoseAmount | null
+  doseDiffersReason: string | null
+  route: string | null
+  reasonCode: string | null
+  reasonText: string | null
+  supplySource: SupplySource | null
+  pharmacyStateAtRecord: PharmacyState | null
+  overrideReason: string | null
+  infusionAction: 'started' | 'stopped' | null
+  warnings: string[]
+  recordedByMembershipId: string | null
+  status: 'recorded' | 'entered_in_error'
+  enteredInErrorReason: string | null
+  enteredInErrorAt: string | null
+  enteredInErrorByMembershipId: string | null
+  rowVersion: number
+}
+
+export interface MarOrder {
+  prescriptionId: string
+  medicationDisplay: string
+  strength: string | null
+  doseForm: string | null
+  dose: DoseAmount | null
+  route: string | null
+  frequency: string | null
+  status: string
+  schedule: { kind: 'regular' | 'as_needed' | 'stat' | 'once'; times: string[] | null; firstDueAt: string | null;
+    infusion: { rateMlPerHour: number; volumeMl: number; fluid: string | null } | null } | null
+  pharmacyState: PharmacyState
+  doses: { scheduledFor: string; state: DoseState; administrationId: string | null }[]
+  asNeeded: { reason: string; minIntervalMinutes: number; maxDosesPer24h: number; givenLast24h: number } | null
+  lastGivenAt: string | null
+  nextAllowedAt: string | null
+}
+
+export interface MedicineRecord { admissionId: string; from: string; to: string; orders: MarOrder[]; administrations: DoseRecord[] }
+
+export interface WardRoundItem {
+  admissionId: string
+  patient: WardPatientCard
+  bedName: string | null
+  chartShown: boolean
+  medicinesHidden: boolean
+  counts: { due: number; late: number; upcoming: number }
+  doses: { prescriptionId: string; medicationDisplay: string; strength: string | null; scheduledFor: string; state: DoseState }[]
+}
+export interface WardRound { wardId: string; wardName: string; wardType: string; window: 'now' | 'next_4h'; at: string; items: WardRoundItem[] }
+
+export interface DoseInput {
+  prescriptionId: string
+  scheduledFor: string | null
+  outcome: DoseOutcome
+  givenAt: string
+  dose?: DoseAmount
+  route?: string
+  doseDiffersReason?: string
+  reasonCode?: string
+  reasonText?: string
+  supplySource?: SupplySource
+  overrideReason?: string
+  infusionAction?: 'started' | 'stopped'
+}
+
+export type NursingTaskStatus = 'assigned' | 'in_progress' | 'completed' | 'cancelled'
+export interface NursingTask {
+  taskId: string
+  admissionId: string
+  patient: WardPatientCard
+  bedName: string | null
+  name: string
+  dueAt: string
+  overdue: boolean
+  status: NursingTaskStatus
+  assignedMembershipId: string | null
+  repeatEveryHours: number | null
+  startedAt: string | null
+  completedAt: string | null
+  completionRecorded: boolean
+  /** Chart content: null where the member cannot read the chart. */
+  completionRecord: string | null
+  cancelledAt: string | null
+  previousTaskId: string | null
+  rowVersion: number
+}
+export interface NursingTaskWritten { task: NursingTask; nextTaskId?: string | null; replayed: boolean }
+
+export const FLUID_IN_KINDS = ['oral', 'iv', 'enteral_tube', 'blood_product', 'other'] as const
+export const FLUID_OUT_KINDS = ['urine', 'vomit', 'drain', 'stool', 'tube_aspirate', 'blood_loss', 'other'] as const
+export interface FluidEntry {
+  entryId: string
+  direction: 'in' | 'out'
+  kind: string
+  volumeMl: number | null
+  notMeasured: boolean
+  recordedAt: string
+  note: string | null
+  status: 'recorded' | 'entered_in_error'
+  enteredInErrorReason: string | null
+  enteredInErrorAt: string | null
+  recordedByMembershipId: string | null
+  rowVersion: number
+}
+export interface FluidDay {
+  admissionId: string
+  day: string
+  dayStartsAtHour: number
+  from: string
+  to: string
+  entries: FluidEntry[]
+  totals: { intakeMl: number; outputMl: number; balanceMl: number; unmeasuredIntakeCount: number; unmeasuredOutputCount: number }
+  byHour: { hourStart: string; inMl: number; outMl: number; runningBalanceMl: number }[]
+  byShift: { shiftId: string; name: string; shiftDate: string; from: string; to: string; inMl: number; outMl: number }[]
+}
+export interface FluidInput { direction: 'in' | 'out'; kind: string; volumeMl?: number; notMeasured?: true; recordedAt: string; note?: string }
+
+export interface ClinicalShift { shiftId: string; name: string; startsAt: string; endsAt: string; crossesMidnight: boolean; active: boolean; rowVersion: number }
+export interface ClinicalShifts { items: ClinicalShift[]; fluidDayStartsAtHour: number }
+
+export type ShiftDuty = 'nurse' | 'nurse_in_charge' | 'on_call_doctor'
+export interface ShiftAssignment { membershipId: string; duty: ShiftDuty; admissionIds: string[] }
+export interface ShiftAssignments { date: string; shiftId: string; wardId: string; from: string; to: string; version: number; assignments: ShiftAssignment[] }
+export interface ShiftAssignmentsSet { list: ShiftAssignments; warnings: string[]; replayed: boolean }
+
+export interface HandoverPatient {
+  admissionId: string
+  patient: WardPatientCard
+  bedName: string | null
+  chartShown: boolean
+  lastObservationAt: string | null
+  flagsSinceLastShift: number | null
+  dosesMissedThisShift: number
+  dosesDueNextShift: number
+  openTasks: number
+  overdueTasks: number
+  fluidBalanceMl: number | null
+  watch: boolean
+  handoverNoteId: string | null
+  handoverNote: string | null
+  noteHidden: boolean
+  itemRowVersion: number | null
+}
+export interface HandoverSheet {
+  handoverId: string | null
+  status: 'draft' | 'given' | 'accepted'
+  wardId: string
+  wardType: string
+  date: string
+  shiftId: string
+  from: string
+  to: string
+  nextShift: { shiftId: string; date: string; from: string; to: string } | null
+  fromMembershipIds: string[]
+  toMembershipIds: string[]
+  givenByMembershipId: string | null
+  givenAt: string | null
+  acceptedByMembershipId: string | null
+  acceptedAt: string | null
+  rowVersion: number | null
+  patients: HandoverPatient[]
+}
+export interface HandoverNoteSaved { handoverId: string; item: { admissionId: string; handoverNoteId: string; watch: boolean; rowVersion: number }; replayed: boolean }
+export interface HandoverStepped {
+  handover: { handoverId: string; status: 'draft' | 'given' | 'accepted'; givenByMembershipId: string | null; givenAt: string | null;
+    acceptedByMembershipId: string | null; acceptedAt: string | null; rowVersion: number }
+  replayed: boolean
+}
+
+const segment = encodeURIComponent
+const nurseHeaders = (facilityId: string, key?: string) => ({ ...facilityHeaders(facilityId, 'direct-care'), ...(key ? keyHeaders(key) : {}) })
+
+export const nursingApi = {
+  /** ADT-1 route 1: the wards, with their staff (includeBeds) for choosing who a task or shift goes to. */
+  wards: (facilityId: string, purpose: 'direct-care' | 'healthcare-operations' = 'direct-care') =>
+    client.get<{ items: WardSummary[] }>('/api/v1/ehr/wards', { headers: facilityHeaders(facilityId, purpose), dedupe: false,
+      query: { includeBeds: true } }),
+  /** ADT-1 route 11: the ward's open admissions, for allocating patients to a nurse on a shift. */
+  admissions: (facilityId: string, wardId: string) =>
+    client.get<{ items: WardPatientCard[]; hasMore: boolean; limit: number }>('/api/v1/ehr/admissions',
+      { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false, query: { status: 'admitted', wardId } }),
+  /** ADT-1 route 12: one admission (its card heads the patient's ward chart). */
+  admission: (facilityId: string, admissionId: string) =>
+    client.get<{ admission: WardPatientCard }>(`/api/v1/ehr/admissions/${segment(admissionId)}`,
+      { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false }),
+  /** Route 2: the stay's observation chart (the last 24 hours unless asked; `hourly` asks for the ICU grid). */
+  observationChart: (facilityId: string, admissionId: string, hourly = false) =>
+    client.get<ObservationChart>(`/api/v1/ehr/admissions/${segment(admissionId)}/observation-chart`,
+      { headers: nurseHeaders(facilityId), dedupe: false, ...(hourly ? { query: { view: 'hourly' } } : {}) }),
+  /** Route 1: a reading on the stay's visit with the chart's new fields (today's vitals route). */
+  recordObservation: (facilityId: string, patientId: string, encounterId: string, values: ObservationValues, recordedAt: string, key: string) =>
+    client.post<unknown>(`${encounterPath(patientId, encounterId)}/vitals`, { ...values, recordedAt }, { headers: nurseHeaders(facilityId, key) }),
+  /** Route 4: the stay's medicine administration record. */
+  medicineRecord: (facilityId: string, admissionId: string) =>
+    client.get<MedicineRecord>(`/api/v1/ehr/admissions/${segment(admissionId)}/medicine-round`, { headers: nurseHeaders(facilityId), dedupe: false }),
+  /** Route 5: the ward's round. */
+  wardRound: (facilityId: string, wardId: string, window: 'now' | 'next_4h') =>
+    client.get<WardRound>('/api/v1/ehr/medicine-round', { headers: nurseHeaders(facilityId), dedupe: false, query: { wardId, window } }),
+  /** Route 6: record a dose (given, held, refused, omitted or not available). */
+  recordDose: (facilityId: string, admissionId: string, input: DoseInput, key: string) =>
+    client.post<{ administration: DoseRecord; warnings: string[]; replayed: boolean }>(
+      `/api/v1/ehr/admissions/${segment(admissionId)}/medicine-administrations`, input, { headers: nurseHeaders(facilityId, key) }),
+  /** Route 7: a dose entered in error (one way; the record stays, struck through). */
+  doseEnteredInError: (facilityId: string, dose: Pick<DoseRecord, 'administrationId' | 'rowVersion'>, reason: string, key: string) =>
+    client.post<{ administration: DoseRecord; replayed: boolean }>(
+      `/api/v1/ehr/medicine-administrations/${segment(dose.administrationId)}/entered-in-error`,
+      { expectedRowVersion: dose.rowVersion, reason }, { headers: nurseHeaders(facilityId, key) }),
+  /** Route 8: a ward's tasks, or one stay's. */
+  tasks: (facilityId: string, where: { wardId: string } | { admissionId: string }, status: 'open' | 'done' = 'open', mine = false) =>
+    client.get<{ items: NursingTask[] }>('/api/v1/ehr/nursing-tasks', { headers: nurseHeaders(facilityId), dedupe: false,
+      query: { ...where, status, ...(mine ? { mine: true } : {}) } }),
+  /** Route 9: a new task on an open stay. */
+  createTask: (facilityId: string, admissionId: string, input: { name: string; dueAt: string; assignedMembershipId?: string; repeatEveryHours?: number }, key: string) =>
+    client.post<NursingTaskWritten>(`/api/v1/ehr/admissions/${segment(admissionId)}/nursing-tasks`, input, { headers: nurseHeaders(facilityId, key) }),
+  /** Route 10: start, complete (with its record) and cancel (with a reason). */
+  taskStep: (facilityId: string, task: Pick<NursingTask, 'taskId' | 'rowVersion'>, step: 'start' | 'complete' | 'cancel',
+    extra: { completionRecord?: string; reason?: string }, key: string) =>
+    client.post<NursingTaskWritten>(`/api/v1/ehr/nursing-tasks/${segment(task.taskId)}/${step}`, { expectedRowVersion: task.rowVersion, ...extra },
+      { headers: nurseHeaders(facilityId, key) }),
+  /** Route 10: who the task is for, or when it is due. */
+  updateTask: (facilityId: string, task: Pick<NursingTask, 'taskId' | 'rowVersion'>, change: { assignedMembershipId?: string; dueAt?: string }, key: string) =>
+    client.request<NursingTaskWritten>({ method: 'PATCH', path: `/api/v1/ehr/nursing-tasks/${segment(task.taskId)}`,
+      body: { expectedRowVersion: task.rowVersion, ...change }, headers: nurseHeaders(facilityId, key) }),
+  /** Route 11: one fluid day (today's when no day is given). */
+  fluidDay: (facilityId: string, admissionId: string, day?: string) =>
+    client.get<FluidDay>(`/api/v1/ehr/admissions/${segment(admissionId)}/fluid-balance`, { headers: nurseHeaders(facilityId), dedupe: false,
+      ...(day ? { query: { day } } : {}) }),
+  /** Route 12: an intake or output entry. */
+  recordFluid: (facilityId: string, admissionId: string, input: FluidInput, key: string) =>
+    client.post<{ entryId: string; replayed: boolean }>(`/api/v1/ehr/admissions/${segment(admissionId)}/fluid-balance`, input,
+      { headers: nurseHeaders(facilityId, key) }),
+  /** Route 13: an entry entered in error. */
+  fluidEnteredInError: (facilityId: string, entry: Pick<FluidEntry, 'entryId' | 'rowVersion'>, reason: string, key: string) =>
+    client.post<{ entryId: string; replayed: boolean }>(`/api/v1/ehr/fluid-balance/${segment(entry.entryId)}/entered-in-error`,
+      { expectedRowVersion: entry.rowVersion, reason }, { headers: nurseHeaders(facilityId, key) }),
+  /** Route 14: the facility's clinical shifts (either purpose; setup screens ask as healthcare operations). */
+  shifts: (facilityId: string, purpose: 'direct-care' | 'healthcare-operations' = 'direct-care') =>
+    client.get<ClinicalShifts>('/api/v1/ehr/clinical-shifts', { headers: facilityHeaders(facilityId, purpose), dedupe: false }),
+  createShift: (facilityId: string, input: { name: string; startsAt: string; endsAt: string }, key: string) =>
+    client.post<{ shiftId: string; replayed: boolean }>('/api/v1/ehr/clinical-shifts', input,
+      { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders(key) } }),
+  updateShift: (facilityId: string, shift: Pick<ClinicalShift, 'shiftId' | 'rowVersion'>, change: { name?: string; active?: boolean }, key: string) =>
+    client.request<{ shiftId: string; replayed: boolean }>({ method: 'PATCH', path: `/api/v1/ehr/clinical-shifts/${segment(shift.shiftId)}`,
+      body: { expectedRowVersion: shift.rowVersion, ...change },
+      headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders(key) } }),
+  /** Route 15: who is on a ward's shift on a day. */
+  assignments: (facilityId: string, query: { date: string; shiftId: string; wardId: string }) =>
+    client.get<ShiftAssignments>('/api/v1/ehr/shift-assignments', { headers: nurseHeaders(facilityId), dedupe: false, query }),
+  /** Route 15: the ward's whole list for that shift, replaced (every version is kept). */
+  setAssignments: (facilityId: string, input: { date: string; shiftId: string; wardId: string; expectedVersion: number; assignments: ShiftAssignment[] }, key: string) =>
+    client.request<ShiftAssignmentsSet>({ method: 'PUT', path: '/api/v1/ehr/shift-assignments', body: input, headers: nurseHeaders(facilityId, key) }),
+  /** Route 16: a ward's handover sheet for a shift (a draft with no notes when not made yet). */
+  handover: (facilityId: string, query: { wardId: string; date: string; shiftId: string }) =>
+    client.get<HandoverSheet>('/api/v1/ehr/handovers', { headers: nurseHeaders(facilityId), dedupe: false, query }),
+  /** Route 17: one patient's handover note (a signed clinical note "Nursing handover"); `new` makes the sheet. */
+  handoverNote: (facilityId: string, sheet: { handoverId: string | null; wardId: string; date: string; shiftId: string }, admissionId: string,
+    input: { note: string; watch?: boolean; expectedRowVersion?: number }, key: string) =>
+    client.request<HandoverNoteSaved>({ method: 'PUT',
+      path: `/api/v1/ehr/handovers/${sheet.handoverId ? segment(sheet.handoverId) : 'new'}/patients/${segment(admissionId)}`,
+      body: sheet.handoverId ? input : { ...input, wardId: sheet.wardId, date: sheet.date, shiftId: sheet.shiftId },
+      headers: nurseHeaders(facilityId, key) }),
+  /** Route 18: give the sheet, or accept it (a nurse on the next shift for the ward). */
+  handoverStep: (facilityId: string, sheet: { handoverId: string; rowVersion: number }, step: 'give' | 'accept', key: string) =>
+    client.post<HandoverStepped>(`/api/v1/ehr/handovers/${segment(sheet.handoverId)}/${step}`, { expectedRowVersion: sheet.rowVersion },
+      { headers: nurseHeaders(facilityId, key) }),
+}

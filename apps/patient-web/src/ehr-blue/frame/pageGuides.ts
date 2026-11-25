@@ -99,6 +99,49 @@ export const PAGE_GUIDES: Readonly<Record<string, PageGuide>> = {
     purpose: 'Nursing observations for the open patient.',
     steps: ['Open the patient first (Find a patient).', 'Select Create record to add an observation, or open one from the list to read it.'],
   },
+  'nursing-tasks': {
+    purpose: 'Care tasks on the ward: who does what, and when.',
+    steps: [
+      'Choose the ward. Open tasks are listed the soonest due first; Overdue says when one is late.',
+      'Select Start task when you begin, then Complete task. Add a completion record if there is something to note.',
+      'Select New task to add one for a patient on the ward: its name, when it is due, who it is for and how often it repeats.',
+    ],
+    tips: ['Do not show this list on a screen patients or visitors can see.', 'Only mine lists the tasks for you.'],
+  },
+  'medicine-round': {
+    purpose: 'Doses due and late on the ward, patient by patient.',
+    steps: [
+      'Choose the ward. Each patient with doses due or late is listed, with their counts.',
+      'Open a patient to record each dose: given, held, refused, omitted or not available.',
+      'A dose given before the pharmacy dispensed it says where it came from.',
+    ],
+    tips: ['Medicines show only for patients whose record you can open now. The counts show for everyone.'],
+  },
+  handover: {
+    purpose: 'Hand the ward over to the next shift.',
+    steps: [
+      'Choose the ward, the day and the shift.',
+      'Write a note for each patient, and mark anyone to watch closely.',
+      'Select Give the handover at the end of the shift. A nurse on the next shift selects Accept the handover.',
+    ],
+    tips: ['Each note is saved to the patient’s record as a signed nursing handover note.'],
+  },
+  'ward-patient': {
+    purpose: 'One patient’s ward chart: observations, medicines, fluid balance and tasks.',
+    steps: [
+      'Select a tab to see that part of the chart.',
+      'Record observations, a dose, an intake or output, or a task from its tab.',
+      'Something recorded wrongly is marked entered in error. It stays on the chart, struck through.',
+    ],
+    tips: ['No early-warning score is worked out: read each value and its flag.', BACK_TIP],
+  },
+  'clinical-shifts': {
+    purpose: 'The facility’s clinical shifts, and who is on each ward’s shift.',
+    steps: [
+      'Admins add the shifts: Morning, Afternoon and Night are offered to start with. A shift can run past midnight.',
+      'Under Who is on, choose the ward, the day and the shift. Add the nurses with their patients, the nurse in charge and the on-call doctor, then select Save who is on.',
+    ],
+  },
   emergency: {
     purpose: 'Open a patient’s emergency summary when they can’t consent and care can’t wait.',
     steps: [

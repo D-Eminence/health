@@ -121,14 +121,12 @@ describe('review item 8: a sample hand-off never opens a live create form', () =
     { id: 'inpatient', record: 'a requested record', recordId: IDS.admitSam },
     { id: 'inpatient', record: 'the ICU record it lists', recordId: IDS.icuRiley },
     { id: 'icu', record: 'an admitted record', recordId: IDS.icuRiley },
-  ])('item 8: $id ($record) offers no "Create nursing observations" but keeps "Create nursing tasks"', ({ id, recordId }) => {
+  ])('item 8: $id ($record) offers neither "Create nursing observations" nor "Create nursing tasks" (both live)', ({ id, recordId }) => {
     const visited: string[] = []
     open(id, `/${recordId}`, visited)
-    expect(continueCareButtons()).toEqual(['Create nursing tasks'])
+    expect(continueCareButtons()).toEqual([])
     expect(screen.queryByRole('button', { name: 'Create nursing observations' })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Create nursing tasks' }))
-    expect(screen.getByTestId('elsewhere').textContent).toBe(`${BASE}/nursing-tasks/new`)
-    expect(sampleState().handoff).toMatchObject({ workspace: 'nursing-tasks', values: { admission: recordId } })
+    expect(screen.queryByRole('button', { name: 'Create nursing tasks' })).toBeNull()
     expect(visited.filter(path => LIVE_CREATE.test(path))).toEqual([])
   })
 
@@ -153,7 +151,6 @@ describe('review item 8: a sample hand-off never opens a live create form', () =
       }
     }
     expect(pages).toBeGreaterThan(40)
-    expect(visited).toContain(`${BASE}/nursing-tasks/new`)
     expect(visited.filter(path => LIVE_CREATE.test(path))).toEqual([])
   })
 })

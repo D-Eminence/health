@@ -24,6 +24,9 @@ export const BLUE_RETURN_PATHS: readonly string[] = [
   '/provider/laboratory/new-walk-in', '/provider/reading-quality',
   // The waiting list (hid-system 0135) under Front desk.
   '/provider/waiting-list',
+  // Nursing on the ward (hid-system NUR-1, 0174-0177): the medicine round and handover under Care, Clinical shifts under
+  // Settings, and the ward chart's own address (a patient's chart is below it).
+  '/provider/medicine-round', '/provider/handover', '/provider/clinical-shifts', '/provider/ward-patient',
   // Open sign-up on outreach. (owner decision 5): "Start an outreach group" for a signed-in login.
   '/provider/start-outreach-group',
 ]

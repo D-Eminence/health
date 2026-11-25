@@ -57,7 +57,7 @@ const CONFIRMED = ['delete', 'cancel', 'void', 'refund', 'revoke', 'sign']
 const TYPED = ['delete', 'sign', 'refund']
 /** Where a record's care continues, and the record kinds that carry into the next record. */
 const CONTINUE_CARE: Readonly<Record<string, readonly string[]>> = {
-  journey: ['triage', 'consult'], inpatient: ['nursing', 'nursing-tasks'], icu: ['nursing', 'nursing-tasks'],
+  journey: ['triage', 'consult'], inpatient: ['nursing'], icu: ['nursing'],
 }
 const CARRIED_KINDS = ['encounter', 'visit', 'admission']
 

@@ -94,10 +94,11 @@ const admissionActions: readonly SampleAction[] = [
   action('discharge', 'Discharge patient', ['discharge-ready'], 'discharged', [f('summary', 'Discharge summary', 'textarea')], 'sign'),
 ]
 
-/** The design also hands off to Nursing observations, a live workspace, so the sample leaves it out. */
-const admissionCare: readonly SampleHandoff[] = [
-  { workspace: 'nursing-tasks', title: 'Nursing tasks', carry: 'admission' },
-]
+/**
+ * The design hands off to Nursing observations and Nursing tasks. Both are live workspaces now (Nursing tasks since
+ * hid-system NUR-1: departments/nursing), so the sample leaves them out: a sample admission is not a real one.
+ */
+const admissionCare: readonly SampleHandoff[] = []
 
 /** Every sample workspace, in the design's sidebar order, plus the emergency department board. */
 export const SAMPLE_DEFINITIONS: Readonly<Record<string, SampleDefinition>> = {

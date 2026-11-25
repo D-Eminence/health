@@ -37,7 +37,7 @@ export const pages: EhrBluePage[] = [
     refusal: createElement(ConsentRefusal) },
   // Emergency access is about opening a record without consent, so it sits beside Access requests (QA P1-3), not under wards.
   { path: 'emergency/*', group: 'Clinical', label: 'Emergency access', icon: icon('alert'), permission: 'identity.break-glass.write', status: emergencyStatus, element: createElement(EmergencyWorkspace) },
-  { path: 'nursing-tasks/*', group: 'Clinical', label: 'Nursing tasks', icon: icon('check'), status: 'sample', element: sample('nursing-tasks') },
+  // Nursing tasks: departments/nursing/page.tsx (hid-system NUR-1) in place of the sample.
   { path: 'radiology/*', group: 'Diagnostics', label: 'Radiology', icon: icon('scan'), status: 'sample', element: sample('radiology') },
   { path: 'referrals/*', group: 'Network & Services', label: 'Referral Network', icon: icon('share'), status: 'sample', element: sample('referrals') },
   { path: 'telemedicine/*', group: 'Network & Services', label: 'Telemedicine', icon: icon('video'), status: 'sample', element: sample('telemedicine') },

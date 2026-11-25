@@ -233,6 +233,14 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'ehr.allergies', 'ehr.allergyEnteredInError', 'ehr.allergyCheck',
       // New consultation's one-call save (EHR-C5; 404 before it, when the page saves with the separate routes).
       'ehr.consultations',
+      // Nursing on the ward: the observation chart, the medicine round, nursing tasks, fluid balance, clinical shifts and
+      // handover (hid-system NUR-1, 0174-0177), with ADT-1's ward and admission reads (0170-0173); 404 before them, 503
+      // while NURSING_ENABLED or INPATIENT_ENABLED is off.
+      'ehr.wards', 'ehr.admissions', 'ehr.admission', 'ehr.observationChart', 'ehr.admissionMedicineRound', 'ehr.medicineRound',
+      'ehr.medicineAdministrations', 'ehr.medicineAdministrationEnteredInError', 'ehr.nursingTasks', 'ehr.admissionNursingTasks',
+      'ehr.nursingTask', 'ehr.nursingTaskStart', 'ehr.nursingTaskComplete', 'ehr.nursingTaskCancel', 'ehr.fluidBalance',
+      'ehr.fluidEntryEnteredInError', 'ehr.clinicalShifts', 'ehr.clinicalShift', 'ehr.shiftAssignments', 'ehr.handovers',
+      'ehr.handoverPatient', 'ehr.handoverGive', 'ehr.handoverAccept',
       // The waiting list: check-in by a search's matchRef, the list, and each row's stage, triage level and who will see
       // the patient (hid-system 0135, EHR-C7, Release A; a backend before it answers 404).
       'ehr.visitQueue', 'ehr.visitQueueCheckIn', 'ehr.visitQueueEntry'],
