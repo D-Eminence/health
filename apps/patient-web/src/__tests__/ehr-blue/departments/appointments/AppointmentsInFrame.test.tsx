@@ -4,7 +4,7 @@ import type * as BlueRoutes from '../../../../ehr-blue/routes'
 import { REAL_FACILITY, SESSION, facility, json, openStaffApp, problem, serve, sessionAt, where, type Answer, type Sent } from '../../frame/blueHarness'
 import { lagosToday } from '../../../../ehr-blue/departments/waiting/waitingRules'
 import {
-  BOOKED_DONE, CANCELLED_DONE, forgetAppointmentsServed,
+  BOOKED_DONE, CANCELLED_DONE, dayText, forgetAppointmentsServed,
 } from '../../../../ehr-blue/departments/appointments/appointmentRules'
 
 /*
@@ -98,6 +98,8 @@ function directCare(sent: readonly Sent[], route: string) {
 }
 const keyOf = (sent: readonly Sent[], route: string, index = 0) => sent.filter(item => item.route === route)[index]!.headers.get('Idempotency-Key')
 const noPermissionWord = () => expect(document.body.textContent).not.toMatch(/permission/i)
+/** The call list's paper under <body>, while it prints. */
+const printedPaper = () => document.body.querySelector<HTMLElement>(':scope > [data-call-list-print]')
 /** A fact's value on the appointment's card ("With", "Booked"). */
 const fact = (label: string) => screen.getByText(label, { selector: 'dt' }).nextElementSibling?.textContent
 /** The signal the `index`th request to `route` was sent with (aborted once a newer read took its place). */
@@ -472,13 +474,36 @@ describe('Appointments in the frame', () => {
     directCare(sent, CALL_LIST)
     fireEvent.click(screen.getByRole('button', { name: 'Print' }))
     expect(print).toHaveBeenCalledTimes(1)
+    // It prints as every paper does (printPaper.ts): a paper of its own under <body>, with the shared print header (the
+    // Health ID logo and the facility), titled with the facility and what it is, never a patient, and no web address.
+    const paper = printedPaper()!
+    expect(paper).not.toBeNull()
+    const header = paper.querySelector('[data-print-header]')!
+    expect(header.querySelector('.hid-ehr-print-header-facility')?.textContent).toBe('Fictional Clinic')
+    expect(header.querySelector('img')?.getAttribute('alt')).toBe('Health ID')
+    expect(document.title).toBe('Fictional Clinic · Call list')
+    expect(paper.textContent).toContain(`Call list for ${dayText(today())}`)
+    expect(paper.textContent).toContain('Every clinic · Printed ')
+    const rows = [...paper.querySelectorAll('tbody tr')].map(row => [...row.querySelectorAll('td')].map(cell => cell.textContent))
+    expect(rows).toEqual([
+      ['09:00', 'Testa Bookperson •••• ZZ33', 'Medical outpatients', 'Dr Fiction Adeyemi', '0800 000 0001', ''],
+      ['10:00', 'Other Bookperson •••• ZZ44', '—', 'Any clinician in the department', 'No phone recorded', ''],
+    ])
+    expect(paper.textContent).toContain('Contains patient phone numbers. Keep it at the desk and shred it after use.')
+    expect(paper.textContent).not.toMatch(/https?:|www\.|\/provider|localhost|\.com\b/i)
+    expect(paper.querySelector('a')).toBeNull()
+    // The list on screen is not the paper; the paper goes once it has printed.
+    expect(screen.getByRole('table').closest('[data-call-list-print]')).toBeNull()
+    act(() => { window.dispatchEvent(new Event('afterprint')) })
+    await waitFor(() => expect(printedPaper()).toBeNull())
     // Nothing here sends a text message: SMS reminders are built but switched off.
     expect(document.body.textContent).not.toMatch(/text message|SMS/i)
     noIdentityInAddresses()
   })
 
-  it('keeps the call list to the day chosen last when an earlier day’s answer comes after it', async () => {
+  it('keeps the call list to the day chosen last when an earlier day’s answer comes after it, on screen and on paper', async () => {
     const desk = deskAt()
+    vi.stubGlobal('print', vi.fn())
     const fourth = later()
     serve({
       [SESSION]: [sessionAt(desk, [desk])],
@@ -513,6 +538,12 @@ describe('Appointments in the frame', () => {
     expect(screen.queryByText('Fourth Dec Person')).toBeNull()
     expect(document.body.textContent).not.toContain('0803 000 0004')
 
+    fireEvent.click(screen.getByRole('button', { name: 'Print' }))
+    const paper = printedPaper()!
+    expect(paper.textContent).toContain('Call list for Saturday 5 Dec 2026')
+    expect(paper.textContent).toContain('Fifth Dec Person')
+    expect(paper.textContent).toContain('0803 123 4567')
+    expect(paper.textContent).not.toContain('Fourth Dec Person')
   })
 
   it('shows only the day chosen last when an earlier day’s answer comes after it', async () => {

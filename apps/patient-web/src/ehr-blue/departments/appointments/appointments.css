@@ -1,9 +1,9 @@
 /*
  * Appointments (departments/appointments): the few looks departments.css does not have, in the waiting list's card
  * style: one card per appointment, its Lagos time first, then the name and identity line, the status badges and the
- * facts; on a phone everything wraps under the time, so nothing scrolls sideways. Every rule sits under .hid-ehr and
- * names hid-ehr-dept-appointments-* classes; values come from the --ehr-* tokens. The call list prints alone, in black on
- * white, with its footer.
+ * facts; on a phone everything wraps under the time, so nothing scrolls sideways. Every screen rule sits under .hid-ehr
+ * and names hid-ehr-dept-appointments-* classes; values come from the --ehr-* tokens. The call list's paper (at the end)
+ * is under <body>, outside .hid-ehr, while it prints, so its rules stand alone.
  */
 
 .hid-ehr .hid-ehr-dept-appointments-list {
@@ -214,21 +214,42 @@
   font-weight: 600;
 }
 
-.hid-ehr .hid-ehr-dept-appointments-print-heading {
-  display: none;
-}
+/*
+ * The call list's paper (CallList.tsx). It is on the page only while it prints, as a child of <body>, and is never
+ * shown on screen. In print the rest of the page is display: none, so only the paper prints, in black on white whatever
+ * the screen's theme, with the shared print header. The page has no margin (print.css: so the browser prints no web
+ * address, title or date of its own round it); the paper's padding is its margin, on every page a long list runs to.
+ */
+[data-call-list-print] { display: none; }
 
 @media print {
-  body:has([data-call-list-print]) * { visibility: hidden !important; }
-  body:has([data-call-list-print]) [data-call-list-print],
-  body:has([data-call-list-print]) [data-call-list-print] * { visibility: visible !important; }
-  [data-call-list-print] {
-    position: absolute !important; inset: 0 auto auto 0 !important;
-    width: 100% !important; margin: 0 !important; padding: 10mm !important; overflow: visible !important;
-    background: #fff !important; color: #000 !important;
+  html:has(> body > [data-call-list-print]), body:has(> [data-call-list-print]) {
+    height: auto !important; min-height: 0 !important; max-height: none !important; overflow: visible !important;
+    margin: 0 !important; padding: 0 !important; background: #fff !important;
   }
-  [data-call-list-print] * { color: #000 !important; }
-  [data-call-list-print] a { text-decoration: none !important; }
-  .hid-ehr .hid-ehr-dept-appointments-print-heading { display: block; margin: 0 0 4mm; font-size: 12pt; font-weight: 600; }
-  *:has([data-call-list-print]) { overflow: visible !important; max-height: none !important; height: auto !important; }
+  body:has(> [data-call-list-print]) > :not([data-call-list-print]) { display: none !important; }
+  body > [data-call-list-print] {
+    display: block !important;
+    position: static !important;
+    width: auto !important;
+    padding: 12mm !important;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+    background: #fff !important;
+    color: #000 !important;
+    font: 10.5pt/1.4 system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif !important;
+  }
 }
+
+.hid-ehr-dept-appointments-paper { display: flex; flex-direction: column; gap: 4mm; color: #000; background: #fff; }
+.hid-ehr-dept-appointments-paper p { margin: 0; }
+.hid-ehr-dept-appointments-paper-head { display: grid; gap: 1mm; border-bottom: .5pt solid #666; padding-bottom: 2mm; }
+.hid-ehr-dept-appointments-paper-kind { font-size: 13pt; font-weight: 700; }
+.hid-ehr-dept-appointments-paper table { width: 100%; border-collapse: collapse; text-align: left; }
+.hid-ehr-dept-appointments-paper th, .hid-ehr-dept-appointments-paper td { border-bottom: .5pt solid #999; padding: 1.5mm 2mm 1.5mm 0; text-align: left; vertical-align: top; }
+.hid-ehr-dept-appointments-paper thead th { border-bottom: 1pt solid #000; font-weight: 700; }
+.hid-ehr-dept-appointments-paper tr { break-inside: avoid; page-break-inside: avoid; }
+.hid-ehr-dept-appointments-paper-ending { font-size: 9pt; white-space: nowrap; }
+.hid-ehr-dept-appointments-paper-called { width: 14mm; }
+.hid-ehr-dept-appointments-paper-box { display: inline-block; width: 4mm; height: 4mm; border: .75pt solid #000; }
+.hid-ehr-dept-appointments-paper-foot { font-size: 9pt; font-weight: 600; border-top: .5pt solid #666; padding-top: 1.5mm; }

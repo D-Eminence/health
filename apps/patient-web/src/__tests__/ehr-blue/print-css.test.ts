@@ -18,6 +18,7 @@ const PAPERS = [
   'ehr-blue/departments/outreach/outreachSlip.css',
   'ehr-blue/departments/laboratory/lab.css',
   'ehr-blue/departments/commerce/commerce.css',
+  'ehr-blue/departments/appointments/appointments.css',
 ]
 
 describe('print without a web address', () => {
