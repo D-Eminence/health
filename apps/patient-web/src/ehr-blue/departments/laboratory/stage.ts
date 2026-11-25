@@ -1,3 +1,4 @@
+import { ageInYears } from '@hid/ui/display'
 import type { LabAccession, LabExecution, LabResult, LabWorkItem } from '../../../staff/api'
 import { patientLabel } from '../parts/routedWork'
 
@@ -132,12 +133,7 @@ export interface LabPerson {
 
 function yearsSince(dateOfBirth: string | null | undefined): number | null {
   if (!dateOfBirth) return null
-  const born = new Date(dateOfBirth)
-  if (Number.isNaN(born.getTime())) return null
-  const now = new Date()
-  let age = now.getFullYear() - born.getFullYear()
-  if (now < new Date(now.getFullYear(), born.getMonth(), born.getDate())) age -= 1
-  return age
+  return ageInYears(dateOfBirth)
 }
 
 const sexWord = (sex: string | null | undefined) => sex ? sex.replace(/^./, letter => letter.toUpperCase()) : null

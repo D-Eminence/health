@@ -286,7 +286,7 @@ describe('demo requests, operations and identity reviews', () => {
     const row = (await screen.findByText('Ada Okafor')).closest('tr')!
     expect(within(row).getByText('Referral')).toBeTruthy()
     expect(within(row).getByText('Referral partner')).toBeTruthy()
-    expect(within(row).getByText('+234 803 000 0000')).toBeTruthy()
+    expect(within(row).getByText('0803 000 0000')).toBeTruthy()
     expect(within(row).getByText('Hospital')).toBeTruthy()
     const message = within(row).getByText(/Who to speak to: Dr Bello, medical director/)
     expect(message.textContent).toContain('Location: Ikeja.')
@@ -301,7 +301,7 @@ describe('demo requests, operations and identity reviews', () => {
     const row = (await screen.findByText('Bola Ade')).closest('tr')!
     expect(within(row).queryByText('Referral')).toBeNull()
     expect(within(row).getByText('Medical director')).toBeTruthy()
-    expect(within(row).getByText('08030000001')).toBeTruthy()
+    expect(within(row).getByText('0803 000 0001')).toBeTruthy()
     expect(within(row).getByText('Please call after 3pm on weekdays.')).toBeTruthy()
   })
 

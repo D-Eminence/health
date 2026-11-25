@@ -1,3 +1,4 @@
+import { formatDateTime } from '@hid/ui/display'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
@@ -128,8 +129,7 @@ export function StaffJoin() {
     </>
   }
 
-  const expires = preview?.expiresAt ? new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short' })
-    .format(new Date(preview.expiresAt)) : null
+  const expires = formatDateTime(preview?.expiresAt) || null
   return <>
     <div className="staff-page-head"><p className="staff-eyebrow">Invitation</p><h1>Join a facility</h1>
       <p>Accept an invitation to work at another facility on Health ID with this account{email ? `, ${email}` : ''}.</p></div>

@@ -117,12 +117,12 @@ describe('the records page', () => {
   it('finds records by the words of the day they are listed under, as its heading names it', async () => {
     renderPortal(<RecordsPage />, gateway(NOVU_RECORDS))
     await screen.findByText('Emergency visit')
-    // Under "Thursday, 8 October 2026", where each record's own date reads "8 Oct 2026".
+    // Under "Thursday 8 Oct 2026" (October also finds it), where each record's own date reads "8 Oct 2026".
     type('Thursday October')
     expect(titles(cardOf('Visits'))).toEqual(['Emergency visit', 'Inpatient stay'])
     expect(within(cardOf('Clinical notes')).getAllByRole('listitem')).toHaveLength(1)
     expect(screen.getByText('3 records match your search.')).toBeTruthy()
-    // Imported history's day too: "Wednesday, 17 June 2026".
+    // Imported history's day too: "Wednesday 17 Jun 2026".
     type('June')
     expect(screen.getByRole('heading', { name: 'Preserved report' })).toBeTruthy()
     expect(screen.getByText('1 record matches your search.')).toBeTruthy()

@@ -1,4 +1,5 @@
 import { isHidApiError, plainErrorText } from '@hid/http'
+import { ageInYears as lagosAge, lagosDay } from '@hid/ui/display'
 import type { PatientSearchAnswer } from '../../../staff/patientSearch'
 
 /**
@@ -65,24 +66,17 @@ export function searchRefusal(caught: unknown, emergency = false): string {
   return plainErrorText(caught, SEARCH_FAILED, { codes: emergency ? EMERGENCY_REFUSALS : REFUSALS, audience: 'facility' })
 }
 
-/** Today's date as the date field takes it (YYYY-MM-DD, local), the latest date of birth. */
+/** Today's date in Lagos as the date field takes it (YYYY-MM-DD), the latest date of birth (owner decision Q181 A). */
 export function today(now = new Date()): string {
-  const month = String(now.getMonth() + 1).padStart(2, '0')
-  const day = String(now.getDate()).padStart(2, '0')
-  return `${now.getFullYear()}-${month}-${day}`
+  return lagosDay(now)
 }
 
 /**
- * Age in whole years from a YYYY-MM-DD date of birth, on the local calendar day `now`; null when the date is not one.
- * Worked on the calendar figures, never through a time zone: someone born on 29 February is a year older on 1 March.
+ * Age in whole years from a YYYY-MM-DD date of birth, on the Lagos calendar day of `now`; null when the date is not one.
+ * Worked on the calendar figures: someone born on 29 February is a year older on 1 March.
  */
 export function ageInYears(dateOfBirth: string | null | undefined, now = new Date()): number | null {
-  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateOfBirth ?? '')
-  if (!parts) return null
-  const [year, month, day] = [Number(parts[1]), Number(parts[2]), Number(parts[3])]
-  const hadBirthday = now.getMonth() + 1 > month || (now.getMonth() + 1 === month && now.getDate() >= day)
-  const age = now.getFullYear() - year - (hadBirthday ? 0 : 1)
-  return age >= 0 ? age : null
+  return /^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth ?? '') ? lagosAge(dateOfBirth, now) : null
 }
 
 /** "Female", "Male" or the word given, for a card's sex. */

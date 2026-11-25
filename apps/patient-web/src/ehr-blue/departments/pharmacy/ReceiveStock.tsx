@@ -1,3 +1,4 @@
+import { lagosDay } from '@hid/ui/display'
 import { useState } from 'react'
 import { CircleCheck, PackagePlus, Plus, Search, Trash2 } from 'lucide-react'
 import { FormActions, FormPage, Step } from '../../../kasuwa/parts'
@@ -53,7 +54,7 @@ function ReceiveForm({ facilityId }: { readonly facilityId: string }) {
   const [error, setError] = useState('')
   const [off, setOff] = useState(false)
   const [saved, setSaved] = useState<number | null>(null)
-  const today = new Date().toISOString().slice(0, 10)
+  const today = lagosDay()
   const totalCost = lines.reduce((sum, line) => sum + (parseNaira(line.cost) ?? 0) * (Number(line.quantity) || 0), 0)
 
   const change = (key: string, patch: Partial<LineDraft>) => {

@@ -1,3 +1,4 @@
+import { lagosDay } from '@hid/ui/display'
 import type { NoNinReason, RegisterWithoutNinInput, RegistrationCapabilities } from '../../../staff/api'
 import { deskFieldProblem, deskValues, type DeskField, type DeskForm } from '../../collected/deskFields'
 
@@ -75,7 +76,7 @@ function dateOfBirthValid(value: string, today: string): boolean {
 
 /** Today's date (YYYY-MM-DD) in Lagos, where Identity checks a date of birth. */
 export function lagosToday(now: Date = new Date()): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Lagos', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now)
+  return lagosDay(now)
 }
 
 /** Whether a patient born on `dateOfBirth` is under 18 on `today` (both YYYY-MM-DD). */

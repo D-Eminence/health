@@ -1,3 +1,4 @@
+import { formatDate as displayDate } from '@hid/ui/display'
 import { isHidApiError, plainErrorText } from '@hid/http'
 
 /**
@@ -163,9 +164,7 @@ export function daysLeft(end: string, now = Date.now()): number {
 }
 
 export function formatDate(value: string): string {
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? 'Date unavailable'
-    : date.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+  return displayDate(value, 'Date unavailable')
 }
 
 /** Whether "Pay now" applies: a self-serve price on a plan that is not already paid up. */

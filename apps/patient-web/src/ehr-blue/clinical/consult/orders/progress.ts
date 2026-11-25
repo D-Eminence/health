@@ -1,3 +1,4 @@
+import { formatTimeOrDateTime } from '@hid/ui/display'
 import type { ClinicalRecord } from '../../../../staff/api'
 import type { OrderKind } from './orders'
 import { readOrderRoute } from './words'
@@ -46,19 +47,9 @@ const LAB_STATUSES: ReadonlySet<string> = new Set([
   'not_received', 'received', 'sample_collected', 'some_results_ready', 'results_ready', 'unknown',
 ])
 
-/** Times as the order pages say them, in West Africa Time on the 24-hour clock (format.ts: never all in numbers). */
-const LAGOS_DAY = new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Lagos', year: 'numeric', month: '2-digit', day: '2-digit' })
-const LAGOS_TIME = new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Lagos', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
-const LAGOS_MOMENT = new Intl.DateTimeFormat('en-GB', {
-  timeZone: 'Africa/Lagos', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
-})
-
 /** "11:05" today in Lagos, else "21 Nov 2026, 11:05", so an order read days later is not taken for today's; '' for no time. */
 export function progressTime(value: unknown, now: Date = new Date()): string {
-  if (typeof value !== 'string' || !value) return ''
-  const at = new Date(value)
-  if (Number.isNaN(at.getTime())) return ''
-  return LAGOS_DAY.format(at) === LAGOS_DAY.format(now) ? LAGOS_TIME.format(at) : LAGOS_MOMENT.format(at)
+  return typeof value === 'string' ? formatTimeOrDateTime(value, now) : ''
 }
 
 /** "Dispensed 11:05", or "Dispensed" when the time is missing or not a date. */

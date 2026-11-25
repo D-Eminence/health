@@ -1,3 +1,4 @@
+import { formatDateTime } from '@hid/ui/display'
 import { EhrBadge, EhrButton, EhrCard } from '@hid/ui/ehr'
 import { useEffect, useState } from 'react'
 import { staffApi, type LabOrderReleasedResults, type LabResultRevision } from '../../../../staff/api'
@@ -9,7 +10,7 @@ import { releasedResultsRefusal } from './words'
 
 /** A date as classic's released results print it (staff/labRevisions.tsx dateText, Clinical.tsx:931). */
 function dateText(value: string | null | undefined) {
-  return value ? new Date(value).toLocaleString() : 'Not available'
+  return formatDateTime(value, 'Not available')
 }
 
 /**
