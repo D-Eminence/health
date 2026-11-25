@@ -643,7 +643,10 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'NIN_LINK_NOT_PERMITTED; 404 PATIENT_NOT_FOUND; 409 PATIENT_ALREADY_HAS_NIN, PATIENT_NOT_IDENTIFIED, NIN_LINK_TRY_LATER, '
     + 'NIN_ON_ANOTHER_RECORD, NIN_CHECK_IN_PROGRESS, NIN_CHECK_HELD (retryAfterSeconds), IDEMPOTENCY_KEY_REUSED; 422 '
     + 'NIN_VERIFICATION_FAILED (Q117); 429 QOREID_RATE_LIMITED. Every 502, 503 and 504 reaches the browser as the gateway\'s 503 '
-    + 'UPSTREAM_UNAVAILABLE.'),
+    + 'UPSTREAM_UNAVAILABLE. 409 PATIENT_ALREADY_HAS_NIN carries two answers told apart only by detail, read word for word: '
+    + '"This patient already has a verified NIN." (shown as NIN Verified) and "This patient\'s earlier records hold a different '
+    + 'NIN. Ask Health ID support to review it." (not verified). Any other detail is shown as neither and never as NIN Verified; '
+    + 'Identity rewording either needs this website to change with it, or a code of its own for the second.'),
   r('identity.registrationApprove','identity','/api/v1/identity/registration-cases/:caseId/approve-new',P,false,one('POST','identity.registration.approve')),
   r('identity.registrationEnroll','identity','/api/v1/identity/registration-cases/:caseId/enroll',P,false,one('POST','identity.registration.approve')),
   r('identity.registrationLink','identity','/api/v1/identity/registration-cases/:caseId/link-existing',P,false,one('POST','identity.registration.approve')),

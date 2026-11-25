@@ -31,6 +31,8 @@ export const LINK_NOT_OWN_PATIENT = 'You can add a NIN only for this facility’
 export const LINK_PATIENT_NOT_FOUND = 'We can’t find this patient’s record. Refresh and try again.'
 export const LINK_ALREADY_HAS_NIN = 'This patient already has a verified NIN.'
 export const LINK_SOURCE_NIN_DIFFERS = 'This patient’s earlier records hold a different NIN. Ask Health ID support to review it.'
+/** 409 PATIENT_ALREADY_HAS_NIN in words this page does not know: true either way, and never says the NIN is verified. */
+export const LINK_HAS_A_NIN = 'This patient’s records already hold a NIN, so it can’t be added here.'
 export const LINK_NOT_IDENTIFIED = 'Identify this patient before adding a NIN.'
 export const LINK_TRY_LATER = 'A NIN cannot be added until the earlier records’ NIN check is complete. Please try again later.'
 export const LINK_ON_ANOTHER_RECORD = 'This NIN is already on another patient record. Ask an approver to review the two records.'
@@ -38,6 +40,17 @@ export const LINK_RESEND = 'That didn’t go through. Try again.'
 export const LINK_RATE_LIMITED = 'Too many NIN checks right now. Try again in a minute.'
 export const LINK_PROVIDER_DOWN = 'NIN checks are not available right now. Try again in a minute.'
 export const LINK_FAILED = 'We couldn’t check that NIN. Try again.'
+
+/**
+ * Identity's two 409 PATIENT_ALREADY_HAS_NIN answers, word for word (patient-nin-link.service.ts patientAlreadyHasNin and
+ * sourceNinDiffers). One code carries both, so the sentence is the only way to tell them apart. Only the first marks the
+ * record NIN Verified: if Identity rewords either, the page says LINK_HAS_A_NIN and marks nothing.
+ */
+export const IDENTITY_ALREADY_HAS_NIN = 'This patient already has a verified NIN.'
+export const IDENTITY_SOURCE_NIN_DIFFERS = 'This patient\'s earlier records hold a different NIN. Ask Health ID support to review it.'
+
+/** "Try again in a minute" with no time from Identity: the button stays off for that minute, so the words hold. */
+export const A_MINUTE_MS = 60_000
 
 /**
  * What a patient's record offers: the form ('offer'), the line that NIN checks are off ('off'), that their state is
@@ -81,7 +94,10 @@ export interface VerifyNinRefusal {
   readonly text: string
   /** The words marked at the NIN field, if any. */
   readonly field: string | null
-  /** Until when the button stays off (ms since the epoch): the time Identity named. Never retried automatically. */
+  /**
+   * Until when the button stays off for this patient and NIN (ms since the epoch): the time Identity named, or a minute
+   * where the words say so. Never retried automatically.
+   */
   readonly holdUntil: number | null
   /** The next request gets a new Idempotency-Key. */
   readonly newKey: boolean
@@ -100,6 +116,7 @@ export function verifyNinRefusal(caught: unknown, now = Date.now()): VerifyNinRe
   if (!isHidApiError(caught)) return refusal(safeError(caught, LINK_FAILED))
   const seconds = caught.retryInSeconds
   const named = seconds !== null && seconds > 0 ? now + seconds * 1_000 : null
+  const aMinute = named ?? now + A_MINUTE_MS
   switch (caught.code) {
     case 'VALIDATION_FAILED': return refusal(NIN_REFUSED, { field: NIN_REFUSED })
     case 'IDEMPOTENCY_KEY_REQUIRED':
@@ -109,9 +126,13 @@ export function verifyNinRefusal(caught: unknown, now = Date.now()): VerifyNinRe
     case 'NIN_LINK_NOT_PERMITTED': return refusal(LINK_NOT_OWN_PATIENT)
     case 'PATIENT_NOT_FOUND': return refusal(LINK_PATIENT_NOT_FOUND)
     // Two answers under one code: the second names the patient's earlier (migrated) records. Its words are read only to
-    // choose between them, and are never shown.
-    case 'PATIENT_ALREADY_HAS_NIN':
-      return /earlier records/i.test(caught.detail ?? '') ? refusal(LINK_SOURCE_NIN_DIFFERS) : refusal(LINK_ALREADY_HAS_NIN, { verified: true })
+    // choose between them, exactly, and are never shown.
+    case 'PATIENT_ALREADY_HAS_NIN': {
+      const detail = (caught.detail ?? '').trim().replace(/’/g, '\'')
+      if (detail === IDENTITY_ALREADY_HAS_NIN) return refusal(LINK_ALREADY_HAS_NIN, { verified: true })
+      if (detail === IDENTITY_SOURCE_NIN_DIFFERS) return refusal(LINK_SOURCE_NIN_DIFFERS)
+      return refusal(LINK_HAS_A_NIN)
+    }
     case 'PATIENT_NOT_IDENTIFIED':
     case 'UNKNOWN_PATIENT_NOT_IDENTIFIED': return refusal(LINK_NOT_IDENTIFIED)
     case 'NIN_LINK_TRY_LATER': return refusal(LINK_TRY_LATER)
@@ -126,9 +147,10 @@ export function verifyNinRefusal(caught: unknown, now = Date.now()): VerifyNinRe
   if (problem?.outcome === 'in_progress') return refusal(problem.text, { holdUntil: named })
   if (problem?.outcome === 'held') return refusal(problem.text, { holdUntil: problem.heldUntil })
   // This client's own wait ended (the gateway turns Identity's 504 into a 503): the same key picks the check up.
-  if (problem?.outcome === 'taking_longer') return refusal(NIN_TAKING_LONGER, { holdUntil: named })
-  if (caught.status === 429) return refusal(LINK_RATE_LIMITED, { holdUntil: named })
+  // Each of these says "Try again in a minute": the button is off for that minute when Identity named no time.
+  if (problem?.outcome === 'taking_longer') return refusal(NIN_TAKING_LONGER, { holdUntil: aMinute })
+  if (caught.status === 429) return refusal(LINK_RATE_LIMITED, { holdUntil: aMinute })
   // The gateway answers every 502, 503 and 504 as its own 503 UPSTREAM_UNAVAILABLE: NIN checks off, QoreID down or slow.
-  if (caught.status === 503 || caught.status === 502) return refusal(LINK_PROVIDER_DOWN, { recheck: true })
+  if (caught.status === 503 || caught.status === 502) return refusal(LINK_PROVIDER_DOWN, { recheck: true, holdUntil: aMinute })
   return refusal(safeError(caught, LINK_FAILED))
 }

@@ -35,6 +35,7 @@ export interface VerifyNinProps {
   /** Identity named a time to try again: the button is off until then. */
   readonly held: boolean
   readonly stillChecking: boolean
+  readonly onInput: (event: FormEvent<HTMLFormElement>) => void
   readonly onSubmit: (event: FormEvent<HTMLFormElement>) => void
 }
 
@@ -115,10 +116,13 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
   // (0138) still reads Not Verified on the case: the page keeps what it was told, for this visit.
   const ninStatus = verify.added ? 'verified' : registration.ninStatus
   // ID-6 screen notes: "Verify NIN" for the registered patient whose NIN is not verified, while NIN checks are available.
-  // The page opens only with identity.registration.write, and the case is this facility's own registration: Identity
-  // still refuses a patient who is not this facility's own (a link to someone registered elsewhere), in plain words.
+  // The page opens only with identity.registration.write. Only a registration made here without a NIN that gave the
+  // patient a new Health ID is surely this facility's own (0131: approved_new_identity is registered here; a link to an
+  // existing patient counts only once the patient confirms it, which the case does not say). A case with a NIN is not
+  // offered either: a patient account follows only that case's own NIN check (0032), which a NIN added later is not.
+  const ownRegistration = withoutNin && registration.status === 'approved_new_identity'
   const ninOffer = verifyNinOffer({
-    ninStatus: registration.patient ? ninStatus : undefined, canRegister: true, ownFacility: true,
+    ninStatus: registration.patient ? ninStatus : undefined, canRegister: true, ownFacility: ownRegistration,
     capabilities: verify.availability.capabilities, capabilitiesAnswered: verify.availability.answered,
   })
   // 0130 identity.review_patient_without_nin: an approver other than the person who started a registration without a
@@ -262,7 +266,7 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
             ) : null}
             {shownForm === 'verifyNin' ? (
               <VerifyNinForm id="registration-verifyNin-form" controlId={FIELD.verifyNin} busy={busy} held={verify.held}
-                stillChecking={verify.stillChecking} problems={verify.problems} error={errorIn('verifyNin')} onSubmit={verify.onSubmit} />
+                stillChecking={verify.stillChecking} problems={verify.problems} error={errorIn('verifyNin')} onInput={verify.onInput} onSubmit={verify.onSubmit} />
             ) : null}
             {offered.link || offered.approve || offered.enroll || offered.verifyNin || verifyNinLine || enrollNeedsNin
               ? null : <p className="hid-ehr-dept-muted">{NO_ACTIONS}</p>}

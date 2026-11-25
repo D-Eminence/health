@@ -1,9 +1,12 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { findEndpoint } from '@hid/contracts'
 import { HidApiError } from '@hid/http'
 import { DEMO_HOSPITAL_ID, renderDept } from '../harness'
 import { PatientRegistration } from '../../../../ehr-blue/departments/registration/Registration'
-import { ninForLink, verifyNinOffer, verifyNinRefusal, type VerifyNinFacts } from '../../../../ehr-blue/departments/registration/verifyNinLater'
+import {
+  IDENTITY_ALREADY_HAS_NIN, IDENTITY_SOURCE_NIN_DIFFERS, ninForLink, verifyNinOffer, verifyNinRefusal, type VerifyNinFacts,
+} from '../../../../ehr-blue/departments/registration/verifyNinLater'
 
 /*
  * "Verify NIN later" on the blue Registration record (hid-system 0138, docs/INTERFACE_CONTRACT.md ID-6; identity-api
@@ -30,11 +33,13 @@ const WRITE = 'identity.registration.write'
 const APPROVE = 'identity.registration.approve'
 const CASE = 'c0000000-0000-4000-8000-000000000061'
 const PATIENT = 'a0000000-0000-4000-8000-000000000061'
+const OTHER_CASE = 'c0000000-0000-4000-8000-000000000062'
+const OTHER_PATIENT = 'a0000000-0000-4000-8000-000000000062'
 const NIN = '00000000000'
 const OTHER_NIN = '00000000001'
 const REASONS = ['nin_service_unavailable', 'no_nin', 'not_carried', 'child', 'foreign_national']
 const NIN_ON = {
-  nin: { enabled: true, state: 'qoreid', available: true },
+  nin: { enabled: true, state: 'live', available: true },
   withoutNin: { enabled: true, phoneRequiredUnlessChild: true, reasons: REASONS },
   newPatientRegistrationRequiresNin: false,
 }
@@ -60,16 +65,17 @@ afterEach(() => {
   expect(text).not.toMatch(/unverified|permission/i)
   expect(text).not.toMatch(/\b[A-Z]+_[A-Z_]+\b/)
   expect(text).not.toContain(PATIENT)
+  expect(text).not.toContain(OTHER_PATIENT)
   for (const nin of [NIN, OTHER_NIN]) {
     expect(text).not.toContain(nin)
     for (const input of document.querySelectorAll('input')) expect(input.value.replace(/\D/g, '')).not.toBe(nin)
   }
 })
 
-async function findCase() {
-  renderDept(<PatientRegistration />)
+async function findCase(caseId = CASE, render = true) {
+  if (render) renderDept(<PatientRegistration />)
   const field = await screen.findByRole('textbox', { name: 'Registration ID' })
-  fireEvent.change(field, { target: { value: CASE } })
+  fireEvent.change(field, { target: { value: caseId } })
   fireEvent.click(within(field.closest('form') as HTMLElement).getByRole('button', { name: 'Open' }))
   return screen.findByRole('heading', { level: 1, name: 'Earlier registration' })
 }
@@ -77,13 +83,14 @@ const actions = () => screen.getByRole('heading', { name: 'Available actions' })
 const savedRecord = () => screen.getByRole('heading', { name: 'Saved record' }).closest('section') as HTMLElement
 const ninFact = () => within(savedRecord()).getByText('NIN').nextElementSibling?.textContent
 const form = () => screen.getByRole('form', { name: 'Verify NIN' })
+const verifyButton = () => within(form()).getByRole('button', { name: 'Verify NIN' }) as HTMLButtonElement
 const ninField = () => within(form()).getByLabelText(/^NIN \(11 digits\)/) as HTMLInputElement
 function described(control: Element) {
   return (control.getAttribute('aria-describedby') ?? '').split(/\s+/).filter(Boolean)
     .map(id => document.getElementById(id)?.textContent ?? '').join(' ')
 }
-async function openForm() {
-  await findCase()
+async function openForm(caseId = CASE, render = true) {
+  await findCase(caseId, render)
   await waitFor(() => expect(within(actions()).getByRole('button', { name: 'Verify NIN' })).toBeTruthy())
   fireEvent.click(within(actions()).getByRole('button', { name: 'Verify NIN' }))
   return form()
@@ -162,15 +169,23 @@ describe('Verify NIN on a registration without a NIN', () => {
     expect(ninFact()).toBe('NIN Not Verified')
   })
 
-  it('a retry of the same NIN sends the same key; another NIN gets a new one', async () => {
+  it('a retry of the same NIN, a minute after the check took too long, sends the same key; another NIN gets a new one', async () => {
     api.linkPatientNin.mockRejectedValue(new HidApiError(408, 'x', { code: 'REQUEST_TIMEOUT' }))
     await openForm()
     await send(NIN)
     await waitFor(() => expect(within(form()).getByRole('alert').textContent)
       .toBe('The NIN check is taking longer than usual. Try again in a minute.'))
     expect(ninField().value).toBe('')
+    // The words say a minute: the same NIN is held for it, and nothing is sent.
     await send(NIN)
-    await send(OTHER_NIN)
+    expect(verifyButton().disabled).toBe(true)
+    expect(api.linkPatientNin).toHaveBeenCalledTimes(1)
+    const later = Date.now() + 61_000
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(later)
+    try {
+      await send(NIN)
+      await send(OTHER_NIN)
+    } finally { clock.mockRestore() }
     const keys = api.linkPatientNin.mock.calls.map(call => call[3])
     expect(api.linkPatientNin.mock.calls.map(call => call[2])).toEqual([NIN, NIN, OTHER_NIN])
     expect(keys[1]).toBe(keys[0])
@@ -200,6 +215,55 @@ describe('Verify NIN on a registration without a NIN', () => {
     expect(api.linkPatientNin).toHaveBeenCalledTimes(1)
   })
 
+  it('holds only the NIN Identity named: another NIN is sent at once, and the held one typed again says why and sends nothing', async () => {
+    api.linkPatientNin.mockRejectedValueOnce(new HidApiError(409, 'x', { code: 'NIN_CHECK_HELD', retryInSeconds: 21_600 }))
+    api.linkPatientNin.mockReturnValueOnce(new Promise(() => {}))
+    await openForm()
+    await send(NIN)
+    const held = /^This NIN check is on hold\. Try again after /
+    await waitFor(() => expect(within(form()).getByRole('alert').textContent).toMatch(held))
+    expect(verifyButton().disabled).toBe(true)
+    // The same NIN typed again: still held, and the words say why.
+    fireEvent.input(ninField(), { target: { value: NIN } })
+    expect(verifyButton().disabled).toBe(true)
+    expect(within(form()).getByRole('alert').textContent).toMatch(held)
+    // A corrected NIN is not held, and the words about the held one go.
+    fireEvent.input(ninField(), { target: { value: '' } })
+    expect(verifyButton().disabled).toBe(false)
+    expect(within(form()).queryByRole('alert')).toBeNull()
+    await send(OTHER_NIN)
+    expect(api.linkPatientNin).toHaveBeenCalledTimes(2)
+    expect(api.linkPatientNin.mock.calls[1]![2]).toBe(OTHER_NIN)
+  })
+
+  it('a NIN held for one patient does not hold another case, and is held again on its own case', async () => {
+    api.registrationCase.mockImplementation((_facility: string, caseId: string) => Promise.resolve(caseId === OTHER_CASE
+      ? { ...REGISTERED, caseId: OTHER_CASE, patient: { patientId: OTHER_PATIENT, hid: 'HID-ZDEMAAA2' } } : REGISTERED))
+    api.linkPatientNin.mockRejectedValueOnce(new HidApiError(409, 'x', { code: 'NIN_CHECK_HELD', retryInSeconds: 21_600 }))
+    api.linkPatientNin.mockResolvedValueOnce({ ...LINKED, patientId: OTHER_PATIENT })
+    await openForm()
+    await send(NIN)
+    await waitFor(() => expect(verifyButton().disabled).toBe(true))
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Back to list' })) })
+    await openForm(OTHER_CASE, false)
+    expect(verifyButton().disabled).toBe(false)
+    expect(within(form()).queryByRole('alert')).toBeNull()
+    await send(OTHER_NIN)
+    expect(api.linkPatientNin).toHaveBeenCalledTimes(2)
+    expect(api.linkPatientNin.mock.calls[1]!.slice(1, 3)).toEqual([OTHER_PATIENT, OTHER_NIN])
+    await waitFor(() => expect(ninFact()).toBe('NIN Verified'))
+    // Back on the first case, its NIN is still held, and says so.
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Back to list' })) })
+    await openForm(CASE, false)
+    expect(verifyButton().disabled).toBe(false)
+    await send(NIN)
+    expect(verifyButton().disabled).toBe(true)
+    expect(within(form()).getByRole('alert').textContent).toMatch(/^This NIN check is on hold\. Try again after /)
+    expect(api.linkPatientNin).toHaveBeenCalledTimes(2)
+    fireEvent.input(ninField(), { target: { value: '' } })
+    expect(verifyButton().disabled).toBe(false)
+  })
+
   it('a check still in progress keeps the button off for the minute Identity named', async () => {
     api.linkPatientNin.mockRejectedValue(new HidApiError(409, 'x', { code: 'NIN_CHECK_IN_PROGRESS', retryInSeconds: 60 }))
     await openForm()
@@ -218,6 +282,16 @@ describe('Verify NIN on a registration without a NIN', () => {
     await waitFor(() => expect(within(actions()).getByText(OFF_LINE)).toBeTruthy())
     expect(screen.getByRole('alert').textContent).toBe('NIN checks are not available right now. Try again in a minute.')
     expect(screen.queryByRole('form', { name: 'Verify NIN' })).toBeNull()
+  })
+
+  it('marks nothing when Identity says the patient already has a NIN in words this page does not know', async () => {
+    api.linkPatientNin.mockRejectedValue(new HidApiError(409, 'x', { code: 'PATIENT_ALREADY_HAS_NIN',
+      detail: 'This patient\'s migrated records hold another NIN.' }))
+    await openForm()
+    await send(NIN)
+    await waitFor(() => expect(within(form()).getByRole('alert').textContent)
+      .toBe('This patient’s records already hold a NIN, so it can’t be added here.'))
+    expect(ninFact()).toBe('NIN Not Verified')
   })
 
   it('shows NIN Verified when Identity says the patient already has a verified NIN', async () => {
@@ -287,6 +361,21 @@ describe('when Verify NIN is not offered', () => {
     expect(within(actions()).queryByText(OFF_LINE)).toBeNull()
   })
 
+  it('is not offered for a link to an existing patient, which may not be this facility’s own', async () => {
+    api.registrationCase.mockResolvedValue({ ...REGISTERED, status: 'linked_existing' })
+    await findCase()
+    await waitFor(() => expect(ninFact()).toBe('NIN Not Verified'))
+    expect(within(actions()).queryByRole('button', { name: 'Verify NIN' })).toBeNull()
+    expect(within(actions()).queryByText(OFF_LINE)).toBeNull()
+  })
+
+  it('is not offered on a registration made with a NIN that reads Not Verified', async () => {
+    api.registrationCase.mockResolvedValue({ ...REGISTERED, identityEvidence: 'nin' })
+    await findCase()
+    await waitFor(() => expect(ninFact()).toBe('NIN Not Verified'))
+    expect(within(actions()).queryByRole('button', { name: 'Verify NIN' })).toBeNull()
+  })
+
   it('is not offered on a registration that has no patient yet', async () => {
     api.registrationCase.mockResolvedValue({ caseId: CASE, status: 'review_required', version: 1, candidateCount: 1,
       identityEvidence: 'none', ninStatus: 'not_verified', candidates: [] })
@@ -325,7 +414,7 @@ describe('the rules', () => {
 
   it('waits for registration-capabilities, and is off unless nin.available is true', () => {
     expect(verifyNinOffer(facts({ capabilities: NIN_OFF }))).toBe('off')
-    expect(verifyNinOffer(facts({ capabilities: { ...NIN_ON, nin: { enabled: true, state: 'qoreid' } } }))).toBe('off')
+    expect(verifyNinOffer(facts({ capabilities: { ...NIN_ON, nin: { enabled: true, state: 'live' } } }))).toBe('off')
     expect(verifyNinOffer(facts({ capabilities: null, capabilitiesAnswered: false }))).toBe('loading')
     expect(verifyNinOffer(facts({ capabilities: null, capabilitiesAnswered: true }))).toBe('unknown')
   })
@@ -342,6 +431,29 @@ describe('the rules', () => {
       expect(verifyNinRefusal(new HidApiError(status, 'x', { code: 'UPSTREAM_UNAVAILABLE' })))
         .toMatchObject({ text: 'NIN checks are not available right now. Try again in a minute.', recheck: true })
     }
+  })
+
+  it('tells the two PATIENT_ALREADY_HAS_NIN answers apart by Identity’s exact sentences, and marks nothing for any other', () => {
+    const answer = (detail: string) => verifyNinRefusal(new HidApiError(409, 'x', { code: 'PATIENT_ALREADY_HAS_NIN', detail }))
+    expect(answer('This patient already has a verified NIN.'))
+      .toMatchObject({ text: 'This patient already has a verified NIN.', verified: true })
+    expect(answer('This patient\'s earlier records hold a different NIN. Ask Health ID support to review it.'))
+      .toMatchObject({ text: 'This patient’s earlier records hold a different NIN. Ask Health ID support to review it.', verified: false })
+    expect(answer('The earlier records of this patient show another NIN.'))
+      .toMatchObject({ text: 'This patient’s records already hold a NIN, so it can’t be added here.', verified: false })
+    expect(answer('')).toMatchObject({ verified: false })
+    // The sentences the page keys on are Identity's live ones, as the contract records them.
+    const note = findEndpoint('identity.linkPatientNin')?.note ?? ''
+    for (const sentence of [IDENTITY_ALREADY_HAS_NIN, IDENTITY_SOURCE_NIN_DIFFERS]) expect(note).toContain(`"${sentence}"`)
+  })
+
+  it('holds the button for the minute its words name when Identity named no time', () => {
+    const now = Date.UTC(2026, 10, 24, 12, 0, 0)
+    expect(verifyNinRefusal(new HidApiError(408, 'x', { code: 'REQUEST_TIMEOUT' }), now))
+      .toMatchObject({ text: 'The NIN check is taking longer than usual. Try again in a minute.', holdUntil: now + 60_000 })
+    expect(verifyNinRefusal(new HidApiError(429, 'x', { code: 'QOREID_RATE_LIMITED' }), now).holdUntil).toBe(now + 60_000)
+    expect(verifyNinRefusal(new HidApiError(429, 'x', { code: 'QOREID_RATE_LIMITED', retryInSeconds: 30 }), now).holdUntil).toBe(now + 30_000)
+    expect(verifyNinRefusal(new HidApiError(503, 'x', { code: 'UPSTREAM_UNAVAILABLE' }), now).holdUntil).toBe(now + 60_000)
   })
 
   it('never sends again by itself: a refusal holds the button until a time, and no more', () => {

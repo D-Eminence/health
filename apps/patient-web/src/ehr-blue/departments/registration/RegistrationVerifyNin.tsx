@@ -15,21 +15,26 @@ import {
  */
 
 /** The NIN form, under its toggle. The field is cleared as the NIN is sent, so the number is never shown again. */
-export function VerifyNinForm({ id, controlId, busy, held, stillChecking, problems, error, onSubmit }: {
+export function VerifyNinForm({ id, controlId, busy, held, stillChecking, problems, error, onInput, onSubmit }: {
   readonly id: string
   readonly controlId: string
   readonly busy: boolean
-  /** Identity named a time to try again: the button is off until then, and nothing is sent by itself. */
+  /**
+   * Identity named a time to try again for this patient and NIN: the button is off until then (or until another NIN is
+   * typed), and nothing is sent by itself.
+   */
   readonly held: boolean
   /** The check has been waiting a few seconds: the form says it is still checking. */
   readonly stillChecking: boolean
   readonly problems: FormProblems
   /** What the last request's refusal said. */
   readonly error: string
+  /** The number typed: a NIN on hold keeps the button off, and any other NIN turns it on. */
+  readonly onInput: (event: FormEvent<HTMLFormElement>) => void
   readonly onSubmit: (event: FormEvent<HTMLFormElement>) => void
 }) {
   return (
-    <form id={id} className="hid-ehr-dept-action-form" noValidate aria-label={VERIFY_NIN} onSubmit={onSubmit}>
+    <form id={id} className="hid-ehr-dept-action-form" noValidate aria-label={VERIFY_NIN} onInput={onInput} onSubmit={onSubmit}>
       <p className="hid-ehr-dept-muted">{VERIFY_NIN_TEXT}</p>
       <EhrField label={VERIFY_NIN_LABEL} controlId={controlId} error={problems.error(controlId)}>
         {/* A password field, as the NIN check's own: the number is not shown on screen while it is typed. */}
