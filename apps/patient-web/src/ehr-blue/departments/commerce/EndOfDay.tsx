@@ -1,10 +1,11 @@
+import { formatDateTime, lagosDay } from '@hid/ui/display'
 import { useId, useState } from 'react'
 import { Banknote, BadgeCheck, CreditCard, Globe, Landmark, Store } from 'lucide-react'
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, Field, Input, PageHeader, SectionHeader, StatCard, StatGroup, Textarea, cx, type Icon } from '../../../kasuwa/ui'
 import { ConfirmSheet, FormActions, LoadingRows } from '../../../kasuwa/parts'
 import { useToast } from '../../../kasuwa/toast'
 import { useDeptAccess } from '../parts/access'
-import { commerce, lagosDay, lagosTime, METHOD_LABEL, type DayCloseBy, type ListPage, type PaymentSettings, type RecordedMethod, type Shift, type Till } from './api'
+import { commerce, METHOD_LABEL, type DayCloseBy, type ListPage, type PaymentSettings, type RecordedMethod, type Shift, type Till } from './api'
 import { naira, parseNaira } from './money'
 import { BILLING_OFF, NOT_SWITCHED_ON, NotSwitchedOn } from './NotSwitchedOn'
 import { useCommerceRead } from './useCommerceRead'
@@ -14,7 +15,8 @@ const METHOD_ICON: Readonly<Record<RecordedMethod, Icon>> = {
 }
 /** The ways money is taken, in the order a day shows them. Waivers and HMO cover are never money taken. */
 const MONEY: readonly RecordedMethod[] = ['cash', 'pos', 'transfer', 'online']
-const clock = (iso: string) => lagosTime(iso, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+/** "18 Nov 2026, 14:05", Lagos time (Q181 A, Q182 A). */
+const clock = (iso: string) => formatDateTime(iso)
 
 /** "₦500.00 over", "₦200.00 short", "Matches". */
 export function differenceText(kobo: number): string {

@@ -1,3 +1,4 @@
+import { lagosDay } from '@hid/ui/display'
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { HEALTH_ID_PREFIX, isBlankHealthIdInput, isCompleteHealthId, normalizeHealthIdInput } from '@hid/contracts'
 import { isHidApiError } from '@hid/http'
@@ -21,10 +22,9 @@ const HID_PROBLEM = 'Check the Health ID: it starts with HID-, then 6 to 32 lett
 /** How often Incoming is read again while the page is in view (SPEC-FINAL §13.3). */
 export const INCOMING_REFRESH_MS = 120_000
 
+/** Today in Lagos (YYYY-MM-DD), whatever the device's zone (Q181 A). */
 function today(): string {
-  const now = new Date()
-  const pad = (part: number) => String(part).padStart(2, '0')
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+  return lagosDay()
 }
 
 /** How an order was accepted: a date of birth alone does not name the order (P4c review). */

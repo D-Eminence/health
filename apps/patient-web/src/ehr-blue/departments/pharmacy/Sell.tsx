@@ -1,3 +1,4 @@
+import { formatDate, lagosDay } from '@hid/ui/display'
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { Check, CircleCheck, FileText, PackageCheck, Pencil, Plus, Printer, Search, ShoppingBag, Trash2, UserRound, Wallet, X } from 'lucide-react'
 import { Modal } from '../../../kasuwa/interactive'
@@ -39,7 +40,7 @@ const NO_CUSTOMER: Customer = { name: '', phone: '', healthId: '' }
 type Stage = 'basket' | 'pay' | 'handover' | 'done'
 
 const label = (item: Pick<CatalogueItem, 'name' | 'strength'>) => `${item.name}${item.strength ? ` ${item.strength}` : ''}`
-const today = () => new Date().toISOString().slice(0, 10)
+const today = () => lagosDay()
 
 /**
  * Sell, at the counter (POINT_OF_CARE_SPEC §4, the owner's order of 2026-10-31: work first, identity optional). The
@@ -242,7 +243,7 @@ function Counter({ facilityId, permissions }: { readonly facilityId: string; rea
             </ul>}
           {prescription ? <div className="flex items-start justify-between gap-3 border-t border-line px-5 py-3">
             <p className="m-0 min-w-0 text-[14px] text-ink-2 [overflow-wrap:anywhere]"><FileText className="mr-1.5 inline size-4 align-[-3px] text-ink-3" aria-hidden />
-              Prescription: <span className="font-medium text-ink">{[prescription.prescriberName, prescription.facilityName, prescription.writtenOn].filter(Boolean).join(' · ')}</span></p>
+              Prescription: <span className="font-medium text-ink">{[prescription.prescriberName, prescription.facilityName, formatDate(prescription.writtenOn)].filter(Boolean).join(' · ')}</span></p>
             <Button variant="ghost" size="sm" icon={Pencil} aria-label="Change the prescription" className="max-sm:size-11 max-sm:px-0" onClick={() => setAsking({ entry: null })} />
           </div> : null}
           <CustomerPart customer={customer} open={customerOpen} hidError={hidError}

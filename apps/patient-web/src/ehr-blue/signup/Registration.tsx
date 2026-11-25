@@ -1,3 +1,4 @@
+import { formatPhone } from '@hid/ui/display'
 import { useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { EhrButton, EhrDialog, EhrField, EhrInput, EhrSelect } from '@hid/ui/ehr'
 import { Turnstile } from '../../Turnstile'
@@ -317,7 +318,7 @@ function Review({ e, onEdit }: {
 }) {
   // Only what has a value, as the design lists it; never a password.
   const sections: ReadonlyArray<ReadonlyArray<readonly [string, string]>> = [
-    [['Full name', e.name.trim()], ['Your phone', phoneE164(e.administratorPhone) ?? e.administratorPhone.trim()],
+    [['Full name', e.name.trim()], ['Your phone', formatPhone(phoneE164(e.administratorPhone) ?? e.administratorPhone)],
       ['Email', e.administratorEmail], ['Role at the facility', administratorRoleName(e.administratorRole)]],
     [...profileRows(e.profile, ['tradingName']), ['Facility type', organizationTypeLabel(e.organizationType)],
       ...profileRows(e.profile, FACILITY_DETAILS_FIELDS.filter(field => field !== 'tradingName'))],

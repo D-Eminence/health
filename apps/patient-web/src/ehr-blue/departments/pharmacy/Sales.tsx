@@ -1,3 +1,4 @@
+import { formatTime, lagosDay } from '@hid/ui/display'
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ChevronRight, PackageCheck, Printer, ReceiptText, RotateCcw, Search, Wallet } from 'lucide-react'
@@ -5,7 +6,7 @@ import { ConfirmSheet, FormActions, PageState } from '../../../kasuwa/parts'
 import { Alert, Badge, Button, Field, FilterTabs, Input, PageHeader, Textarea, cx, timeAgo, type Tone } from '../../../kasuwa/ui'
 import { useToast } from '../../../kasuwa/toast'
 import { useBluePage } from '../../frame/pageContext'
-import { commerce, lagosDay, lagosTime, METHOD_LABEL, billName, healthIdEnding, type Bill, type ListPage, type Payment, type PaymentSettings, type ReceiptData } from '../commerce/api'
+import { commerce, METHOD_LABEL, billName, healthIdEnding, type Bill, type ListPage, type Payment, type PaymentSettings, type ReceiptData } from '../commerce/api'
 import { naira } from '../commerce/money'
 import { BILLING_OFF, NOT_SWITCHED_ON, NotSwitchedOn } from '../commerce/NotSwitchedOn'
 import { Receipt } from '../commerce/Receipt'
@@ -18,9 +19,10 @@ import { printReceipt } from '../../../print/printPaper'
 const LIST = '/provider/pharmacy/sales'
 type When = 'today' | 'all'
 
-/** The facility's day, as `GET bills?date=` takes it: today in Lagos (BILL-1). */
+/** The facility's day, as `GET bills?date=` takes it: today in Lagos, whatever the device's zone (BILL-1, Q181 A). */
 const localDay = () => lagosDay()
-const clock = (iso: string) => lagosTime(iso, { hour: '2-digit', minute: '2-digit' })
+/** "14:05", Lagos time: the list shows today's sales only by default, and "All" sales show their date (below). */
+const clock = (iso: string) => formatTime(iso)
 
 /** Money given back on a sale: its payments taken back (each recorded with the reason). */
 const refundedOf = (bill: Bill) => bill.payments.filter(payment => payment.voided).reduce((sum, payment) => sum + payment.amountKobo, 0)

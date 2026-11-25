@@ -1,3 +1,4 @@
+import { formatPhone } from '@hid/ui/display'
 import { useCallback, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import { usesNovuBackend } from '../backendContract'
@@ -44,7 +45,7 @@ function FacilityStatusAction({ facility, reload }: { facility: Facility; reload
 }
 
 /** Health ID support's number, which an alert gives for a facility without its own (hid-system #109). */
-const SUPPORT_PHONE = '+234 702 671 7252'
+const SUPPORT_PHONE = formatPhone('+2347026717252')
 /** This section's explanations of the alert phone command's refusals (hid-system #109 admin.service.ts). */
 const ALERT_PHONE_PROBLEMS: Readonly<Record<string, string>> = {
   ADMIN_INVALID_FACILITY_PHONE: 'Enter the facility phone in international format (+234...) or as an 11-digit number starting with 0.',
@@ -88,7 +89,7 @@ function FacilityAlertPhone({ facility, actor, reload }: { facility: Facility; a
     }, 'The alert phone number could not be saved. Try again.', ALERT_PHONE_PROBLEMS)
     if (saved) {
       setPhone(''); setReason(''); setClearing(false)
-      setNotice(saved.alertPhoneE164 ? `Saved. Alerts about emergency access here now give ${saved.alertPhoneE164}.`
+      setNotice(saved.alertPhoneE164 ? `Saved. Alerts about emergency access here now give ${formatPhone(saved.alertPhoneE164)}.`
         : `Cleared. Alerts about emergency access here now give Health ID support's number (${SUPPORT_PHONE}).`)
       reload()
     } else if (isProblem(refused, 'ADMIN_INVALID_FACILITY_PHONE')) {
@@ -101,7 +102,7 @@ function FacilityAlertPhone({ facility, actor, reload }: { facility: Facility; a
       <p>The number a patient's emergency contacts are told to call when a health worker here uses emergency access to the
         patient's record.</p></div></div>
     <dl className="admin-detail-grid">
-      <div><dt>Current number</dt><dd>{current ?? `Not set: alerts give Health ID support's number (${SUPPORT_PHONE})`}
+      <div><dt>Current number</dt><dd>{current ? formatPhone(current) : `Not set: alerts give Health ID support's number (${SUPPORT_PHONE})`}
         {current && <small>Changed {date(facility.alertPhoneUpdatedAt)}</small>}</dd></div>
     </dl>
     {has(actor, 'platform.facility.manage') ? <details className="admin-action">

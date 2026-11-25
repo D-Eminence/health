@@ -141,7 +141,7 @@ describe('Reading quality, in Migrate', () => {
     // A platform administrator's figures cover the range asked, this week included: no finished-weeks note.
     expect(screen.queryByText('Figures cover finished weeks only.')).toBeNull()
     expect(qualityCalls()[0]!.query ?? {}).toEqual({})
-    expect(screen.getByText('Weeks from 12 October 2026 to 8 November 2026, at this facility.')).toBeTruthy()
+    expect(screen.getByText('Weeks from 12 Oct 2026 to 8 Nov 2026, at this facility.')).toBeTruthy()
     expect(within(tile('Documents checked and saved')).getByText('198')).toBeTruthy()
     expect(within(tile('Checks where every item was looked at')).getByText('160 of 198')).toBeTruthy()
     expect(within(tile('Items kept as read')).getByText('1,240')).toBeTruthy()

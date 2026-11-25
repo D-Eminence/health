@@ -27,11 +27,28 @@ const ROLE_LABELS: Readonly<Record<string, string>> = {
 }
 
 /*
+ * Owner decision Q137 B (backend migration 0147): two narrow roles Identity gives only to the administrators and the
+ * doctor whose lab and pharmacy work lists, or paper-reading start, the role-table change of 0136 took away, beside
+ * their own role. A member's role list names them by these words. They name an access, not a job, so a sentence never
+ * says "a lab and pharmacy work lists" (roleInSentence leaves them out), and the blue EHR never offers them when an
+ * administrator invites someone or changes a role (hasRoleName is false for them; Identity never offers them either).
+ */
+const ACCESS_ROLE_LABELS: Readonly<Record<string, string>> = {
+  work_list_reader: 'Lab and pharmacy work lists',
+  reading_starter: 'Start a paper reading',
+}
+
+/*
  * A role's words from the list. A code the list does not name reads "Staff" instead of appearing as it is. Own keys
  * only: a code such as "constructor" is not a role.
  */
-function listedRole(code: string): string | undefined {
+function listedJobRole(code: string): string | undefined {
   return Object.hasOwn(ROLE_LABELS, code) ? ROLE_LABELS[code] : undefined
+}
+
+/* A job role's words, or an access role's (Q137 B), for a member's list of roles. */
+function listedRole(code: string): string | undefined {
+  return listedJobRole(code) ?? (Object.hasOwn(ACCESS_ROLE_LABELS, code) ? ACCESS_ROLE_LABELS[code] : undefined)
 }
 
 /** A role's words: "Doctor"; "Staff" for a code the list does not name, never its internal key. */
@@ -57,7 +74,7 @@ function withArticle(word: string): string {
  * the one place those words are made (roleNameInSentence is the same function).
  */
 export function roleInSentence(code: string): string {
-  const word = listedRole(code)
+  const word = listedJobRole(code)
   return word ? withArticle(word.toLowerCase()) : 'a staff member'
 }
 
@@ -72,9 +89,12 @@ export function roleNames(codes: readonly string[]): string {
   return [...new Set(codes.flatMap(code => listedRole(code) ?? []))].join(', ') || 'Staff'
 }
 
-/** Whether the list names this role. The blue EHR offers only these when an administrator assigns a role. */
+/**
+ * Whether the list names this role as a job. The blue EHR offers only these when an administrator assigns a role, so
+ * the access roles of Q137 B are not among them.
+ */
 export function hasRoleName(code: string): boolean {
-  return listedRole(code) !== undefined
+  return listedJobRole(code) !== undefined
 }
 
 /**
@@ -84,7 +104,7 @@ export function hasRoleName(code: string): boolean {
  */
 export function heldRoleNames(codes: readonly string[]): string {
   const named = [...new Set(codes.flatMap(code => listedRole(code) ?? []))]
-  const unnamed = new Set(codes.filter(code => !hasRoleName(code))).size
+  const unnamed = new Set(codes.filter(code => listedRole(code) === undefined)).size
   if (named.length === 0) return unnamed > 1 ? `${unnamed} staff roles` : 'Staff'
   if (unnamed === 0) return named.join(', ')
   return `${named.join(', ')} and ${unnamed === 1 ? 'another role' : `${unnamed} other roles`}`

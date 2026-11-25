@@ -1,3 +1,4 @@
+import { formatDate, formatDateTime, formatPhone } from '@hid/ui/display'
 import { ImportedHistory, matchingImported } from '../ImportedHistory'
 import { usesNovuBackend } from '../backendContract'
 import { PatientImportedHistory } from '../ImportedHistoryPage'
@@ -64,13 +65,11 @@ import { supportHref } from '../supportContact'
 
 function date(value: string | null | undefined) {
   if (!value) return 'Not available'
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? value : new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium' }).format(parsed)
+  return formatDate(value, value)
 }
 
 function dateTime(value: string) {
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? value : new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short' }).format(parsed)
+  return formatDateTime(value, value)
 }
 
 /** " for 60 minutes", " for 2 hours", " for 7 days": how long a facility asks for, in words; nothing when unknown. */
@@ -164,7 +163,7 @@ function PatientChrome({ api, signingOut, onSignOut, children }: { api: ReturnTy
         <li><Link to="/profile#health-information" onClick={close} className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-ink no-underline hover:bg-hover"><HeartPulse className="size-4 text-ink-3" aria-hidden />Health information</Link></li>
       </ul> }}
     nav={nav}
-    person={{ name, detail: shown?.email ?? shown?.phone ?? 'Patient', avatar, profileTo: '/profile' }}
+    person={{ name, detail: shown?.email ?? (shown?.phone ? formatPhone(shown.phone) : null) ?? 'Patient', avatar, profileTo: '/profile' }}
     onSignOut={onSignOut}
     signingOut={signingOut}
     headerStart={<NavLink to="/" aria-label="Health ID home" className="inline-flex items-center no-underline lg:hidden"><BrandLogo className="h-7 w-auto" /></NavLink>}
@@ -443,10 +442,9 @@ const OWN_KINDS: Readonly<Record<PatientEntryKind, string>> = {
   visit: 'Visit', test: 'Test result', medicine: 'Medicine', diagnosis: 'Diagnosis', vaccination: 'Vaccine', other: 'Other',
 }
 
-const OWN_DAY = new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeZone: 'UTC' })
 /** The day the patient entered (YYYY-MM-DD), as that same calendar day wherever the browser is. */
 function ownDay(value: string) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value)) ? OWN_DAY.format(new Date(`${value}T00:00:00Z`)) : date(value)
+  return date(value)
 }
 
 /** Everything an entry the patient added shows, for the page's search. */

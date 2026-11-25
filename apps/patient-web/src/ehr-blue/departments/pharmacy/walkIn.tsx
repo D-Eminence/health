@@ -1,3 +1,4 @@
+import { lagosDay } from '@hid/ui/display'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Camera, Check, FlaskConical, Minus, Plus, Search, X } from 'lucide-react'
 import { Step } from '../../../kasuwa/parts'
@@ -49,7 +50,7 @@ export interface OutsideDraft {
 export const EMPTY_OUTSIDE: OutsideDraft = { prescriberName: '', facilityName: '', writtenOn: '', email: '', phone: '', photo: null }
 export type OutsideErrors = Partial<Record<'prescriberName' | 'email' | 'writtenOn', string>>
 
-export function checkOutside(outside: OutsideDraft, used: boolean, today = new Date().toISOString().slice(0, 10)): OutsideErrors {
+export function checkOutside(outside: OutsideDraft, used: boolean, today = lagosDay()): OutsideErrors {
   if (!used) return {}
   const errors: OutsideErrors = {}
   if (!outside.prescriberName.trim()) errors.prescriberName = 'Type the doctor’s name as written.'
@@ -90,7 +91,7 @@ export function OutsideFields({ idBase, outside, errors, contact, paper, photoUp
   readonly photo?: boolean
 }) {
   const set = (patch: Partial<OutsideDraft>) => onChange({ ...outside, ...patch })
-  const today = new Date().toISOString().slice(0, 10)
+  const today = lagosDay()
   // Its own container: two fields side by side by the room it has (in a dialog too), not by the window.
   return <div className="@container flex flex-col gap-4">
     <Field label={contact ? 'Doctor’s name' : 'Prescriber’s name'} htmlFor={`${idBase}-prescriber`} error={errors.prescriberName} errorId={`${idBase}-prescriber-error`}>

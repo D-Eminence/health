@@ -1,3 +1,4 @@
+import { formatPhone } from '@hid/ui/display'
 import { useCallback, useMemo, useState, type FormEvent } from 'react'
 import {
   adminApi,
@@ -209,7 +210,7 @@ export function DemosPage({ actor }: { actor: AdminActor }) {
       <Table headings={['Contact', 'Organization', 'Product', 'Sent', 'Status', ...(manage ? [''] : [])]}>
       {pages.items.map(item => <tr key={item.id}>
         <td><strong>{item.contactName}</strong><small>{item.contactEmail}</small>
-          {item.contactPhone && <small>{item.contactPhone}</small>}{item.contactRole && <small>{item.contactRole}</small>}</td>
+          {item.contactPhone && <small>{formatPhone(item.contactPhone)}</small>}{item.contactRole && <small>{item.contactRole}</small>}</td>
         <td>{item.sourceSection === REFERRAL_SECTION && <span className="mb-1.5 block"><Status value="referral" /></span>}
           {item.organizationName ? <strong>{item.organizationName}</strong> : 'Not provided'}
           {item.organizationType && <small>{label(item.organizationType)}</small>}

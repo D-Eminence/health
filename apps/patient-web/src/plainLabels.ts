@@ -1,3 +1,4 @@
+import { formatDate, lagosDay } from '@hid/ui/display'
 import { countryName } from './profileParity'
 /**
  * Plain words for values the services send as codes, shared by the patient app and the Hospital EHR (owner rule: patient
@@ -19,17 +20,15 @@ export function accessLevelLabel(scope: string | null | undefined): string {
   }
 }
 
-/** "today", "yesterday", "21 Sept", or "21 Sept 2025" in another year; '' when the value is not a date. */
+/** "today", "yesterday" or "21 Sep 2026", on the Lagos calendar; '' when the value is not a date. */
 export function dayLabel(value: string | null | undefined, now: Date = new Date()): string {
-  if (!value) return ''
-  const day = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T00:00:00`) : new Date(value)
-  if (Number.isNaN(day.getTime())) return ''
-  const start = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
-  const days = Math.round((start(now) - start(day)) / 86_400_000)
+  const day = lagosDay(value || null)
+  if (!day) return ''
+  const start = (text: string) => Date.parse(`${text}T00:00:00Z`)
+  const days = Math.round((start(lagosDay(now)) - start(day)) / 86_400_000)
   if (days === 0) return 'today'
   if (days === 1) return 'yesterday'
-  return day.toLocaleDateString('en-GB', day.getFullYear() === now.getFullYear()
-    ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' })
+  return formatDate(day)
 }
 
 /** A consultation named by its day, never by its id: "Consultation · today", "Consultation · 21 Sept". */

@@ -616,14 +616,3 @@ export function billName(bill: Pick<Bill, 'patient' | 'displayName'>): string {
 export function healthIdEnding(patient: BillPatient | null | undefined): string | null {
   return patient?.healthIdLast4 ? `Health ID ending ${patient.healthIdLast4}` : null
 }
-/** The Lagos day (YYYY-MM-DD) of a moment: what BILL-1 means by "day". */
-export function lagosDay(at: Date = new Date()): string {
-  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Lagos', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(at)
-  const part = (type: string) => parts.find(entry => entry.type === type)?.value ?? ''
-  return `${part('year')}-${part('month')}-${part('day')}`
-}
-/** A date and time on Lagos time, as every billing screen shows it. */
-export function lagosTime(iso: string, options: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }): string {
-  const date = new Date(iso)
-  return Number.isNaN(date.getTime()) ? '' : new Intl.DateTimeFormat('en-GB', { ...options, timeZone: 'Africa/Lagos' }).format(date)
-}

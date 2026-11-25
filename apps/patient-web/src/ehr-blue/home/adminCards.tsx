@@ -1,10 +1,11 @@
+import { lagosDay } from '@hid/ui/display'
 import { ChevronRight, ReceiptText, Users } from 'lucide-react'
 import type { Facility } from '../../staff/api'
 import { useSampleHref } from '../frame/pageContext'
 import { Alert, Badge, Button, Card, CardHeader } from '../../kasuwa/ui'
 import { LoadingRows } from '../../kasuwa/parts'
 import { billingTotals, naira, useStaffCount, useStaffHref } from './dashboardCards'
-import { commerce, lagosDay, type BillSummary } from '../departments/commerce/api'
+import { commerce, type BillSummary } from '../departments/commerce/api'
 import { naira as nairaKobo } from '../departments/commerce/money'
 import { useCommerceRead } from '../departments/commerce/useCommerceRead'
 

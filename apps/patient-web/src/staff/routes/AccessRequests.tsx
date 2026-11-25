@@ -1,3 +1,4 @@
+import { formatDateTime } from '@hid/ui/display'
 import { useEffect, useRef, useState } from 'react'
 import { isHidApiError, plainErrorText } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Select } from '@hid/ui'
@@ -123,9 +124,9 @@ export function AccessRequests() {
     {/* Mounted throughout, so what a close says is announced. */}
     <div id="access-requests-status" role="status">{notice ? <p className="staff-success">{notice}</p> : loading && !requests && <p className="staff-muted">Loading requests…</p>}</div>
     {requests && requests.length === 0 && <EmptyState title={status ? `No access requests: ${FILTER_LABELS[status].toLowerCase()}` : 'No access requests'} description="Requests you send for this facility will appear here." />}
-    {requests && requests.length > 0 && <Card className="staff-table-wrap"><table className="staff-table"><thead><tr><th>Requested</th><th>Patient context</th><th>Scope</th><th>Reason</th><th>Status</th></tr></thead><tbody>{requests.map(request => <tr key={request.accessRequestId}><td data-label="Requested">{new Date(request.requestedAt).toLocaleString()}</td><td data-label="Patient context">{PATIENT_NOT_NAMED}</td><td data-label="Scope">{accessLevelLabel(request.scope)}</td><td data-label="Reason">{request.reason}</td><td data-label="Status"><Badge tone={outcome(request).tone}>{outcome(request).label}</Badge>
+    {requests && requests.length > 0 && <Card className="staff-table-wrap"><table className="staff-table"><thead><tr><th>Requested</th><th>Patient context</th><th>Scope</th><th>Reason</th><th>Status</th></tr></thead><tbody>{requests.map(request => <tr key={request.accessRequestId}><td data-label="Requested">{formatDateTime(request.requestedAt)}</td><td data-label="Patient context">{PATIENT_NOT_NAMED}</td><td data-label="Scope">{accessLevelLabel(request.scope)}</td><td data-label="Reason">{request.reason}</td><td data-label="Status"><Badge tone={outcome(request).tone}>{outcome(request).label}</Badge>
       {request.authorizationMethod && <small className="staff-muted"> {request.authorizationMethod === 'patient_access_pin' ? 'Patient PIN' : 'Patient approval'}</small>}
-      {request.effectiveStatus === 'active' && request.grantExpiresAt && <small className="staff-muted"> until {new Date(request.grantExpiresAt).toLocaleString()}</small>}
+      {request.effectiveStatus === 'active' && request.grantExpiresAt && <small className="staff-muted"> until {formatDateTime(request.grantExpiresAt)}</small>}
       {request.status === 'denied' && request.deniedReason && <small className="staff-muted"> {request.deniedReason}</small>}
       {request.effectiveStatus === 'active' && request.consentGrantId && <Button tone="secondary" size="sm"
         onClick={() => void closeAccess(request)} disabled={closing !== null && closing !== request.accessRequestId}

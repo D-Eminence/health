@@ -1,3 +1,4 @@
+import { formatDateTime } from '@hid/ui/display'
 import { useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
@@ -58,10 +59,7 @@ function SupportLink() {
 }
 
 function when(value: string | null | undefined): string | null {
-  if (!value) return null
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? null
-    : new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short' }).format(parsed)
+  return formatDateTime(value) || null
 }
 
 function FocusedHeading({ id, children }: { readonly id: string; readonly children: ReactNode }) {

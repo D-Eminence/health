@@ -1,14 +1,15 @@
+import { formatDateTime, formatPhone } from '@hid/ui/display'
 import { CircleCheck, Printer } from 'lucide-react'
 import { Badge, Button, cx } from '../../../kasuwa/ui'
 import { FormActions } from '../../../kasuwa/parts'
-import { BILL_STATUS_LABEL, METHOD_LABEL, SOURCE_LABEL, billName, lagosTime, type Bill, type Hmo, type HmoCover, type Payment, type ReceiptData } from './api'
+import { BILL_STATUS_LABEL, METHOD_LABEL, SOURCE_LABEL, billName, type Bill, type Hmo, type HmoCover, type Payment, type ReceiptData } from './api'
 import { naira } from './money'
 import { PrintHeader } from '../../frame/PrintHeader'
 import './commerce.css'
 import { printReceipt } from '../../../print/printPaper'
 
-/** A date and time on Lagos time. */
-const when = (iso: string) => lagosTime(iso)
+/** "18 Nov 2026, 14:05", Lagos time (Q181 A, Q182 A). */
+const when = (iso: string) => formatDateTime(iso)
 
 /** One payment in words: "POS · RRN 402911", "Transfer · ref 0091 · Waiting for check", "Waiver · reason". */
 export function paymentLine(payment: Payment, _hmos: readonly Hmo[] = []): string {
@@ -63,7 +64,7 @@ export function Receipt({ bill, receipt, facilityName, hmos = [], footer, onDone
           <PrintHeader facility={facility} printOnly stacked />
           {facility ? <p className="m-0 text-title-3 text-ink print:hidden">{facility}</p> : null}
           {receipt?.facility.address ? <p className="m-0 text-caption text-ink-3">{receipt.facility.address}</p> : null}
-          {receipt?.facility.phone ? <p className="m-0 text-caption text-ink-3">{receipt.facility.phone}</p> : null}
+          {receipt?.facility.phone ? <p className="m-0 text-caption text-ink-3">{formatPhone(receipt.facility.phone)}</p> : null}
           <p className="m-0 mt-2 text-[13px] font-semibold tracking-[.06em] text-ink-2 uppercase">{number ? 'Receipt' : 'Bill'}</p>
           <p className="m-0 text-title-2 text-ink tabular">{number ?? shown.number}</p>
           <p className="m-0 text-caption text-ink-3">{when(issuedAt)}{number ? ` · Bill ${shown.number}` : ''} · {SOURCE_LABEL[shown.source] ?? 'Bill'}</p>

@@ -1,3 +1,4 @@
+import { formatTime } from '@hid/ui/display'
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { isHidApiError, plainErrorText, retryAfterSeconds } from '@hid/http'
@@ -147,7 +148,7 @@ const HOLDER_PROOF_REQUIRED = 'We could not confirm that this NIN is yours, so t
 const googleTiedUntil = (ends: number | null, named: boolean) => `You continued with Google for this registration, so a different NIN can be used here only ${ends === null
   ? 'once that Google sign-up ends, 30 minutes after you continued'
   // Rounded up to the minute shown: a press during the minute named would still be refused.
-  : `after ${new Date(Math.ceil(ends / 60_000) * 60_000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`}. ${named
+  : `after ${formatTime(Math.ceil(ends / 60_000) * 60_000)}`}. ${named
   ? 'If the name is not yours, stop here and come back then.' : 'If you meant to use a different NIN, stop here and come back then.'}`
 /**
  * Within this of each other, two expiries are of one registration: Identity fixes the expiry at the first

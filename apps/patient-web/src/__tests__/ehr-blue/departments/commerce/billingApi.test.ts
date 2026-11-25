@@ -126,9 +126,9 @@ describe('whether billing answers at a facility', () => {
 })
 
 describe('Lagos days and times', () => {
-  it('names the Lagos day, not the device’s or UTC’s', async () => {
-    const { lagosDay, lagosTime } = await client()
-    expect(lagosDay(new Date('2026-11-25T23:30:00Z'))).toBe('2026-11-26')
-    expect(lagosTime('2026-11-25T23:30:00Z', { hour: '2-digit', minute: '2-digit' })).toBe('00:30')
+  it('leaves dates and times to @hid/ui/display (P2-4): the billing client has no formatter of its own', async () => {
+    const api = await client() as Record<string, unknown>
+    expect(api.lagosDay).toBeUndefined()
+    expect(api.lagosTime).toBeUndefined()
   })
 })

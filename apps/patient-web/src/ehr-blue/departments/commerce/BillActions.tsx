@@ -1,3 +1,4 @@
+import { formatDateTime } from '@hid/ui/display'
 import { useId, useState, type ReactNode } from 'react'
 import { Ban, CircleCheck, Clock, Plus, Printer, Undo2, X } from 'lucide-react'
 import { Segmented } from '../../../kasuwa/interactive'
@@ -5,7 +6,7 @@ import { ConfirmSheet } from '../../../kasuwa/parts'
 import { Alert, Button, Field, Input, Select, Textarea } from '../../../kasuwa/ui'
 import { useToast } from '../../../kasuwa/toast'
 import { useDeptAccess } from '../parts/access'
-import { commerce, KIND_LABEL, METHOD_LABEL, billName, lagosTime, type Bill, type BillLine, type CatalogueItem, type CommerceResult, type HmoCover, type ListPage, type Payment } from './api'
+import { commerce, KIND_LABEL, METHOD_LABEL, billName, type Bill, type BillLine, type CatalogueItem, type CommerceResult, type HmoCover, type ListPage, type Payment } from './api'
 import { naira } from './money'
 import { NOT_SET_UP_UNSAVED } from './NotSwitchedOn'
 import { useCommerceRead } from './useCommerceRead'
@@ -63,7 +64,7 @@ export function BillActions({ bill, onChanged, onPrint }: {
         <span className="min-w-0 text-sm">
           <span className="block font-medium text-ink">{METHOD_LABEL[payment.method] ?? 'Payment'} <span className="tabular">{naira(payment.amountKobo)}</span>
             {payment.status === 'pending_check' ? <span className="font-normal text-ink-2"> · Waiting for check</span> : null}</span>
-          <span className="block text-caption text-ink-3">{payment.receiptNumber ? `${payment.receiptNumber} · ` : ''}{payment.receivedBy} · {lagosTime(payment.receivedAt)}</span>
+          <span className="block text-caption text-ink-3">{payment.receiptNumber ? `${payment.receiptNumber} · ` : ''}{payment.receivedBy} · {formatDateTime(payment.receivedAt)}</span>
         </span>
         <span className="flex flex-wrap gap-2">
           {payment.status === 'pending_check' && can('billing.payment.confirm') && open

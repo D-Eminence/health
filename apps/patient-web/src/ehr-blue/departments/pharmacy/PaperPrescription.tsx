@@ -1,3 +1,4 @@
+import { lagosDay } from '@hid/ui/display'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowRight, FileText, Trash2 } from 'lucide-react'
@@ -85,7 +86,7 @@ function PaperForm({ facilityId, withStock }: { readonly facilityId: string; rea
 
   async function send() {
     if (QUEUE_OFF || sending || photoUpload.uploading) return
-    const errors = checkOutside(outside, true, new Date().toISOString().slice(0, 10))
+    const errors = checkOutside(outside, true, lagosDay())
     setOutsideErrors(errors)
     if (errors.prescriberName) return focus('paper-rx-prescriber')
     if (errors.writtenOn) return focus('paper-rx-written')
