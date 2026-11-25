@@ -246,6 +246,32 @@ describe('Sales & receipts', () => {
     expect(screen.queryByText('No sales yet today')).toBeNull()
   })
 
+  it('refunds at a till with a day per till: the till is asked for, and sent', async () => {
+    session.facility = fakeFacility([...PHARMACIST, 'billing.payment.void'], { id: DEMO_PHARMACY_ID, name: 'Demo Pharmacy', roles: ['pharmacist'] })
+    session.rest = 'sale-9'
+    const sale = billOf({ id: 'sale-9', number: 'B-000501', source: 'pharmacy', status: 'paid', counter: true, patient: null, visit: null,
+      lines: [], totalKobo: 20000, paidKobo: 20000, hmoCoveredKobo: 0, dueKobo: 0, hmoCovers: [], handedOverAt: '2026-11-26T09:10:00Z',
+      payments: [{ id: 'pay-9', method: 'cash', amountKobo: 20000, receivedBy: 'Bola Cashier', receivedAt: '2026-11-26T09:05:00Z', voided: false,
+        status: 'recorded', receiptNumber: 'R-2026-000301' }] })
+    commerceApi.bill = async () => ok(sale)
+    commerceApi.paymentSettings = async () => ok({ ...sellSettings('both'), dayCloseBy: 'till' as const,
+      tills: [{ id: 'till-front', name: 'Front till', active: true }, { id: 'till-back', name: 'Back till', active: true }] })
+    const voidPayment = vi.fn(async (..._args: unknown[]) => ok({ ...sale, version: 6 }))
+    commerceApi.voidPayment = voidPayment
+    renderDept(<Sales />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Refund' }))
+    const sheet = await screen.findByRole('dialog', { name: 'Refund' })
+    fireEvent.change(within(sheet).getByLabelText('Why?'), { target: { value: 'Customer brought the pack back' } })
+    fireEvent.click(within(sheet).getByRole('button', { name: /^Refund ₦/ }))
+    expect(await within(sheet).findByText('Choose the till the money is given back from.')).toBeTruthy()
+    expect(voidPayment).not.toHaveBeenCalled()
+    fireEvent.change(within(sheet).getByLabelText('Till'), { target: { value: 'till-back' } })
+    fireEvent.click(within(sheet).getByRole('button', { name: /^Refund ₦/ }))
+    await waitFor(() => expect(voidPayment).toHaveBeenCalled())
+    expect(voidPayment.mock.calls[0]![3]).toBe('Refund: Customer brought the pack back')
+    expect(voidPayment.mock.calls[0]![6]).toBe('till-back')
+  })
+
   it('names a counter sale by the name given and the last four of a Health ID only', async () => {
     commerceApi.bills = async () => ok({ items: [{ id: 'bill-9', number: 'B-000500', source: 'pharmacy', status: 'paid', counter: true,
       patient: { patientId: 'p-9', displayName: 'Chidi Test', healthIdLast4: 'K2Q7' }, lines: [], totalKobo: 20000, paidKobo: 20000, dueKobo: 0,

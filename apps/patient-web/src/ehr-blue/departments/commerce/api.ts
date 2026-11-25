@@ -514,10 +514,15 @@ export const commerce = {
   /** A payment, or HMO cover (method `hmo`: recorded as owed by the HMO, never as a payment). */
   recordPayment: (facilityId: string, billId: string, payment: PaymentInput, idempotencyKey?: string) =>
     call<Bill>('POST', `${C}/bills/${id(billId)}/payments`, facilityId, { body: payment, idempotencyKey }),
-  /** Cancels a payment (a refund is one, with "Refund: …"): by someone other than the person who took it. */
-  voidPayment: (facilityId: string, billId: string, paymentId: string, reason: string, expectedVersion?: number, idempotencyKey?: string) =>
+  /**
+   * Cancels a payment (a refund is one, with "Refund: …"): by someone other than the person who took it. It is recorded
+   * in the open day of the one cancelling it; with a day per till, `tillId` names the till (refused without one for cash,
+   * and a POS or transfer cancelled without one is in no till's day). Never sent otherwise: refused outside till mode.
+   */
+  voidPayment: (facilityId: string, billId: string, paymentId: string, reason: string, expectedVersion?: number, idempotencyKey?: string,
+    tillId?: string | null) =>
     call<Bill>('POST', `${C}/bills/${id(billId)}/payments/${id(paymentId)}/void`, facilityId,
-      { body: { reason, ...(expectedVersion !== undefined ? { expectedVersion } : {}) }, idempotencyKey }),
+      { body: { reason, ...(expectedVersion !== undefined ? { expectedVersion } : {}), ...(tillId ? { tillId } : {}) }, idempotencyKey }),
   confirmPayment: (facilityId: string, billId: string, paymentId: string, expectedVersion?: number, idempotencyKey?: string) =>
     call<Bill>('POST', `${C}/bills/${id(billId)}/payments/${id(paymentId)}/confirm`, facilityId,
       { body: expectedVersion !== undefined ? { expectedVersion } : {}, idempotencyKey }),
@@ -619,6 +624,16 @@ export const DEFERRED_LABEL: Readonly<Record<DeferredReason, string>> = {
 }
 /** The kind of item in words: the screen says "Service" for `other` (BILL-2: the price list is the Service catalogue). */
 export const KIND_LABEL: Readonly<Record<CatalogueKind, string>> = { drug: 'Drug', lab_test: 'Lab test', other: 'Service' }
+
+/**
+ * With a day per till, the active tills a payment is taken at or given back from; none in any other setup (the day is
+ * the facility's or the cashier's, and the server refuses a till then).
+ */
+export function dayTills(settings: Pick<PaymentSettings, 'dayCloseBy' | 'tills'> | null | undefined): Till[] {
+  return settings?.dayCloseBy === 'till' ? (settings.tills ?? []).filter(till => till.active !== false) : []
+}
+/** Whether cancelling this payment is recorded in a day (so in a till's, with a day per till): every way but a waiver. */
+export const voidTakesTill = (payment: Pick<Payment, 'method'>) => payment.method !== 'waiver'
 
 /** Who a bill is for, in words: the patient, the name a counter customer gave, or "Counter sale". */
 export function billName(bill: Pick<Bill, 'patient' | 'displayName'>): string {

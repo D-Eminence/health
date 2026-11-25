@@ -42,6 +42,14 @@ describe('a billing request', () => {
     expect(JSON.parse(String(write.body))).toEqual({ reason: 'Refund: returned', expectedVersion: 5 })
   })
 
+  it('sends the till a payment is cancelled at with a day per till, and none otherwise', async () => {
+    const { fetch, commerce } = await client(answer({ id: BILL, version: 6 }), answer({ id: BILL, version: 7 }))
+    await commerce.voidPayment(FACILITY, BILL, 'c0000000-0000-4000-8000-000000000003', 'Refund: returned', 5, 'key-0000000000000002', 'd0000000-0000-4000-8000-000000000004')
+    await commerce.voidPayment(FACILITY, BILL, 'c0000000-0000-4000-8000-000000000003', 'Recorded twice', 6, 'key-0000000000000003', null)
+    expect(JSON.parse(String(fetch.mock.calls[0]![1].body))).toEqual({ reason: 'Refund: returned', expectedVersion: 5, tillId: 'd0000000-0000-4000-8000-000000000004' })
+    expect(JSON.parse(String(fetch.mock.calls[1]![1].body))).toEqual({ reason: 'Recorded twice', expectedVersion: 6 })
+  })
+
   it('never sends a search shaped like a Health ID or an 11-digit NIN, and says why in BILL-1’s words', async () => {
     const { fetch, commerce } = await client()
     for (const q of ['HID-ZDEMAAA2', 'hid-zdemaaa2', '123 4567 8901']) {

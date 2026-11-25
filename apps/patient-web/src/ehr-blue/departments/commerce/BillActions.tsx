@@ -5,8 +5,12 @@ import { Segmented } from '../../../kasuwa/interactive'
 import { ConfirmSheet } from '../../../kasuwa/parts'
 import { Alert, Button, Field, Input, Select, Textarea } from '../../../kasuwa/ui'
 import { useToast } from '../../../kasuwa/toast'
+import { useFocusById } from '../../../staff/focus'
 import { useDeptAccess } from '../parts/access'
-import { commerce, KIND_LABEL, METHOD_LABEL, billName, type Bill, type BillLine, type CatalogueItem, type CommerceResult, type HmoCover, type ListPage, type Payment } from './api'
+import {
+  commerce, dayTills, KIND_LABEL, METHOD_LABEL, billName, voidTakesTill,
+  type Bill, type BillLine, type CatalogueItem, type CommerceResult, type HmoCover, type ListPage, type Payment, type PaymentSettings, type Till,
+} from './api'
 import { naira } from './money'
 import { NOT_SET_UP_UNSAVED } from './NotSwitchedOn'
 import { useCommerceRead } from './useCommerceRead'
@@ -16,7 +20,9 @@ import { useCommerceRead } from './useCommerceRead'
  * that says what it does: confirm a transfer arrived, cancel a payment (a refund is a cancelled payment with "Refund:
  * …", BILL-4), cancel HMO cover, add or cancel a line, "Bill follows" for an emergency, cancel a bill with nothing paid,
  * and print a payment's receipt. The backend refuses the person who took a payment from cancelling or confirming it
- * (SECOND_PERSON_REQUIRED); its words are shown as they come.
+ * (SECOND_PERSON_REQUIRED); its words are shown as they come. With a day per till, a payment is cancelled or refunded at
+ * a till, whose day records it. An action refused because someone changed the bill meanwhile has the bill read again
+ * (`onStale`), and is sent again only when pressed again, with the version read.
  */
 
 type Sheet =
@@ -30,13 +36,21 @@ type Sheet =
 
 const REASON_MIN = 8
 const REASON_MAX = 500
+/** A refund is sent as "Refund: " and the reason, and the server takes 500 characters in all. */
+const REFUND_PREFIX = 'Refund: '
+/** Refused because the bill changed since it was read: it is read again at once, so the words say so. */
+const BILL_CHANGED = 'Someone else changed this bill meanwhile. It has been read again: check it, then try again.'
 
-export function BillActions({ bill, onChanged, onPrint }: {
+export function BillActions({ bill, settings = null, onChanged, onPrint, onStale }: {
   readonly bill: Bill
+  /** The payment setup: with a day per till, the tills a cancelled payment is recorded at. */
+  readonly settings?: PaymentSettings | null
   /** The bill as saved, put in its place at once. */
   readonly onChanged: (bill: Bill) => void
   /** Print one payment's receipt. */
   readonly onPrint?: (payment: Payment) => void
+  /** An action was refused because the bill changed since it was read: read it again. */
+  readonly onStale?: () => void
 }) {
   const { permissions } = useDeptAccess()
   const [sheet, setSheet] = useState<Sheet | null>(null)
@@ -97,7 +111,7 @@ export function BillActions({ bill, onChanged, onPrint }: {
       {lines.map(line => <li key={line.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
         <span className="min-w-0 text-sm text-ink">{line.quantity > 1 ? `${line.quantity} × ` : ''}{line.name} · <span className="tabular">{naira(line.totalKobo)}</span>
           {line.dispensingReversed ? <span className="text-warn-ink"> · dispensing reversed</span> : null}</span>
-        <Button size="sm" variant="ghost" icon={X} aria-label={`Cancel the line ${line.name}`} onClick={() => setSheet({ kind: 'cancel-line', line })}>Cancel line</Button>
+        <Button size="sm" variant="ghost" icon={X} aria-label={`Cancel line: ${line.name}`} onClick={() => setSheet({ kind: 'cancel-line', line })}>Cancel line</Button>
       </li>)}
     </ul> : null}
 
@@ -108,18 +122,24 @@ export function BillActions({ bill, onChanged, onPrint }: {
       {can('billing.bill.adjust') && nothingTaken ? <Button icon={Ban} onClick={() => setSheet({ kind: 'void-bill' })}>Cancel bill</Button> : null}
     </div> : <p className="m-0 text-sm text-ink-2">This bill was cancelled. It keeps its number.</p>}
 
-    {sheet ? <ActionSheet bill={bill} sheet={sheet} onClose={() => setSheet(null)} onDone={next => { setSheet(null); onChanged(next) }} /> : null}
+    {sheet ? <ActionSheet bill={bill} sheet={sheet} tills={dayTills(settings)} onStale={onStale}
+      onClose={() => setSheet(null)} onDone={next => { setSheet(null); onChanged(next) }} /> : null}
   </section>
 }
 
-/** One action's confirmation, with its reason where it needs one, sent once (one Idempotency-Key per sheet). */
-function ActionSheet({ bill, sheet, onClose, onDone }: {
-  readonly bill: Bill; readonly sheet: Sheet; readonly onClose: () => void; readonly onDone: (bill: Bill) => void
+/**
+ * One action's confirmation, with its reason where it needs one, sent once (one Idempotency-Key per sheet; a new one once
+ * the server has refused the bill's version, which it does before saving anything).
+ */
+function ActionSheet({ bill, sheet, tills, onStale, onClose, onDone }: {
+  readonly bill: Bill; readonly sheet: Sheet; readonly tills: readonly Till[]; readonly onStale?: () => void
+  readonly onClose: () => void; readonly onDone: (bill: Bill) => void
 }) {
   const { facilityId } = useDeptAccess()
   const ids = useId()
   const toast = useToast()
-  const [key] = useState(() => crypto.randomUUID())
+  const focus = useFocusById()
+  const [key, setKey] = useState(() => crypto.randomUUID())
   const [reason, setReason] = useState('')
   const [refund, setRefund] = useState<'refund' | 'cancel'>('refund')
   const [busy, setBusy] = useState(false)
@@ -127,22 +147,33 @@ function ActionSheet({ bill, sheet, onClose, onDone }: {
   const [tried, setTried] = useState(false)
   const [item, setItem] = useState<CatalogueItem | null>(null)
   const [quantity, setQuantity] = useState('1')
+  const [tillPicked, setTillPicked] = useState('')
   const needsReason = sheet.kind === 'void-payment' || sheet.kind === 'cancel-cover' || sheet.kind === 'cancel-line' || sheet.kind === 'void-bill'
-  const reasonError = needsReason && (reason.trim().length < REASON_MIN || reason.trim().length > REASON_MAX)
-    ? `Say why, in ${REASON_MIN} to ${REASON_MAX} characters.` : null
+  const refunding = sheet.kind === 'void-payment' && refund === 'refund'
+  const reasonMax = refunding ? REASON_MAX - REFUND_PREFIX.length : REASON_MAX
+  const reasonError = needsReason && (reason.trim().length < REASON_MIN || reason.trim().length > reasonMax)
+    ? `Say why, in ${REASON_MIN} to ${reasonMax} characters.` : null
   const count = Number(quantity)
   const lineError = sheet.kind === 'add-line' ? !item ? 'Choose an item from the price list.'
     : !Number.isInteger(count) || count < 1 || count > 10_000 ? 'Type how many, a whole number from 1 to 10,000.' : null : null
+  // With a day per till, a cancelled payment (not a waiver) goes in the open day of the till it is given back from.
+  const tillShown = sheet.kind === 'void-payment' && voidTakesTill(sheet.payment) && tills.length > 0
+  const till = tillShown ? tills.find(entry => entry.id === tillPicked) ?? (tills.length === 1 ? tills[0]! : null) : null
+  const tillError = tillShown && !till ? refunding ? 'Choose the till the money is given back from.' : 'Choose the till.' : null
 
   async function run() {
     setTried(true)
-    if (!facilityId || reasonError || lineError || busy) return
+    if (busy) return
+    if (reasonError) { focus(`${ids}-reason`); return }
+    if (tillError) { focus(`${ids}-till`); return }
+    if (!facilityId || lineError) return
     setBusy(true); setProblem(null)
     const why = reason.trim()
     let result: CommerceResult<Bill>
     switch (sheet.kind) {
       case 'confirm': result = await commerce.confirmPayment(facilityId, bill.id, sheet.payment.id, bill.version, key); break
-      case 'void-payment': result = await commerce.voidPayment(facilityId, bill.id, sheet.payment.id, refund === 'refund' ? `Refund: ${why}` : why, bill.version, key); break
+      case 'void-payment': result = await commerce.voidPayment(facilityId, bill.id, sheet.payment.id, refunding ? `${REFUND_PREFIX}${why}` : why,
+        bill.version, key, till?.id); break
       case 'cancel-cover': result = await commerce.cancelHmoCover(facilityId, bill.id, sheet.cover.id, why, bill.version, key); break
       case 'cancel-line': result = await commerce.cancelLine(facilityId, bill.id, sheet.line.id, why, bill.version, key); break
       case 'void-bill': result = await commerce.voidBill(facilityId, bill.id, why, bill.version, key); break
@@ -151,6 +182,11 @@ function ActionSheet({ bill, sheet, onClose, onDone }: {
     }
     setBusy(false)
     if (result.ok) { toast.success({ title: DONE[sheet.kind], message: `Bill ${result.data.number}` }); onDone(result.data); return }
+    if (!result.notAvailable && (result.code === 'VERSION_CONFLICT' || result.code === 'PRECONDITION_FAILED')) {
+      // Nothing was saved: the bill is read again, and the next press is a new request with the version read.
+      setKey(crypto.randomUUID()); setProblem(BILL_CHANGED); onStale?.()
+      return
+    }
     setProblem(result.notAvailable ? NOT_SET_UP_UNSAVED : result.error)
   }
 
@@ -168,8 +204,16 @@ function ActionSheet({ bill, sheet, onClose, onDone }: {
         options={[{ value: 'refund', label: 'Money given back' }, { value: 'cancel', label: 'Recorded by mistake' }]} /> : null}
       {needsReason ? <Field label={sheet.kind === 'void-payment' && refund === 'refund' ? 'Why is it refunded?' : 'Why?'} htmlFor={`${ids}-reason`}
         error={tried ? reasonError : null} errorId={`${ids}-reason-error`}>
-        <Textarea id={`${ids}-reason`} rows={3} maxLength={REASON_MAX} value={reason} onChange={event => setReason(event.target.value)}
+        <Textarea id={`${ids}-reason`} rows={3} maxLength={reasonMax} value={reason} onChange={event => setReason(event.target.value)}
           aria-invalid={Boolean(tried && reasonError)} aria-describedby={tried && reasonError ? `${ids}-reason-error` : undefined} />
+      </Field> : null}
+      {tillShown ? <Field label="Till" htmlFor={`${ids}-till`} error={tried ? tillError : null} errorId={`${ids}-till-error`}
+        hint={refunding ? 'The till the money is given back from.' : 'Recorded in this till’s day.'}>
+        <Select id={`${ids}-till`} value={till?.id ?? ''} onChange={event => setTillPicked(event.target.value)}
+          aria-invalid={Boolean(tried && tillError)} aria-describedby={tried && tillError ? `${ids}-till-error` : undefined}>
+          {tills.length > 1 ? <option value="">Choose the till</option> : null}
+          {tills.map(entry => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
+        </Select>
       </Field> : null}
       {sheet.kind === 'add-line' ? <AddLineFields item={item} onItem={setItem} quantity={quantity} onQuantity={setQuantity} error={tried ? lineError : null} /> : null}
       {problem ? <Alert intent="error" size="sm" title="Not saved">{problem}</Alert> : null}

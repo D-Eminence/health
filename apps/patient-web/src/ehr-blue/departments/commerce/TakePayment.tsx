@@ -5,7 +5,7 @@ import { Alert, Button, Field, Input, Select, Textarea, cx, type Icon } from '..
 import { LoadingRows } from '../../../kasuwa/parts'
 import { useToast } from '../../../kasuwa/toast'
 import { useDeptAccess } from '../parts/access'
-import { commerce, METHOD_LABEL, SOURCE_LABEL, billName, type Bill, type CatalogueItem, type PaymentInput, type PaymentMethod, type PaymentSettings, type ReceiptData, type WorkItemBill } from './api'
+import { commerce, dayTills, METHOD_LABEL, SOURCE_LABEL, billName, type Bill, type CatalogueItem, type PaymentInput, type PaymentMethod, type PaymentSettings, type ReceiptData, type WorkItemBill } from './api'
 import { naira, parseNaira } from './money'
 import { NotSwitchedOn } from './NotSwitchedOn'
 import { Receipt } from './Receipt'
@@ -111,7 +111,7 @@ function TakePaymentDrawer({ bill: given, onPaid, onClose }: {
   const chosenHmo = hmos.find(entry => entry.id === hmoId) ?? (hmos.length === 1 ? hmos[0]! : null)
   const guide = useHmoGuide(facilityId, bill, method === 'hmo' ? chosenHmo?.id ?? null : null)
   // With a day per till, a payment is taken in the open day of the till it is taken at (a waiver and HMO cover need none).
-  const tills = settings.data?.dayCloseBy === 'till' ? (settings.data.tills ?? []).filter(till => till.active !== false) : []
+  const tills = dayTills(settings.data)
   const till = tills.find(entry => entry.id === tillPicked) ?? (tills.length === 1 ? tills[0]! : null)
   const needsTill = tills.length > 0 && (method === 'cash' || method === 'pos' || method === 'transfer')
 

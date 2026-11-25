@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Hourglass, Receipt as ReceiptIcon, Search, ShieldCheck, UserRound, Wallet } from 'lucide-react'
 import { Badge, Button, Card, CardHeader, FilterTabs, Input, PageHeader, Select, timeAgo } from '../../../kasuwa/ui'
 import { LoadingRows, PageState } from '../../../kasuwa/parts'
@@ -136,7 +136,11 @@ function Bills({ facilityId }: { readonly facilityId: string }) {
   </>
 }
 
-/** One bill: the receipt-shaped bill, what can be done to it, and a payment's receipt to print. */
+/**
+ * One bill: the receipt-shaped bill, what can be done to it, and a payment's receipt to print. The list's copy shows at
+ * once; the bill is read again as it opens (the pharmacy, the lab or another cashier may have changed it since the list
+ * was read) and after an action is refused because it changed, and the copy read is put in the list's place.
+ */
 function BillDrawer({ facilityId, bill, facilityName, settings, onChanged, onClose, onPay }: {
   readonly facilityId: string; readonly bill: Bill | null; readonly facilityName?: string; readonly settings: PaymentSettings | null
   readonly onChanged: (bill: Bill) => void; readonly onClose: () => void; readonly onPay: ((bill: Bill) => void) | null
@@ -146,6 +150,15 @@ function BillDrawer({ facilityId, bill, facilityName, settings, onChanged, onClo
     signal => commerce.receipt(facilityId, bill!.id, signal, printing!.id))
   const billId = bill?.id
   useEffect(() => { setPrinting(null) }, [billId])
+  const fresh = useCommerceRead<Bill>(billId ? `bill-open:${facilityId}:${billId}` : null, signal => commerce.bill(facilityId, billId!, signal))
+  const changed = useRef(onChanged)
+  useEffect(() => { changed.current = onChanged })
+  // Only a newer copy than the one shown is put in place: a bill reopened shows its last read for a moment, which may be
+  // older than a payment saved since.
+  const shownVersion = bill?.version
+  useEffect(() => {
+    if (fresh.data && fresh.data.id === billId && (shownVersion === undefined || fresh.data.version > shownVersion)) changed.current(fresh.data)
+  }, [fresh.data])
   if (!bill) return null
   return <Drawer open onClose={onClose} title={`Bill ${bill.number}`} description={[billName(bill), healthIdEnding(bill.patient)].filter(Boolean).join(' · ')}
     footer={<>
@@ -159,7 +172,7 @@ function BillDrawer({ facilityId, bill, facilityName, settings, onChanged, onClo
           <Receipt bill={bill} receipt={receipt.data} facilityName={facilityName} hmos={settings?.hmos} footer={settings?.receiptFooter} onDone={() => setPrinting(null)} />
         </>
         : <Receipt bill={bill} facilityName={facilityName} hmos={settings?.hmos} footer={settings?.receiptFooter} />}
-      <BillActions bill={bill} onChanged={onChanged} onPrint={setPrinting} />
+      <BillActions bill={bill} settings={settings} onChanged={onChanged} onPrint={setPrinting} onStale={fresh.reload} />
     </div>
   </Drawer>
 }

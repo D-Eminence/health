@@ -3,10 +3,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ChevronRight, PackageCheck, Printer, ReceiptText, RotateCcw, Search, Wallet } from 'lucide-react'
 import { ConfirmSheet, FormActions, PageState } from '../../../kasuwa/parts'
-import { Alert, Badge, Button, Field, FilterTabs, Input, PageHeader, Textarea, cx, timeAgo, type Tone } from '../../../kasuwa/ui'
+import { Alert, Badge, Button, Field, FilterTabs, Input, PageHeader, Select, Textarea, cx, timeAgo, type Tone } from '../../../kasuwa/ui'
 import { useToast } from '../../../kasuwa/toast'
 import { useBluePage } from '../../frame/pageContext'
-import { commerce, METHOD_LABEL, billName, healthIdEnding, type Bill, type ListPage, type Payment, type PaymentSettings, type ReceiptData } from '../commerce/api'
+import {
+  commerce, dayTills, METHOD_LABEL, billName, healthIdEnding, voidTakesTill,
+  type Bill, type ListPage, type Payment, type PaymentSettings, type ReceiptData, type Till,
+} from '../commerce/api'
 import { naira } from '../commerce/money'
 import { BILLING_OFF, NOT_SWITCHED_ON, NotSwitchedOn } from '../commerce/NotSwitchedOn'
 import { Receipt } from '../commerce/Receipt'
@@ -184,32 +187,38 @@ function SaleRecord({ billId }: { readonly billId: string }) {
       {canPay ? <Button variant="primary" size="lg" icon={Wallet} onClick={() => setPaying(true)}>Take payment <span className="tabular">{naira(bill.dueKobo)}</span></Button> : null}
     </FormActions>
     <TakePayment open={paying} bill={bill} onPaid={read.replace} onClose={() => setPaying(false)} />
-    {refunding ? <RefundSheet facilityId={facilityId} bill={bill} payments={refundable} onClose={() => setRefunding(false)}
+    {refunding ? <RefundSheet facilityId={facilityId} bill={bill} payments={refundable} tills={dayTills(settings.data)} onClose={() => setRefunding(false)}
       onRefunded={next => { read.replace(next); setRefunding(false) }} /> : null}
   </div>
 }
 
 /**
  * Refund: one payment on the sale taken back, with the reason (POST …/payments/:paymentId/void, billing.payment.void, as
- * POINT_OF_CARE_SPEC §3 has no refund of its own). Give the money back the way it came.
+ * POINT_OF_CARE_SPEC §3 has no refund of its own). Give the money back the way it came; with a day per till, from a till,
+ * whose day records it.
  */
-function RefundSheet({ facilityId, bill, payments, onClose, onRefunded }: {
-  readonly facilityId: string; readonly bill: Bill; readonly payments: readonly Payment[]
+function RefundSheet({ facilityId, bill, payments, tills, onClose, onRefunded }: {
+  readonly facilityId: string; readonly bill: Bill; readonly payments: readonly Payment[]; readonly tills: readonly Till[]
   readonly onClose: () => void; readonly onRefunded: (bill: Bill) => void
 }) {
   const [paymentId, setPaymentId] = useState(payments[0]!.id)
   const [reason, setReason] = useState('')
   const [error, setError] = useState('')
+  const [tillPicked, setTillPicked] = useState('')
+  const [tillError, setTillError] = useState('')
   const [busy, setBusy] = useState(false)
   const [key] = useState(() => crypto.randomUUID())
   const toast = useToast()
   const payment = payments.find(entry => entry.id === paymentId) ?? payments[0]!
+  const tillShown = voidTakesTill(payment) && tills.length > 0
+  const till = tillShown ? tills.find(entry => entry.id === tillPicked) ?? (tills.length === 1 ? tills[0]! : null) : null
 
   async function refund() {
     if (busy) return
     if (reason.trim().length < 8) { setError('Say why (at least 8 characters): it is kept with the sale.'); document.getElementById('refund-reason')?.focus(); return }
+    if (tillShown && !till) { setTillError('Choose the till the money is given back from.'); document.getElementById('refund-till')?.focus(); return }
     setBusy(true); setError('')
-    const result = await commerce.voidPayment(facilityId, bill.id, payment.id, `Refund: ${reason.trim()}`, bill.version, key)
+    const result = await commerce.voidPayment(facilityId, bill.id, payment.id, `Refund: ${reason.trim()}`, bill.version, key, till?.id)
     setBusy(false)
     if (result.ok) { toast.success({ title: 'Refund recorded', message: `${naira(payment.amountKobo)} · Bill ${bill.number}` }); onRefunded(result.data); return }
     setError(result.notAvailable ? NOT_SWITCHED_ON : result.error)
@@ -231,5 +240,12 @@ function RefundSheet({ facilityId, bill, payments, onClose, onRefunded }: {
       <Textarea id="refund-reason" rows={2} value={reason} maxLength={490} aria-invalid={error ? true : undefined}
         aria-describedby={error ? 'refund-reason-error' : undefined} onChange={event => { setReason(event.target.value); setError('') }} />
     </Field>
+    {tillShown ? <Field label="Till" htmlFor="refund-till" error={tillError || undefined} errorId="refund-till-error" hint="The till the money is given back from.">
+      <Select id="refund-till" value={till?.id ?? ''} aria-invalid={tillError ? true : undefined} aria-describedby={tillError ? 'refund-till-error' : undefined}
+        onChange={event => { setTillPicked(event.target.value); setTillError('') }}>
+        {tills.length > 1 ? <option value="">Choose the till</option> : null}
+        {tills.map(entry => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
+      </Select>
+    </Field> : null}
   </ConfirmSheet>
 }
