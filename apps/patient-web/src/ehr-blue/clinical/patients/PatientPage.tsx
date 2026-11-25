@@ -1,3 +1,4 @@
+import { ageInYears } from '@hid/ui/display'
 import { Activity, ChevronRight, FolderOpen, History, KeyRound, ListChecks, LogOut, RotateCcw, Send, ShieldCheck, Siren, Stethoscope, UserPlus } from 'lucide-react'
 import { Alert, Badge, Button, Card, CardHeader, IconChip, ListRow, PageHeader } from '../../../kasuwa/ui'
 import { CardFace } from '../../../routes/HealthIdCard'
@@ -159,12 +160,8 @@ function ReportedByPatient({ reported }: { reported: ReportedHealth }) {
 /** Age in whole years from an ISO date of birth; empty when unknown. */
 function ageOf(dateOfBirth: string | undefined): string {
   if (!dateOfBirth) return ''
-  const born = new Date(dateOfBirth)
-  if (Number.isNaN(born.getTime())) return ''
-  const now = new Date()
-  let age = now.getFullYear() - born.getFullYear()
-  if (now < new Date(now.getFullYear(), born.getMonth(), born.getDate())) age -= 1
-  return `${age} years`
+  const age = ageInYears(dateOfBirth)
+  return age === null ? '' : `${age} years`
 }
 
 /**

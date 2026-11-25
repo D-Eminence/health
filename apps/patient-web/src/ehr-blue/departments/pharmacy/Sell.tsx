@@ -1,3 +1,4 @@
+import { lagosDay } from '@hid/ui/display'
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { ArrowRight, Check, CircleCheck, FileText, PackageCheck, Pencil, Plus, Printer, Search, ShoppingBag, Trash2, UserRound, Wallet, X } from 'lucide-react'
 import { Modal } from '../../../kasuwa/interactive'
@@ -39,7 +40,7 @@ const NO_CUSTOMER: Customer = { name: '', phone: '', healthId: '' }
 type Stage = 'basket' | 'pay' | 'handover' | 'done'
 
 const label = (item: Pick<CatalogueItem, 'name' | 'strength'>) => `${item.name}${item.strength ? ` ${item.strength}` : ''}`
-const today = () => new Date().toISOString().slice(0, 10)
+const today = () => lagosDay()
 
 /**
  * Sell, at the counter (POINT_OF_CARE_SPEC §4, the owner's order of 2026-10-31: work first, identity optional). The

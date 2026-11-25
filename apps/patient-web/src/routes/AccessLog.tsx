@@ -1,3 +1,4 @@
+import { formatDateTime } from '@hid/ui/display'
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { ShieldCheck } from 'lucide-react'
 import { Button, Card, EmptyState } from '../kasuwa/ui'
@@ -25,8 +26,7 @@ export const WHAT: Readonly<Record<AccessLogAction, string>> = {
 }
 
 function when(value: string) {
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? value : new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short' }).format(parsed)
+  return formatDateTime(value, value)
 }
 
 /** Who did it, in words: the clinician at their facility, the facility, you, Health ID support, or Health ID itself. */

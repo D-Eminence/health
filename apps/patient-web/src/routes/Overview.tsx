@@ -1,3 +1,4 @@
+import { formatDate, formatDateTime, formatWeekday } from '@hid/ui/display'
 import { useMemo, useRef, useState, type ReactNode } from 'react'
 import { ArrowRight, BadgeCheck, ChevronRight, CircleDashed, History, IdCard, NotebookPen, PhoneCall, ShieldAlert, ShieldCheck, Stethoscope, FolderHeart, FileText, Pill } from 'lucide-react'
 import { Alert, Button, Card, CardHeader, EmptyState, buttonClass, cx, IconChip, ListRow, PageHeader, PageSkeleton, StatCard, StatGroup, Timeline, greeting, timeAgo, type Icon } from '../kasuwa/ui'
@@ -51,9 +52,7 @@ const list = <T,>(value: unknown): T[] => Array.isArray(value) ? value as T[] : 
 const stamp = (value: unknown): number => typeof value === 'string' ? Date.parse(value) : Number.NaN
 
 function when(value: string | null | undefined, withTime: boolean) {
-  const parsed = value ? new Date(value) : null
-  if (!parsed || Number.isNaN(parsed.getTime())) return ''
-  return new Intl.DateTimeFormat('en-NG', withTime ? { dateStyle: 'medium', timeStyle: 'short' } : { dateStyle: 'medium' }).format(parsed)
+  return withTime ? formatDateTime(value) : formatDate(value)
 }
 
 /**
@@ -238,7 +237,8 @@ export function Overview() {
   const tileCount = 2 + (sections.includes('documents') ? 1 : 0) + (sections.includes('prescriptions') ? 1 : 0)
   const tileCols = tileCount === 4 ? 4 : tileCount === 3 ? 3 : 2
 
-  const today = new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Africa/Lagos' }).format(new Date())
+  const now = Date.now()
+  const today = `${formatWeekday(now)} ${formatDate(now)}`
   // The heading is there while the profile is read, as the page's own: a link that opened Home takes focus to it
   // (pageFocus.ts), and it keeps focus as the greeting gains the patient's name.
   if (profile.loading && !profile.data) return <div className="flex flex-col gap-6">

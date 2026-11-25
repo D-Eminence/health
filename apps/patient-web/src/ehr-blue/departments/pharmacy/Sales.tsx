@@ -1,3 +1,4 @@
+import { formatTime, lagosDay } from '@hid/ui/display'
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ChevronRight, PackageCheck, Printer, ReceiptText, RotateCcw, Search, Wallet } from 'lucide-react'
@@ -18,14 +19,11 @@ import { printReceipt } from '../../../print/printPaper'
 const LIST = '/provider/pharmacy/sales'
 type When = 'today' | 'all'
 
-/** The facility's day, as `GET bills?date=` takes it: today on this device. */
+/** The facility's day, as `GET bills?date=` takes it: today in Lagos, whatever the device's zone (Q181 A). */
 function localDay(at = new Date()): string {
-  return `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}`
+  return lagosDay(at)
 }
-const clock = (iso: string) => {
-  const date = new Date(iso)
-  return Number.isNaN(date.getTime()) ? '' : new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit' }).format(date)
-}
+const clock = (iso: string) => formatTime(iso)
 
 /** Money given back on a sale: its payments taken back (each recorded with the reason). */
 const refundedOf = (bill: Bill) => bill.payments.filter(payment => payment.voided).reduce((sum, payment) => sum + payment.amountKobo, 0)

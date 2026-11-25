@@ -1,4 +1,5 @@
 import type { EhrBadgeTone } from '@hid/ui/ehr'
+import { formatDate, formatTime, lagosDay } from '@hid/ui/display'
 import type { VisitQueueCard, VisitQueueStage } from '../../../staff/api'
 import type { PatientSearchKeys } from '../../../staff/patientSearch'
 
@@ -185,20 +186,14 @@ export function checkedInText(outcome: 'checked_in' | 'already_on_list', fullNam
     : `${fullName} is checked in and waiting.`
 }
 
-/** The time of day a card was checked in, as "09:05" (24-hour clock, as the clinical pages write it). */
+/** The time of day a card was checked in, as "09:05": Lagos time on the 24-hour clock (owner decisions Q181 A, Q182 A). */
 export function timeText(value: string): string {
-  const time = new Date(value)
-  return Number.isNaN(time.getTime()) ? ''
-    : time.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+  return formatTime(value)
 }
-
-const LAGOS_DAY = new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Lagos', year: 'numeric', month: '2-digit', day: '2-digit' })
 
 /** Today's date (YYYY-MM-DD) in Lagos, the day the backend gives each check-in (`checkInDay`), whatever the device's zone. */
 export function lagosToday(now = new Date()): string {
-  const parts = LAGOS_DAY.formatToParts(now)
-  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find(item => item.type === type)?.value ?? ''
-  return `${part('year')}-${part('month')}-${part('day')}`
+  return lagosDay(now)
 }
 
 /** Whether the patient was checked in on an earlier day than today and is still on the list (nobody moved them on). */
@@ -206,13 +201,11 @@ export function fromEarlierDay(card: Pick<VisitQueueCard, 'checkInDay'>, today: 
   return /^\d{4}-\d{2}-\d{2}$/.test(card.checkInDay) && card.checkInDay < today
 }
 
-/** When the card was checked in: the time of day for today's, else "22 Nov, 16:40" (with the year if it is not this one). */
+/** When the card was checked in: the time of day for today's, else "22 Nov 2026, 16:40" (one date format, Q182 A). */
 export function checkInWhen(card: Pick<VisitQueueCard, 'checkInDay' | 'checkedInAt'>, today: string): string {
   const time = timeText(card.checkedInAt)
   if (!fromEarlierDay(card, today)) return time
-  const day = new Date(`${card.checkInDay}T00:00:00.000Z`)
-  const sameYear = card.checkInDay.slice(0, 4) === today.slice(0, 4)
-  const date = day.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }), timeZone: 'UTC' })
+  const date = formatDate(card.checkInDay)
   return time ? `${date}, ${time}` : date
 }
 

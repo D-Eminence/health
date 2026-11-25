@@ -1,3 +1,4 @@
+import { formatDate, formatDateTime } from '@hid/ui/display'
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { isHidApiError } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Input, PasswordInput, Select, Textarea } from '@hid/ui'
@@ -46,18 +47,13 @@ export function personNameProblem(value: string): string | null {
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-/** "12 Oct 2026, 14:05", in the browser's time zone. */
+/** "12 Oct 2026, 14:05", in Lagos time whatever the device's zone (Q181 A). */
 function when(value: string | null | undefined): string {
-  if (!value) return 'Not available'
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? 'Not available'
-    : new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short' }).format(parsed)
+  return formatDateTime(value, 'Not available')
 }
 
 function dateOnly(value: string | null | undefined): string {
-  if (!value) return 'an unknown date'
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? 'an unknown date' : new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium' }).format(parsed)
+  return formatDate(value, 'an unknown date')
 }
 
 const DELIVERY_LABELS: Readonly<Record<string, string>> = {

@@ -1,3 +1,4 @@
+import { formatDate, formatWeekday, lagosDay } from '@hid/ui/display'
 /**
  * Search and day grouping for the records the page has loaded (hid-1.0's PatientRecords: "Search by date, title, or
  * keyword", records under date headings, newest day first). Nothing is sent: the search runs over what is on screen.
@@ -26,31 +27,30 @@ export function matchesQuery(texts: ReadonlyArray<string | null | undefined>, qu
   return words.every(word => haystack.includes(word))
 }
 
-/** The calendar day a record belongs to, in this browser's time zone; a date without a time is its own day. */
+/** The calendar day a record belongs to, in Lagos (Q181 A); a date without a time is its own day. */
 export function dayOf(value: string | null | undefined): string | null {
   if (!value) return null
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return null
-  const pad = (part: number) => String(part).padStart(2, '0')
-  return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}`
+  return lagosDay(value) || null
 }
 
-const DAY = new Intl.DateTimeFormat('en-NG', { dateStyle: 'full' })
-
-/** A day heading: "Tuesday 3 March 2026", as the page names dates (en-NG). */
+/** A day heading: "Tuesday 3 Mar 2026", its weekday and the one date format (Q182 A). */
 export function dayLabel(day: string): string {
-  const [year, month, date] = day.split('-').map(Number)
-  return DAY.format(new Date(year!, month! - 1, date!))
+  return `${formatWeekday(day)} ${formatDate(day)}`
 }
+
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October',
+  'November', 'December'] as const
 
 /**
- * The heading a record is listed under, for the search: a row shows its date shorter ("3 Mar 2026"), so the
- * month and weekday words a patient reads in the heading would not find it otherwise.
+ * The heading a record is listed under, for the search: the weekday a patient reads in the heading would not find a
+ * row otherwise, and the month's whole name ("October") finds it as well as the short one the page shows ("Oct").
  */
 export function dayWords(value: string | null | undefined): string | null {
   const day = dayOf(value)
-  return day === null ? null : dayLabel(day)
+  if (day === null) return null
+  const month = MONTH_NAMES[Number(day.slice(5, 7)) - 1]
+  return month ? `${dayLabel(day)} ${month}` : dayLabel(day)
 }
 
 export interface DayGroup<T> {

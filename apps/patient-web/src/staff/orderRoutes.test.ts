@@ -41,7 +41,7 @@ describe('the line under an order sent to another facility', () => {
     [{ effectiveState: 'withdrawn', endedKind: 'support' }, /^Withdrawn by Health ID support\.$/],
     [{ effectiveState: 'withdrawn', endedKind: 'order_in_work' }, /^Withdrawn: this order is already being worked on here\.$/],
     [{ effectiveState: 'expired' }, /^Not accepted by Yaba Diagnostics within 7 days\. Send it elsewhere\.$/],
-    [{ effectiveState: 'expired', acceptedAt: '2026-09-01T10:00:00.000Z' }, /^Accepted by Yaba Diagnostics on 1 Sept 2026; nothing came back within 30 days\.$/],
+    [{ effectiveState: 'expired', acceptedAt: '2026-09-01T10:00:00.000Z' }, /^Accepted by Yaba Diagnostics on 1 Sep 2026; nothing came back within 30 days\.$/],
     [{ effectiveState: 'cancelled', endedKind: 'order_changed' }, /^Cancelled at Yaba Diagnostics because the order changed\.$/],
     [{ effectiveState: 'cancelled', endedKind: 'entered_in_error' }, /^Cancelled at Yaba Diagnostics because the order was marked entered in error\.$/],
     [{ effectiveState: 'cancelled', endedKind: 'receiving_released' }, /^Cancelled: Yaba Diagnostics is no longer on Health ID\.$/],

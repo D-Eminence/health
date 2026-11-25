@@ -110,7 +110,7 @@ describe('the email and phone in About you on a phone', () => {
     expect(classesOf(value)).toContain('flex-[1_1_8rem]')
     expect(classesOf(value)).not.toContain('flex-1')
     expect(classesOf(value.parentElement)).toContain('flex-wrap')
-    const phone = within(contact).getByText('+234 •••• 4567')
+    const phone = within(contact).getByText('0••• ••• 4567')
     expect(classesOf(phone)).toEqual(expect.arrayContaining(['min-w-0', '[overflow-wrap:anywhere]']))
   })
 })
