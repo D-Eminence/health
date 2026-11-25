@@ -9,7 +9,7 @@ import { useDeptAccess } from '../parts/access'
 import { DrugTile } from '../pharmacy/DrugTile'
 import type { DrugForm } from '../pharmacy/drugForm'
 import {
-  BILLING_WORDS, KIND_LABEL, commerce, searchTextRefused,
+  ITEM_SEARCH_REFUSED, KIND_LABEL, commerce, searchTextRefused,
   type CatalogueForm, type CatalogueItem, type CatalogueItemInput, type CatalogueItemPatch, type CatalogueKind, type Hmo, type ListPage,
   type NationalCodeSystem, type PaymentSettings, type UnpricedCode,
 } from './api'
@@ -107,7 +107,7 @@ export function PriceList({ kinds = ALL_KINDS, title = 'Price list', description
           onChange={event => setQuery(event.target.value)} className="@3xl:w-72"
           aria-invalid={refused || undefined} aria-describedby={refused ? 'price-search-refused' : undefined} />
       </div>
-      {refused ? <p id="price-search-refused" role="alert" className="m-0 text-[13px] font-medium text-danger-ink">{BILLING_WORDS.BILLING_SEARCH_TEXT_NOT_ALLOWED}</p> : null}
+      {refused ? <p id="price-search-refused" role="alert" className="m-0 text-[13px] font-medium text-danger-ink">{ITEM_SEARCH_REFUSED}</p> : null}
       {canManage ? <Unpriced facilityId={facilityId} kinds={kinds} open={showUnpriced} onToggle={() => setShowUnpriced(value => !value)}
         onPrice={code => setEditing(code)} /> : null}
       <PageState loading={items.status === 'loading' && all.length === 0} error={items.status === 'error' && all.length === 0 ? items.error : null}

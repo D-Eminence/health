@@ -428,6 +428,11 @@ export const BILLING_WORDS: Readonly<Record<string, string>> = {
 }
 /** BILLING_NOT_ALLOWED's words, for any refusal of a role (403) this module has no words for. */
 export const NOT_IN_YOUR_ROLE = BILLING_WORDS.BILLING_NOT_ALLOWED!
+/**
+ * BILLING_SEARCH_TEXT_NOT_ALLOWED for the price list and stock, which are searched by an item's name only (never by a
+ * bill or receipt number).
+ */
+export const ITEM_SEARCH_REFUSED = 'Search by the item’s name. Do not type a Health ID or NIN here.'
 
 /** A refusal in plain words: this module's own for the codes it knows, else refusalText's (never the server's text). */
 function messageOf(caught: unknown): string {
@@ -451,16 +456,24 @@ function anyAborted(first: AbortSignal, second: AbortSignal): AbortSignal {
 
 /**
  * Whether search text looks like a Health ID or an 11-digit NIN, which the billing searches refuse (and never log):
- * refused here first, so it never reaches an address. The backend's own test (commercial-errors.ts searchTextRefused).
+ * refused here first, so it never reaches an address. The database's own test (0163 commercial.search_text), the
+ * stricter of the backend's two: "HID-" and two or more Health ID characters; 11 digits or more once spaces and dashes
+ * are taken out; or any word of exactly 6 Health ID characters mixing letters and digits, which is a Health ID typed
+ * without its "HID-" (ZDEM2A).
  */
 export function searchTextRefused(q: string | null | undefined): boolean {
   if (!q) return false
   const compact = q.replace(/[\s-]+/g, '')
   return /HID-[A-HJ-NP-Z2-9]{2,}/i.test(q) || /\d{11,}/.test(compact)
+    || q.split(/[^A-Za-z0-9]+/).some(word => /^[A-HJ-NP-Z2-9]{6}$/i.test(word) && /[A-Za-z]/.test(word) && /\d/.test(word))
 }
-/** The refusal a page gets for such a search, without sending it. */
-const searchRefused = <T,>(): Promise<CommerceResult<T>> => Promise.resolve({ ok: false, error: BILLING_WORDS.BILLING_SEARCH_TEXT_NOT_ALLOWED!,
-  code: 'BILLING_SEARCH_TEXT_NOT_ALLOWED', status: 400 })
+/** The refusal a page gets for such a search, without sending it: in the list's own words. */
+const searchRefused = <T,>(words: string = BILLING_WORDS.BILLING_SEARCH_TEXT_NOT_ALLOWED!): Promise<CommerceResult<T>> =>
+  Promise.resolve({ ok: false, error: words, code: 'BILLING_SEARCH_TEXT_NOT_ALLOWED', status: 400 })
+/** The price list's and stock's answer, with their own words for a search the server refused. */
+function itemSearch<T>(result: CommerceResult<T>): CommerceResult<T> {
+  return !result.ok && !result.notAvailable && result.code === 'BILLING_SEARCH_TEXT_NOT_ALLOWED' ? { ...result, error: ITEM_SEARCH_REFUSED } : result
+}
 
 /** A list's answer as the pages take it: BILL-1's price list says `more`, every other list `nextPage`. */
 type Paged<T> = { items: T[]; nextPage?: number | null; more?: boolean; page?: number; total?: number | null }
@@ -484,9 +497,9 @@ export const commerce = {
 
   // §2 Price list
   catalogueItems: async (facilityId: string, filter: { kind?: CatalogueKind; q?: string; active?: boolean; page?: number } = {}, signal?: AbortSignal) =>
-    searchTextRefused(filter.q) ? searchRefused<ListPage<CatalogueItem>>()
-      : paged(await call<Paged<CatalogueItem>>('GET', `${C}/catalogue-items`, facilityId,
-        { query: { kind: filter.kind, q: filter.q && filter.q.trim().length >= 2 ? filter.q.trim() : undefined, active: filter.active, page: filter.page }, signal })),
+    searchTextRefused(filter.q) ? searchRefused<ListPage<CatalogueItem>>(ITEM_SEARCH_REFUSED)
+      : itemSearch(paged(await call<Paged<CatalogueItem>>('GET', `${C}/catalogue-items`, facilityId,
+        { query: { kind: filter.kind, q: filter.q && filter.q.trim().length >= 2 ? filter.q.trim() : undefined, active: filter.active, page: filter.page }, signal }))),
   createCatalogueItem: (facilityId: string, item: CatalogueItemInput, idempotencyKey?: string) =>
     call<CatalogueItem>('POST', `${C}/catalogue-items`, facilityId, { body: item, idempotencyKey }),
   updateCatalogueItem: (facilityId: string, itemId: string, patch: CatalogueItemPatch, idempotencyKey?: string) =>
@@ -578,9 +591,9 @@ export const commerce = {
 
   // §5 Stock (pharmacy)
   stock: async (facilityId: string, filter: { q?: string; filter?: 'low' | 'expiring'; page?: number } = {}, signal?: AbortSignal) =>
-    searchTextRefused(filter.q) ? searchRefused<ListPage<StockLine>>()
-      : paged(await call<Paged<StockLine>>('GET', '/api/v1/pharmacy/stock', facilityId,
-        { query: { q: filter.q && filter.q.trim().length >= 2 ? filter.q.trim() : undefined, filter: filter.filter, page: filter.page }, signal })),
+    searchTextRefused(filter.q) ? searchRefused<ListPage<StockLine>>(ITEM_SEARCH_REFUSED)
+      : itemSearch(paged(await call<Paged<StockLine>>('GET', '/api/v1/pharmacy/stock', facilityId,
+        { query: { q: filter.q && filter.q.trim().length >= 2 ? filter.q.trim() : undefined, filter: filter.filter, page: filter.page }, signal }))),
   receiveStock: async (facilityId: string, receipt: StockReceipt, idempotencyKey?: string) =>
     map(await call<{ items?: StockLine[]; lines?: StockLine[] }>('POST', '/api/v1/pharmacy/stock/receipts', facilityId, { body: receipt, idempotencyKey }),
       data => ({ lines: data.items ?? data.lines ?? [] })),

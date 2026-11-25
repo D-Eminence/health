@@ -52,14 +52,36 @@ describe('a billing request', () => {
 
   it('never sends a search shaped like a Health ID or an 11-digit NIN, and says why in BILL-1’s words', async () => {
     const { fetch, commerce } = await client()
-    for (const q of ['HID-ZDEMAAA2', 'hid-zdemaaa2', '123 4567 8901']) {
+    // As the database refuses (0163 commercial.search_text): with "HID-", 11 digits or more, or a word of 6 Health ID
+    // characters mixing letters and digits (a Health ID typed without its "HID-").
+    for (const q of ['HID-ZDEMAAA2', 'hid-zdemaaa2', '123 4567 8901', 'ZDEM2A', 'zdem2a', 'ada 2bcz7k', 'Ada (ZDEM2A)']) {
       const bills = await commerce.bills(FACILITY, { q })
       expect(bills).toEqual({ ok: false, error: 'Search by bill number, receipt number or name. Do not type a Health ID or NIN here.',
         code: 'BILLING_SEARCH_TEXT_NOT_ALLOWED', status: 400 })
-      expect((await commerce.catalogueItems(FACILITY, { q })).ok).toBe(false)
-      expect((await commerce.stock(FACILITY, { q })).ok).toBe(false)
+      // The price list and stock are searched by name only: their own words, never "bill number".
+      for (const items of [await commerce.catalogueItems(FACILITY, { q }), await commerce.stock(FACILITY, { q })]) {
+        expect(items).toEqual({ ok: false, error: 'Search by the item’s name. Do not type a Health ID or NIN here.',
+          code: 'BILLING_SEARCH_TEXT_NOT_ALLOWED', status: 400 })
+      }
     }
     expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('sends what the database takes: bill and receipt numbers, names, and words that are not a Health ID', async () => {
+    const { searchTextRefused } = await client()
+    // 6 characters of letters only or digits only, or with a letter outside the Health ID alphabet (I, O) or a 0 or 1.
+    for (const q of ['B-000412', 'R-2026-000123', 'Ada Test', 'Amoxicillin 500', 'ZDEMAA', '222345', 'ZDEM1A', 'ZDEMO2', 'ZDEM2AB', '1234567890']) {
+      expect(searchTextRefused(q)).toBe(false)
+    }
+  })
+
+  it('says a search the server refused in the price list’s and stock’s own words', async () => {
+    const { commerce } = await client(problem('BILLING_SEARCH_TEXT_NOT_ALLOWED', 400), problem('BILLING_SEARCH_TEXT_NOT_ALLOWED', 400),
+      problem('BILLING_SEARCH_TEXT_NOT_ALLOWED', 400))
+    expect(await commerce.catalogueItems(FACILITY, { q: 'Ada' })).toMatchObject({ ok: false, error: 'Search by the item’s name. Do not type a Health ID or NIN here.' })
+    expect(await commerce.stock(FACILITY, { q: 'Ada' })).toMatchObject({ ok: false, error: 'Search by the item’s name. Do not type a Health ID or NIN here.' })
+    expect(await commerce.bills(FACILITY, { q: 'Ada' })).toMatchObject({ ok: false,
+      error: 'Search by bill number, receipt number or name. Do not type a Health ID or NIN here.' })
   })
 
   it('takes the price list’s `more` and the day’s `{ shift }` as the pages read them, and a receipt of stock’s `items`', async () => {

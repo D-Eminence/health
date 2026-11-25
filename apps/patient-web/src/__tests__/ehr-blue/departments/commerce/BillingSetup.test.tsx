@@ -116,6 +116,17 @@ describe('the price list', () => {
     expect((within(drawer).getByRole('textbox', { name: 'Code' }) as HTMLInputElement).value).toBe('MED-00113')
   })
 
+  it('refuses a Health ID typed without its "HID-" in the search, in the price list’s own words, and sends nothing', async () => {
+    const calls: unknown[] = []
+    commerceApi.catalogueItems = async (...args: never[]) => { calls.push(args[1]); return ok({ items: [consultation], nextPage: null }) }
+    renderDept(<PriceList />)
+    await screen.findByText('Consultation')
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search the price list' }), { target: { value: 'ZDEM2A' } })
+    expect((await screen.findByRole('alert')).textContent).toBe('Search by the item’s name. Do not type a Health ID or NIN here.')
+    await new Promise(resolve => setTimeout(resolve, 400))
+    expect(JSON.stringify(calls)).not.toMatch(/ZDEM2A/i)
+  })
+
   it('offers no unpriced list or Add item to someone who only reads prices, and says when billing is off', async () => {
     as(['billing.catalogue.read', 'billing.bill.read'])
     commerceApi.catalogueItems = async () => off()
