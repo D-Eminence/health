@@ -15,7 +15,7 @@ import { SubHeading } from '../parts/Detail'
 import { ErrorBox, Loading } from '../parts/Notices'
 import { useClinical } from '../parts/Workspace'
 import { fileTypeLabel, scanStatusLabel } from '../../../plainLabels'
-import { RELOAD_FAILED, fileSize } from './encounters'
+import { fileSize } from './encounters'
 import { ListPaging } from './Notes'
 import type { RecordList } from './records'
 import { OWN_DOCUMENTS_ONLY, STARTS_WITH_OTHERS, scanAccess } from '../../../scanAccess'
@@ -30,13 +30,11 @@ const MAX_BYTES = 52_428_800
 const OCR_PATH = '/provider/ocr'
 const OCR_LABEL = 'Extract with OCR'
 /**
- * The same hand-off for someone who follows readings but does not start them (a doctor since hid-system 0136): Migrate
+ * The same hand-off for someone who follows readings but does not start them (no doctor since hid-system 0150): Migrate
  * holds the document in Find document job and looks its reading up at once, opening it when there is one; it never
  * starts one.
  */
 const OCR_FIND_LABEL = 'Find its reading'
-/** Said when EHR holds more documents than today's read answers (it takes no cursor). */
-const DOCUMENTS_TRUNCATED = 'Not every document of this encounter is listed here.'
 /** Said in place of the upload, once the types are served, on a host that uploads none (as blue Migrate says it). */
 const NO_UPLOAD_HERE = 'Documents can be uploaded only in the EHR, Lab, Pharmacy or Migrate.'
 
@@ -44,11 +42,12 @@ const NO_UPLOAD_HERE = 'Documents can be uploaded only in the EHR, Lab, Pharmacy
  * A listed document's line: its file type, size and scan result, as classic's line (staff/routes/Clinical.tsx Documents,
  * :950-961) gives them, in plain words, by the house rule that facility screens show no codes: classic prints the media
  * type ("application/pdf"), sizes in KiB and "scan: <code>" (commit 1122e8a2, 2 Nov 2026). Once the types are served,
- * its document type first. A document without one is a clinical document; a type this page does not know is not named.
+ * its document type first, only when it names one, as classic's typeOf (Clinical.tsx:1010-1011): a document sent with
+ * no type, or with a type this page does not know, is not named.
  * As classic, the row has no status badge: an upload not completed says so in classic's sentence.
  */
 function documentLine(document: DocumentRecord, served: boolean): string {
-  const type = served ? documentTypeOf(document) : null
+  const type = served && document.documentType != null ? documentTypeOf(document) : null
   return [type ? documentTypeLabel(type) : '', fileTypeLabel(document.mediaType), fileSize(document.sizeBytes),
     document.status === 'initiated' ? '' : scanStatusLabel(document.scanStatus)].filter(Boolean).join(' · ')
 }
@@ -59,23 +58,14 @@ export const UPLOADED = 'Document uploaded. It can be opened once its virus scan
 export const UPLOAD_NOTE = 'Files are scanned before download becomes available.'
 /** Classic's empty list (Clinical.tsx Documents). */
 export const NO_DOCUMENTS = 'No documents for this encounter.'
-
-/**
- * The card's error. After an upload whose list could not be read again it has "Try again" beside it (`again`), and
- * counts how many times it has been said, so a failure said again in the same words is announced again.
- */
-type CardError = { readonly text: string; readonly again: boolean; readonly said?: number }
-const NO_ERROR: CardError = { text: '', again: false }
-
-function reloadFailed(failure: string): CardError {
-  return { text: `${RELOAD_FAILED} ${failure}`.trim(), again: true }
-}
+/** Classic's words when the list can't be read, after an upload too (Clinical.tsx Documents load, :975). */
+export const DOCUMENTS_FAILED = 'Documents could not be loaded.'
 
 /**
  * The encounter's documents (today's Documents tab), 50 to a page: each with its type, size and scan result, "Open
  * file" only once the virus scan is clean, today's "Extract with OCR" for a clean one when the role may start a reading
  * (OCR job write and start, and OCR job read or its own uploads' read: hid-system 0136, Q112 A), and "Find its reading"
- * with a sentence saying who starts them when it follows readings but may not start one (a doctor), never a link that
+ * with a sentence saying who starts them when it follows readings but may not start one (no doctor since 0150), never a link that
  * would only be refused (the ids go in router state, never in the address, as today), and "Upload a document".
  * Opening and uploading re-check access first, as today. The front desk lists only the documents it uploaded, and the
  * card says so.
@@ -97,8 +87,7 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
   const actorId = state.status === 'ready' ? state.session.actor.id : undefined
   const access = scanAccess(code => chart.can(code))
   const ocrLabel = access.startsReadings ? OCR_LABEL : access.followsReadings ? OCR_FIND_LABEL : null
-  const [error, showError] = useState<CardError>(NO_ERROR)
-  const setError = (text: string) => showError(text ? { text, again: false } : NO_ERROR)
+  const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [fileError, setFileError] = useState<string | undefined>(undefined)
   const [uploading, setUploading] = useState(false)
@@ -152,11 +141,12 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
       // Without a type, exactly today's upload: no fifth argument, so the request names none.
       if (sentType) await staffApi.uploadDocument(facilityId, patientId, encounterId, file, sentType)
       else await staffApi.uploadDocument(facilityId, patientId, encounterId, file)
+      // Classic reads the list again, then says the upload; a read that fails says classic's load error, with no button.
       const failure = await list.reload(true)
       form.reset()
       setDocumentType(DEFAULT_DOCUMENT_TYPE)
       setNotice(UPLOADED)
-      if (failure !== null) showError(reloadFailed(failure))
+      if (failure !== null) setError(failure || DOCUMENTS_FAILED)
     } catch (caught) {
       // A lab result from a host other than the EHR, Lab or Migrate is refused (403 DOCUMENT_TYPE_NOT_ALLOWED_HERE).
       setError(documentTypeRefusalText(caught) ?? plainErrorText(caught, 'Document could not be uploaded.', { audience: 'facility' }))
@@ -166,26 +156,10 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
     }
   }
 
-  /**
-   * "Try again": the list read again, fresh, as the upload read it (its first page), with no access re-check. The
-   * sentence stays until it is read, then goes, focus moving from Try again to the file field; an upload or an open
-   * meanwhile says its own outcome, which this never replaces.
-   */
-  const readAgain = async (event: { readonly currentTarget: HTMLButtonElement }) => {
-    const button = event.currentTarget
-    const shown = error
-    const failure = await list.reload(true)
-    showError(current => current !== shown ? current : failure !== null ? { ...reloadFailed(failure), said: (shown.said ?? 0) + 1 } : NO_ERROR)
-    // Try again goes with the sentence: focus on it, or on nothing, moves to the file field, never from elsewhere.
-    const active = document.activeElement
-    if (failure === null && (active === button || active === null || active === document.body)) input.current?.focus()
-  }
-
   return (
     <EhrCard title="Documents">
       {list.error ? <ErrorBox>{list.error}</ErrorBox> : null}
       <ListPaging list={list} />
-      {list.truncated ? <p className="hid-ehr-clinical-note">{DOCUMENTS_TRUNCATED}</p> : null}
       {access.ownDocumentsOnly ? <p className="hid-ehr-clinical-note">{OWN_DOCUMENTS_ONLY}</p> : null}
       {list.items === null ? (list.loading ? <Loading label="Loading documents…" /> : null) : list.items.length === 0 ? (
         <p>{NO_DOCUMENTS}</p>
@@ -241,13 +215,7 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
           <div role="status" className="hid-ehr-clinical-status">{notice}</div>
         </form>
       ) : null}
-      {error.text ? (
-        <ErrorBox>
-          <p key={error.said ?? 0}>{error.text}</p>
-          {/* Busy, it stays focusable (aria-disabled, aria-busy), so focus stays on it, and a second press does nothing. */}
-          {error.again ? <p><EhrButton variant="secondary" size="sm" onClick={readAgain}>Try again</EhrButton></p> : null}
-        </ErrorBox>
-      ) : null}
+      {error ? <ErrorBox>{error}</ErrorBox> : null}
     </EhrCard>
   )
 }

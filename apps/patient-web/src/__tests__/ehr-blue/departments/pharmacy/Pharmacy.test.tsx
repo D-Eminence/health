@@ -266,7 +266,8 @@ describe('the queue', () => {
       .mockResolvedValueOnce({ items: [accepted] })
     renderPage()
     const alert = await screen.findByRole('alert')
-    expect(within(alert).getByText('Couldn’t load prescriptions')).toBeTruthy()
+    // Classic's ListState: the failure alone, with no title (parity 3.3-69, Q143 B).
+    expect(alert.textContent).not.toMatch(/Couldn’t (load|refresh) prescriptions/)
     expect(within(alert).getByText(SAID_REFUSED)).toBeTruthy()
     expect(document.body.textContent).not.toContain('You do not have permission to do that.')
     expect(screen.queryByText('Nothing waiting to dispense')).toBeNull()
@@ -298,7 +299,7 @@ describe('the queue', () => {
     expect(screen.queryByRole('status', { name: 'Loading prescriptions' })).toBeNull()
     await act(async () => { reload.reject(new HidApiError(503, 'Pharmacy work is temporarily unavailable.', { code: 'PHARMACY_SERVICE_UNAVAILABLE' })) })
     const alert = await screen.findByRole('alert')
-    expect(within(alert).getByText('Couldn’t refresh prescriptions')).toBeTruthy()
+    expect(alert.textContent).not.toMatch(/Couldn’t (load|refresh) prescriptions/)
     expect(alert.textContent).toContain(`${SAID_UNAVAILABLE} What is shown may be out of date.`)
     expect(alert.textContent).not.toContain('Pharmacy work is temporarily unavailable.')
     expect(screen.getByRole('button', { name: AMOXICILLIN })).toBeTruthy()

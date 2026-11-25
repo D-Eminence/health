@@ -55,7 +55,9 @@ export function DeniedPage({ label, facility }: { readonly label: string; readon
  * A page this session's role may not open, and that has no refusal of its own, in its place: "<page> unavailable", as
  * the classic pages headed theirs ("Laboratory unavailable", "Audit access unavailable"), and the plain sentence the
  * classic refusals share (staff/refusedWork.ts): what the role doesn't include and whom to ask. It names no permission
- * (house rule) and sends nobody Home with a general notice (parity report 3.3-50).
+ * (house rule) and sends nobody Home with a general notice (parity report 3.3-50). Patients, Consultation, Triage &
+ * Vitals, Nursing observations and Emergency access never show it: they open for every role, as classic's did, and say
+ * on each card what the role can't do (pageAccess.ts pageOpensForEveryRole).
  */
 export function PageUnavailable({ label, facility }: { readonly label: string; readonly facility: Facility | undefined }) {
   const work: RefusedWork = { name: label, work: 'this page', doneBy: null, gets: new Set() }

@@ -256,13 +256,15 @@ describe('Access requests list (once External record access)', () => {
 })
 
 describe('Close access from the list (parity 3.1 #23)', () => {
-  const CLOSE_ROW = 'Close access: Review of results'
+  // Today's button is named by its words alone (AccessRequests.tsx:130-132): no label of its own (parity 23).
+  const CLOSE_ROW = 'Close access'
 
-  it('offers Close access only on an active grant’s row, beside its link', async () => {
+  it('offers Close access only on an active grant’s row, beside its link, named as today’s', async () => {
     open()
     const rows = await list()
     expect(within(rows).getAllByRole('button', { name: /^Close access/ })).toHaveLength(1)
     const button = within(rows).getByRole('button', { name: CLOSE_ROW })
+    expect(button.getAttribute('aria-label')).toBeNull()
     expect(button.closest('a')).toBeNull()
   })
 
@@ -293,9 +295,16 @@ describe('Close access from the list (parity 3.1 #23)', () => {
     api.closeGrant.mockReturnValue(new Promise(resolve => { finish = resolve }))
     open()
     const button = within(await list()).getByRole('button', { name: CLOSE_ROW })
+    button.focus()
     fireEvent.click(button)
     fireEvent.click(button)
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Closing access: Review of results' }).textContent).toBe('Closing…'))
+    // Today's busy button (AccessRequests.tsx:131-132): it stays focusable (aria-disabled, not disabled) and says so.
+    await waitFor(() => expect(button.textContent).toBe('Closing…'))
+    expect((button as HTMLButtonElement).disabled).toBe(false)
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+    expect(button.getAttribute('aria-busy')).toBe('true')
+    expect(document.activeElement).toBe(button)
+    fireEvent.click(button)
     api.listAccessRequests.mockResolvedValue([{ ...ACTIVE, effectiveStatus: 'closed' }])
     await act(async () => { finish({}) })
     expect(await screen.findByText('Access was closed.')).toBeTruthy()
@@ -319,6 +328,40 @@ describe('Close access from the list (parity 3.1 #23)', () => {
     expect(screen.queryByText('Access was closed.')).toBeNull()
     expect(api.listAccessRequests).toHaveBeenCalledTimes(2)
     expect(document.body.textContent).not.toContain('CONSENT_COMMAND_CONFLICT')
+  })
+
+  it('parity 23: Refresh clears a refused close, as today’s load() does', async () => {
+    api.closeGrant.mockRejectedValue(new HidApiError(409, 'Conflict', { code: 'CONSENT_COMMAND_CONFLICT' }))
+    open()
+    fireEvent.click(within(await list()).getByRole('button', { name: CLOSE_ROW }))
+    expect(await screen.findByText('This access had already ended. The list has been refreshed.')).toBeTruthy()
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Refresh' })) })
+    await waitFor(() => expect(api.listAccessRequests).toHaveBeenCalledTimes(3))
+    expect(screen.queryByText('This access had already ended. The list has been refreshed.')).toBeNull()
+  })
+
+  it('parity 23: keeps “Access was closed.” when the Status filter changes, as today’s does', async () => {
+    open()
+    api.listAccessRequests.mockResolvedValue([request(), { ...ACTIVE, effectiveStatus: 'closed' }, DENIED])
+    fireEvent.click(within(await list()).getByRole('button', { name: CLOSE_ROW }))
+    expect(await screen.findByText('Access was closed.')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Status'), { target: { value: 'pending' } })
+    await waitFor(() => expect(api.listAccessRequests).toHaveBeenLastCalledWith(FACILITY_ID, 'pending'))
+    await list()
+    expect(screen.getByText('Access was closed.').closest('[role="status"]')).toBeTruthy()
+  })
+
+  it('parity 23: a refused close whose re-read fails says only the refusal, as today’s one error line does', async () => {
+    api.closeGrant.mockRejectedValue(new HidApiError(409, 'Conflict', { code: 'CONSENT_COMMAND_CONFLICT' }))
+    open()
+    const button = within(await list()).getByRole('button', { name: CLOSE_ROW })
+    api.listAccessRequests.mockRejectedValue(new HidApiError(503, 'Unavailable', { code: 'SERVICE_UNAVAILABLE' }))
+    fireEvent.click(button)
+    const refusal = await screen.findByText('This access had already ended. The list has been refreshed.')
+    expect(refusal.closest('[role="alert"]')).toBeTruthy()
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+    expect(screen.queryByText(/^Couldn’t load requests/)).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
   })
 })
 
@@ -388,20 +431,27 @@ describe('Ask the patient for access (once New external record access)', () => {
     expect(await screen.findByText(SENT)).toBeTruthy()
   })
 
-  it('parity 22c: stays on the form after a send and says today’s sentence there, with focus on it and no request id', async () => {
+  it('parity 22c: stays on the form after a send and says today’s sentence there, with focus left on Send and no request id', async () => {
     open('/new')
     fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: PATIENT_HID } })
     fireEvent.change(screen.getByLabelText(REASON), { target: { value: 'Follow-up consultation' } })
-    fireEvent.click(screen.getByRole('button', { name: SEND }))
+    // The status region is there before anything is sent, and never display:none, so the sentence is announced into it.
+    const region = screen.getByRole('status')
+    expect(region.className).not.toMatch(/(^|\s)(empty:)?hidden(\s|$)/)
+    const send = screen.getByRole('button', { name: SEND })
+    send.focus()
+    fireEvent.click(send)
     const said = await screen.findByText(SENT)
     // Still the form, at its own address (the request's page would be a heading of its own).
     expect(screen.getByRole('heading', { level: 1, name: 'Ask the patient for access' })).toBeTruthy()
     expect(screen.queryByRole('heading', { level: 1, name: /^Access request/ })).toBeNull()
     expect(where()).toBeNull()
     expect(screen.getByRole('button', { name: SEND })).toBeTruthy()
-    // Focus is on what happened, inside the status region, so a screen reader hears it.
+    // Today's focus stays on the button (Patients.tsx:262); the region mounted throughout announces it (:272-273).
     const status = said.closest('[role="status"]') as HTMLElement
-    expect(document.activeElement).toBe(status)
+    expect(status).toBe(region)
+    expect(status.getAttribute('tabindex')).toBeNull()
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: SEND }))
     expect(document.body.textContent).not.toContain(request().accessRequestId)
     // Today's form keeps what was typed after a send (Patients.tsx:181-184).
     expect((screen.getByLabelText(REASON) as HTMLTextAreaElement).value).toBe('Follow-up consultation')
@@ -474,13 +524,16 @@ describe('Ask the patient for access (once New external record access)', () => {
     await waitFor(() => expect(api.requestAccess).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, 'read_records', 'Follow-up consultation', 60))
   })
 
-  it('shows a refusal from the server and keeps what was typed', async () => {
+  it('parity 22a: says today’s 404 sentence for an unknown Health ID, not the chart’s, and keeps what was typed', async () => {
     api.requestAccess.mockRejectedValue(new HidApiError(404, 'Patient was not found or is not available', { code: 'PATIENT_NOT_FOUND' }))
     open('/new')
     fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: PATIENT_HID } })
     fireEvent.change(screen.getByLabelText(REASON), { target: { value: 'Follow-up consultation' } })
     fireEvent.click(screen.getByRole('button', { name: SEND }))
-    expect(shownText(await screen.findByRole('alert'))).toContain('We couldn’t find a patient with that Health ID. Check it and try again.')
+    // Today's plainErrorText for the facility (Patients.tsx:226), with no codes of the chart's own.
+    const said = shownText(await screen.findByRole('alert'))
+    expect(said).toBe('We couldn’t find what you were looking for. It may have been moved or removed.')
+    expect(said).not.toContain('We couldn’t find a patient with that Health ID')
     expect(document.body.textContent).not.toContain('Patient was not found or is not available')
     expect((screen.getByLabelText(REASON) as HTMLTextAreaElement).value).toBe('Follow-up consultation')
   })
@@ -539,6 +592,14 @@ describe('Ask the patient for access (once New external record access)', () => {
 })
 
 describe('Use the patient’s Access PIN (once Patient PIN access)', () => {
+  it('parity 9c: opens with today’s sentence about the PIN as its lede (Patients.tsx:259)', () => {
+    open('/pin')
+    const heading = screen.getByRole('heading', { level: 1, name: 'Use the patient’s Access PIN' })
+    const lede = screen.getByText('Only the patient should share their access PIN. Verification and grant creation happen on the server.')
+    expect(heading.compareDocumentPosition(lede) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(document.body.textContent).not.toContain('Ask the patient to type their PIN. Only they should know it.')
+  })
+
   it('says the PIN lets staff see and add to the patient’s records for 24 hours, before the Health ID', () => {
     open('/pin')
     const said = screen.getByText('Their PIN lets you see and add to their records for 24 hours.')

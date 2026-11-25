@@ -11,6 +11,7 @@ import { useWorkspaceHref } from '../parts/Workspace'
 import {
   FIRST_PAGE, NEW_TITLE, NO_COMPLAINT, NO_ENCOUNTERS, RESTARTED, TITLE, encounterTitle, encounterTypeLabel, readPage, useLatest, type Cursors,
 } from './encounters'
+import { NO_RECORD_ACCESS } from '../triage/records'
 import { orderPath, type OrderKind } from './orders'
 
 /**
@@ -72,16 +73,23 @@ type Notice = { readonly text: string; readonly alert: boolean }
 
 /**
  * The open patient's encounters at this facility, newest first, 50 to a page with no total (today's list), drawn as
- * the design's record table. Every read re-checks access first, as today.
+ * the design's record table. Every read re-checks access first, as today, and the visit opened from a row is handed
+ * that check (Chart.passOn), so it reads at once, as classic's chosen encounter does; a visit reached any other way
+ * checks again. A role that can't read visits sees the record pages' sentence in place of the table, and nothing is
+ * read (parity 3.3-50: the page opens and says it per card, as Triage & Vitals and Nursing observations do).
  */
 function Encounters({ chart }: { chart: Chart }) {
   const href = useWorkspaceHref()
   const navigate = useNavigate()
   const { facilityId, patientId } = chart
+  const reads = chart.can('ehr.encounter.read')
   const verify = useLatest(chart.verify)
+  const passOn = useLatest(chart.passOn)
+  // The pass the visit links carry (router state), once this list's check has passed.
+  const [pass, setPass] = useState('')
   const [rows, setRows] = useState<readonly Encounter[] | null>(null)
   const [position, setPosition] = useState<{ cursors: Cursors; next: string | null }>({ cursors: FIRST_PAGE, next: null })
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(reads)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState<Notice | null>(null)
   const [search, setSearch] = useState('')
@@ -95,6 +103,7 @@ function Encounters({ chart }: { chart: Chart }) {
       await verify.current()
       const result = await readPage((cursor, fresh) => staffApi.encounters(facilityId, patientId, { cursor, fresh }), request.cursors, request.fresh ?? false)
       if (run !== sequence.current) return
+      setPass(passOn.current())
       setRows(result.page.items.filter(item => item.patientId === patientId && item.facilityId === facilityId))
       setPosition({ cursors: result.cursors, next: result.page.nextCursor ?? null })
       setNotice(result.restarted ? { text: RESTARTED, alert: false } : null)
@@ -106,12 +115,13 @@ function Encounters({ chart }: { chart: Chart }) {
     } finally {
       if (run === sequence.current) setLoading(false)
     }
-  }, [facilityId, patientId, verify])
+  }, [facilityId, passOn, patientId, verify])
 
   useEffect(() => {
+    if (!reads) return
     void load({ cursors: FIRST_PAGE })
     return () => { sequence.current += 1 }
-  }, [load])
+  }, [load, reads])
 
   const tableRows = useMemo<RecordRow[]>(() => (rows ?? []).map(encounter => ({
     id: encounter.id,
@@ -148,9 +158,10 @@ function Encounters({ chart }: { chart: Chart }) {
         title={TITLE}
         // One primary: "New consultation" (only when changes are allowed; read-only offers no dead end). Refresh is secondary.
         primaryAction={canCreate ? <EhrButton onClick={() => navigate(href('new'))}>{NEW_TITLE}</EhrButton> : undefined}
-        secondaryActions={<EhrButton variant="secondary" busy={loading} onClick={() => { if (!loading) void load({ cursors, fresh: true }) }}>Refresh</EhrButton>}
+        secondaryActions={reads ? <EhrButton variant="secondary" busy={loading} onClick={() => { if (!loading) void load({ cursors, fresh: true }) }}>Refresh</EhrButton> : undefined}
       />
-      <EhrCard>
+      {!reads ? <EhrCard><p>{NO_RECORD_ACCESS}</p></EhrCard> : null}
+      {reads ? <EhrCard>
         <SearchField label="Search consultations" value={search} onChange={setSearch} />
         {notice ? (
           notice.alert ? <ErrorBox>{notice.text}</ErrorBox> : <p className="hid-ehr-clinical-note" role="status">{notice.text}</p>
@@ -173,12 +184,13 @@ function Encounters({ chart }: { chart: Chart }) {
             updatedHeader="Started"
             rows={filtered}
             hrefFor={row => href(row.id)}
+            stateFor={() => (pass ? { checked: pass } : undefined)}
             // No encounters is said in today's one sentence; "No matching records" is only for a search that found none.
             emptyTitle={rows.length === 0 ? NO_ENCOUNTERS : undefined}
             emptyMessage={rows.length === 0 ? null : 'Change your search.'}
           />
         )}
-      </EhrCard>
+      </EhrCard> : null}
     </>
   )
 }

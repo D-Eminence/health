@@ -43,9 +43,11 @@ vi.mock('../../../../staff/env', () => ({ getEnvironment: () => ({ name: 'test',
 /** The front desk's codes after 0136 (docs/INTERFACE_CONTRACT.md, "Permission keys before and after, per role"). */
 const FRONT_DESK = ['identity.patient.read', 'ehr.encounter.read', 'ehr.document.write', 'ehr.document.read-own', 'ocr.job.write',
   'ocr.job.start', 'ocr.job.read-own', 'ehr.vital.read']
-/** A doctor's after 0136: every OCR code but ocr.job.start. */
-const DOCTOR = ['identity.patient.read', 'ehr.encounter.read', 'ehr.document.read', 'ehr.document.write', 'ocr.job.write', 'ocr.job.read',
+/** A role that follows and checks readings but may not start one: a doctor's codes from 0136 until 0150. */
+const CHECKER = ['identity.patient.read', 'ehr.encounter.read', 'ehr.document.read', 'ehr.document.write', 'ocr.job.write', 'ocr.job.read',
   'ocr.validation.write', 'ocr.patient.confirm', 'ocr.publication.write']
+/** A doctor's since hid-system 0150 (owner decision Q141 B): every OCR code, ocr.job.start again among them. */
+const DOCTOR = [...CHECKER, 'ocr.job.start']
 /** A permission's name, Identity's code or "unverified": none belongs on a staff screen. */
 const SCREEN_WORDS_NOT_SAID = /permission|ocr\.job|ehr\.document|read-own|unverified/i
 
@@ -102,8 +104,12 @@ describe('scanAccess', () => {
     expect(scanAccess(FRONT_DESK)).toEqual({ followsReadings: true, readsText: false, startsReadings: true,
       readsDocuments: true, ownDocumentsOnly: true, uploadsDocuments: true })
   })
-  it('gives a doctor every reading and its text, but no start', () => {
-    expect(scanAccess(DOCTOR)).toMatchObject({ followsReadings: true, readsText: true, startsReadings: false,
+  it('gives a doctor every reading, its text and starting a reading (0150)', () => {
+    expect(scanAccess(DOCTOR)).toMatchObject({ followsReadings: true, readsText: true, startsReadings: true,
+      readsDocuments: true, ownDocumentsOnly: false })
+  })
+  it('gives a role without ocr.job.start every reading and its text, but no start', () => {
+    expect(scanAccess(CHECKER)).toMatchObject({ followsReadings: true, readsText: true, startsReadings: false,
       readsDocuments: true, ownDocumentsOnly: false })
   })
   it('lets the full code win over the "-own" one, and takes a check of one code as well as a list', () => {
@@ -179,8 +185,22 @@ describe('the front desk on Scan paper records', () => {
   })
 })
 
-describe('a doctor, who checks readings but does not start them', () => {
+describe('a doctor since 0150, who starts readings and checks them', () => {
   beforeEach(() => { session.permissions = DOCTOR })
+
+  it('is offered Create record and Extract with OCR, and no sentence about who starts readings', async () => {
+    renderDept(<Migrate />)
+    await screen.findByText('old-clinic-card.pdf')
+    expect(screen.getByRole('button', { name: 'Create record' })).toBeTruthy()
+    expect(within(scanRow()).getByRole('button', { name: 'Extract with OCR' })).toBeTruthy()
+    expect(within(scanRow()).queryByRole('button', { name: 'Find its reading' })).toBeNull()
+    expect(screen.queryByText(STARTS_WITH_OTHERS)).toBeNull()
+    expect(document.body.textContent).not.toMatch(SCREEN_WORDS_NOT_SAID)
+  })
+})
+
+describe('a role that checks readings but does not start them', () => {
+  beforeEach(() => { session.permissions = CHECKER })
 
   it('is offered no Create record and no Extract with OCR, and is told who starts readings', async () => {
     renderDept(<Migrate />)
@@ -232,18 +252,20 @@ describe('a doctor, who checks readings but does not start them', () => {
 })
 
 describe('the words for each role (hid-system 0136)', () => {
-  it('the Guide names who starts a reading and who checks it, instead of steps doctors and the front desk cannot take', () => {
+  it('the Guide names who starts a reading and who checks it, instead of steps the front desk cannot take', () => {
     const steps = PAGE_GUIDES.ocr!.steps
-    expect(steps.find(step => step.includes('Create record'))).toMatch(/^The front desk, nurses and clinicians start a reading/)
+    expect(steps.find(step => step.includes('Create record'))).toMatch(/^The front desk, doctors, nurses and clinicians start a reading/)
     expect(steps.find(step => step.includes('check what was read'))).toMatch(/^Doctors, nurses and clinicians check what was read/)
     expect(steps.some(step => step.includes('Find its reading'))).toBe(true)
+    // Doctors start readings again since 0150 (Q141 B): the Guide no longer sends them to Find its reading.
+    expect(steps.join(' ')).not.toMatch(/Doctors select Find its reading/)
     expect([...steps, ...(PAGE_GUIDES.ocr!.tips ?? [])].join(' ')).not.toMatch(SCREEN_WORDS_NOT_SAID)
   })
 
   it('refuses a role that follows no reading by saying who scans paper records here, not that it isn’t available yet', () => {
     session.permissions = ['identity.patient.read', 'ehr.encounter.read']
     renderDept(<Migrate />)
-    expect(screen.getByRole('alert').textContent).toBe('Scanning paper records is done by the front desk, nurses and clinicians here.')
+    expect(screen.getByRole('alert').textContent).toBe('Scanning paper records is done by the front desk, doctors, nurses and clinicians here.')
     expect(document.body.textContent).not.toMatch(/available at your facility yet/)
   })
 })
