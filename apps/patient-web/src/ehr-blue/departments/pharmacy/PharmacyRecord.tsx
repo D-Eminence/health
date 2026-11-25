@@ -1,5 +1,5 @@
 import { useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { ArrowRight, Check, CircleCheck, PackagePlus, PackageX, TriangleAlert, Undo2 } from 'lucide-react'
+import { ArrowRight, Check, CircleCheck, PackagePlus, PackageX, TriangleAlert } from 'lucide-react'
 import { FormActions, PatientBanner, Value } from '../../../kasuwa/parts'
 import { Badge, Button, Card, CardHeader, cx } from '../../../kasuwa/ui'
 import { useConfirm } from '../../clinical/parts/confirm'
@@ -163,8 +163,6 @@ function ActionField({ id, label, hint, error, full, children }: {
   )
 }
 
-type ActionKind = 'dispense' | 'reverse'
-
 /** The picking checklist: each step ticked as it is done at the shelf, before the medicine is handed over. */
 type CheckStep = 'picked' | 'counted' | 'label'
 
@@ -216,8 +214,6 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [done, setDone] = useState<Done | null>(null)
-  // The reversal form, opened on request: rare, and set apart from the counter's work.
-  const [opened, setOpened] = useState<ActionKind | null>(null)
   const [ticked, setTicked] = useState<ReadonlySet<CheckStep>>(() => new Set())
   const focus = useFocusById()
   const problems = useFieldProblems()
@@ -288,7 +284,6 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
         await staffApi.reverseDispensing(facilityId, current.id, current.version, reason)
         setDone(null)
         setSuccess('Dispensing reversal recorded.')
-        setOpened(null)
         focus(title, true)
         await onChanged()
         focus(title, true)
@@ -373,7 +368,9 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
   const step = stepText(item, Date.now(), acceptor)
   const justAcceptedBy = useAcceptorName(staffName, justAccepted?.acceptance?.acceptedByMembershipId)
   const statusLine = justAccepted ? acceptedText(justAccepted.acceptance, justAccepted.already, justAccepted.at, justAcceptedBy) : success
-  const reversing = opened === 'reverse' && canReverse
+  // Classic's reversal form (Operations.tsx PharmacyAction), shown on the record as classic shows it, with no button to
+  // open it first (parity 3.3-70); set apart under Other actions, and confirmed against the patient (Q142 B).
+  const reversing = canReverse
   // Point of care: the bill as the payment step last left it (paid or set to follow), else as the work item carries it.
   const [cleared, setCleared] = useState<NonNullable<WorkItemBill> | null>(null)
   const bill = cleared ?? billOf(item)
@@ -535,8 +532,6 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
   const otherActions = (canReverse || ending) && <Card>
     <CardHeader as="h2" title="Other actions" titleId={`pharmacy-${item.id}-actions`} />
     <div className="flex flex-col gap-3 p-5">
-      {canReverse && <Button icon={Undo2} aria-expanded={reversing} aria-controls={`pharmacy-reverse-${item.id}`} className="self-start"
-        onClick={() => { setError(''); problems.clear(); setOpened(current => current === 'reverse' ? null : 'reverse') }}>Reverse dispensing</Button>}
       {reversing && <form id={`pharmacy-reverse-${item.id}`} className="flex flex-col gap-3" aria-label="Reverse dispensing" noValidate
         onSubmit={event => void submit(event, true)}>
         <ActionField id={`pharmacy-reversal-${item.id}`} label="Reversal reason" error={problems.error(`pharmacy-reversal-${item.id}`)}>

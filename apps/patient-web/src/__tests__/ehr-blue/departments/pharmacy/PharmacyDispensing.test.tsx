@@ -105,10 +105,8 @@ function dispenseWith(values: { quantity?: string; unit?: string; reason?: strin
   return form
 }
 
-/** Opens Reverse dispensing, gives its reason and sends it (the confirm sheet then asks). */
+/** Gives Reverse dispensing its reason and sends it (the confirm sheet then asks). */
 function reverse(reason: string) {
-  const toggle = within(otherActions()).queryByRole('button', { name: 'Reverse dispensing', expanded: false })
-  if (toggle) fireEvent.click(toggle)
   const form = screen.getByRole('form', { name: 'Reverse dispensing' })
   fireEvent.change(within(form).getByRole('textbox', { name: 'Reversal reason' }), { target: { value: reason } })
   fireEvent.click(within(form).getByRole('button', { name: 'Reverse dispensing' }))
@@ -525,13 +523,13 @@ describe('Dispense', () => {
 describe('Reverse dispensing', () => {
   beforeEach(() => { working([READ, DISPENSING_READ, REVERSE]) })
 
-  it('is offered only on a dispensing still in effect, under Other actions', async () => {
+  it('is offered only on a dispensing still in effect, under Other actions, as classic’s form with no button to open it', async () => {
     await openRecord(METFORMIN)
-    const toggle = within(otherActions()).getByRole('button', { name: 'Reverse dispensing', expanded: false })
-    fireEvent.click(toggle)
-    expect(toggle.getAttribute('aria-controls')).toBe(screen.getByRole('form', { name: 'Reverse dispensing' }).id)
-    fireEvent.click(toggle)
-    expect(screen.queryByRole('form')).toBeNull()
+    // Classic's inline form (Operations.tsx PharmacyAction; parity 3.3-70): its reason and its one button, nothing to open first.
+    const form = within(otherActions()).getByRole('form', { name: 'Reverse dispensing' })
+    expect(within(form).getByRole('textbox', { name: 'Reversal reason' })).toBeTruthy()
+    expect(within(otherActions()).getAllByRole('button').map(button => button.textContent)).toEqual(['Reverse dispensing'])
+    expect(within(otherActions()).queryByRole('button', { expanded: false })).toBeNull()
     fireEvent.click(back())
     for (const name of [AMOXICILLIN, SALBUTAMOL]) {
       fireEvent.click(screen.getByRole('button', { name }))
@@ -650,7 +648,6 @@ describe('Reverse dispensing', () => {
     working(ALL)
     api.pharmacyWorkItems.mockResolvedValue({ items: [accepted, dispensed] })
     await openRecord(METFORMIN)
-    fireEvent.click(within(otherActions()).getByRole('button', { name: 'Reverse dispensing', expanded: false }))
     expect(screen.getAllByRole('form').map(form => form.getAttribute('aria-label'))).toEqual(['Reverse dispensing'])
   })
 })
