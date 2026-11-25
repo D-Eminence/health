@@ -231,6 +231,47 @@ describe('Clinical shifts in the frame', () => {
     expect(sentTo(sent, SHIFTS)[0]!.headers.get('X-Purpose-Of-Use')).toBe('direct-care')
   })
 
+  it('never shows or saves one shift’s list under another, warns the list is staff only, and names each line', async () => {
+    const member = nurse()
+    const morning = { date: '2026-12-03', shiftId: SHIFT, wardId: WARD, from: '2026-12-03T06:30:00.000Z', to: '2026-12-03T13:30:00.000Z',
+      version: 1, assignments: [{ membershipId: ME, duty: 'nurse_in_charge', admissionIds: [ADMISSION] }] }
+    const afternoon = { ...morning, shiftId: SHIFT_NEXT, version: 3, assignments: [] }
+    const sent = serve({
+      [SESSION]: [sessionAt(member, [member])],
+      [SHIFTS]: many(shiftsOf(shift(), shift({ shiftId: SHIFT_NEXT, name: 'Afternoon', startsAt: '14:00', endsAt: '21:00' }))),
+      [WARDS]: many(wardsOf()),
+      [ADMISSIONS]: many(() => json({ items: [card()], hasMore: false, limit: 500 }), 10),
+      // Morning, then Afternoon refused, then Morning again and Afternoon read.
+      [ASSIGNMENTS]: [() => json(morning), () => problem(503, 'SERVICE_UNAVAILABLE', 'Service unavailable'), () => json(morning), () => json(afternoon)],
+      [SET_ASSIGNMENTS]: [() => json({ list: { version: 4 }, warnings: [], replayed: false })],
+    })
+    await openStaffApp('/provider/clinical-shifts')
+    const onShift = await screen.findByRole('list', { name: 'On this shift' })
+    expect(screen.getByText('Do not show this list on a screen patients or visitors can see.')).toBeDefined()
+    const mine = within(onShift).getByRole('listitem', { name: 'You, nurse in charge' })
+    expect(within(mine).getByRole('button', { name: 'Remove yourself as nurse in charge' })).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Add someone' }))
+    expect(screen.getByRole('listitem', { name: 'Someone new, nurse' })).toBeDefined()
+    expect(screen.getByRole('button', { name: 'Remove this new line as nurse' })).toBeDefined()
+
+    // Afternoon is read, then refused: Morning's list is neither shown under it nor saved as it.
+    fireEvent.change(screen.getByLabelText('Shift'), { target: { value: SHIFT_NEXT } })
+    expect(screen.queryByRole('list', { name: 'On this shift' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Save who is on' })).toBeNull()
+    expect(await screen.findByRole('alert')).toBeDefined()
+    expect(screen.queryByRole('list', { name: 'On this shift' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Save who is on' })).toBeNull()
+
+    fireEvent.change(screen.getByLabelText('Shift'), { target: { value: SHIFT } })
+    await screen.findByRole('list', { name: 'On this shift' })
+    fireEvent.change(screen.getByLabelText('Shift'), { target: { value: SHIFT_NEXT } })
+    expect(await screen.findByText('No one is on this shift yet')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Save who is on' }))
+    await waitFor(() => expect(sentTo(sent, SET_ASSIGNMENTS)).toHaveLength(1))
+    expect(sentTo(sent, SET_ASSIGNMENTS)[0]!.body).toEqual({ date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), shiftId: SHIFT_NEXT, wardId: WARD,
+      expectedVersion: 3, assignments: [] })
+  })
+
   it('is not open to a doctor, who neither sets shifts up nor assigns them', async () => {
     const doctor = facility(REAL_FACILITY, 'Fictional Hospital', ['ehr.mar.read', 'ehr.nursing-task.read'], ['doctor'])
     const sent = serve({ [SESSION]: [sessionAt(doctor, [doctor])] })

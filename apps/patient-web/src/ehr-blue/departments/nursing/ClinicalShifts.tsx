@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useState, type FormEvent } from 'react'
 import { EhrBadge, EhrButton, EhrEmptyState, EhrField, EhrInput, EhrSelect } from '@hid/ui/ehr'
 import { nursingApi, type ClinicalShift, type ShiftAssignment, type ShiftAssignments, type ShiftDuty } from '../../../staff/api'
 import { useDeptAccess } from '../parts/access'
@@ -10,7 +10,7 @@ import {
   DUTY_WORDS, EYEBROW, SHIFTS_REFUSED, SHIFTS_TITLE, SUGGESTED_SHIFTS, canAssign, canListAdmissions, canSetUpShifts, lagosDayFrom,
   learning, learningRefusal, memberText, notServed, patientName, refusalWords,
 } from './nursingRules'
-import { WardPicker, WardsState, useWardChoice } from './parts'
+import { ScreenWarning, WardPicker, WardsState, useWardChoice } from './parts'
 
 const CLOCK = /^([01]\d|2[0-3]):[0-5]\d$/
 
@@ -143,17 +143,52 @@ function NewShift({ facilityId, existing, keyFor, onAdded }: {
 
 interface Row { membershipId: string; duty: ShiftDuty; admissionIds: string[] }
 
+/** The ward, day and shift whose list is shown. Each choice gets its own list, read afresh (never another's kept). */
 function Assignments({ facilityId, shifts }: { readonly facilityId: string; readonly shifts: readonly ClinicalShift[] }) {
-  const { permissions, membershipId } = useDeptAccess()
+  const { permissions } = useDeptAccess()
   const { wards, active, wardId, ward, choose } = useWardChoice(facilityId, canSetUpShifts(permissions) ? 'healthcare-operations' : 'direct-care')
   const [date, setDate] = useState(() => lagosDayFrom(0))
   const [shiftId, setShiftId] = useState(shifts[0]?.shiftId ?? '')
-  const ready = Boolean(wardId && shiftId && date)
+
+  return (
+    <DeptSection title="Who is on" headingId="assignments">
+      <ScreenWarning />
+      <WardsState wards={wards} active={active} />
+      <div className="hid-ehr-dept-nursing-filters">
+        {active.length > 1 ? <WardPicker active={active} wardId={wardId} onChoose={choose} /> : null}
+        <EhrField label="Day" hint="From yesterday to 14 days ahead.">
+          <EhrInput type="date" value={date} min={lagosDayFrom(-1)} max={lagosDayFrom(14)} onChange={event => setDate(event.target.value)} />
+        </EhrField>
+        <EhrField label="Shift">
+          <EhrSelect value={shiftId} onChange={event => setShiftId(event.target.value)}>
+            {shifts.map(shift => <option key={shift.shiftId} value={shift.shiftId}>{`${shift.name} (${shift.startsAt} to ${shift.endsAt})`}</option>)}
+          </EhrSelect>
+        </EhrField>
+      </div>
+      {wardId && shiftId && date ? (
+        <ShiftList key={`${wardId}-${date}-${shiftId}`} facilityId={facilityId} query={{ wardId, date, shiftId }}
+          staffIds={ward?.staffMembershipIds ?? []} />
+      ) : null}
+    </DeptSection>
+  )
+}
+
+/**
+ * Who is on one ward's shift on one day, and its editor. Keyed by the three, so while another day's or shift's list is
+ * read (or after it is refused) nothing of the last one is shown or saved under it: Save sends the list read for these
+ * three, with its own version.
+ */
+function ShiftList({ facilityId, query, staffIds }: {
+  readonly facilityId: string
+  readonly query: { wardId: string; date: string; shiftId: string }
+  readonly staffIds: readonly string[]
+}) {
+  const { permissions, membershipId } = useDeptAccess()
+  const { wardId, date, shiftId } = query
   const loader = useCallback((id: string) => learning(nursingApi.assignments(id, { date, shiftId, wardId })), [date, shiftId, wardId])
-  const list = useFacilityRead(facilityId, ready, loader, 'Who is on this shift could not be loaded.')
+  const list = useFacilityRead(facilityId, true, loader, 'Who is on this shift could not be loaded.')
   const patientsLoader = useCallback((id: string) => learningRefusal(nursingApi.admissions(id, wardId)), [wardId])
-  const patients = useFacilityRead(facilityId, Boolean(wardId) && canListAdmissions(permissions), patientsLoader, 'The ward’s patients could not be loaded.')
-  const staffIds = ward?.staffMembershipIds ?? []
+  const patients = useFacilityRead(facilityId, canListAdmissions(permissions), patientsLoader, 'The ward’s patients could not be loaded.')
   const [rows, setRows] = useState<Row[] | null>(null)
   const listed = list.value
   const names = useStaffNames(facilityId, [...staffIds, ...(listed?.assignments.map(row => row.membershipId) ?? [])])
@@ -161,13 +196,19 @@ function Assignments({ facilityId, shifts }: { readonly facilityId: string; read
   const [problem, setProblem] = useState('')
   const [done, setDone] = useState('')
 
-  useEffect(() => { setRows(null); setDone(''); setProblem('') }, [date, shiftId, wardId])
   const shown: Row[] = rows ?? (listed ? listed.assignments.map(row => ({ ...row, admissionIds: [...row.admissionIds] })) : [])
   const people = [...new Set([...staffIds, ...shown.map(row => row.membershipId)])]
   const admitted = patients.value?.items ?? []
 
   function change(index: number, next: Partial<Row>) {
     setRows(shown.map((row, at) => at === index ? { ...row, ...next } : row))
+  }
+
+  /** Each line named by its person and duty, so its controls are told apart from another line's. */
+  function lineName(row: Row) {
+    const who = row.membershipId ? memberText(row.membershipId, membershipId, names) : 'Someone new'
+    return { line: `${who}, ${DUTY_WORDS[row.duty].toLowerCase()}`,
+      remove: `Remove ${who === 'You' ? 'yourself' : who === 'Someone new' ? 'this new line' : who} as ${DUTY_WORDS[row.duty].toLowerCase()}` }
   }
 
   async function save(current: ShiftAssignments) {
@@ -190,56 +231,47 @@ function Assignments({ facilityId, shifts }: { readonly facilityId: string; read
   }
 
   return (
-    <DeptSection title="Who is on" headingId="assignments">
-      <WardsState wards={wards} active={active} />
-      <div className="hid-ehr-dept-nursing-filters">
-        {active.length > 1 ? <WardPicker active={active} wardId={wardId} onChoose={choose} /> : null}
-        <EhrField label="Day" hint="From yesterday to 14 days ahead.">
-          <EhrInput type="date" value={date} min={lagosDayFrom(-1)} max={lagosDayFrom(14)} onChange={event => setDate(event.target.value)} />
-        </EhrField>
-        <EhrField label="Shift">
-          <EhrSelect value={shiftId} onChange={event => setShiftId(event.target.value)}>
-            {shifts.map(shift => <option key={shift.shiftId} value={shift.shiftId}>{`${shift.name} (${shift.startsAt} to ${shift.endsAt})`}</option>)}
-          </EhrSelect>
-        </EhrField>
-      </div>
+    <>
       {list.caught ? <DeptNotice role="alert" tone={notServed(list.caught) ? 'info' : 'critical'}>{refusalWords(list.caught, 'Who is on this shift could not be loaded.')}</DeptNotice> : null}
-      {ready && listed === null && list.loading ? <p className="hid-ehr-state-message" role="status">Loading who is on…</p> : null}
+      {listed === null && list.loading ? <p className="hid-ehr-state-message" role="status">Loading who is on…</p> : null}
       {listed ? (
         <>
           {shown.length === 0 ? <EhrEmptyState title="No one is on this shift yet" message="Add the nurses, the nurse in charge and the on-call doctor." /> : (
             <ul className="hid-ehr-dept-waiting-list" aria-label="On this shift">
-              {shown.map((row, index) => (
-                <li key={index} className="hid-ehr-dept-waiting-card">
-                  <div className="hid-ehr-dept-waiting-main hid-ehr-dept-nursing-form">
-                    <EhrField label="Who">
-                      <EhrSelect value={row.membershipId} onChange={event => change(index, { membershipId: event.target.value })}>
-                        <option value="">Choose</option>
-                        {people.map(id => <option key={id} value={id}>{memberText(id, membershipId, names)}</option>)}
-                      </EhrSelect>
-                    </EhrField>
-                    <EhrField label="Duty">
-                      <EhrSelect value={row.duty} onChange={event => change(index, { duty: event.target.value as ShiftDuty })}>
-                        {(Object.keys(DUTY_WORDS) as ShiftDuty[]).map(duty => <option key={duty} value={duty}>{DUTY_WORDS[duty]}</option>)}
-                      </EhrSelect>
-                    </EhrField>
-                    {row.duty !== 'on_call_doctor' && admitted.length > 0 ? (
-                      <fieldset className="hid-ehr-dept-nursing-patients">
-                        <legend>Patients</legend>
-                        {admitted.map(card => (
-                          <label key={card.admissionId} className="hid-ehr-dept-waiting-toggle">
-                            <input type="checkbox" checked={row.admissionIds.includes(card.admissionId)}
-                              onChange={event => change(index, { admissionIds: event.target.checked
-                                ? [...row.admissionIds, card.admissionId] : row.admissionIds.filter(id => id !== card.admissionId) })} />
-                            <span>{[card.bedName, patientName(card)].filter(Boolean).join(' · ')}</span>
-                          </label>
-                        ))}
-                      </fieldset>
-                    ) : null}
-                    <EhrButton size="sm" variant="quiet" onClick={() => setRows(shown.filter((_, at) => at !== index))}>Remove</EhrButton>
-                  </div>
-                </li>
-              ))}
+              {shown.map((row, index) => {
+                const named = lineName(row)
+                return (
+                  <li key={index} className="hid-ehr-dept-waiting-card" aria-label={named.line}>
+                    <div className="hid-ehr-dept-waiting-main hid-ehr-dept-nursing-form">
+                      <EhrField label="Who">
+                        <EhrSelect value={row.membershipId} onChange={event => change(index, { membershipId: event.target.value })}>
+                          <option value="">Choose</option>
+                          {people.map(id => <option key={id} value={id}>{memberText(id, membershipId, names)}</option>)}
+                        </EhrSelect>
+                      </EhrField>
+                      <EhrField label="Duty">
+                        <EhrSelect value={row.duty} onChange={event => change(index, { duty: event.target.value as ShiftDuty })}>
+                          {(Object.keys(DUTY_WORDS) as ShiftDuty[]).map(duty => <option key={duty} value={duty}>{DUTY_WORDS[duty]}</option>)}
+                        </EhrSelect>
+                      </EhrField>
+                      {row.duty !== 'on_call_doctor' && admitted.length > 0 ? (
+                        <fieldset className="hid-ehr-dept-nursing-patients">
+                          <legend>Patients</legend>
+                          {admitted.map(card => (
+                            <label key={card.admissionId} className="hid-ehr-dept-waiting-toggle">
+                              <input type="checkbox" checked={row.admissionIds.includes(card.admissionId)}
+                                onChange={event => change(index, { admissionIds: event.target.checked
+                                  ? [...row.admissionIds, card.admissionId] : row.admissionIds.filter(id => id !== card.admissionId) })} />
+                              <span>{[card.bedName, patientName(card)].filter(Boolean).join(' · ')}</span>
+                            </label>
+                          ))}
+                        </fieldset>
+                      ) : null}
+                      <EhrButton size="sm" variant="quiet" aria-label={named.remove} onClick={() => setRows(shown.filter((_, at) => at !== index))}>Remove</EhrButton>
+                    </div>
+                  </li>
+                )
+              })}
             </ul>
           )}
           <div className="hid-ehr-dept-nursing-actions">
@@ -250,6 +282,6 @@ function Assignments({ facilityId, shifts }: { readonly facilityId: string; read
           {done ? <p className="hid-ehr-state-message" role="status">{done}</p> : null}
         </>
       ) : null}
-    </DeptSection>
+    </>
   )
 }
