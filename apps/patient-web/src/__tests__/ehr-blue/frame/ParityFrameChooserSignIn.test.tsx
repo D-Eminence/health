@@ -166,6 +166,26 @@ describe('3.3-50: the clinical pages classic opened for every role open in the f
     expect(document.querySelector('.hid-ehr-blue-page h1')!.textContent).not.toMatch(/unavailable$/)
   })
 
+  // The frame part (#324) and the card parts (#320 Patients, #322 Consultation, Triage & Vitals, Nursing observations,
+  // Emergency access) together: through the real frame, each page says on its own cards what this role can't do, in
+  // classic's per-method words, and asks the backend for nothing but the session.
+  const ROLE_NOTE = (what: string) => `Your role at this facility can’t ${what}. Ask your facility administrator.`
+  it.each([
+    ['patients', [ROLE_NOTE('open a patient’s record'), ROLE_NOTE('verify a patient’s PIN'), ROLE_NOTE('send access requests'),
+      ROLE_NOTE('open emergency access')]],
+    ['clinical', ['Choose a patient first.']],
+    ['triage', ['Choose a patient first.']],
+    ['nursing', ['Choose a patient first.']],
+    ['emergency', [ROLE_NOTE('open emergency access')]],
+  ])('/provider/%s says on its cards what the role can’t do, in classic’s per-method words, and reads nothing', async (path, notes) => {
+    const sent = await openAt(['audit.read'], `/provider/${path}`)
+    await waitFor(() => expect(document.querySelector('.hid-ehr-blue-page h1')).not.toBeNull())
+    const page = document.querySelector('.hid-ehr-blue-page') as HTMLElement
+    for (const note of notes) expect(await within(page).findByText(note)).toBeTruthy()
+    expect(page.textContent).not.toMatch(/unavailable|doesn’t include this page|permission/i)
+    expect(sent.map(request => request.route)).toEqual(['GET /api/v1/auth/session'])
+  })
+
   it('still refuses in its place any other page the role may not open', async () => {
     await openAt(['audit.read'], '/provider/laboratory')
     expect(await screen.findByRole('heading', { level: 1, name: /^Laboratory/ })).toBeDefined()
