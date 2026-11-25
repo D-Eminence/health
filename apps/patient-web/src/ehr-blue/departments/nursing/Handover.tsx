@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { EhrBadge, EhrButton, EhrEmptyState, EhrField, EhrInput, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
 import { lagosClock } from '@hid/ui/display'
+import { isHidApiError } from '@hid/http'
 import { nursingApi, type ClinicalShift, type HandoverPatient, type HandoverSheet } from '../../../staff/api'
 import { useDeptAccess } from '../parts/access'
 import { DeptNotice } from '../parts/DeptNotice'
@@ -152,7 +153,7 @@ function Sheet({ facilityId, query }: { readonly facilityId: string; readonly qu
             <ul className="hid-ehr-dept-waiting-list" aria-label="Patients">
               {value.patients.map(patient => (
                 <HandoverRow key={patient.admissionId} facilityId={facilityId} sheet={value} patient={patient} keyFor={keyFor}
-                  canWrite={write && value.status === 'draft'} onSaved={() => void sheet.refresh()} />
+                  canWrite={write && value.status === 'draft'} onRead={() => void sheet.refresh()} />
               ))}
             </ul>
           )}
@@ -162,34 +163,69 @@ function Sheet({ facilityId, query }: { readonly facilityId: string; readonly qu
   )
 }
 
-function HandoverRow({ facilityId, sheet, patient, canWrite, keyFor, onSaved }: {
+/** The note being written, and the note and version it started from. */
+interface NoteDraft { note: string; watch: boolean; from: { note: string; watch: boolean; version: number | null } }
+
+const draftOf = (patient: HandoverPatient): NoteDraft => {
+  const from = { note: patient.handoverNote ?? '', watch: patient.watch, version: patient.itemRowVersion }
+  return { note: from.note, watch: from.watch, from }
+}
+
+const NOTE_CHANGED = 'Someone else changed this note while you were writing. Their note is shown above: go back, then change the note again.'
+
+/**
+ * One patient on the sheet. The note opens from the sheet as last read (and the sheet is read again as it opens), and
+ * is saved against the version it was written from: a colleague's newer note is never written over without a word
+ * (412 NURSING_VERSION_CONFLICT, or said here first when the sheet already shows it).
+ */
+function HandoverRow({ facilityId, sheet, patient, canWrite, keyFor, onRead }: {
   readonly facilityId: string
   readonly sheet: HandoverSheet
   readonly patient: HandoverPatient
   readonly canWrite: boolean
   readonly keyFor: IdempotencyKeys
-  readonly onSaved: () => void
+  /** Reads the sheet again. */
+  readonly onRead: () => void
 }) {
-  const [editing, setEditing] = useState(false)
-  const [note, setNote] = useState(patient.handoverNote ?? '')
-  const [watch, setWatch] = useState(patient.watch)
+  const [draft, setDraft] = useState<NoteDraft | null>(null)
   const [problem, setProblem] = useState('')
   const [chartClosed, setChartClosed] = useState(false)
   const headingId = `handover-${patient.admissionId}`
+  const editing = draft !== null
+
+  // A newer read while the note is open and nothing has been typed: start from the newer note.
+  useEffect(() => {
+    setDraft(current => current && current.from.version !== patient.itemRowVersion && current.note === current.from.note
+      && current.watch === current.from.watch ? draftOf(patient) : current)
+  }, [patient])
+
+  function open() {
+    setProblem('')
+    setChartClosed(false)
+    setDraft(draftOf(patient))
+    onRead()
+  }
 
   async function save(event: FormEvent) {
     event.preventDefault()
+    if (!draft) return
     setProblem('')
-    if (!note.trim() || note.trim().length > 2000) { setProblem('Write the note in up to 2,000 characters.'); return }
-    const input = { note: note.trim(), watch, ...(patient.itemRowVersion !== null ? { expectedRowVersion: patient.itemRowVersion } : {}) }
+    const note = draft.note.trim()
+    if (!note || note.length > 2000) { setProblem('Write the note in up to 2,000 characters.'); return }
+    // The sheet already shows a newer note than the one this was written from (one first written since, too, which the
+    // server could not tell: it checks a version only when one is sent).
+    if (draft.from.version !== patient.itemRowVersion) { setProblem(NOTE_CHANGED); return }
+    const input = { note, watch: draft.watch, ...(draft.from.version !== null ? { expectedRowVersion: draft.from.version } : {}) }
     try {
       await nursingApi.handoverNote(facilityId, sheet, patient.admissionId, input,
         keyFor('handover-note', { sheet: sheet.handoverId, admission: patient.admissionId, ...input }))
-      setEditing(false)
-      onSaved()
+      setDraft(null)
+      onRead()
     } catch (caught) {
       if (isChartAccessRefusal(caught)) setChartClosed(true)
-      setProblem(refusalWords(caught, 'The note could not be saved. Try again.'))
+      const conflict = isHidApiError(caught) && caught.code === 'NURSING_VERSION_CONFLICT'
+      setProblem(conflict ? NOTE_CHANGED : refusalWords(caught, 'The note could not be saved. Try again.'))
+      if (conflict) onRead()
     }
   }
 
@@ -215,22 +251,22 @@ function HandoverRow({ facilityId, sheet, patient, canWrite, keyFor, onSaved }: 
           <div><dt>Handover note</dt><dd>{patient.noteHidden ? 'Open the record to read the note.' : patient.handoverNote ?? 'No note yet'}</dd></div>
         </dl>
         {canWrite && patient.chartShown && !editing ? (
-          <EhrButton size="sm" variant="secondary" onClick={() => setEditing(true)}>{patient.handoverNote ? 'Change the note' : 'Write a note'}</EhrButton>
+          <EhrButton size="sm" variant="secondary" onClick={open}>{patient.handoverNote ? 'Change the note' : 'Write a note'}</EhrButton>
         ) : null}
-        {editing ? (
+        {draft ? (
           <form className="hid-ehr-dept-nursing-form" onSubmit={event => void save(event)} aria-label={`Handover note for ${patient.patient.nameHidden ? patient.patient.initials : patient.patient.fullName ?? ''}`}>
             <EhrField label="Handover note" hint="Saved to the patient’s record as a signed nursing handover note.">
-              <EhrTextarea value={note} maxLength={2000} onChange={event => setNote(event.target.value)} />
+              <EhrTextarea value={draft.note} maxLength={2000} onChange={event => setDraft({ ...draft, note: event.target.value })} />
             </EhrField>
             <label className="hid-ehr-dept-waiting-toggle">
-              <input type="checkbox" checked={watch} onChange={event => setWatch(event.target.checked)} />
+              <input type="checkbox" checked={draft.watch} onChange={event => setDraft({ ...draft, watch: event.target.checked })} />
               <span>Watch closely next shift</span>
             </label>
             {problem ? <DeptNotice role="alert" tone="critical">{problem}</DeptNotice> : null}
             {chartClosed ? <p className="hid-ehr-state-message"><Link className="hid-ehr-dept-link" to="/provider/patients">Find the patient on Patients</Link></p> : null}
             <div className="hid-ehr-dept-nursing-actions">
               <EhrButton type="submit" size="sm">Save the note</EhrButton>
-              <EhrButton size="sm" variant="quiet" onClick={() => { setEditing(false); setProblem('') }}>Go back</EhrButton>
+              <EhrButton size="sm" variant="quiet" onClick={() => { setDraft(null); setProblem('') }}>Go back</EhrButton>
             </div>
           </form>
         ) : null}

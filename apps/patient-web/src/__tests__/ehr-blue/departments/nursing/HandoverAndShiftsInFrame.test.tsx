@@ -101,6 +101,47 @@ describe('Shift handover in the frame', () => {
     expect(sentTo(sent, `POST /api/v1/ehr/handovers/${HANDOVER}/give`)[0]!.body).toEqual({ expectedRowVersion: 2 })
   })
 
+  it('opens a note from the sheet as last read and saves it against that version, never over a colleague’s newer note', async () => {
+    const member = nurse()
+    const route = `PUT /api/v1/ehr/handovers/${HANDOVER}/patients/${ADMISSION}`
+    const OLD = 'Old note from the morning.'
+    const COLLEAGUES = 'Fever 38.9 at 12:00, paracetamol given.'
+    const withNote = (note: string, version: number) => () => json(sheet({ patients: [{ ...sheet().patients[0], watch: false,
+      handoverNote: note, itemRowVersion: version }] }))
+    const sent = serve({
+      [SESSION]: [sessionAt(member, [member])],
+      [WARDS]: [wardsOf()],
+      [SHIFTS]: [shiftsOf()],
+      // Read first, read again as the note opens, then a colleague's note (version 2) from Refresh on.
+      [HANDOVERS]: [withNote(OLD, 1), withNote(OLD, 1), ...many(withNote(COLLEAGUES, 2), 8)],
+      [route]: [() => problem(412, 'NURSING_VERSION_CONFLICT', 'Precondition Failed')],
+    })
+    await openStaffApp('/provider/handover')
+    let ada = await screen.findByRole('listitem', { name: 'Ada Wardone' })
+    await within(ada).findByText(OLD)
+    fireEvent.click(within(ada).getByRole('button', { name: 'Change the note' }))
+    await waitFor(() => expect(sentTo(sent, HANDOVERS)).toHaveLength(2))
+    const box = () => within(screen.getByRole('listitem', { name: 'Ada Wardone' })).getByLabelText('Handover note') as HTMLTextAreaElement
+    fireEvent.change(box(), { target: { value: `${OLD} Stable.` } })
+    // The colleague's note arrives while this one is being written: saving it would write over theirs.
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    ada = screen.getByRole('listitem', { name: 'Ada Wardone' })
+    await within(ada).findByText(COLLEAGUES)
+    fireEvent.click(within(ada).getByRole('button', { name: 'Save the note' }))
+    expect(await within(ada).findByText(/Someone else changed this note while you were writing/)).toBeDefined()
+    expect(sentTo(sent, route)).toHaveLength(0)
+    // Opened again, it starts from the colleague's note, and is saved against its version.
+    fireEvent.click(within(ada).getByRole('button', { name: 'Go back' }))
+    fireEvent.click(within(ada).getByRole('button', { name: 'Change the note' }))
+    expect(box().value).toBe(COLLEAGUES)
+    fireEvent.change(box(), { target: { value: `${COLLEAGUES} Stable since.` } })
+    fireEvent.click(within(ada).getByRole('button', { name: 'Save the note' }))
+    await waitFor(() => expect(sentTo(sent, route)).toHaveLength(1))
+    expect(sentTo(sent, route)[0]!.body).toEqual({ note: `${COLLEAGUES} Stable since.`, watch: false, expectedRowVersion: 2 })
+    // A note changed again meanwhile: the server's 412 is said the same way.
+    expect(await within(ada).findByText(/Someone else changed this note while you were writing/)).toBeDefined()
+  })
+
   it('says only a nurse on the next shift can accept, and that a given sheet takes no more notes', async () => {
     const member = nurse()
     serve({
