@@ -83,16 +83,18 @@ describe('a billing request', () => {
 
   it('says each refusal in BILL-1’s words, and a role’s refusal without "permission"', async () => {
     const { commerce } = await client(problem('OVERPAYMENT', 409), problem('SECOND_PERSON_REQUIRED', 403), problem('FORBIDDEN', 403),
-      problem('VERSION_CONFLICT', 412), problem('OUT_OF_STOCK', 409))
+      problem('VERSION_CONFLICT', 412), problem('OUT_OF_STOCK', 409), problem('VALIDATION_FAILED', 400))
     const words = []
-    for (let index = 0; index < 5; index += 1) {
+    for (let index = 0; index < 6; index += 1) {
       const result = await commerce.recordPayment(FACILITY, BILL, { method: 'cash', amountKobo: 100 })
       if (!result.ok && !result.notAvailable) words.push(result.error)
     }
     expect(words).toEqual(['That is more than is due. Enter the amount due or less.',
       'Another member of staff must do this, not the person who recorded the payment.',
       'Your role here does not include this. Ask a billing officer or administrator.',
-      'Someone else changed this. Reload it and try again.', 'Not enough in stock.'])
+      'Someone else changed this. Reload it and try again.', 'Not enough in stock.',
+      // No billing screen marks a field from the server's refusal: no "highlighted fields".
+      'Some details weren’t accepted. Check them and try again.'])
     expect(words.join(' ')).not.toMatch(/permission/i)
   })
 })

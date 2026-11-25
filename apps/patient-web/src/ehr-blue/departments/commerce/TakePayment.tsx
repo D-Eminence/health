@@ -172,12 +172,13 @@ function TakePaymentDrawer({ bill: given, onPaid, onClose }: {
   const off = stage.kind === 'off' || settings.status === 'off' || read.status === 'off'
   const loading = !off && (settings.status === 'loading' || (!bill && read.status === 'loading'))
   const readError = settings.status === 'error' ? settings.error : !bill && read.status === 'error' ? read.error : null
-  const title = stage.kind === 'receipt' ? 'Paid' : 'Take payment'
+  // HMO cover is owed by the HMO, not paid, and a waiver is no charge: neither is "Paid" (BILL-8).
+  const title = stage.kind !== 'receipt' ? 'Take payment' : method === 'hmo' ? 'HMO cover recorded' : method === 'waiver' ? 'Waiver recorded' : 'Paid'
   const description = bill ? `${billName(bill)} · Bill ${bill.number}` : undefined
 
   let footer
   if (stage.kind === 'receipt') footer = <>
-    <Button icon={Printer} onClick={event => printReceipt(event.currentTarget)}>Print</Button>
+    {method === 'hmo' ? null : <Button icon={Printer} onClick={event => printReceipt(event.currentTarget)}>Print</Button>}
     <Button variant="primary" onClick={onClose}>Done</Button>
   </>
   else if (off || loading || readError || !bill || !method || due <= 0) footer = <Button onClick={onClose}>Close</Button>
@@ -200,13 +201,16 @@ function TakePaymentDrawer({ bill: given, onPaid, onClose }: {
               : stage.kind === 'receipt' ? (
                 <div className="flex flex-col gap-4">
                   <h3 ref={receiptRef} tabIndex={-1} className="m-0 text-title-3 text-ink outline-none">
-                    {stage.bill.status === 'paid' ? 'Paid in full' : stage.bill.dueKobo > 0 ? <>Recorded. <span className="tabular">{naira(stage.bill.dueKobo)}</span> still to pay.</> : 'Recorded'}
+                    {stage.bill.status === 'paid' ? method === 'hmo' || method === 'waiver' ? 'Nothing more to pay' : 'Paid in full'
+                      : stage.bill.dueKobo > 0 ? <>Recorded. <span className="tabular">{naira(stage.bill.dueKobo)}</span> still to pay.</> : 'Recorded'}
                   </h3>
                   {method === 'hmo' ? <Alert size="sm" intent="info" title="Recorded as owed by the HMO, not paid">
                     It waits for the HMO’s claim, and is not part of today’s cash. There is no receipt for HMO cover.</Alert> : null}
                   {method === 'cash' && cashGiven !== null && amount !== null && cashGiven > amount
                     ? <p className="m-0 rounded-lg bg-subtle px-4 py-3 text-title-3 text-ink ring-1 ring-inset ring-line">Change to give: <span className="tabular">{naira(cashGiven - amount)}</span></p> : null}
-                  <Receipt bill={stage.bill} receipt={stage.receipt} facilityName={facility?.name} hmos={hmos} footer={settings.data?.receiptFooter} />
+                  {/* HMO cover has no receipt: the bill as it now stands instead, with what the HMO is to pay. */}
+                  {method === 'hmo' ? <BillSummary bill={stage.bill} />
+                    : <Receipt bill={stage.bill} receipt={stage.receipt} facilityName={facility?.name} hmos={hmos} footer={settings.data?.receiptFooter} />}
                 </div>
               ) : (
                 <div className="flex flex-col gap-5">
@@ -235,7 +239,8 @@ function TakePaymentDrawer({ bill: given, onPaid, onClose }: {
 
                         {method && method !== 'waiver' ? (
                           <Field label={method === 'hmo' ? 'Amount the HMO is to pay' : 'Amount to pay'} htmlFor={`${ids}-amount`} errorId={`${ids}-amount-error`}
-                            error={tried || amountText ? errors.amount : null} hint={`Due: ${naira(due)}. Less is a part payment.`} hintId={`${ids}-amount-hint`}>
+                            error={tried || amountText ? errors.amount : null} hintId={`${ids}-amount-hint`}
+                            hint={method === 'hmo' ? `Due: ${naira(due)}. Less leaves the rest for the patient to pay.` : `Due: ${naira(due)}. Less is a part payment.`}>
                             <Input id={`${ids}-amount`} prefix="₦" inputMode="decimal" autoComplete="off" className="tabular"
                               placeholder={(due / 100).toFixed(2)} value={amountText} onChange={event => setAmountText(event.target.value)}
                               aria-invalid={Boolean((tried || amountText) && errors.amount)} aria-describedby={errors.amount ? `${ids}-amount-error` : `${ids}-amount-hint`} />

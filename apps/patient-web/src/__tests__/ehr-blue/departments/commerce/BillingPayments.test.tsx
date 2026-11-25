@@ -87,6 +87,41 @@ describe('Payments', () => {
     expect(screen.getByText('HMO cover waiting for a claim. Not money received.')).toBeTruthy()
   })
 
+  it('lists every patient who owes, 25 a page, with Show more while there are more', async () => {
+    as(OFFICER)
+    commerceApi.bills = async () => ok({ items: [], nextPage: null })
+    const calls: unknown[] = []
+    const owes = (name: string, id: string) => ({ patient: { patientId: id, displayName: name, healthIdLast4: null },
+      bills: [{ billId: `b-${id}`, number: `B-${id}`, createdAt: '2026-11-14T08:00:00Z', dueKobo: 100000, deferred: false }], dueKobo: 100000, oldestDays: 3 })
+    commerceApi.outstanding = async (...args: never[]) => {
+      const filter = args[1] as { page?: number }
+      calls.push(filter)
+      return filter.page === 2 ? ok({ items: [owes('Chidi Test', 'p-2')], totalDueKobo: 4000000, nextPage: null })
+        : ok({ items: [owes('Ada Test', 'p-1')], totalDueKobo: 4000000, nextPage: 2 })
+    }
+    commerceApi.hmoReceivables = async () => ok({ items: [] })
+    renderDept(<Payments />)
+    fireEvent.click(await screen.findByRole('radio', { name: 'Outstanding balances' }))
+    expect(await screen.findByText('Ada Test')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Show more' }))
+    expect(await screen.findByText('Chidi Test')).toBeTruthy()
+    // The page read before stays listed, and the total is every bill's.
+    expect(screen.getByText('Ada Test')).toBeTruthy()
+    expect(calls).toContainEqual({ page: 2 })
+    expect(screen.getByText('₦40,000.00')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Show more' })).toBeNull()
+  })
+
+  it('says "Nothing due" on a bill HMO cover settled, never "Paid ₦0.00"', async () => {
+    commerceApi.bills = async () => ok({ items: [unpaidBill({ status: 'paid', dueKobo: 0, hmoCoveredKobo: 650000 })], nextPage: null })
+    renderDept(<Payments />)
+    fireEvent.click(await screen.findByRole('button', { name: /^Paid/ }))
+    const card = (await screen.findByText('Ada Test')).closest('li')!
+    expect(within(card).getByText('Nothing due')).toBeTruthy()
+    expect(card.textContent).toContain('HMO to pay ₦6,500.00')
+    expect(card.textContent).not.toContain('Paid₦0.00')
+  })
+
   it('offers no Outstanding balances to a cashier', async () => {
     commerceApi.bills = async () => ok({ items: [], nextPage: null })
     renderDept(<Payments />)
@@ -364,12 +399,20 @@ describe('Take payment', () => {
     renderDept(<TakePayment open bill={bill} onClose={() => undefined} />)
     fireEvent.click(await screen.findByRole('radio', { name: /HMO/ }))
     expect(screen.getByText('Recorded as owed by the HMO, not paid. The HMO pays it after its claim is accepted.')).toBeTruthy()
+    expect(screen.getByText('Due: ₦6,500.00. Less leaves the rest for the patient to pay.')).toBeTruthy()
+    expect(screen.queryByText(/part payment/)).toBeNull()
     fireEvent.change(screen.getByLabelText('Approval code'), { target: { value: 'AX-221' } })
     fireEvent.click(screen.getByRole('button', { name: 'Record HMO cover' }))
     await waitFor(() => expect(recordPayment).toHaveBeenCalled())
     expect(recordPayment.mock.calls[0]![2]).toEqual({ method: 'hmo', amountKobo: 650000, reference: 'AX-221', hmoId: HMO_ID, expectedVersion: 5 })
     expect(await screen.findByText('Recorded as owed by the HMO, not paid')).toBeTruthy()
     expect(receipt).not.toHaveBeenCalled()
+    // Never "Paid": no "Paid in full", no receipt and nothing to print.
+    expect(screen.getByRole('dialog', { name: /HMO cover recorded/ })).toBeTruthy()
+    expect(screen.getByText('Nothing more to pay')).toBeTruthy()
+    expect(screen.queryByText('Paid in full')).toBeNull()
+    expect(screen.queryByText(/^Receipt/)).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Print' })).toBeNull()
   })
 
   it('sends the paper receipt number and the till, and prints that payment’s receipt', async () => {

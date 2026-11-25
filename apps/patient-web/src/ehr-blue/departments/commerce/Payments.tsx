@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Hourglass, Receipt as ReceiptIcon, Search, ShieldCheck, UserRound, Wallet } from 'lucide-react'
-import { Badge, Button, Card, CardHeader, FilterTabs, Input, PageHeader, Select, timeAgo } from '../../../kasuwa/ui'
+import { BadgeCheck, Hourglass, Receipt as ReceiptIcon, Search, ShieldCheck, UserRound, Wallet } from 'lucide-react'
+import { Alert, Badge, Button, Card, CardHeader, FilterTabs, Input, PageHeader, Select, timeAgo } from '../../../kasuwa/ui'
 import { LoadingRows, PageState } from '../../../kasuwa/parts'
 import { Drawer, Segmented } from '../../../kasuwa/interactive'
 import { useDeptAccess } from '../parts/access'
@@ -32,6 +32,16 @@ const inView: Readonly<Record<View, (bill: Bill) => boolean>> = {
 }
 
 const daysWord = (days: number) => days === 0 ? 'Today' : days === 1 ? '1 day' : `${days} days`
+
+/**
+ * The words over a bill's big number: what is due, or on a paid bill what the patient paid. HMO cover is owed by the HMO
+ * and a waiver is no charge (BILL-8), so a bill they settled with nothing paid says "Nothing due", never "Paid ₦0.00".
+ */
+function amountWord(bill: Bill): string {
+  if (bill.status === 'deferred') return 'To follow'
+  if (bill.status !== 'paid') return 'Due'
+  return bill.paidKobo > 0 ? 'Paid' : 'Nothing due'
+}
 
 /**
  * Payments: the cashier's queue (hid-system BILL-1 bills, on docs/POINT_OF_CARE_SPEC.md §3). Bills to pay come first;
@@ -201,9 +211,11 @@ function BillCard({ bill, onPay, onView }: {
         <p className="m-0 line-clamp-2 text-[13px] text-ink-2">{what || 'No items'}</p>
         {(bill.hmoCoveredKobo ?? 0) > 0 ? <p className="m-0 text-[13px] text-ink-2"><ShieldCheck className="mr-1 inline size-4 align-[-3px] text-ink-3" aria-hidden />
           HMO to pay <span className="font-medium text-ink tabular">{naira(bill.hmoCoveredKobo!)}</span></p> : null}
+        {(bill.waivedKobo ?? 0) > 0 ? <p className="m-0 text-[13px] text-ink-2"><BadgeCheck className="mr-1 inline size-4 align-[-3px] text-ink-3" aria-hidden />
+          Waived <span className="font-medium text-ink tabular">{naira(bill.waivedKobo!)}</span></p> : null}
         <div className="mt-auto flex flex-wrap items-end justify-between gap-3">
           <div>
-            <p className="m-0 text-caption text-ink-3">{bill.status === 'paid' ? 'Paid' : bill.status === 'deferred' ? 'To follow' : 'Due'}</p>
+            <p className="m-0 text-caption text-ink-3">{amountWord(bill)}</p>
             <p className="m-0 text-[22px] leading-8 font-semibold tracking-[-0.01em] text-ink tabular">{naira(bill.status === 'paid' ? bill.paidKobo : bill.dueKobo)}</p>
           </div>
           {waiting ? <Badge size="sm" tone="info" icon={Hourglass}>Waiting for check</Badge>
@@ -222,16 +234,22 @@ function BillCard({ bill, onPay, onView }: {
 
 /** Outstanding balances (BILL-1 §5): two tables, "Patients who owe" and "HMOs that owe". */
 function Outstanding({ facilityId }: { readonly facilityId: string }) {
-  const patients = useCommerceRead<OutstandingPage>(`outstanding:${facilityId}`, signal => commerce.outstanding(facilityId, {}, signal))
+  // 25 patients a page, oldest first; the pages read before stay listed as the next one is read (Show more).
+  const [page, setPage] = useState(1)
+  const [earlier, setEarlier] = useState<readonly OutstandingPage['items'][number][]>([])
+  const patients = useCommerceRead<OutstandingPage>(`outstanding:${facilityId}:${page}`, signal => commerce.outstanding(facilityId, { page }, signal))
   const hmos = useCommerceRead<{ items: HmoOwes[] }>(`hmo-owes:${facilityId}`, signal => commerce.hmoReceivables(facilityId, signal))
+  const owing = [...earlier, ...(patients.data?.items ?? [])]
+  const [total, setTotal] = useState<number | null>(null)
+  useEffect(() => { if (patients.data) setTotal(patients.data.totalDueKobo) }, [patients.data])
   if (patients.status === 'off' || hmos.status === 'off') return <NotSwitchedOn message={BILLING_OFF} />
   return <div className="flex flex-col gap-5">
     <Card>
       <CardHeader as="h2" title="Patients who owe" icon={UserRound}
-        description={patients.data ? <>Total still owed: <span className="font-semibold text-ink tabular">{naira(patients.data.totalDueKobo)}</span></> : undefined} />
-      <PageState loading={patients.status === 'loading'} error={patients.status === 'error' ? patients.error : null} hasData={patients.data !== null}
-        onRetry={patients.reload} what="what patients owe" rows={3}
-        empty={patients.data && patients.data.items.length === 0 ? { icon: UserRound, title: 'Nobody owes anything' } : null}>
+        description={total !== null ? <>Total still owed: <span className="font-semibold text-ink tabular">{naira(total)}</span></> : undefined} />
+      <PageState loading={patients.status === 'loading' && owing.length === 0} error={patients.status === 'error' && owing.length === 0 ? patients.error : null}
+        hasData={owing.length > 0 || patients.data !== null} onRetry={patients.reload} what="what patients owe" rows={3}
+        empty={patients.data && owing.length === 0 ? { icon: UserRound, title: 'Nobody owes anything' } : null}>
         <div className="overflow-x-auto px-5 pb-4">
           <table className="w-full min-w-[32rem] border-collapse text-left text-sm">
             <thead><tr className="text-caption text-ink-3">
@@ -239,7 +257,7 @@ function Outstanding({ facilityId }: { readonly facilityId: string }) {
               <th scope="col" className="py-2 pr-3 font-medium">Oldest</th><th scope="col" className="py-2 text-right font-medium">Owed</th>
             </tr></thead>
             <tbody>
-              {patients.data?.items.map((entry, index) => <tr key={entry.patient?.patientId ?? `counter-${index}`} className="border-t border-line align-top">
+              {owing.map((entry, index) => <tr key={entry.patient?.patientId ?? `counter-${index}`} className="border-t border-line align-top">
                 <td className="py-2.5 pr-3 text-ink">{entry.patient?.displayName ?? 'Counter sales'}
                   {healthIdEnding(entry.patient) ? <span className="block text-caption text-ink-3">{healthIdEnding(entry.patient)}</span> : null}</td>
                 <td className="py-2.5 pr-3 text-ink-2">{entry.bills.map(bill => bill.number).join(', ')}
@@ -249,6 +267,10 @@ function Outstanding({ facilityId }: { readonly facilityId: string }) {
               </tr>)}
             </tbody>
           </table>
+          {patients.status === 'error' && owing.length > 0 ? <Alert size="sm" intent="error" className="mt-3"
+            action={<Button size="sm" onClick={patients.reload}>Try again</Button>}>{patients.error}</Alert> : null}
+          {patients.data?.nextPage ? <Button className="mt-3" loading={patients.status === 'loading'}
+            onClick={() => { setEarlier(owing); setPage(patients.data!.nextPage!) }}>Show more</Button> : null}
         </div>
       </PageState>
     </Card>

@@ -386,7 +386,8 @@ const NOT_FOUND_HERE = 'This was not found at this facility.'
 const CHANGED = 'Someone else changed this. Reload it and try again.'
 /** The words staff see for each refusal (BILL-1's error table). None says "permission". */
 export const BILLING_WORDS: Readonly<Record<string, string>> = {
-  VALIDATION_FAILED: 'Check the highlighted fields.',
+  // No billing screen marks a field from a server refusal, so these words promise no highlight.
+  VALIDATION_FAILED: 'Some details weren’t accepted. Check them and try again.',
   BILLING_SEARCH_TEXT_NOT_ALLOWED: 'Search by bill number, receipt number or name. Do not type a Health ID or NIN here.',
   BILLING_NOT_ALLOWED: 'Your role here does not include this. Ask a billing officer or administrator.',
   SECOND_PERSON_REQUIRED: 'Another member of staff must do this, not the person who recorded the payment.',
