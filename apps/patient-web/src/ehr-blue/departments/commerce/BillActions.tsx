@@ -44,6 +44,7 @@ export function BillActions({ bill, onChanged, onPrint }: {
   const payments = bill.payments.filter(payment => !payment.voided)
   const covers = (bill.hmoCovers ?? []).filter(cover => cover.status === 'pending_claim')
   const lines = bill.lines.filter(line => !line.cancelled)
+  const reversed = lines.filter(line => line.dispensingReversed)
   const nothingTaken = payments.length === 0 && covers.length === 0
 
   return <section aria-labelledby={`bill-actions-${bill.id}`} className="flex flex-col gap-4">
@@ -51,6 +52,10 @@ export function BillActions({ bill, onChanged, onPrint }: {
     {bill.deferred ? <Alert size="sm" intent="info" title="Bill follows">
       {bill.deferred.reason === 'unknown_patient' ? 'An unknown patient: served first, billed when they are identified.'
         : bill.deferred.reason === 'emergency' ? 'An emergency: served first, billed later. It can still be paid.' : 'Admitted: billed at discharge.'}
+    </Alert> : null}
+    {open && reversed.length > 0 ? <Alert size="sm" intent="warning" live={false} title="Refund due">
+      The dispensing of {reversed.map(line => line.name).join(', ')} was reversed after it was paid for. Refund the payment,
+      then cancel the line.
     </Alert> : null}
 
     {payments.length > 0 ? <ul aria-label="Payments" className="m-0 flex list-none flex-col divide-y divide-line rounded-lg p-0 ring-1 ring-line">
@@ -81,7 +86,8 @@ export function BillActions({ bill, onChanged, onPrint }: {
 
     {open && can('billing.bill.adjust') && lines.length > 0 ? <ul aria-label="Lines" className="m-0 flex list-none flex-col divide-y divide-line rounded-lg p-0 ring-1 ring-line">
       {lines.map(line => <li key={line.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
-        <span className="min-w-0 text-sm text-ink">{line.quantity > 1 ? `${line.quantity} × ` : ''}{line.name} · <span className="tabular">{naira(line.totalKobo)}</span></span>
+        <span className="min-w-0 text-sm text-ink">{line.quantity > 1 ? `${line.quantity} × ` : ''}{line.name} · <span className="tabular">{naira(line.totalKobo)}</span>
+          {line.dispensingReversed ? <span className="text-warn-ink"> · dispensing reversed</span> : null}</span>
         <Button size="sm" variant="ghost" icon={X} aria-label={`Cancel the line ${line.name}`} onClick={() => setSheet({ kind: 'cancel-line', line })}>Cancel line</Button>
       </li>)}
     </ul> : null}

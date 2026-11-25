@@ -97,6 +97,11 @@ export interface BillLine {
   kind?: CatalogueKind; workItemId?: string | null; origin?: LineOrigin | null
   /** The pharmacy's quantity was not in the item's unit: the cashier checks it. */
   checkQuantity?: boolean; note?: string | null; cancelled?: boolean
+  /**
+   * The work item's dispensing was reversed. The server cancels such a line when the bill can lose it; one still live
+   * was paid for, so a refund is due (cancel the payment, then the line).
+   */
+  dispensingReversed?: boolean
 }
 export interface Payment {
   id: string; method: RecordedMethod; amountKobo: number
@@ -142,6 +147,8 @@ export interface Bill {
 export type WorkItemBill = {
   billId: string; status: BillStatus; dueKobo: number; receiptNumber?: string | null
   pendingCheckKobo?: number; deferred?: DeferredReason | null
+  /** The dispensing was reversed after its line was paid: a refund is due. */
+  dispensingReversed?: boolean
 } | null
 
 export interface PaymentInput {
@@ -249,7 +256,7 @@ export interface StockAdjustment {
 export interface StockSettings { unit: string; reorderLevel: number; expectedVersion: number }
 export interface StockMovement {
   id: string
-  kind: 'receipt' | 'adjustment' | 'dispensing' | 'dispensing_reversal' | 'counter_sale' | string
+  kind: 'receipt' | 'adjustment' | 'dispensing' | 'counter_sale' | string
   change: number; batchId?: string | null; batchNumber?: string | null
   reason?: string | null; at: string; by?: string | null
 }

@@ -8,6 +8,7 @@ import { Sales } from '../../../../ehr-blue/departments/pharmacy/Sales'
 import { outsideOrder, EMPTY_OUTSIDE } from '../../../../ehr-blue/departments/pharmacy/walkIn'
 import type { CatalogueItem, StockLine } from '../../../../ehr-blue/departments/commerce/api'
 import { DEMO_PHARMACY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
+import { billOf } from '../commerce/billingFixtures'
 
 /**
  * The pharmacy's point-of-care stock and counter sales against hid-system BILL-1 (0166): stock settings per item, the
@@ -54,13 +55,14 @@ describe('Stock', () => {
   it('shows the expired count apart, as never given out, and the batch on each movement', async () => {
     commerceApi.stock = async () => ok({ items: [AMOXICILLIN], nextPage: null })
     commerceApi.stockMovements = async () => ok({ items: [{ id: 'mv-1', kind: 'counter_sale', change: -2, batchNumber: 'AMX-2291', at: '2026-11-26T09:00:00Z', by: 'Ade Pharmacist' },
-      { id: 'mv-2', kind: 'dispensing_reversal', change: 2, batchNumber: 'AMX-2291', at: '2026-11-26T10:00:00Z', by: 'Ade Pharmacist' }], nextPage: null })
+      { id: 'mv-2', kind: 'adjustment', change: 2, batchNumber: 'AMX-2291', at: '2026-11-26T10:00:00Z', by: 'Ade Pharmacist' }], nextPage: null })
     renderDept(<StockPage />)
     expect(await screen.findByText('30 capsule expired, not given out')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /Amoxicillin/ }))
     const drawer = await screen.findByRole('dialog')
     expect(await within(drawer).findByText('Sold at the counter · Batch AMX-2291')).toBeTruthy()
-    expect(within(drawer).getByText('Dispensing reversed · Batch AMX-2291')).toBeTruthy()
+    // A dispensing reversal moves no stock (hid-system 0166): what comes back is counted back as an adjustment.
+    expect(within(drawer).getByText('Adjusted · Batch AMX-2291')).toBeTruthy()
     expect(drawer.textContent).toContain('30 capsule in expired batches: never given out.')
   })
 
@@ -126,6 +128,23 @@ describe('a counter sale', () => {
     expect(order.outside.prescriberName).toBe('Dr Test Prescriber')
     expect(Object.keys(order.outside)).not.toContain('photoFileId')
     expect(await screen.findByText(/This medicine needs a doctor’s prescription\./)).toBeTruthy()
+  })
+
+  it('goes straight to the hand-over for a sale of free items only: the server answers it paid as made', async () => {
+    const ors: CatalogueItem = { id: 'cat-ors', kind: 'drug', name: 'Oral rehydration salts', strength: null, form: 'other', prescriptionOnly: false,
+      prices: { cashKobo: 0, hmo: [] }, stockKept: false, active: true, version: 1 }
+    commerceApi.catalogueItems = async () => ok({ items: [ors], nextPage: null })
+    commerceApi.stock = async () => ok({ items: [], nextPage: null })
+    commerceApi.paymentSettings = async () => ok({ wherePaid: 'both', methods: ['cash'], payBefore: { pharmacy: false, lab: false }, allowDeferredFor: ['emergency'],
+      hmos: [], dayCloseBy: 'facility', tills: [], version: 1 })
+    commerceApi.pharmacyWalkIn = vi.fn(async () => ok({ bill: billOf({ source: 'pharmacy', status: 'paid', patient: null, visit: null,
+      lines: [{ id: 'line-ors', catalogueItemId: 'cat-ors', name: 'Oral rehydration salts', kind: 'drug', quantity: 1, unitKobo: 0, totalKobo: 0,
+        workItemId: null, origin: 'counter', cancelled: false }],
+      totalKobo: 0, paidKobo: 0, hmoCoveredKobo: 0, dueKobo: 0, payments: [], hmoCovers: [], receiptNumber: null }) }))
+    renderDept(<Sell />)
+    fireEvent.click(await screen.findByRole('button', { name: /^Add: Oral rehydration salts/ }))
+    fireEvent.click((await screen.findAllByRole('button', { name: /Take payment/ }))[0]!)
+    expect(await screen.findByText('Hand over')).toBeTruthy()
   })
 
   it('leaves photoFileId out of an outside order without a photo', () => {

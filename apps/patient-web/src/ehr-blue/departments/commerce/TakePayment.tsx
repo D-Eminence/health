@@ -339,7 +339,7 @@ export function BillSummary({ bill }: { readonly bill: Bill }) {
       <ul className="m-0 flex list-none flex-col gap-1 p-0">
         {bill.lines.filter(line => !line.cancelled).map(line => (
           <li key={line.id} className="flex items-baseline justify-between gap-3 text-[13px]">
-            <span className="min-w-0 truncate text-ink">{line.quantity > 1 ? `${line.quantity} × ` : ''}{line.name}{line.checkQuantity ? <span className="text-warn-ink"> · check quantity</span> : null}</span>
+            <span className="min-w-0 truncate text-ink">{line.quantity > 1 ? `${line.quantity} × ` : ''}{line.name}{line.checkQuantity ? <span className="text-warn-ink"> · check quantity</span> : null}{line.dispensingReversed ? <span className="text-warn-ink"> · dispensing reversed, refund due</span> : null}</span>
             <span className="shrink-0 text-ink-2 tabular">{naira(line.totalKobo)}</span>
           </li>
         ))}

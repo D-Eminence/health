@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Payments } from '../../../../ehr-blue/departments/commerce/Payments'
 import { TakePayment } from '../../../../ehr-blue/departments/commerce/TakePayment'
 import { Receipt } from '../../../../ehr-blue/departments/commerce/Receipt'
+import { BillBadge } from '../../../../ehr-blue/departments/commerce/BillBadge'
 import { DEMO_HOSPITAL_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
 import { HMO_ID, TILL_ID, billOf, off, ok, refused, settingsOf, unpaidBill } from './billingFixtures'
 
@@ -180,6 +181,22 @@ describe('a bill’s actions', () => {
     expect(within(drawer).queryByRole('button', { name: 'Emergency: bill follows' })).toBeNull()
   })
 
+  it('says a refund is due when a paid medicine\'s dispensing was reversed, and marks its line', async () => {
+    as(OFFICER)
+    const paid = billOf()
+    const drawer = await openBill(billOf({ lines: [paid.lines[0]!, { ...paid.lines[1]!, dispensingReversed: true }] }))
+    expect(within(drawer).getByText('Refund due')).toBeTruthy()
+    expect(within(drawer).getByText(/The dispensing of Paracetamol 500 mg tablet was reversed after it was paid for/)).toBeTruthy()
+    expect(within(within(drawer).getByRole('list', { name: 'Lines' })).getByText(/dispensing reversed/)).toBeTruthy()
+  })
+
+  it('says nothing of a refund when no dispensing was reversed', async () => {
+    as(OFFICER)
+    const drawer = await openBill()
+    expect(within(drawer).queryByText('Refund due')).toBeNull()
+    expect(within(drawer).queryByText(/dispensing reversed/)).toBeNull()
+  })
+
   it('shows a cashier no cancel, refund or confirm', async () => {
     const drawer = await openBill()
     for (const name of ['Cancel or refund', 'Cancel HMO cover', 'Cancel bill', 'Confirm transfer']) expect(within(drawer).queryByRole('button', { name })).toBeNull()
@@ -227,6 +244,15 @@ describe('Take payment', () => {
     await waitFor(() => expect(receipt).toHaveBeenCalled())
     expect(receipt.mock.calls[0]).toEqual(expect.arrayContaining(['pay-new']))
     expect(await screen.findByText('Paper receipt 0457')).toBeTruthy()
+  })
+
+  it('marks a line whose dispensing was reversed: a refund is due', async () => {
+    const paid = billOf()
+    const bill = billOf({ lines: [paid.lines[0]!, { ...paid.lines[1]!, dispensingReversed: true }] })
+    commerceApi.bill = async () => ok(bill)
+    commerceApi.catalogueItems = async () => ok({ items: [], nextPage: null })
+    renderDept(<TakePayment open bill={bill} onClose={() => undefined} />)
+    expect(await screen.findByText(/dispensing reversed, refund due/)).toBeTruthy()
   })
 
   it('says to open the day first, with the way to End of day', async () => {
@@ -289,5 +315,16 @@ describe('the receipt', () => {
     expect(screen.getByText('Paper receipt 0457')).toBeTruthy()
     expect(screen.getByText('HMO to pay · Demo HMO · code AX-221')).toBeTruthy()
     expect(document.body.textContent).not.toMatch(/HID-[A-Z0-9]/)
+  })
+})
+
+describe('a work item’s bill badge', () => {
+  it('says Refund due when the dispensing was reversed after its line was paid, and Paid otherwise', () => {
+    const { unmount } = renderDept(<BillBadge bill={{ billId: 'b-1', status: 'paid', dueKobo: 0, dispensingReversed: true }} />)
+    expect(screen.getByText('Refund due')).toBeTruthy()
+    expect(screen.queryByText('Paid')).toBeNull()
+    unmount()
+    renderDept(<BillBadge bill={{ billId: 'b-1', status: 'paid', dueKobo: 0 }} />)
+    expect(screen.getByText('Paid')).toBeTruthy()
   })
 })

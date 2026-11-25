@@ -1171,8 +1171,9 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   // Pharmacy point-of-care stock and counter sales (hid-system BILL-1, 0166; POINT_OF_CARE_SPEC §4 counter only and §5).
   proposed(r('pharmacy.saleHandOver','pharmacy','/api/v1/pharmacy/sales/:billId/hand-over',P,false,one('POST','pharmacy.dispensing.create'),
     `${BILL_1} Body { expectedVersion? }. A counter sale handed over: every drug line taken from the batch that expires first; `
-    + '409 PAYMENT_REQUIRED (a counter sale is always paid first), PAYMENT_PENDING_CHECK, OUT_OF_STOCK, ALREADY_HANDED_OVER, '
-    + 'BILL_NOT_A_COUNTER_SALE. Answers { handedOverAt, bill }.')),
+    + '409 PAYMENT_REQUIRED (a counter sale is always paid first; one of free items only is paid as made), PAYMENT_PENDING_CHECK, '
+    + 'OUT_OF_STOCK, ALREADY_HANDED_OVER, BILL_NOT_A_COUNTER_SALE; 422 PRESCRIPTION_REQUIRED for a prescription-only line on a '
+    + 'sale with no outside prescriber. Answers { handedOverAt, bill }.')),
   proposed(r('pharmacy.walkInOrders','pharmacy','/api/v1/pharmacy/walk-in-orders',P,false,one('POST','pharmacy.walk-in.create'),
     `${BILL_1} Counter sales only (BILL-13): counter must be true, else 409 WALK_IN_QUEUE_NOT_AVAILABLE. patient { kind: `
     + 'anonymous, name?, phone? (E.164) } or { kind: health_id, healthId } (a patient lookup, audited; only the bill moves); '
@@ -1365,7 +1366,8 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   proposed(r('commercial.bills','commercial','/api/v1/commercial/bills',GP,false,
     {GET:['billing.bill.read'],POST:['billing.bill.create']}, `${BILL_1} GET ?status (or open)&source visit|pharmacy|lab&q (2-60: a `
     + 'bill or receipt number or a name, never a Health ID or NIN)&date&page, 25 per page, audited per patient shown. POST '
-    + '{ source, patient: { visitQueueEntryId } | { anonymous: true, name? }, lines }: one bill per visit (merged: true).')),
+    + '{ source, patient: { visitQueueEntryId } | { anonymous: true, name? }, lines }: one bill per visit (merged: true). An '
+    + 'anonymous pharmacy bill is a counter sale and takes no prescription-only medicine (422 PRESCRIPTION_REQUIRED).')),
   proposed(r('commercial.billSummary','commercial','/api/v1/commercial/bills/summary',G,false,one('GET','billing.bill.read'),
     `${BILL_1} ?date (a Lagos day): { date, billedKobo, collectedKobo, waivedKobo, hmoCoveredKobo, outstandingKobo, billCount }. `
     + 'Numbers only, no patient.')),
@@ -1373,7 +1375,9 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     `${BILL_1} The bill: patient { patientId, displayName, healthIdLast4 } (never the whole Health ID), lines, payments, hmoCovers, `
     + 'deferred, sums.')),
   proposed(r('commercial.billLines','commercial','/api/v1/commercial/bills/:billId/lines',P,false,one('POST','billing.bill.create'),
-    `${BILL_1} { catalogueItemId, quantity, note?, expectedVersion }. Not on a void bill.`)),
+    `${BILL_1} { catalogueItemId, quantity, note?, expectedVersion }. Not on a void bill; on a counter sale, never after its `
+    + 'hand-over (409 ALREADY_HANDED_OVER) and never a prescription-only medicine (422 PRESCRIPTION_REQUIRED). A line '
+    + 'answers dispensingReversed: a paid one still live means a refund is due.')),
   proposed(r('commercial.billLineCancel','commercial','/api/v1/commercial/bills/:billId/lines/:lineId/cancel',P,false,
     one('POST','billing.bill.adjust'), `${BILL_1} { reason (8-500), expectedVersion }; 409 LINE_CANCEL_BELOW_PAID.`)),
   proposed(r('commercial.billPayments','commercial','/api/v1/commercial/bills/:billId/payments',P,false,

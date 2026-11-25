@@ -273,7 +273,7 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
     try {
       confirmed = await ask(reverse
         ? { subject: banner, effect: `Reverse the dispensing of ${item.medication.display} for ${name}?`, confirmLabel: 'Reverse dispensing',
-          undo: 'The dispensing is marked reversed in the record. It can’t be dispensed again on this prescription.' }
+          undo: 'The dispensing is marked reversed in the record. It can’t be dispensed again on this prescription. The stock count does not change: if the medicine came back to the shelf, correct the count on the Stock page.' }
         : { subject: banner, effect: `Dispense ${String(quantity).replace(/^\./, '0.')} ${unit} of ${item.medication.display} to ${name}?`, confirmLabel: 'Dispense',
           undo: 'If this was a mistake, you can reverse the dispensing afterwards.' })
     } finally { asking.current = false }
