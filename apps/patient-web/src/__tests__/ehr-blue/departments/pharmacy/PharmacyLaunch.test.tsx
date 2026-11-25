@@ -109,6 +109,6 @@ describe('how long a prescription has waited', () => {
     expect(waitingText('2026-11-01T13:00:00Z', now)).toBe('Waiting 2 days')
     expect(waitingText('2026-10-31T12:00:00Z', now)).toBe('Waiting 3 days')
     // Noon UTC is 8 or 9 Oct wherever the test runs.
-    expect(waitingText('2026-10-08T12:00:00Z', now)).toMatch(/^Waiting since [89] Oct$/)
+    expect(waitingText('2026-10-08T12:00:00Z', now)).toMatch(/^Waiting since [89] Oct 2026$/)
   })
 })

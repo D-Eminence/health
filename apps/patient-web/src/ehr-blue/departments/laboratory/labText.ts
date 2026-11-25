@@ -1,3 +1,4 @@
+import { formatDateTime } from '@hid/ui/display'
 import { isHidApiError } from '@hid/http'
 import type { LabAbnormalFlag, LabResultRevision } from '../../../staff/api'
 import type { FlagLevel } from '../../../kasuwa/parts'
@@ -95,9 +96,7 @@ export function normalizePhone(text: string): string {
 
 /** A date and time for a label or slip: "31 Oct 2026, 14:05". */
 export function stampText(iso: string | null | undefined): string {
-  const date = iso ? new Date(iso) : new Date()
-  if (Number.isNaN(date.getTime())) return iso ?? ''
-  return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date)
+  return formatDateTime(iso || new Date(), iso ?? '')
 }
 
 /*

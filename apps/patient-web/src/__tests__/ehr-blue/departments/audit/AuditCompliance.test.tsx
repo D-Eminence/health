@@ -1,3 +1,4 @@
+import { formatDateTime } from '@hid/ui/display'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
@@ -91,7 +92,7 @@ describe('Audit trail: the event list', () => {
     // What was done, in the spec's words; then by whom, when (as the browser writes it, as on the classic page), and the
     // outcome's badge, coloured by outcome as the classic page does.
     expect(within(first!).getByText('Looked up a patient by Health ID').tagName).toBe('STRONG')
-    expect(meta(first!)).toBe(`Staff member · ${new Date('2026-01-01T12:00:00.000Z').toLocaleString()} · Allowed`)
+    expect(meta(first!)).toBe(`Staff member · ${formatDateTime('2026-01-01T12:00:00.000Z')} · Allowed`)
     expect(within(first!).getByText('Allowed').getAttribute('data-tone')).toBe('positive')
     // A code the spec does not list is worded by its fallback rule; an actor it has no words for is "Someone".
     expect(within(second!).getByText('Patient access and registration activity (refused)').tagName).toBe('STRONG')
@@ -203,7 +204,7 @@ describe('Audit trail: search, outcome and refresh', () => {
     const list = await screen.findByRole('list')
     const [first] = within(list).getAllByRole('listitem')
     expect(within(first!).getByText('Scanned document could not be added').tagName).toBe('STRONG')
-    expect(meta(first!)).toBe(`Staff member · ${new Date('2026-01-01T12:00:00.000Z').toLocaleString()} · Failed`)
+    expect(meta(first!)).toBe(`Staff member · ${formatDateTime('2026-01-01T12:00:00.000Z')} · Failed`)
     expect(within(first!).getByText('Failed').getAttribute('data-tone')).toBe('critical')
     expect(within(first!).queryByText(/Allowed/)).toBeNull()
 
@@ -229,7 +230,7 @@ describe('Audit trail: search, outcome and refresh', () => {
     expect(items).toHaveLength(2)
     const [first] = items
     expect(within(first!).getByText('Their role here does not allow this action').tagName).toBe('STRONG')
-    expect(meta(first!)).toBe(`Staff member · ${new Date('2026-01-01T12:00:00.000Z').toLocaleString()} · Refused`)
+    expect(meta(first!)).toBe(`Staff member · ${formatDateTime('2026-01-01T12:00:00.000Z')} · Refused`)
     for (const withheld of ['security', 'authorization', 'http-request', '/api/', 'encounters']) expect(document.body.innerHTML).not.toContain(withheld)
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Outcome on this page' }), { target: { value: 'denied' } })

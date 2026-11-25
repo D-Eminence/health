@@ -1,3 +1,4 @@
+import { formatDate } from '@hid/ui/display'
 import { useMemo, type ReactNode } from 'react'
 import { Link, Navigate, useLocation } from 'react-router-dom'
 import { ClipboardList, Clock, Eye, FileText, FlaskConical, HeartPulse, Lock, Mail, NotebookPen, Pill, Stethoscope } from 'lucide-react'
@@ -50,7 +51,7 @@ function Face({ card, still }: { card: CardData; still?: boolean }) {
     allergies={allergyItems(card.allergies)} face={face} label="Shared with you" still={still} />
 }
 
-const until = (iso: string) => new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso))
+const until = (iso: string) => formatDate(iso)
 
 /** The email a provider receives, drawn as it will look in their inbox. Its design is also handed over as a template. */
 export function ShareEmailPreview({ card, to, level, duration, expiresAt }: { card: CardData; to: string; level: string; duration: string; expiresAt?: string | null }) {
@@ -82,7 +83,7 @@ const SECTIONS: ReadonlyArray<{ key: keyof Pick<PatientRecords, 'encounters' | '
 ]
 
 const words = (text: string | null | undefined) => text ? text.replace(/[_-]+/g, ' ').replace(/^./, c => c.toUpperCase()) : ''
-const day = (iso: string | null | undefined) => iso ? new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso)) : ''
+const day = (iso: string | null | undefined) => formatDate(iso)
 
 type SectionKey = (typeof SECTIONS)[number]['key']
 

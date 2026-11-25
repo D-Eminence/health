@@ -1,3 +1,4 @@
+import { formatDate } from '@hid/ui/display'
 import { useEffect, useRef, useState } from 'react'
 import { CalendarClock, ChevronRight, PackagePlus, PackageX, Search, SlidersHorizontal, TriangleAlert } from 'lucide-react'
 import { Drawer, Segmented } from '../../../kasuwa/interactive'
@@ -18,10 +19,7 @@ const DAY = 86_400_000
 
 type StockTab = 'all' | 'low' | 'expiring'
 
-const dayText = (iso: string) => {
-  const date = new Date(iso)
-  return Number.isNaN(date.getTime()) ? iso : new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(date)
-}
+const dayText = (iso: string) => formatDate(iso, iso)
 const daysLeft = (iso: string, now = Date.now()) => Math.floor((Date.parse(iso) - now) / DAY)
 
 /** What a line's batches say about expiry: the first batch that has expired or expires soon, if any. */

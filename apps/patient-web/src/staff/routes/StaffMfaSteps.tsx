@@ -1,3 +1,4 @@
+import { formatTime } from '@hid/ui/display'
 import { useCallback, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
 import { isHidApiError, plainErrorText } from '@hid/http'
 import { Field, Input } from '@hid/ui'
@@ -237,10 +238,9 @@ function useStepProblems(carried: string | null) {
   }
 }
 
-/** A step's deadline as this device's clock shows it; nothing for a time Identity did not give. */
+/** A step's deadline in Lagos time ("14:05", Q181 A); nothing for a time Identity did not give. */
 function clockTime(expiresAt: string): string | null {
-  const time = new Date(expiresAt)
-  return Number.isNaN(time.getTime()) ? null : time.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  return formatTime(expiresAt) || null
 }
 
 function Deadline({ look, expiresAt, lead }: { look: StaffMfaLook; expiresAt: string; lead: string }) {

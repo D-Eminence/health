@@ -161,9 +161,9 @@ describe('what is typed and shown', () => {
   it('masks an email and a phone number, keeping a known country code', () => {
     expect(maskEmail('ada.example@example.com')).toBe('a•••@example.com')
     expect(maskEmail('not-an-email')).toBe('•••')
-    expect(maskPhone('+2348031234567')).toBe('+234 •••• 4567')
+    expect(maskPhone('+2348031234567')).toBe('0••• ••• 4567')
     expect(maskPhone('+14155550123')).toBe('+1 •••• 0123')
-    expect(maskPhone('08031234567')).toBe('•••• 4567')
+    expect(maskPhone('08031234567')).toBe('0••• ••• 4567')
     expect(maskPhone('123')).toBe('••••')
   })
 })

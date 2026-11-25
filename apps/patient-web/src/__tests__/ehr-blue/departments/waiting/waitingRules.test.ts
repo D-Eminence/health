@@ -67,8 +67,8 @@ describe('waiting list rules', () => {
     expect(fromEarlierDay({ checkInDay: '2026-11-22' }, today)).toBe(true)
     expect(fromEarlierDay({ checkInDay: today }, today)).toBe(false)
     expect(checkInWhen({ checkInDay: today, checkedInAt: '2026-11-23T09:05:00.000Z' }, today)).toMatch(/^\d\d:\d\d$/)
-    expect(checkInWhen({ checkInDay: '2026-11-22', checkedInAt: '2026-11-22T15:40:00.000Z' }, today)).toMatch(/^22 Nov, \d\d:\d\d$/)
-    expect(checkInWhen({ checkInDay: '2025-12-31', checkedInAt: '2025-12-31T15:40:00.000Z' }, today)).toMatch(/^31 Dec 2025, \d\d:\d\d$/)
+    expect(checkInWhen({ checkInDay: '2026-11-22', checkedInAt: '2026-11-22T15:40:00.000Z' }, today)).toBe('22 Nov 2026, 16:40')
+    expect(checkInWhen({ checkInDay: '2025-12-31', checkedInAt: '2025-12-31T15:40:00.000Z' }, today)).toBe('31 Dec 2025, 16:40')
   })
 
   it('says where a cut list was cut: in the patients waiting only when they fill it', () => {

@@ -1,3 +1,4 @@
+import { formatTime, sameLagosDay } from '@hid/ui/display'
 import { useEffect, useState } from 'react'
 import { isHidApiError } from '@hid/http'
 
@@ -35,11 +36,11 @@ export const NIN_DETAILS_CHECK = 'Those details don’t match the NIN record. Ch
 /** 422 NIN_NOT_VERIFIED: QoreID has no record of the NIN (owner Q117, the same sentence on all three screens). */
 export const NIN_NOT_VERIFIED_TEXT = 'This NIN could not be verified. Check the number and try again.'
 
-/** "This NIN check is on hold. Try again after 14:32." in the person's own time zone, rounded up to the minute. */
+/** "This NIN check is on hold. Try again after 14:32." in Lagos time (Q181 A), rounded up to the minute. */
 export function ninHeldText(until: number, now = Date.now()): string {
   const at = new Date(Math.ceil(until / 60_000) * 60_000)
-  const clock = at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  const today = new Date(now).toDateString() === at.toDateString()
+  const clock = formatTime(at)
+  const today = sameLagosDay(now, at)
   return `This NIN check is on hold. Try again after ${clock}${today ? '' : ' tomorrow'}.`
 }
 

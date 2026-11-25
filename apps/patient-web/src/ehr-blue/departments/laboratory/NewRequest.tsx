@@ -1,3 +1,4 @@
+import { ageInYears, formatPhone } from '@hid/ui/display'
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowRight, Camera, Check, CircleCheck, Droplet, FlaskConical, IdCard, Plus, Printer, Search, Trash2, UserPlus, X } from 'lucide-react'
@@ -213,7 +214,7 @@ function RequestForm({ facilityId, permissions }: { readonly facilityId: string;
 
     <StepCard anchor="lab-new-step-2" n={2} title="Patient" hint="Name, age, sex and phone: for the label, the ranges and the result."
       current={step === 2 && !created} done={step > 2} onChange={created ? undefined : () => go(2)}
-      summary={<>{patient.name} · {basics.age} y · {basics.sex === 'male' ? 'Male' : 'Female'} · {patient.phone}{basics.healthId ? ` · ${basics.healthId}` : ''}</>}>
+      summary={<>{patient.name} · {basics.age} y · {basics.sex === 'male' ? 'Male' : 'Female'} · {formatPhone(patient.phone)}{basics.healthId ? ` · ${basics.healthId}` : ''}</>}>
       <form className="flex flex-col gap-4" noValidate onSubmit={doneBasics}>
         <FindByHealthId facilityId={facilityId} canLook={permissions.includes('identity.patient.read')} linked={basics.healthId}
           onFound={found => { setBasics(current => ({ ...current, ...found })); setBasicsErrors({}) }}
@@ -238,7 +239,7 @@ function RequestForm({ facilityId, permissions }: { readonly facilityId: string;
       summary={<>Request made · Bill <span className="tabular">{created?.bill.number}</span> · <strong className="tabular">{naira(created?.bill.totalKobo ?? total)}</strong></>}>
       {banner}
       <dl className="m-0 grid gap-x-4 gap-y-2 text-[15px] @md:grid-cols-[9rem_minmax(0,1fr)]">
-        <dt className="text-ink-3">Phone</dt><dd className="m-0 text-ink tabular">{patient.phone}</dd>
+        <dt className="text-ink-3">Phone</dt><dd className="m-0 text-ink tabular">{formatPhone(patient.phone)}</dd>
         <dt className="text-ink-3">Referred by</dt><dd className="m-0 text-ink break-words">{doctorUsed(doctor) ? [doctor.name, doctor.facility].filter(Boolean).join(', ') : 'Asked for by the patient'}</dd>
         <dt className="text-ink-3">Priority</dt><dd className="m-0 text-ink">{priority === 'urgent' ? 'Urgent' : 'Routine'}</dd>
       </dl>
@@ -396,10 +397,7 @@ function FindByHealthId({ facilityId, canLook, linked, onFound, onUnlink }: {
       const lookup = await staffApi.lookupPatient(facilityId, value)
       if (isAllowedPatientLookup(lookup)) {
         const person = lookup.patient
-        const born = person.dateOfBirth ? new Date(person.dateOfBirth) : null
-        const now = new Date()
-        let years = born && !Number.isNaN(born.getTime()) ? now.getFullYear() - born.getFullYear() : null
-        if (years !== null && born && now < new Date(now.getFullYear(), born.getMonth(), born.getDate())) years -= 1
+        const years = ageInYears(person.dateOfBirth)
         const name = person.fullName ?? [person.firstName, person.lastName].filter(Boolean).join(' ')
         setSaid('Details filled in. Check them and add the phone.')
         onFound({ healthId: person.hid || value, ...(name ? { name } : {}), ...(years !== null ? { age: String(years) } : {}),
