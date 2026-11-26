@@ -123,7 +123,8 @@ describe('Inpatient / Wards in the frame', () => {
     const answers = [...many(off, 3), () => new Promise<Response>(resolve => { answer = resolve }), ...many(off, 2)]
     const sent = serve({ [SESSION]: [sessionAt(doctor, [doctor])], [ADMISSIONS]: answers })
     await openStaffApp('/provider/icu')
-    const notice = await screen.findByText('Inpatient care is not switched on yet.', undefined, { timeout: 4000 })
+    // Room for the app's first start when this test runs alone, and the client's two tries again after a 503.
+    const notice = await screen.findByText('Inpatient care is not switched on yet.', undefined, { timeout: 15000 })
     // The first read of ICU's bed board went with the list's, before anything said inpatient care is off.
     const boards = sentTo(sent, BOARD).length
     // The page comes back on screen (as the minute's timer does): the list is read again.
