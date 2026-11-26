@@ -220,6 +220,8 @@ describe('Consultation: a completed visit marked as entered in error (EHR-C8a)',
     ['CONSENT_REQUIRED', 403, NO_CONSENT],
     ['PURPOSE_OF_USE_REQUIRED', 400, OPEN_PATIENT_AGAIN],
   ])('says %s in plain words, the form kept', async (code, status, words) => {
+    // The page's word is "consultation", never "visit" (the 2 Nov plain-words decision).
+    expect(words).not.toMatch(/\bvisits?\b/i)
     api.updateEncounter.mockRejectedValue(refused(status, code))
     await openEncounter()
     markEnteredInError()

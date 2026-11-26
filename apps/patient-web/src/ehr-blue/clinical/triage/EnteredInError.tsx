@@ -1,11 +1,10 @@
 import { isHidApiError, type HidApiError } from '@hid/http'
-import { useId, useState } from 'react'
+import { useId } from 'react'
 import { usesNovuBackend } from '../../../backendContract'
 import { staffApi, type ClinicalRecord } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import { NO_CONSENT, OPEN_PATIENT_AGAIN, REASON_FIELD, REASON_SHORT, UPDATING, reasonCheck, text } from '../consult/encounters'
 import type { Chart } from '../parts/chart'
-import { ConfirmAction } from '../parts/Detail'
 import { RecordForm, type FormValues, type SubmitOutcome } from '../parts/RecordForm'
 import { refusedFieldErrors, rowVersion } from './records'
 import {
@@ -29,9 +28,10 @@ export function canWithdraw(chart: Chart, vital: ClinicalRecord): boolean {
 
 /**
  * The form of "Mark as entered in error" for one vitals reading (EHR-C8b): the reason the route requires (3 to 500
- * characters), what it does, then the design's decision dialog saying it again. A press re-checks access, sends the
- * reading's row version, and hands the outcome to the page (`onWithdrawn`), which reads the vitals again. Every other
- * refusal stays in the form, in plain words, with the reason kept.
+ * characters), and what it does beside the button that sends it. It is sent in one press, with no dialog, as C8a's and
+ * the note's entered in error are: the design confirms no entered in error (CONFIRMED_ACTIONS, sample/definitions.ts).
+ * A press re-checks access, sends the reading's row version, and hands the outcome to the page (`onWithdrawn`), which
+ * reads the vitals again. Every other refusal stays in the form, in plain words, with the reason kept.
  */
 export function EnteredInErrorForm({ chart, encounterId, vital, onWithdrawn }: {
   chart: Chart
@@ -40,9 +40,6 @@ export function EnteredInErrorForm({ chart, encounterId, vital, onWithdrawn }: {
   onWithdrawn: (outcome: Withdrawal) => Promise<void> | void
 }) {
   const warningId = useId()
-  const [asking, setAsking] = useState<((yes: boolean) => void) | null>(null)
-  const confirm = () => new Promise<boolean>(answer => setAsking(() => answer))
-  const answer = (yes: boolean) => { asking?.(yes); setAsking(null) }
 
   const submit = async (values: FormValues): Promise<SubmitOutcome> => {
     const expectedRowVersion = rowVersion(vital.rowVersion)
@@ -60,21 +57,17 @@ export function EnteredInErrorForm({ chart, encounterId, vital, onWithdrawn }: {
   }
 
   return (
-    <>
-      <RecordForm
-        fields={[REASON_FIELD]}
-        validate={reasonCheck}
-        submitLabel={EIE_LABEL}
-        busyLabel={UPDATING}
-        submitVariant="secondary"
-        describedBy={warningId}
-        confirm={confirm}
-        onSubmit={submit}
-      >
-        <p id={warningId} className="hid-ehr-clinical-consult-warning">{EIE_WARNING}</p>
-      </RecordForm>
-      <ConfirmAction open={asking !== null} label={EIE_LABEL} description={EIE_WARNING} onConfirm={() => answer(true)} onCancel={() => answer(false)} />
-    </>
+    <RecordForm
+      fields={[REASON_FIELD]}
+      validate={reasonCheck}
+      submitLabel={EIE_LABEL}
+      busyLabel={UPDATING}
+      submitVariant="secondary"
+      describedBy={warningId}
+      onSubmit={submit}
+    >
+      <p id={warningId} className="hid-ehr-clinical-consult-warning">{EIE_WARNING}</p>
+    </RecordForm>
   )
 }
 

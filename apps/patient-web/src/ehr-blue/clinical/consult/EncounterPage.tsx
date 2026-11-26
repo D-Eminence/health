@@ -449,7 +449,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
     await reloaded({ notes: on => on.notes.reload(true) })
   }
 
-  /** The plain words for a status change refused for a reason the user can act on, or null for the other refusals. */
+  /** The plain words for EHR-C8a refused for a reason the user can act on, or null for the other refusals. */
   const statusRefusal = (code: string): ReactNode => {
     if (code === 'VISIT_HAS_OPEN_ORDERS') return <>{OPEN_ORDERS}{showsOrders ? <> <JumpLink to={ORDERS_ANCHOR}>{GO_TO_ORDERS}</JumpLink></> : null}</>
     if (code === 'VISIT_HAS_SIGNED_NOTES') return <>{SIGNED_NOTES}{reads.notes ? <> <JumpLink to={NOTES_ANCHOR}>{GO_TO_NOTES}</JumpLink></> : null}</>
@@ -465,6 +465,8 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
   const encounterStatus = (status: string) => async (values: FormValues): Promise<SubmitOutcome> => {
     const expectedRowVersion = rowVersion(encounter.rowVersion)
     if (expectedRowVersion === null) return { formError: 'Reload the consultation before changing it.' }
+    // EHR-C8a: a completed consultation's only change.
+    const completedError = encounter.status === 'completed' && status === 'entered_in_error'
     begin()
     let updated: Encounter
     try {
@@ -477,10 +479,13 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
         return { formError: retractionNotPermitted(status) }
       }
       // A completed visit marked entered in error (EHR-C8a) is refused while something on it is still open: nothing
-      // changed, so the form stays with its reason, and the refusal says what to do first, with the way to it.
-      const refused = isHidApiError(caught) ? statusRefusal(caught.code) : null
-      if (refused) return { formError: refused }
-      if (isHidApiError(caught) && caught.code === 'CHANGE_REASON_REQUIRED') return { fieldErrors: { reason: REASON_SHORT } }
+      // changed, so the form stays with its reason, and the refusal says what to do first, with the way to it. Only
+      // C8a's: release D's other status changes keep their own words for every refusal.
+      if (completedError && isHidApiError(caught)) {
+        const refused = statusRefusal(caught.code)
+        if (refused) return { formError: refused }
+        if (caught.code === 'CHANGE_REASON_REQUIRED') return { fieldErrors: { reason: REASON_SHORT } }
+      }
       // A stale version (412), or a move the status no longer allows (409 INVALID_ENCOUNTER_TRANSITION): read it again.
       if (isHidApiError(caught) && (caught.status === 409 || caught.status === 412)) {
         const read = ++encounterReads.current

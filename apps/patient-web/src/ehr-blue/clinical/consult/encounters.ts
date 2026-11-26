@@ -64,7 +64,7 @@ export const COMPLETED_ERROR_WARNING = 'Use this only for a consultation recorde
 /** Each refusal of a consultation status change that names what to do, in plain words (EHR-C8a's 409s first). */
 export const OPEN_ORDERS = 'Nothing was changed. Cancel or stop this consultation’s prescriptions and lab requests, drafts included, before marking it as entered in error.'
 export const SIGNED_NOTES = 'Nothing was changed. Mark this consultation’s signed notes as entered in error before marking the consultation as entered in error.'
-export const IMPORTED_VISIT = 'Nothing was changed. The visit that holds the imported paper records can’t be marked as entered in error.'
+export const IMPORTED_VISIT = 'Nothing was changed. The consultation that holds the imported paper records can’t be marked as entered in error.'
 export const ENCOUNTER_NOT_FOUND = 'Nothing was changed. This consultation was not found. Go back to the list and open it again.'
 export const GO_TO_ORDERS = 'Go to Orders'
 export const GO_TO_NOTES = 'Go to Notes'

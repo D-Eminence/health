@@ -15,8 +15,9 @@ import { ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, activePatient, allo
 /**
  * EHR-C8b on the blue pages (Novu, hid-system 0142): "Mark as entered in error" for one vitals reading, on its record
  * page in Triage & Vitals and on each row of the consultation's Vitals card. It is offered only to a role that may
- * write vitals, with write access, on a reading not already withdrawn; it asks for the reason, confirms, sends the row
- * version, and reads the vitals again with those entered in error, which then show classic's "Entered in error" badge
+ * write vitals, with write access, on a reading not already withdrawn; it asks for the reason and is sent in one press
+ * from that form, its warning beside the button and no dialog (release D confirms no entered in error, as C8a and the
+ * note's), with the row version, and reads the vitals again with those entered in error, which then show classic's "Entered in error" badge
  * and RETRACTED_TEXT, never struck through (release D keeps classic's vitals display). Every refusal is in plain words,
  * never the service's own text or code. Everything here is fictional.
  */
@@ -99,22 +100,13 @@ function actions() {
   return within(screen.getByRole('heading', { level: 2, name: 'Available actions' }).closest('section') as HTMLElement)
 }
 
-function dialog() {
-  return within(screen.getByRole('alertdialog'))
-}
-
-/** Opens "Mark as entered in error" in `scope`, types the reason and presses its submit: the dialog then asks. */
+/** Opens "Mark as entered in error" in `scope`, types the reason and presses its submit, which sends it: no dialog asks. */
 async function withdraw(scope: ReturnType<typeof within>, reason = REASON) {
   fireEvent.click(await scope.findByRole('button', { name: 'Mark as entered in error' }))
   fireEvent.change(scope.getByLabelText(labelled('Reason for change')), { target: { value: reason } })
   const submit = scope.getAllByRole('button', { name: 'Mark as entered in error' }).find((button: HTMLElement) => button.getAttribute('type') === 'submit')!
   fireEvent.click(submit)
   return submit
-}
-
-/** Says yes in the dialog. */
-function confirm() {
-  fireEvent.click(dialog().getByRole('button', { name: 'Mark as entered in error' }))
 }
 
 function noCodesOrServerWords() {
@@ -140,25 +132,26 @@ describe('Triage & Vitals record: Mark as entered in error', () => {
     expect(actions().getByText('Nothing more to do here.')).toBeTruthy()
   })
 
-  it('asks for the reason and confirms, then sends the row version and reads the vitals again with those entered in error', async () => {
+  it('asks for the reason, then one press sends the row version, with no dialog, and reads the vitals again with those entered in error', async () => {
     await openRecord()
     expect(actions().getByRole('button', { name: 'Correct these vitals' })).toBeTruthy()
     // A short reason is refused before anything is sent.
     await withdraw(actions(), 'no')
     expect(actions().getByText('Give a reason of at least 3 characters.')).toBeTruthy()
-    expect(screen.queryByRole('alertdialog')).toBeNull()
-    const submit = actions().getAllByRole('button', { name: 'Mark as entered in error' }).find(button => button.getAttribute('type') === 'submit')!
-    // What it does is said in the form, tied to its submit, and again in the dialog.
-    expect(document.getElementById(submit.getAttribute('aria-describedby')!)!.textContent).toBe(EIE_WARNING)
-    fireEvent.change(actions().getByLabelText(labelled('Reason for change')), { target: { value: `  ${REASON}  ` } })
-    fireEvent.click(submit)
-    expect(dialog().getByRole('heading', { name: 'Mark as entered in error?' })).toBeTruthy()
-    expect(document.getElementById(screen.getByRole('alertdialog').getAttribute('aria-describedby')!)!.textContent).toBe(EIE_WARNING)
     expect(api.markVitalEnteredInError).not.toHaveBeenCalled()
+    const submit = actions().getAllByRole('button', { name: 'Mark as entered in error' }).find(button => button.getAttribute('type') === 'submit')!
+    // What it does is said in the form, beside its submit and tied to it, as C8a's COMPLETED_ERROR_WARNING is.
+    const warning = document.getElementById(submit.getAttribute('aria-describedby')!)!
+    expect(warning.textContent).toBe(EIE_WARNING)
+    expect(warning.closest('form')).toBe(submit.closest('form'))
+    fireEvent.change(actions().getByLabelText(labelled('Reason for change')), { target: { value: `  ${REASON}  ` } })
     api.records.mockClear()
     const checks = api.lookupPatient.mock.calls.length
-    confirm()
+    // One press sends it: release D confirms no entered in error, so no dialog asks first.
+    fireEvent.click(submit)
+    expect(screen.queryByRole('alertdialog')).toBeNull()
     expect(await screen.findByText(EIE_DONE)).toBeTruthy()
+    expect(screen.queryByRole('alertdialog')).toBeNull()
     expect(api.markVitalEnteredInError).toHaveBeenCalledTimes(1)
     expect(api.markVitalEnteredInError).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, VITAL_ID, { expectedRowVersion: 3, changeReason: REASON })
     // The access re-check first, then the change, then the read again, fresh and with those entered in error.
@@ -172,19 +165,18 @@ describe('Triage & Vitals record: Mark as entered in error', () => {
     noCodesOrServerWords()
   })
 
-  it('cancelling the dialog sends nothing and keeps the reason', async () => {
+  it('sends once for one press of its form’s button, and no dialog ever shows', async () => {
     await openRecord()
     await withdraw(actions())
-    fireEvent.click(dialog().getByRole('button', { name: 'Cancel' }))
-    expect(api.markVitalEnteredInError).not.toHaveBeenCalled()
-    expect((actions().getByLabelText(labelled('Reason for change')) as HTMLInputElement).value).toBe(REASON)
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    await waitFor(() => expect(api.markVitalEnteredInError).toHaveBeenCalledTimes(1))
+    expect(screen.queryByRole('alertdialog')).toBeNull()
   })
 
   it('treats a reading already entered in error as done, and reads it again', async () => {
     api.markVitalEnteredInError.mockImplementation(async () => { vitals = [WITHDRAWN]; throw refused(409, 'VITAL_ALREADY_ENTERED_IN_ERROR') })
     await openRecord()
     await withdraw(actions())
-    confirm()
     expect(await screen.findByText(EIE_ALREADY)).toBeTruthy()
     expect(await screen.findByText(RETRACTED_TEXT)).toBeTruthy()
     expect(screen.queryByRole('alert')).toBeNull()
@@ -195,14 +187,12 @@ describe('Triage & Vitals record: Mark as entered in error', () => {
     api.markVitalEnteredInError.mockImplementation(async () => { vitals = [{ ...VITAL, rowVersion: '5' }]; throw refused(412, 'VERSION_CONFLICT') })
     await openRecord()
     await withdraw(actions())
-    confirm()
     expect((await screen.findByRole('alert')).textContent).toBe(`${EIE_CHANGED} The list was reloaded.`)
     expect(screen.queryByText(EIE_DONE)).toBeNull()
     // The form went; the action is offered again, now against the version read.
     expect(actions().queryByLabelText(labelled('Reason for change'))).toBeNull()
     api.markVitalEnteredInError.mockResolvedValue(WITHDRAWN)
     await withdraw(actions())
-    confirm()
     await waitFor(() => expect(api.markVitalEnteredInError).toHaveBeenCalledTimes(2))
     expect(api.markVitalEnteredInError).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, VITAL_ID, { expectedRowVersion: 5, changeReason: REASON })
     noCodesOrServerWords()
@@ -215,10 +205,11 @@ describe('Triage & Vitals record: Mark as entered in error', () => {
     ['PERMISSION_DENIED', 403, EIE_NO_ROLE],
     ['PURPOSE_OF_USE_REQUIRED', 400, OPEN_PATIENT_AGAIN],
   ])('says %s in plain words in the form, keeping the reason, and changes nothing', async (code, status, words) => {
+    // Each says first that nothing was changed, as its siblings do.
+    expect(words.startsWith('Nothing was changed. ')).toBe(true)
     api.markVitalEnteredInError.mockRejectedValue(refused(status, code))
     await openRecord()
     await withdraw(actions())
-    confirm()
     expect((await actions().findByRole('alert')).textContent).toBe(words)
     expect((actions().getByLabelText(labelled('Reason for change')) as HTMLInputElement).value).toBe(REASON)
     expect(screen.queryByText(EIE_DONE)).toBeNull()
@@ -229,7 +220,6 @@ describe('Triage & Vitals record: Mark as entered in error', () => {
     api.markVitalEnteredInError.mockRejectedValue(refused(400, 'CHANGE_REASON_REQUIRED'))
     await openRecord()
     await withdraw(actions())
-    confirm()
     expect(await actions().findByText('Give a reason of at least 3 characters.')).toBeTruthy()
     noCodesOrServerWords()
   })
@@ -240,7 +230,6 @@ describe('Triage & Vitals record: Mark as entered in error', () => {
     }))
     await openRecord()
     await withdraw(actions())
-    confirm()
     expect(await actions().findByText('Use 500 characters or fewer.')).toBeTruthy()
     noCodesOrServerWords()
   })
@@ -252,7 +241,6 @@ describe('Triage & Vitals record: Mark as entered in error', () => {
     api.markVitalEnteredInError.mockRejectedValue(new HidApiError(400, SERVER_WORDS, { code: 'VALIDATION_FAILED', details }))
     await openRecord()
     await withdraw(actions())
-    confirm()
     expect((await actions().findByRole('alert')).textContent).toBe(EIE_FAILED)
     expect(actions().queryByText('Give a reason of at least 3 characters.')).toBeNull()
     const reason = actions().getByLabelText(labelled('Reason for change')) as HTMLInputElement
@@ -308,7 +296,9 @@ describe('Triage & Vitals record: Mark as entered in error', () => {
     fireEvent.click(actions().getByRole('button', { name: 'Mark as entered in error' }))
     expect(actions().queryByRole('button', { name: 'Save correction' })).toBeNull()
     expect(actions().getByLabelText(labelled('Reason for change'))).toBeTruthy()
-    fireEvent.click(actions().getByRole('button', { name: 'Close' }))
+    // The button that closes the form names what it closes, as "Close correction" does.
+    expect(actions().queryByRole('button', { name: 'Close' })).toBeNull()
+    fireEvent.click(actions().getByRole('button', { name: 'Close entered in error' }))
     expect(actions().queryByLabelText(labelled('Reason for change'))).toBeNull()
   })
 })
@@ -369,8 +359,9 @@ describe('Consultation Vitals card: Mark as entered in error on each row', () =>
     expect(row().queryByText(RETRACTED_TEXT)).toBeNull()
     expect(vitalsReads()[0]).toEqual([FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'vitals', { includeEnteredInError: true }])
     api.records.mockClear()
+    // One press of the row form's button sends it, with no dialog, as on the record page.
     await withdraw(row())
-    confirm()
+    expect(screen.queryByRole('alertdialog')).toBeNull()
     expect(await card.findByText(EIE_DONE)).toBeTruthy()
     expect(api.markVitalEnteredInError).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, VITAL_ID, { expectedRowVersion: 3, changeReason: REASON })
     await waitFor(() => expect(vitalsReads()).toEqual([[FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'vitals', { cursor: undefined, fresh: true, includeEnteredInError: true }]]))
@@ -392,7 +383,6 @@ describe('Consultation Vitals card: Mark as entered in error on each row', () =>
     const card = await vitalsCard()
     const row = within((card.getByRole('link', { name: VITALS_RECORDED })).closest('li') as HTMLElement)
     await withdraw(row)
-    confirm()
     expect((await card.findByRole('alert')).textContent).toBe(`${EIE_CHANGED} The list was reloaded.`)
     expect(card.queryByText(EIE_DONE)).toBeNull()
     noCodesOrServerWords()
