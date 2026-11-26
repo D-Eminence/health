@@ -148,10 +148,13 @@ describe('Appointments in the frame', () => {
     expect(within(first).getByText('Chart cannot be opened')).toBeDefined()
     expect(within(first).getByLabelText('Health ID ending ZZ33').textContent).toBe('•••• ZZ33')
     expect(await within(first).findByText('Dr Fiction Adeyemi')).toBeDefined()
+    expect(within(first).getByText('Clinic', { selector: 'dt' }).nextElementSibling?.textContent).toBe('Medical outpatients')
     const second = within(list).getByRole('listitem', { name: 'Other Bookperson' })
     expect(within(second).getByText('10:15 to 10:45')).toBeDefined()
     expect(within(second).getByText('Checked in')).toBeDefined()
-    expect(within(second).getByText('Maternity')).toBeDefined()
+    // No clinic: its department, named as one (never "Clinic: Maternity"), as the appointment itself says.
+    expect(within(second).getByText('Department', { selector: 'dt' }).nextElementSibling?.textContent).toBe('Maternity')
+    expect(within(second).queryByText('Clinic', { selector: 'dt' })).toBeNull()
     // No clinic: any clinician in the department, not "in the clinic".
     expect(within(second).getByText('Any clinician in the department')).toBeDefined()
     const query = urlsOf(LIST)[0]!.searchParams
@@ -182,15 +185,77 @@ describe('Appointments in the frame', () => {
 
   it('says appointments are not available yet when they are switched off, and stops listing them', async () => {
     const desk = deskAt()
+    const off = () => problem(503, 'APPOINTMENTS_NOT_AVAILABLE', 'Appointments are not available yet.')
     serve({
       [SESSION]: [sessionAt(desk, [desk])],
-      // A read is tried three times (the client's read retry); each answer says the same.
-      [LIST]: [1, 2, 3].map(() => () => problem(503, 'APPOINTMENTS_NOT_AVAILABLE', 'Appointments are not available yet.')),
+      // Each read once only: a 503 is not tried again (the client's read retry would send each three times, and
+      // ehr-api logs each as an error).
+      [LIST]: [off, off, off], [CLINICS]: [off, off, off], [STAFF]: [off, off, off],
     })
     await openStaffApp('/provider/appointments')
     expect(await screen.findByText('Appointments are not available yet.')).toBeDefined()
     expect(screen.queryByRole('button', { name: 'New appointment' })).toBeNull()
     await waitFor(() => expect(within(nav()).queryByRole('link', { name: 'Appointments' })).toBeNull())
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 700)) })
+    expect([urlsOf(LIST).length, urlsOf(CLINICS).length, urlsOf(STAFF).length]).toEqual([1, 1, 1])
+  })
+
+  it('opens New appointment by its address while switched off to say so: no form, and no patient search', async () => {
+    const desk = deskAt()
+    const off = () => problem(503, 'APPOINTMENTS_NOT_AVAILABLE', 'Appointments are not available yet.')
+    const clinicsRead = later()
+    const staffRead = later()
+    const sent = serve({
+      [SESSION]: [sessionAt(desk, [desk])],
+      [CLINICS]: [clinicsRead.answer], [STAFF]: [staffRead.answer],
+      [SEARCH]: [found()],
+    })
+    await openStaffApp('/provider/appointments/new')
+    expect(await screen.findByRole('heading', { level: 1, name: 'New appointment' })).toBeDefined()
+    // Until a read has said whether appointments are served, the form waits: nobody starts a search that can only be refused.
+    expect(await screen.findByText('Loading the clinics and clinicians…')).toBeDefined()
+    expect(screen.queryByRole('form', { name: 'Find the patient' })).toBeNull()
+    await clinicsRead.release(off())
+    expect(await screen.findByText('Appointments are not available yet.')).toBeDefined()
+    expect(screen.getByText(/keep using your appointment book/)).toBeDefined()
+    expect(screen.queryByRole('form', { name: 'Find the patient' })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: 'First name' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Book appointment' })).toBeNull()
+    expect(sent.filter(call => call.route === SEARCH)).toEqual([])
+    await staffRead.release(off())
+    expect([urlsOf(CLINICS).length, urlsOf(STAFF).length]).toEqual([1, 1])
+    fireEvent.click(screen.getByRole('button', { name: 'Back to appointments' }))
+    await waitFor(() => expect(where()).toBe('/provider/appointments'))
+  })
+
+  it('keeps the focus on "Today" when pressing it brings the list back to today', async () => {
+    const desk = deskAt()
+    serve({
+      [SESSION]: [sessionAt(desk, [desk])],
+      [LIST]: [listOf(), listOf(), listOf(), listOf()],
+    })
+    await openStaffApp('/provider/appointments')
+    expect(await screen.findByRole('heading', { name: 'Today (0)' })).toBeDefined()
+    const todayButton = () => screen.getByRole('button', { name: 'Today' }) as HTMLButtonElement
+    // On today it is marked unavailable, never disabled: a pressed button disabled under the focus drops it to the page.
+    expect(todayButton().disabled).toBe(false)
+    expect(todayButton().getAttribute('aria-disabled')).toBe('true')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next day' }))
+    await waitFor(() => expect(urlsOf(LIST)).toHaveLength(2))
+    expect(todayButton().getAttribute('aria-disabled')).toBeNull()
+    todayButton().focus()
+    fireEvent.click(todayButton())
+    expect(await screen.findByRole('heading', { name: 'Today (0)' })).toBeDefined()
+    expect(urlsOf(LIST).at(-1)!.searchParams.get('day')).toBe(today())
+    expect(document.activeElement).toBe(todayButton())
+    expect(todayButton().disabled).toBe(false)
+    expect(todayButton().getAttribute('aria-disabled')).toBe('true')
+
+    // Pressed again on today, it does nothing.
+    fireEvent.click(todayButton())
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)) })
+    expect(urlsOf(LIST)).toHaveLength(3)
   })
 
   it('gives a nurse the list only: no booking, call list or actions', async () => {
@@ -498,6 +563,13 @@ describe('Appointments in the frame', () => {
     expect(within(table).getByText('09:00')).toBeDefined()
     expect(await within(table).findByText('Dr Fiction Adeyemi')).toBeDefined()
     expect(within(table).getByText('Any clinician in the department')).toBeDefined()
+    // Each row is named by its patient and the Health ID's ending in words, as the appointment cards say it, never as
+    // four bullets read out; and a booking with no clinic says so, as the appointment does.
+    const rowHeader = within(table).getByRole('rowheader', { name: 'Testa Bookperson, Health ID ending ZZ33' })
+    expect(rowHeader.querySelector('[aria-hidden="true"]')?.textContent).toBe('•••• ZZ33')
+    expect(within(table).getByRole('rowheader', { name: 'Other Bookperson, Health ID ending ZZ44' })).toBeDefined()
+    const other = within(table).getByRole('row', { name: /Other Bookperson/ })
+    expect(within(other).getAllByRole('cell')[1]!.textContent).toBe('No clinic')
     expect(screen.getAllByText('Contains patient phone numbers. Keep it at the desk and shred it after use.')).not.toHaveLength(0)
     expect(urlsOf(CALL_LIST)[0]!.searchParams.get('day')).toBe(today())
     directCare(sent, CALL_LIST)
@@ -516,7 +588,7 @@ describe('Appointments in the frame', () => {
     const rows = [...paper.querySelectorAll('tbody tr')].map(row => [...row.querySelectorAll('td')].map(cell => cell.textContent))
     expect(rows).toEqual([
       ['09:00', 'Testa Bookperson •••• ZZ33', 'Medical outpatients', 'Dr Fiction Adeyemi', '0800 000 0001', ''],
-      ['10:00', 'Other Bookperson •••• ZZ44', '—', 'Any clinician in the department', 'No phone recorded', ''],
+      ['10:00', 'Other Bookperson •••• ZZ44', 'No clinic', 'Any clinician in the department', 'No phone recorded', ''],
     ])
     expect(paper.textContent).toContain('Contains patient phone numbers. Keep it at the desk and shred it after use.')
     expect(paper.textContent).not.toMatch(/https?:|www\.|\/provider|localhost|\.com\b/i)

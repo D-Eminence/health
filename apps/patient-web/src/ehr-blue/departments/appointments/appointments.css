@@ -69,6 +69,16 @@
   gap: 8px;
 }
 
+/* "Today" on today: dimmed as a disabled button is, while it keeps the focus (aria-disabled, never disabled). */
+.hid-ehr .hid-ehr-button.hid-ehr-dept-appointments-step-unavailable[aria-disabled='true'] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.hid-ehr .hid-ehr-button.hid-ehr-button-quiet.hid-ehr-dept-appointments-step-unavailable[aria-disabled='true']:hover {
+  background: transparent;
+}
+
 .hid-ehr .hid-ehr-dept-appointments-action-row {
   margin-bottom: 12px;
 }

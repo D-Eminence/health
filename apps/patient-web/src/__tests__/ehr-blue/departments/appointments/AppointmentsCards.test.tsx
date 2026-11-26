@@ -5,7 +5,9 @@ import { Route, Routes, useLocation } from 'react-router-dom'
 import { fakeFacility, renderDept, staffContext } from '../harness'
 import { PatientAppointmentsCard } from '../../../../ehr-blue/departments/appointments/PatientAppointmentsCard'
 import { AppointmentClinics } from '../../../../ehr-blue/departments/appointments/AppointmentClinics'
-import { forgetAppointmentsServed, takeHandedPatient } from '../../../../ehr-blue/departments/appointments/appointmentRules'
+import {
+  forgetAppointmentsServed, learnAppointmentsServed, takeHandedPatient,
+} from '../../../../ehr-blue/departments/appointments/appointmentRules'
 
 /*
  * The patient page's "Appointments" card and Facility profile's "Appointment clinics" (hid-system APPT-1 routes 4 and 9),
@@ -94,6 +96,43 @@ describe('the patient page’s Appointments card', () => {
     expect(await screen.findByText('Only the front desk, nurses, clinicians and doctors of this facility can see appointments.')).toBeDefined()
     expect(document.body.textContent).not.toMatch(/permission/i)
   })
+
+  it('asks nothing on the next patient once the page has learned appointments are not served', async () => {
+    session.permissions = ['ehr.appointment.read', 'ehr.appointment.write']
+    api.forPatient.mockRejectedValue(refused(503, 'APPOINTMENTS_NOT_AVAILABLE'))
+    const first = renderCard()
+    await waitFor(() => expect(api.forPatient).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.queryByText('Appointments')).toBeNull())
+    first.unmount()
+
+    // Another patient's page, the same page load: nothing is asked for and nothing shows, not even for a moment.
+    renderCard()
+    expect(screen.queryByText('Appointments')).toBeNull()
+    expect(screen.queryByText('Loading appointments…')).toBeNull()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(api.forPatient).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows no loading card until the page knows appointments are served, then shows it while reading', async () => {
+    session.permissions = ['ehr.appointment.read']
+    let answer: ((value: unknown) => void) | null = null
+    api.forPatient.mockImplementation(() => new Promise(resolve => { answer = resolve }))
+    const first = renderCard()
+    await waitFor(() => expect(answer).not.toBeNull())
+    // Not yet known: a facility without appointments never sees a card come and go.
+    expect(screen.queryByText('Appointments')).toBeNull()
+    expect(screen.queryByText('Loading appointments…')).toBeNull()
+    answer!({ items: [] })
+    expect(await screen.findByText('No appointments here in the last 90 days or to come.')).toBeDefined()
+    first.unmount()
+
+    answer = null
+    renderCard()
+    expect(screen.getByText('Loading appointments…')).toBeDefined()
+    await waitFor(() => expect(answer).not.toBeNull())
+    answer!({ items: [] })
+    expect(await screen.findByText('No appointments here in the last 90 days or to come.')).toBeDefined()
+  })
 })
 
 describe('Facility profile’s Appointment clinics', () => {
@@ -134,7 +173,7 @@ describe('Facility profile’s Appointment clinics', () => {
     api.saveSettings.mockRejectedValue(refused(412, 'APPOINTMENT_SETTINGS_VERSION_CONFLICT'))
     renderDept(<AppointmentClinics facilityId={FACILITY} permissions={session.permissions} />)
     const row = await screen.findByRole('listitem', { name: 'Medical outpatients' })
-    fireEvent.click(within(row).getByRole('button', { name: 'Close to new bookings' }))
+    fireEvent.click(within(row).getByRole('button', { name: 'Stop new bookings at Medical outpatients' }))
     expect(await screen.findByText('Medical outpatients is closed to new bookings.')).toBeDefined()
     expect(api.updateClinic).toHaveBeenCalledWith(FACILITY, clinic, { active: false }, expect.any(String))
 
@@ -143,6 +182,58 @@ describe('Facility profile’s Appointment clinics', () => {
     expect(await screen.findByText('Someone else changed the default length. Reload it and try again.')).toBeDefined()
     expect(api.saveSettings).toHaveBeenCalledWith(FACILITY, { defaultLengthMinutes: 30, rowVersion: 2 }, 20, expect.any(String))
     await waitFor(() => expect(api.clinics.mock.calls.length).toBeGreaterThanOrEqual(3))
+  })
+
+  it('names its clinic on each row button, and the form’s Cancel never starts like the button that changes the clinic', async () => {
+    session.permissions = ['organization.manage']
+    api.clinics.mockResolvedValue({ items: [clinic, { ...clinic, clinicId: 'c2', name: 'Antenatal clinic', active: false }] })
+    api.settings.mockResolvedValue({ defaultLengthMinutes: 30, rowVersion: 2 })
+    renderDept(<AppointmentClinics facilityId={FACILITY} permissions={session.permissions} />)
+    const row = await screen.findByRole('listitem', { name: 'Medical outpatients' })
+    const other = screen.getByRole('listitem', { name: 'Antenatal clinic' })
+    expect(within(other).getByRole('button', { name: 'Change Antenatal clinic' }).textContent).toBe('Change')
+    expect(within(other).getByRole('button', { name: 'Open for bookings: Antenatal clinic' }).textContent).toBe('Open for bookings')
+
+    fireEvent.click(within(row).getByRole('button', { name: 'Change Medical outpatients' }))
+    const form = within(row).getByRole('form', { name: 'Change Medical outpatients' })
+    const cancel = within(row).getByRole('button', { name: 'Cancel changes to Medical outpatients' })
+    expect(cancel.textContent).toBe('Cancel')
+    expect(cancel.getAttribute('aria-expanded')).toBe('true')
+    const stop = within(row).getByRole('button', { name: 'Stop new bookings at Medical outpatients' })
+    expect(stop.textContent).toBe('Stop new bookings')
+    // No two of the row's buttons start with the same word.
+    const firstWords = within(row).getAllByRole('button').map(button => button.textContent?.trim().split(' ')[0])
+    expect(new Set(firstWords).size).toBe(firstWords.length)
+
+    // Cancel leaves the form, keeps nothing typed in it, and changes nothing.
+    fireEvent.change(within(form).getByRole('textbox', { name: 'Name' }), { target: { value: 'Typed but not kept' } })
+    fireEvent.click(cancel)
+    expect(within(row).queryByRole('form')).toBeNull()
+    expect(api.updateClinic).not.toHaveBeenCalled()
+    fireEvent.click(within(row).getByRole('button', { name: 'Change Medical outpatients' }))
+    expect((within(row).getByRole('textbox', { name: 'Name' }) as HTMLInputElement).value).toBe('Medical outpatients')
+  })
+
+  it('asks nothing once the page has learned appointments are not served, and shows no loading section before it knows', async () => {
+    session.permissions = ['organization.manage']
+    learnAppointmentsServed(false)
+    const { unmount } = renderDept(<AppointmentClinics facilityId={FACILITY} permissions={session.permissions} />)
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(api.clinics).not.toHaveBeenCalled()
+    expect(api.settings).not.toHaveBeenCalled()
+    expect(screen.queryByText('Appointment clinics')).toBeNull()
+    unmount()
+
+    forgetAppointmentsServed()
+    let answer: ((value: unknown) => void) | null = null
+    api.clinics.mockImplementation(() => new Promise(resolve => { answer = resolve }))
+    api.settings.mockResolvedValue({ defaultLengthMinutes: 30, rowVersion: 2 })
+    renderDept(<AppointmentClinics facilityId={FACILITY} permissions={session.permissions} />)
+    await waitFor(() => expect(answer).not.toBeNull())
+    expect(screen.queryByText('Appointment clinics')).toBeNull()
+    expect(screen.queryByText('Loading the clinics…')).toBeNull()
+    answer!({ items: [clinic] })
+    expect(await screen.findByRole('listitem', { name: 'Medical outpatients' })).toBeDefined()
   })
 
   it('is not shown without organization.manage, or where appointments are not served', async () => {

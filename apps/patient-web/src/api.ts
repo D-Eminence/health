@@ -1014,10 +1014,12 @@ export function createPatientApi(sender: ApiClient) {
       `ehr/me/order-routes/${encodeURIComponent(route.id)}/withdraw`, { expectedVersion: route.version }),
     // "My appointments" (hid-system APPT-1, 0161; read only): the patient's own appointments at every facility. Before it
     // ehr-api answers 404, and while it is switched off 503 APPOINTMENTS_NOT_AVAILABLE: the page then says so. The menu
-    // asks for one (`limit` 1) to learn whether it is served (useMyAppointmentsProbe).
+    // asks for one (`limit` 1) to learn whether it is served (useMyAppointmentsProbe). Sent once (NO_RETRY): the client's
+    // read retry counts a 503 as worth trying again, so with appointments switched off every portal load would send it
+    // three times, each logged as an error in ehr-api. A read that fails for another reason offers Try again.
     myAppointments: (when: 'upcoming' | 'past', cursor?: string | null, signal?: AbortSignal, limit = MY_APPOINTMENTS_PAGE) =>
       call<MyAppointmentList>('GET', 'ehr/me/appointments', undefined,
-        { signal, query: { when, limit: String(limit), ...(cursor ? { cursor } : {}) } }),
+        { signal, retry: NO_RETRY, query: { when, limit: String(limit), ...(cursor ? { cursor } : {}) } }),
     markNotificationRead: (id: string) => call<{ id: string; readAt: string }>('POST', `identity/me/notifications/${encodeURIComponent(id)}/read`),
     /**
      * The bell's count (hid-system 0093; an Identity before it answers 404): unread inbox items and unread imported

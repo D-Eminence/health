@@ -3327,7 +3327,9 @@ export const visitQueueApi = {
  * search card's `matchRef` or by the id of a patient already this facility's own, both in the body.
  *
  * An ehr-api before 0160 answers 404, and while the service flag APPOINTMENTS_ENABLED is off every route answers 503
- * APPOINTMENTS_NOT_AVAILABLE: the pages then say appointments are not available yet.
+ * APPOINTMENTS_NOT_AVAILABLE: the pages then say appointments are not available yet. So every read here is sent once
+ * (NO_RETRY): the client's read retry counts a 503 as worth trying again, which with the flag off would send each read
+ * three times and log each one as an error in ehr-api. A read that fails for another reason offers Refresh or Try again.
  */
 export const APPOINTMENT_STATUSES = ['booked', 'checked_in', 'cancelled', 'no_show'] as const
 export type AppointmentStatus = (typeof APPOINTMENT_STATUSES)[number]
@@ -3445,7 +3447,7 @@ function directCareWrite(facilityId: string, idempotencyKey: string) {
 export const appointmentsApi = {
   list: (facilityId: string, query: AppointmentListQuery) =>
     client.get<AppointmentList>('/api/v1/ehr/appointments', {
-      headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false, ...(query.signal ? { signal: query.signal } : {}),
+      headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false, retry: NO_RETRY, ...(query.signal ? { signal: query.signal } : {}),
       query: {
         day: query.day,
         ...(query.clinicId ? { clinicId: query.clinicId } : {}),
@@ -3458,10 +3460,10 @@ export const appointmentsApi = {
   /** `signal` cancels the read: a newer one (Refresh, or the read after a change) takes its place. */
   read: (facilityId: string, appointmentId: string, signal?: AbortSignal) =>
     client.get<AppointmentRead>(appointmentPath(appointmentId), {
-      headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false, ...(signal ? { signal } : {}) }),
+      headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false, retry: NO_RETRY, ...(signal ? { signal } : {}) }),
   forPatient: (facilityId: string, patientId: string) =>
     client.get<{ items: AppointmentCard[] }>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/appointments`,
-      { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false }),
+      { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false, retry: NO_RETRY }),
   book: (facilityId: string, patient: AppointmentPatient, booking: AppointmentBooking, idempotencyKey: string) =>
     client.post<AppointmentSaved>('/api/v1/ehr/appointments',
       { ...('matchRef' in patient ? { matchRef: patient.matchRef } : { patientId: patient.patientId }), ...booking },
@@ -3482,10 +3484,10 @@ export const appointmentsApi = {
       { headers: directCareWrite(facilityId, idempotencyKey) }),
   bookableStaff: (facilityId: string) =>
     client.get<{ items: Array<{ membershipId: string }> }>('/api/v1/ehr/appointments/bookable-staff',
-      { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false }),
+      { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false, retry: NO_RETRY }),
   clinics: (facilityId: string, includeInactive = false) =>
     client.get<{ items: AppointmentClinic[] }>('/api/v1/ehr/appointment-clinics',
-      { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false, ...(includeInactive ? { query: { includeInactive: true } } : {}) }),
+      { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false, retry: NO_RETRY, ...(includeInactive ? { query: { includeInactive: true } } : {}) }),
   createClinic: (facilityId: string, clinic: { name: string; departmentCode: string; defaultLengthMinutes?: number }, idempotencyKey: string) =>
     client.post<{ clinic: AppointmentClinic; replayed: boolean }>('/api/v1/ehr/appointment-clinics', clinic,
       { headers: directCareWrite(facilityId, idempotencyKey) }),
@@ -3494,7 +3496,8 @@ export const appointmentsApi = {
       path: `/api/v1/ehr/appointment-clinics/${encodeURIComponent(clinic.clinicId)}`,
       body: { expectedRowVersion: clinic.rowVersion, ...change }, headers: directCareWrite(facilityId, idempotencyKey) }),
   settings: (facilityId: string) =>
-    client.get<AppointmentSettings>('/api/v1/ehr/appointment-settings', { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false }),
+    client.get<AppointmentSettings>('/api/v1/ehr/appointment-settings',
+      { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false, retry: NO_RETRY }),
   saveSettings: (facilityId: string, current: Pick<AppointmentSettings, 'rowVersion'>, defaultLengthMinutes: number, idempotencyKey: string) =>
     client.request<AppointmentSettings & { replayed?: boolean }>({ method: 'PATCH', path: '/api/v1/ehr/appointment-settings',
       body: { expectedRowVersion: current.rowVersion, defaultLengthMinutes }, headers: directCareWrite(facilityId, idempotencyKey) }),

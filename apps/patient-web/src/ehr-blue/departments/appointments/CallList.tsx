@@ -11,8 +11,8 @@ import { useDeptAccess } from '../parts/access'
 import { DeptNotice } from '../parts/DeptNotice'
 import { DeptPage, DeptSection, DeptUnavailable } from '../parts/DeptPage'
 import {
-  BASE, CALL_LIST_FOOTER, NOT_AVAILABLE, WRITE_REFUSED, canWrite, clinicianText, dayText, healthIdEnding, isDay, lagosTime,
-  learnFrom, notServed, refusalWords,
+  BASE, CALL_LIST_FOOTER, NOT_AVAILABLE, NO_CLINIC, WRITE_REFUSED, canWrite, clinicianText, dayText, healthIdEnding, isDay,
+  lagosTime, learnFrom, notServed, refusalWords,
 } from './appointmentRules'
 import { useBookingChoices } from './Appointments'
 import { useStaffNames } from './staffNames'
@@ -144,8 +144,8 @@ function CallListPage({ facilityId, initialDay }: { readonly facilityId: string;
               {items.map(item => (
                 <tr key={item.appointmentId}>
                   <td>{lagosTime(item.startsAt)}</td>
-                  <th scope="row">{item.fullName}<span className="hid-ehr-dept-appointments-hint"> {healthIdEnding(item.healthIdLast4)}</span></th>
-                  <td>{item.clinicName ?? '—'}</td>
+                  <th scope="row">{item.fullName}{item.healthIdLast4 ? <HealthIdEnding last4={item.healthIdLast4} /> : null}</th>
+                  <td>{item.clinicName ?? NO_CLINIC}</td>
                   <td>{clinicianText(item.clinicianMembershipId, names, membershipId, { inClinic: item.clinicName !== null })}</td>
                   <td>{item.phone ? <a href={`tel:${item.phone}`}>{formatPhone(item.phone)}</a> : 'No phone recorded'}</td>
                   <td className="hid-ehr-dept-appointments-called" aria-label="Called (tick on paper)" />
@@ -162,6 +162,19 @@ function CallListPage({ facilityId, initialDay }: { readonly facilityId: string;
       </DeptSection>
       {area}
     </DeptPage>
+  )
+}
+
+/**
+ * The Health ID's last 4 characters in a row's header, read out as "Health ID ending 7KQ2" (as the appointment cards say
+ * it) rather than as four bullets: the dots are hidden from a screen reader, and the words are hidden on screen. The
+ * words carry their own comma, so the name is never run into them however a browser joins the text.
+ */
+function HealthIdEnding({ last4 }: { readonly last4: string }) {
+  return (
+    <span className="hid-ehr-dept-appointments-hint">
+      {' '}<span aria-hidden="true">{healthIdEnding(last4)}</span><span className="hid-ehr-sr-only">{`, Health ID ending ${last4}`}</span>
+    </span>
   )
 }
 
@@ -196,7 +209,7 @@ export function CallListPaper({ facility, day, clinic, items, names, me, printed
             <tr key={item.appointmentId}>
               <td>{lagosTime(item.startsAt)}</td>
               <td>{item.fullName}{item.healthIdLast4 ? <span className="hid-ehr-dept-appointments-paper-ending"> {healthIdEnding(item.healthIdLast4)}</span> : null}</td>
-              <td>{item.clinicName ?? '—'}</td>
+              <td>{item.clinicName ?? NO_CLINIC}</td>
               <td>{clinicianText(item.clinicianMembershipId, names, me, { inClinic: item.clinicName !== null })}</td>
               <td>{item.phone ? formatPhone(item.phone) : 'No phone recorded'}</td>
               <td className="hid-ehr-dept-appointments-paper-called"><span className="hid-ehr-dept-appointments-paper-box" /></td>

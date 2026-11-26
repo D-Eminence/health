@@ -13,9 +13,9 @@ import { DeptPage, DeptSection, DeptUnavailable } from '../parts/DeptPage'
 import {
   APPOINTMENT_REFUSALS, BASE, LENGTHS, REASON_HINT, REASON_MAX, VISIT_TYPES, VISIT_TYPE_WORDS, WRITE_REFUSED, canSearch,
   canWrite, clinicianText, dayText, departmentText, isDay, lagosStartsAt, learnFrom, refusalWords,
-  takeHandedPatient, timeProblem,
+  takeHandedPatient, timeProblem, useAppointmentsServed,
 } from './appointmentRules'
-import { useBookingChoices } from './Appointments'
+import { AppointmentsNotAvailable, useBookingChoices } from './Appointments'
 import { PatientFinder } from './PatientFinder'
 import { useStaffNames } from './staffNames'
 import { useIdempotencyKeys } from './useIdempotencyKeys'
@@ -51,6 +51,11 @@ const AT_FIELD: Readonly<Record<string, keyof FieldProblems>> = {
  * and time (Lagos), length, visit type and reason. The server checks clashes (Q-APPT-2 A) and says so in plain words; a
  * search card older than 10 minutes, or a patient who is not this facility's own, asks for a new search. Nothing typed
  * goes to storage, the address or router state; the Idempotency-Key is the form's own, sent again with the same details.
+ *
+ * Where Health ID does not serve appointments (a 404 before 0160, or 503 while switched off), as the page has learned it
+ * or as the clinics or bookable-staff read answers, the page says so as the day list does, and shows no form and no
+ * patient search: nobody searches for a patient, or fills in a booking, that can only be refused. Until the page has
+ * learned either, the form waits for those two reads.
  */
 export function NewAppointment({ facilityId, day }: { readonly facilityId: string; readonly day: string }) {
   const { permissions } = useDeptAccess()
@@ -68,7 +73,8 @@ function BookingForm({ facilityId, day, searches }: { readonly facilityId: strin
     return handed ? { kind: 'own', patientId: handed.patientId, fullName: handed.fullName } : null
   })
   const [findNotice, setFindNotice] = useState('')
-  const { clinics, staff } = useBookingChoices(facilityId)
+  const { clinics, staff, settled, unavailable } = useBookingChoices(facilityId)
+  const served = useAppointmentsServed()
   const names = useStaffNames(facilityId, staff)
   const [values, setValues] = useState<Values>({
     clinicId: '', departmentCode: '', clinicianMembershipId: '', day: isDay(day) ? day : '', time: '', lengthMinutes: '', visitType: '', reason: '',
@@ -153,6 +159,16 @@ function BookingForm({ facilityId, day, searches }: { readonly facilityId: strin
   }
 
   const problemList = Object.values(problems).filter(Boolean)
+
+  if (served === false || unavailable) return <AppointmentsNotAvailable title="New appointment" onBack={() => navigate(BASE)} />
+  if (served === null && !settled) {
+    return (
+      <DeptPage eyebrow="Appointments" title="New appointment" onBack={() => navigate(BASE)} backLabel="Back to appointments"
+        className="hid-ehr-dept-appointments">
+        <p className="hid-ehr-state-message" role="status">Loading the clinics and clinicians…</p>
+      </DeptPage>
+    )
+  }
 
   return (
     <DeptPage eyebrow="Appointments" title="New appointment" onBack={() => navigate(BASE)} backLabel="Back to appointments"

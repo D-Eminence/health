@@ -85,6 +85,9 @@ export function visitTypeText(type: string): string {
   return Object.hasOwn(VISIT_TYPE_WORDS, type) ? VISIT_TYPE_WORDS[type as AppointmentVisitType] : 'Other'
 }
 
+/** An appointment with no clinic, as every page says it: booked to its department. */
+export const NO_CLINIC = 'No clinic'
+
 /** A department code in the facility profile's words (contract section 43.6); one it does not know, in plain words. */
 export function departmentText(code: string): string {
   const known = DEPARTMENTS.find(([value]) => value === code)

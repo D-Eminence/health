@@ -6,7 +6,8 @@ import { Badge, Button, Card, CardHeader, ListRow, type Tone } from '../../../ka
 import { appointmentsApi, type AppointmentCard } from '../../../staff/api'
 import { useDeptAccess } from '../parts/access'
 import {
-  BASE, canRead, canWrite, dayText, handPatient, learnFrom, notServed, refusalWords, statusText, timeRangeText, visitTypeText,
+  BASE, appointmentsServed, canRead, canWrite, dayText, handPatient, learnFrom, notServed, refusalWords, statusText, timeRangeText,
+  useAppointmentsServed, visitTypeText,
 } from './appointmentRules'
 
 const TONES: Readonly<Record<string, Tone>> = { booked: 'brand', checked_in: 'success', no_show: 'warn', cancelled: 'neutral' }
@@ -15,7 +16,10 @@ const TONES: Readonly<Record<string, Tone>> = { booked: 'brand', checked_in: 'su
  * "Appointments" on a patient's page (hid-system APPT-1 route 4): this facility's appointments for the patient, upcoming
  * and the last 90 days, each opening its appointment, with "Book an appointment" for those who book. Shown to members who
  * see appointments here, wherever Health ID serves them: a 404 or 503 (not served or switched off) shows nothing, as the
- * chart's other cards do. It reads only this facility's bookings and opens no chart.
+ * chart's other cards do. Once the page has learned appointments are not served (appointmentRules.ts learnFrom), it asks
+ * nothing on the next patient; and until it has learned either, the card stays out of sight while its first read is in
+ * flight, so a facility without appointments never sees a "Loading appointments…" card come and go. It reads only this
+ * facility's bookings and opens no chart.
  */
 export function PatientAppointmentsCard({ patientId, fullName }: { readonly patientId: string; readonly fullName: string }) {
   const { facility, permissions } = useDeptAccess()
@@ -25,9 +29,10 @@ export function PatientAppointmentsCard({ patientId, fullName }: { readonly pati
   const [state, setState] = useState<{ key: string; items: readonly AppointmentCard[] | null; error: string; hidden: boolean }>(
     { key: '', items: null, error: '', hidden: false })
   const key = `${facilityId}|${patientId}`
+  const served = useAppointmentsServed()
 
   useEffect(() => {
-    if (!reads || !facilityId || !patientId) return
+    if (!reads || !facilityId || !patientId || appointmentsServed() === false) return
     let alive = true
     appointmentsApi.forPatient(facilityId, patientId).then(answer => {
       learnFrom()
@@ -40,8 +45,9 @@ export function PatientAppointmentsCard({ patientId, fullName }: { readonly pati
     return () => { alive = false }
   }, [reads, facilityId, patientId, key])
 
-  if (!reads || !facilityId || state.hidden) return null
+  if (!reads || !facilityId || state.hidden || served === false) return null
   const current = state.key === key ? state : null
+  if (!current && served === null) return null
   const items = current?.items ?? null
 
   function book() {

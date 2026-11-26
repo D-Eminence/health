@@ -5,7 +5,9 @@ import { appointmentsApi, type AppointmentClinic, type AppointmentSettings } fro
 import { DEPARTMENTS } from '../../collected/facilityProfile'
 import { DeptNotice } from '../parts/DeptNotice'
 import { DeptSection } from '../parts/DeptPage'
-import { canManageClinics, departmentText, learnFrom, notServed, refusalWords } from './appointmentRules'
+import {
+  appointmentsServed, canManageClinics, departmentText, learnFrom, notServed, refusalWords, useAppointmentsServed,
+} from './appointmentRules'
 import { useIdempotencyKeys } from './useIdempotencyKeys'
 import './appointments.css'
 
@@ -22,7 +24,9 @@ const LENGTH_PROBLEM = `Enter minutes from ${LENGTH_MIN} to ${LENGTH_MAX}, in st
 /**
  * Appointment clinics and the default appointment length (hid-system APPT-1 route 9), on Facility profile, for the
  * hospital administrator (organization.manage). A clinic is never deleted: making it inactive keeps its bookings. Shown
- * wherever Health ID serves appointments: a 404 or 503 (not served, or switched off) shows nothing.
+ * wherever Health ID serves appointments: a 404 or 503 (not served, or switched off) shows nothing. Once the page has
+ * learned they are not served (appointmentRules.ts learnFrom), it asks nothing; and until it has learned either, the
+ * section stays out of sight while its first read is in flight, so "Loading the clinics…" never comes and goes.
  */
 export function AppointmentClinics({ facilityId, permissions }: { readonly facilityId: string; readonly permissions: readonly string[] }) {
   const allowed = canManageClinics(permissions)
@@ -33,6 +37,7 @@ export function AppointmentClinics({ facilityId, permissions }: { readonly facil
   const [loadError, setLoadError] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const served = useAppointmentsServed()
 
   const load = useCallback(async () => {
     try {
@@ -46,9 +51,10 @@ export function AppointmentClinics({ facilityId, permissions }: { readonly facil
       setLoadError(refusalWords(caught, 'The appointment clinics could not be loaded. Try again.', 'settings'))
     }
   }, [facilityId])
-  useEffect(() => { if (allowed) void load() }, [allowed, load])
+  useEffect(() => { if (allowed && appointmentsServed() !== false) void load() }, [allowed, load])
 
-  if (!allowed || hidden) return null
+  if (!allowed || hidden || served === false) return null
+  if (clinics === null && !loadError && served === null) return null
 
   async function save(action: string, send: () => Promise<unknown>, done: string): Promise<boolean> {
     setError(''); setNotice('')
@@ -141,6 +147,14 @@ function ClinicRow({ clinic, onSave }: {
     try { if (await onSave(change, `${trimmed} saved.`)) setEditing(false) } finally { setBusy(false) }
   }
 
+  /** Leaves the form, putting back what the clinic has now: nothing typed in it is kept. */
+  function cancel() {
+    setName(clinic.name)
+    setLength(clinic.defaultLengthMinutes === null ? '' : String(clinic.defaultLengthMinutes))
+    setProblem('')
+    setEditing(false)
+  }
+
   async function toggleActive() {
     setBusy(true)
     try { await onSave({ active: !clinic.active }, clinic.active ? `${clinic.name} is closed to new bookings.` : `${clinic.name} is open for bookings.`) }
@@ -159,10 +173,14 @@ function ClinicRow({ clinic, onSave }: {
           <EhrBadge tone={clinic.active ? 'positive' : 'neutral'}>{clinic.active ? 'Open for bookings' : 'Closed to new bookings'}</EhrBadge>
         </div>
       </div>
+      {/* Each button names its clinic to a screen reader (its name starts with the words on it), and no two start alike:
+          "Cancel" leaves the form, while "Stop new bookings" changes the clinic at once. */}
       <div className="hid-ehr-dept-appointments-actions">
-        <EhrButton size="sm" variant="secondary" aria-expanded={editing} onClick={() => setEditing(value => !value)}>{editing ? 'Close' : 'Change'}</EhrButton>
-        <EhrButton size="sm" variant="secondary" busy={busy && !editing} onClick={() => void toggleActive()}>
-          {clinic.active ? 'Close to new bookings' : 'Open for bookings'}
+        <EhrButton size="sm" variant="secondary" aria-expanded={editing} onClick={editing ? cancel : () => setEditing(true)}
+          aria-label={editing ? `Cancel changes to ${clinic.name}` : `Change ${clinic.name}`}>{editing ? 'Cancel' : 'Change'}</EhrButton>
+        <EhrButton size="sm" variant="secondary" busy={busy && !editing} onClick={() => void toggleActive()}
+          aria-label={clinic.active ? `Stop new bookings at ${clinic.name}` : `Open for bookings: ${clinic.name}`}>
+          {clinic.active ? 'Stop new bookings' : 'Open for bookings'}
         </EhrButton>
       </div>
       {editing ? (

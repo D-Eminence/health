@@ -59,17 +59,35 @@ function AppointmentsDesk({ facilityId }: { readonly facilityId: string }) {
   return <Navigate replace to={BASE} />
 }
 
-/** The clinics and who can be booked, read once for the filters and forms; a failed read leaves the choices out. */
+/**
+ * The clinics and who can be booked, read once for the filters and forms; a failed read leaves the choices out. What
+ * each answer says about whether appointments are served is learned (learnFrom): `unavailable` once either read says
+ * they are not (a 404 before 0160, or 503 while switched off), and `settled` once both reads have answered.
+ */
 export function useBookingChoices(facilityId: string) {
   const [clinics, setClinics] = useState<readonly AppointmentClinic[]>([])
   const [staff, setStaff] = useState<readonly string[]>([])
+  const [answered, setAnswered] = useState(0)
+  const [unavailable, setUnavailable] = useState(false)
   useEffect(() => {
     let alive = true
-    appointmentsApi.clinics(facilityId).then(answer => { if (alive) setClinics(answer.items.filter(clinic => clinic.active)) }, () => {})
-    appointmentsApi.bookableStaff(facilityId).then(answer => { if (alive) setStaff(answer.items.map(item => item.membershipId)) }, () => {})
+    const settle = () => { if (alive) setAnswered(count => count + 1) }
+    const refused = (caught: unknown) => {
+      if (isHidApiError(caught) && caught.code === 'REQUEST_CANCELLED') return
+      learnFrom(caught)
+      if (alive && notServed(caught)) setUnavailable(true)
+    }
+    appointmentsApi.clinics(facilityId).then(answer => {
+      learnFrom()
+      if (alive) setClinics(answer.items.filter(clinic => clinic.active))
+    }, refused).finally(settle)
+    appointmentsApi.bookableStaff(facilityId).then(answer => {
+      learnFrom()
+      if (alive) setStaff(answer.items.map(item => item.membershipId))
+    }, refused).finally(settle)
     return () => { alive = false }
   }, [facilityId])
-  return { clinics, staff }
+  return { clinics, staff, settled: answered >= 2, unavailable }
 }
 
 function DayList({ facilityId, filters, onFilters }: {
@@ -135,15 +153,7 @@ function DayList({ facilityId, filters, onFilters }: {
     set({ statuses })
   }
 
-  if (error?.unavailable) {
-    return (
-      <DeptPage eyebrow={EYEBROW} title={TITLE} description={DESCRIPTION} className="hid-ehr-dept-appointments">
-        <DeptNotice tone="info" role="status" title={NOT_AVAILABLE}>
-          Health ID will turn appointments on for your facility once they are ready. Until then, keep using your appointment book.
-        </DeptNotice>
-      </DeptPage>
-    )
-  }
+  if (error?.unavailable) return <AppointmentsNotAvailable />
 
   return (
     <DeptPage eyebrow={EYEBROW} title={TITLE} description={DESCRIPTION} className="hid-ehr-dept-appointments"
@@ -172,7 +182,9 @@ function DayList({ facilityId, filters, onFilters }: {
         </div>
         <div className="hid-ehr-dept-appointments-day-steps">
           <EhrButton size="sm" variant="quiet" onClick={() => set({ day: addDays(isDay(filters.day) ? filters.day : today, -1) })}>Previous day</EhrButton>
-          <EhrButton size="sm" variant="quiet" disabled={filters.day === today} onClick={() => set({ day: today })}>Today</EhrButton>
+          {/* Marked unavailable on today, never disabled: a pressed button disabled under the focus drops it to the page. */}
+          <EhrButton size="sm" variant="quiet" className="hid-ehr-dept-appointments-step-unavailable" aria-disabled={filters.day === today || undefined}
+            onClick={() => { if (filters.day !== today) set({ day: today }) }}>Today</EhrButton>
           <EhrButton size="sm" variant="quiet" onClick={() => set({ day: addDays(isDay(filters.day) ? filters.day : today, 1) })}>Next day</EhrButton>
         </div>
         <fieldset className="hid-ehr-dept-appointments-statuses">
@@ -208,6 +220,21 @@ function DayList({ facilityId, filters, onFilters }: {
   )
 }
 
+/**
+ * Where Health ID does not serve appointments yet (a 404 before 0160, or 503 while switched off): the day list says so,
+ * and so does New appointment (`title`, with its way back) instead of its form.
+ */
+export function AppointmentsNotAvailable({ title, onBack }: { readonly title?: string; readonly onBack?: () => void } = {}) {
+  return (
+    <DeptPage eyebrow={title ? 'Appointments' : EYEBROW} title={title ?? TITLE} description={title ? undefined : DESCRIPTION}
+      className="hid-ehr-dept-appointments" {...(onBack ? { onBack, backLabel: 'Back to appointments' } : {})}>
+      <DeptNotice tone="info" role="status" title={NOT_AVAILABLE}>
+        Health ID will turn appointments on for your facility once they are ready. Until then, keep using your appointment book.
+      </DeptNotice>
+    </DeptPage>
+  )
+}
+
 /** One appointment on the day list: its time, who, where and with whom, and its status; the name opens it. */
 function DayCard({ card, names, membershipId }: {
   readonly card: AppointmentCard
@@ -228,7 +255,10 @@ function DayCard({ card, names, membershipId }: {
           {card.chartBlocked ? <EhrBadge tone="critical">Chart cannot be opened</EhrBadge> : null}
         </div>
         <dl className="hid-ehr-dept-appointments-facts">
-          <div><dt>Clinic</dt><dd>{card.clinicName ?? departmentText(card.departmentCode)}</dd></div>
+          {/* With no clinic, its department under that name: never a department called a clinic (as the appointment says). */}
+          {card.clinicName !== null
+            ? <div><dt>Clinic</dt><dd>{card.clinicName}</dd></div>
+            : <div><dt>Department</dt><dd>{departmentText(card.departmentCode)}</dd></div>}
           <div><dt>With</dt><dd>{clinicianText(card.clinicianMembershipId, names, membershipId, { inClinic: card.clinicName !== null })}</dd></div>
           <div><dt>Visit</dt><dd>{visitTypeText(card.visitType)}</dd></div>
         </dl>

@@ -12,7 +12,7 @@ import { DeptFacts } from '../parts/DeptRecord'
 import { birthDateText } from '../parts/format'
 import {
   BASE, BOOKED_DONE, CANCELLED_DONE, CANCEL_HINT, CHANGE_REASON_MAX, CHECK_IN_CONFIRM, CHECK_IN_CONFIRM_LABEL, LENGTHS,
-  MOVED_DONE, NOT_AVAILABLE, RELOAD_AFTER, RESCHEDULE_REASON_HINT, canCheckIn, canSearch, canWrite, changeReasonProblem,
+  MOVED_DONE, NOT_AVAILABLE, NO_CLINIC, RELOAD_AFTER, RESCHEDULE_REASON_HINT, canCheckIn, canSearch, canWrite, changeReasonProblem,
   checkInOffered, clinicianText, dayText, departmentText, hasStarted, historyText, isDay, lagosParts, lagosStartsAt,
   lagosToday, learnFrom, refusalWords, statusText, statusTone, timeProblem, timeRangeText, visitTypeText, whenText,
 } from './appointmentRules'
@@ -145,7 +145,7 @@ export function AppointmentDetail({ facilityId, appointmentId }: { readonly faci
         <DeptFacts facts={[
           { label: 'When', value: `${dayText(card.appointmentDay)}, ${timeRangeText(card)}` },
           { label: 'Length', value: `${card.lengthMinutes} minutes` },
-          { label: 'Clinic', value: card.clinicName ?? 'No clinic' },
+          { label: 'Clinic', value: card.clinicName ?? NO_CLINIC },
           { label: 'Department', value: departmentText(card.departmentCode) },
           { label: 'With', value: clinicianText(card.clinicianMembershipId, names, membershipId, { inClinic }) },
           { label: 'Visit type', value: visitTypeText(card.visitType) },

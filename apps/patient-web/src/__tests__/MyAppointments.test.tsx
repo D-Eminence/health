@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { act, screen, waitFor, within } from '@testing-library/react'
-import { MyAppointments, appointmentWhen } from '../routes/MyAppointments'
+import { MyAppointments, appointmentStatus, appointmentWhen } from '../routes/MyAppointments'
 import { notificationAction, notificationTitle } from '../routes/notificationTitles'
 import { forgetMyAppointmentsServed, myAppointmentsServed } from '../appointmentsServed'
 import type { PatientNotification } from '../api'
@@ -57,20 +57,24 @@ describe('My appointments', () => {
   })
 
   it('says appointments are not available yet while they are switched off, and the menu stops listing them', async () => {
-    renderPortal(<MyAppointments />, () => problem(503, 'APPOINTMENTS_NOT_AVAILABLE', 'Appointments are not available yet.'))
+    const { sent } = renderPortal(<MyAppointments />, () => problem(503, 'APPOINTMENTS_NOT_AVAILABLE', 'Appointments are not available yet.'))
     expect(await screen.findByText('Appointments are not available yet')).toBeDefined()
     await waitFor(() => expect(myAppointmentsServed()).toBe(false))
     expect(screen.queryByRole('button', { name: 'Past' })).toBeNull()
+    // Asked once: a 503 is not tried again.
+    expect(sent.filter(request => request.path === MINE)).toHaveLength(1)
   })
 
   it('offers Try again when the read fails', async () => {
     let reads = 0
     renderPortal(<MyAppointments />, () => {
       reads += 1
-      return reads <= 3 ? problem(500, 'INTERNAL_ERROR', 'Something went wrong.') : json({ items: [item()], nextCursor: null })
+      return reads <= 1 ? problem(500, 'INTERNAL_ERROR', 'Something went wrong.') : json({ items: [item()], nextCursor: null })
     })
     await press(await screen.findByRole('button', { name: /Try again/ }))
     expect(await screen.findByRole('list', { name: 'Upcoming appointments' })).toBeDefined()
+    // Sent once, then once more on Try again: the read is never tried again by itself.
+    expect(reads).toBe(2)
   })
 
   it('keeps the tab chosen last when a slow Show more for the other tab answers after it', async () => {
@@ -100,6 +104,21 @@ describe('My appointments', () => {
     expect(within(screen.getByRole('list', { name: 'Past appointments' })).getByText('You checked in')).toBeDefined()
     expect(screen.queryByText(/Late Upcoming Clinic/)).toBeNull()
     expect(sent.filter(request => request.path === MINE)).toHaveLength(3)
+  })
+
+  it('never calls a status it does not know "Booked"', () => {
+    expect(appointmentStatus('booked')).toEqual({ label: 'Booked', tone: 'brand' })
+    expect(appointmentStatus('no_show')).toEqual({ label: 'Missed', tone: 'warn' })
+    for (const status of ['completed', 'ended_elsewhere', '', 'toString', 'constructor']) {
+      expect(appointmentStatus(status)).toEqual({ label: 'Status not known', tone: 'neutral' })
+    }
+  })
+
+  it('shows a status it does not know as not known, never as booked', async () => {
+    renderPortal(<MyAppointments />, () => json({ items: [item({ status: 'completed' })], nextCursor: null }))
+    const list = await screen.findByRole('list', { name: 'Upcoming appointments' })
+    expect(within(list).getByText('Status not known')).toBeDefined()
+    expect(within(list).queryByText('Booked')).toBeNull()
   })
 
   it('says each time in Lagos', () => {

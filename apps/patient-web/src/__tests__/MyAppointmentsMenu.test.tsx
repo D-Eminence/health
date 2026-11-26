@@ -45,11 +45,15 @@ describe('"Appointments" in the portal menu', () => {
     expect(asked(sent)).toBeGreaterThan(0)
   })
 
-  it('is not listed while appointments are switched off (503)', async () => {
-    portal(() => problem(503, 'APPOINTMENTS_NOT_AVAILABLE', 'Appointments are not available yet.'))
+  it('is not listed while appointments are switched off (503), asking once only', async () => {
+    const { sent } = portal(() => problem(503, 'APPOINTMENTS_NOT_AVAILABLE', 'Appointments are not available yet.'))
     expect(await screen.findByText('Home page')).toBeDefined()
     await waitFor(() => expect(myAppointmentsServed()).toBe(false))
     expect(appointmentsLink()).toBeNull()
+    // One GET per portal load: a 503 is not tried again (the client's read retry would send three, each logged as an
+    // error in ehr-api).
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 700)) })
+    expect(asked(sent)).toBe(1)
   })
 
   it('is not listed before an answer comes, and is once one says appointments are served', async () => {

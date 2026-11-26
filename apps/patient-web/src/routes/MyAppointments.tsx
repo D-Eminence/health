@@ -34,8 +34,9 @@ const STATUS: Readonly<Record<string, { label: string; tone: Tone }>> = {
   no_show: { label: 'Missed', tone: 'warn' },
 }
 
+/** A status the page does not know yet is never called "Booked": the patient could turn up for an appointment that ended. */
 export function appointmentStatus(status: string): { label: string; tone: Tone } {
-  return STATUS[status] ?? { label: 'Booked', tone: 'neutral' }
+  return Object.hasOwn(STATUS, status) ? STATUS[status]! : { label: 'Status not known', tone: 'neutral' }
 }
 
 const VISIT: Readonly<Record<string, string>> = {
