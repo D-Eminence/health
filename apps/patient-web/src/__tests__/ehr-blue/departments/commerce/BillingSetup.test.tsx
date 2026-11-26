@@ -116,10 +116,10 @@ describe('the price list', () => {
     expect((within(drawer).getByRole('textbox', { name: 'Code' }) as HTMLInputElement).value).toBe('MED-00113')
   })
 
-  it('prices one of this facility’s own items (HID-FACILITY) as the kind chosen, by its id in lower case', async () => {
+  it('prices one of this facility’s own items (HID-FACILITY) by name, as the kind chosen, with its id in lower case and never shown', async () => {
     const facilityItem = '3F2A9C1E-5B7D-4E8F-9A0B-1C2D3E4F5A6B'
     commerceApi.catalogueItems = async () => ok({ items: [], nextPage: null })
-    commerceApi.unpricedCodes = async () => ok({ items: [{ codeSystem: 'HID-FACILITY', code: facilityItem.toLowerCase(), display: 'Malaria rapid test (own)', count: 3 }] })
+    commerceApi.unpricedCodes = async () => ok({ items: [{ codeSystem: 'HID-FACILITY', code: facilityItem, display: 'Malaria rapid test (own)', count: 3 }] })
     const create = vi.fn()
       .mockResolvedValueOnce(refused('NATIONAL_CODE_NOT_FOUND', 'This code is not on the national list.'))
       .mockResolvedValueOnce(ok({ id: 'item-mrdt', kind: 'lab_test', name: 'Malaria rapid test (own)', prescriptionOnly: false, nationalCodeSystem: 'HID-FACILITY',
@@ -127,30 +127,71 @@ describe('the price list', () => {
     commerceApi.createCatalogueItem = create
     renderDept(<PriceList />)
     fireEvent.click(await screen.findByRole('button', { name: 'Show' }))
-    // A facility item may be a medicine or a test: listed, in words rather than by its id.
+    // A facility item may be a medicine or a test: listed on the full price list, in words rather than by its id.
     expect(await screen.findByText('This facility’s item · 3 times')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Add a price' }))
     const drawer = await screen.findByRole('dialog', { name: 'Add item' })
-    expect((within(drawer).getByRole('combobox', { name: 'National list' }) as HTMLSelectElement).value).toBe('HID-FACILITY')
-    fireEvent.change(within(drawer).getByRole('textbox', { name: 'Code' }), { target: { value: facilityItem } })
+    // Linked by name: no box to type an id in, and the id is never on screen.
+    expect((within(drawer).getByRole('combobox', { name: 'Linked to' }) as HTMLSelectElement).value).toBe('HID-FACILITY')
+    expect(within(drawer).queryByRole('textbox', { name: 'Code' })).toBeNull()
+    expect(drawer.textContent).toContain('This facility’s own medicine: Malaria rapid test (own)')
+    expect(drawer.textContent?.toLowerCase()).not.toContain(facilityItem.toLowerCase())
+    // It is a drug or a test, never a service.
+    expect(within(drawer).getAllByRole('radio').map(radio => radio.textContent)).toEqual(['Drug', 'Lab test'])
     fireEvent.change(within(drawer).getByLabelText('Cash price'), { target: { value: '1,500' } })
     fireEvent.click(within(drawer).getByRole('button', { name: 'Add item' }))
     await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
     expect(create.mock.calls[0]![1]).toMatchObject({ kind: 'drug', nationalCodeSystem: 'HID-FACILITY', nationalCode: facilityItem.toLowerCase() })
-    // Refused as a drug: the words say to check the kind, never "the national list".
+    // Refused as a drug: the words say to check the kind, which can be changed here, never "the national list".
     expect(await within(drawer).findByText('This is not one of this facility’s medicines in use. Check whether it is a drug or a lab test.')).toBeTruthy()
     fireEvent.click(within(drawer).getByRole('radio', { name: 'Lab test' }))
-    expect((within(drawer).getByRole('combobox', { name: 'National list' }) as HTMLSelectElement).value).toBe('HID-FACILITY')
+    expect((within(drawer).getByRole('combobox', { name: 'Linked to' }) as HTMLSelectElement).value).toBe('HID-FACILITY')
+    expect(drawer.textContent).toContain('This facility’s own lab test: Malaria rapid test (own)')
     fireEvent.click(within(drawer).getByRole('button', { name: 'Add item' }))
     await waitFor(() => expect(create).toHaveBeenCalledTimes(2))
     expect(create.mock.calls[1]![1]).toMatchObject({ kind: 'lab_test', nationalCodeSystem: 'HID-FACILITY', nationalCode: facilityItem.toLowerCase() })
   })
 
-  it('checks a facility item’s id before sending it, and keeps an item’s facility code when only its price changes', async () => {
+  it('lists a facility item as not priced only where it can be priced as a drug or a test: not on Tests & prices, nor Products & prices', async () => {
+    commerceApi.catalogueItems = async () => ok({ items: [], nextPage: null })
+    commerceApi.unpricedCodes = async () => ok({ items: [
+      { codeSystem: 'HID-FACILITY', code: '3f2a9c1e-5b7d-4e8f-9a0b-1c2d3e4f5a6b', display: 'House cough syrup', count: 2 },
+      { codeSystem: 'LOINC', code: '718-7', display: 'Haemoglobin', count: 5 },
+      { codeSystem: 'HID-MED', code: 'MED-00113', display: 'Paracetamol 500 mg tablet', count: 14 },
+    ] })
+    const { unmount } = renderDept(<PriceList kinds={['lab_test']} title="Tests & prices" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Show' }))
+    expect(await screen.findByText('Haemoglobin')).toBeTruthy()
+    expect(screen.queryByText('House cough syrup')).toBeNull()
+    expect(screen.queryByText('Paracetamol 500 mg tablet')).toBeNull()
+    unmount()
+    renderDept(<PriceList kinds={['drug', 'other']} title="Products & prices" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Show' }))
+    expect(await screen.findByText('Paracetamol 500 mg tablet')).toBeTruthy()
+    expect(screen.queryByText('House cough syrup')).toBeNull()
+    expect(screen.queryByText('Haemoglobin')).toBeNull()
+  })
+
+  it('never asks for a facility item’s id on a new item: only the national lists are offered', async () => {
+    commerceApi.catalogueItems = async () => ok({ items: [], nextPage: null })
+    renderDept(<PriceList />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Add item' }))
+    const drawer = await screen.findByRole('dialog', { name: 'Add item' })
+    const list = within(drawer).getByRole('combobox', { name: 'National list' })
+    expect(within(list).getAllByRole('option').map(option => option.textContent)).toEqual(['None', 'HID-MED'])
+    fireEvent.click(within(drawer).getByRole('radio', { name: 'Lab test' }))
+    expect(within(within(drawer).getByRole('combobox', { name: 'National list' })).getAllByRole('option').map(option => option.textContent))
+      .toEqual(['None', 'LOINC', 'HID-LAB'])
+    expect(drawer.textContent).not.toContain('This facility’s item')
+  })
+
+  it('keeps an item’s facility link, shown by name only, when only its price changes; a link no longer in use says how to save without it', async () => {
     const linked: CatalogueItem = { id: 'item-own', kind: 'drug', name: 'House cough syrup', prescriptionOnly: false, nationalCodeSystem: 'HID-FACILITY',
       nationalCode: '3f2a9c1e-5b7d-4e8f-9a0b-1c2d3e4f5a6b', prices: { cashKobo: 80000, hmo: [] }, active: true, version: 3 }
     commerceApi.catalogueItems = async () => ok({ items: [linked], nextPage: null })
-    const update = vi.fn(async (..._args: unknown[]) => ok({ ...linked, prices: { cashKobo: 90000, hmo: [] }, version: 4 }))
+    const update = vi.fn()
+      .mockResolvedValueOnce(refused('NATIONAL_CODE_NOT_FOUND', 'This code is not on the national list.'))
+      .mockResolvedValueOnce(ok({ ...linked, prices: { cashKobo: 90000, hmo: [] }, version: 4 }))
     commerceApi.updateCatalogueItem = update
     renderDept(<PriceList />)
     expect(await screen.findByText(/House cough syrup/)).toBeTruthy()
@@ -158,16 +199,65 @@ describe('the price list', () => {
     expect(document.body.textContent).not.toMatch(/3f2a9c1e/)
     fireEvent.click(screen.getByRole('button', { name: 'Edit House cough syrup' }))
     const drawer = await screen.findByRole('dialog', { name: 'Edit House cough syrup' })
-    const code = within(drawer).getByRole('textbox', { name: 'Code' })
-    fireEvent.change(code, { target: { value: 'MED-00042' } })
-    fireEvent.click(within(drawer).getByRole('button', { name: 'Save' }))
-    expect(await within(drawer).findByText('Type the item’s id as the facility’s list gives it (36 characters).')).toBeTruthy()
-    expect(update).not.toHaveBeenCalled()
-    fireEvent.change(code, { target: { value: '3f2a9c1e-5b7d-4e8f-9a0b-1c2d3e4f5a6b' } })
+    expect(within(drawer).queryByRole('textbox', { name: 'Code' })).toBeNull()
+    expect((within(drawer).getByRole('combobox', { name: 'Linked to' }) as HTMLSelectElement).value).toBe('HID-FACILITY')
+    expect(drawer.textContent).toContain('This facility’s own medicine')
+    expect(drawer.textContent).not.toMatch(/3f2a9c1e/)
     fireEvent.change(within(drawer).getByLabelText('Cash price'), { target: { value: '900' } })
     fireEvent.click(within(drawer).getByRole('button', { name: 'Save' }))
-    await waitFor(() => expect(update).toHaveBeenCalled())
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(1))
     expect(update.mock.calls[0]![2]).toEqual({ expectedVersion: 3, prices: { cashKobo: 90000, hmo: [] } })
+    // The kind of an item is fixed: the words never ask to check it, and say what can be done.
+    expect(await within(drawer).findByText('This is no longer one of this facility’s medicines in use. Set “Linked to” to None to save it without the link.')).toBeTruthy()
+    expect(drawer.textContent).not.toContain('Check whether it is a drug or a lab test')
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(2))
+  })
+
+  it('reads an item changed by someone else meanwhile again, shows what they saved, and sends the next save with their version and a new key', async () => {
+    // A pharmacist started counting Amoxicillin's stock meanwhile: its version moved from 4 to 5, and its price too.
+    const theirs: CatalogueItem = { ...amoxicillin, prices: { ...amoxicillin.prices, cashKobo: 160000 }, version: 5 }
+    const reads: unknown[] = []
+    let round = 0
+    commerceApi.catalogueItems = async (...args: never[]) => { reads.push(args[1]); return ok({ items: [round === 0 ? amoxicillin : theirs], nextPage: null }) }
+    const update = vi.fn()
+      .mockImplementationOnce(async () => { round = 1; return refused('VERSION_CONFLICT', 'Someone else changed this. Reload it and try again.', 412) })
+      .mockResolvedValueOnce(ok({ ...theirs, prices: { ...theirs.prices, cashKobo: 175000 }, version: 6 }))
+    commerceApi.updateCatalogueItem = update
+    renderDept(<PriceList />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit Amoxicillin' }))
+    let drawer = await screen.findByRole('dialog', { name: 'Edit Amoxicillin' })
+    fireEvent.change(within(drawer).getByLabelText('Cash price'), { target: { value: '1750' } })
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Save' }))
+    // Read again by its name, in its kind (no route reads one item), and opened afresh with what they saved.
+    expect(await screen.findByText(/Someone else changed this item meanwhile, so your change wasn’t saved\. It now shows what they saved/)).toBeTruthy()
+    expect(reads).toContainEqual(expect.objectContaining({ kind: 'drug', q: 'Amoxicillin' }))
+    drawer = screen.getByRole('dialog', { name: 'Edit Amoxicillin' })
+    expect((within(drawer).getByLabelText('Cash price') as HTMLInputElement).value).toBe('1600.00')
+    fireEvent.change(within(drawer).getByLabelText('Cash price'), { target: { value: '1750' } })
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(2))
+    expect(update.mock.calls.map(call => (call[2] as { expectedVersion: number }).expectedVersion)).toEqual([4, 5])
+    expect(update.mock.calls[1]![3]).not.toBe(update.mock.calls[0]![3])
+  })
+
+  it('closes an item changed meanwhile that can’t be found again, says so, and reads the list again', async () => {
+    let round = 0
+    const reads: unknown[] = []
+    commerceApi.catalogueItems = async (...args: never[]) => {
+      reads.push(args[1])
+      // Renamed by someone else: a search by its old name no longer finds it.
+      return ok({ items: round === 0 ? [amoxicillin] : ((args[1] ?? {}) as { q?: string }).q ? [] : [{ ...amoxicillin, name: 'Amoxil', version: 5 }], nextPage: null })
+    }
+    commerceApi.updateCatalogueItem = vi.fn(async () => { round = 1; return refused('VERSION_CONFLICT', 'Someone else changed this. Reload it and try again.', 412) })
+    renderDept(<PriceList />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit Amoxicillin' }))
+    const drawer = await screen.findByRole('dialog', { name: 'Edit Amoxicillin' })
+    fireEvent.change(within(drawer).getByLabelText('Cash price'), { target: { value: '1750' } })
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Save' }))
+    expect(await screen.findByText('Someone else changed Amoxicillin meanwhile, so your change wasn’t saved. The price list has been read again: open it and make your change again.')).toBeTruthy()
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(await screen.findByRole('button', { name: 'Edit Amoxil' })).toBeTruthy()
   })
 
   it('refuses a Health ID typed without its "HID-" in the search, in the price list’s own words, and sends nothing', async () => {
@@ -222,12 +312,25 @@ describe('Payment setup', () => {
     expect(body.checkInChargeItemId).toBe(ITEM_ID)
   })
 
-  it('says a stale setup was changed by someone else', async () => {
+  it('reads a stale setup again, shows what someone else saved, and sends the next save with their version and a new key', async () => {
     commerceApi.catalogueItems = async () => ok({ items: [], nextPage: null })
-    commerceApi.savePaymentSettings = async () => refused('VERSION_CONFLICT', 'Someone else changed this. Reload it and try again.', 412)
+    // Someone else turned on Each cashier and saved meanwhile (version 3 → 4).
+    let reads = 0
+    commerceApi.paymentSettings = async () => { reads += 1; return ok(reads === 1 ? settingsOf() : settingsOf({ dayCloseBy: 'cashier', version: 4 })) }
+    const save = vi.fn()
+      .mockResolvedValueOnce(refused('VERSION_CONFLICT', 'Someone else changed this. Reload it and try again.', 412))
+      .mockResolvedValueOnce(ok(settingsOf({ dayCloseBy: 'cashier', version: 5 })))
+    commerceApi.savePaymentSettings = save
     renderDept(<PaymentSetup />)
     fireEvent.click(await screen.findByRole('button', { name: 'Save setup' }))
-    expect(await screen.findByText('Someone else changed this. Reload it and try again.')).toBeTruthy()
+    expect(await screen.findByText(/Someone else saved the payment setup meanwhile\. It has been read again and now shows what they saved/)).toBeTruthy()
+    await waitFor(() => expect(screen.getByRole('radio', { name: /Each cashier/ }).getAttribute('aria-checked')).toBe('true'))
+    expect(reads).toBe(2)
+    fireEvent.click(screen.getByRole('button', { name: 'Save setup' }))
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2))
+    expect(save.mock.calls[0]![1]).toMatchObject({ expectedVersion: 3 })
+    expect(save.mock.calls[1]![1]).toMatchObject({ expectedVersion: 4, dayCloseBy: 'cashier' })
+    expect(save.mock.calls[1]![2]).not.toBe(save.mock.calls[0]![2])
   })
 
   it('says billing is not switched on when the setup answers 404', async () => {
@@ -278,25 +381,60 @@ describe('End of day', () => {
     expect(await screen.findByText('Billing is not switched on at this facility yet.')).toBeTruthy()
   })
 
-  it('refuses more than ₦1,000,000.00 of cash, to open or to close a day, before sending it', async () => {
+  it('refuses more than ₦1,000,000,000.00 of cash, to open or to close a day, before sending it (BILL-1 0165)', async () => {
     commerceApi.currentShift = async () => ok(null)
     const openShift = vi.fn()
     commerceApi.openShift = openShift
     const { unmount } = renderDept(<EndOfDay />)
-    fireEvent.change(await screen.findByLabelText('Cash in the drawer now'), { target: { value: '1,250,000' } })
+    fireEvent.change(await screen.findByLabelText('Cash in the drawer now'), { target: { value: '1,000,000,000.01' } })
     fireEvent.click(screen.getByRole('button', { name: 'Open day' }))
-    expect(await screen.findByText('Type an amount up to ₦1,000,000.00.')).toBeTruthy()
+    expect(await screen.findByText('Type an amount up to ₦1,000,000,000.00.')).toBeTruthy()
     expect(openShift).not.toHaveBeenCalled()
     unmount()
     commerceApi.currentShift = async () => ok(openDay)
     const closeShift = vi.fn()
     commerceApi.closeShift = closeShift
     renderDept(<EndOfDay />)
-    fireEvent.change(await screen.findByLabelText('Cash counted'), { target: { value: '1250000' } })
+    fireEvent.change(await screen.findByLabelText('Cash counted'), { target: { value: '1000000001' } })
     fireEvent.click(screen.getByRole('button', { name: 'Close day' }))
-    expect(await screen.findByText('Type an amount up to ₦1,000,000.00.')).toBeTruthy()
+    expect(await screen.findByText('Type an amount up to ₦1,000,000,000.00.')).toBeTruthy()
     expect(screen.queryByRole('dialog', { name: 'Close the day?' })).toBeNull()
     expect(closeShift).not.toHaveBeenCalled()
+  })
+
+  it('says a day left open overnight shows the day’s figures since it opened, never "today"', async () => {
+    commerceApi.currentShift = async () => ok({ ...openDay, overdue: true })
+    renderDept(<EndOfDay />)
+    expect(await screen.findByText('Left open overnight')).toBeTruthy()
+    expect(screen.getByRole('group', { name: 'Taken in this day by way of paying' })).toBeTruthy()
+    expect(screen.getByText('Recorded in this day')).toBeTruthy()
+    expect(screen.getByText('2 recorded in this day, owed by the HMO')).toBeTruthy()
+    expect(screen.queryByText('Recorded today')).toBeNull()
+    expect(screen.queryByText(/recorded today, owed/)).toBeNull()
+  })
+
+  it('opens with, and closes a busy day on, a true count above ₦1,000,000.00', async () => {
+    commerceApi.currentShift = async () => ok(null)
+    const openShift = vi.fn(async (..._args: unknown[]) => ok({ ...openDay, openingCashKobo: 125_000_000 }))
+    commerceApi.openShift = openShift
+    const { unmount } = renderDept(<EndOfDay />)
+    fireEvent.change(await screen.findByLabelText('Cash in the drawer now'), { target: { value: '1,250,000' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Open day' }))
+    await waitFor(() => expect(openShift).toHaveBeenCalled())
+    expect(openShift.mock.calls[0]![1]).toBe(125_000_000)
+    unmount()
+    // ₦1,500,000 expected in the drawer after a busy day: the true count is sent, and the day closes.
+    const busy: Shift = { ...openDay, totals: [{ method: 'cash', count: 240, amountKobo: 149_000_000 }], expectedCashKobo: 150_000_000 }
+    commerceApi.currentShift = async () => ok(busy)
+    const closeShift = vi.fn(async (..._args: unknown[]) => ok({ ...busy, closedAt: '2026-11-26T18:00:00Z', countedCashKobo: 150_000_000, differenceKobo: 0, version: 3 }))
+    commerceApi.closeShift = closeShift
+    renderDept(<EndOfDay />)
+    fireEvent.change(await screen.findByLabelText('Cash counted'), { target: { value: '1,500,000' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Close day' }))
+    expect(screen.queryByText(/Type an amount up to/)).toBeNull()
+    fireEvent.click(within(await screen.findByRole('dialog', { name: 'Close the day?' })).getByRole('button', { name: 'Close day' }))
+    await waitFor(() => expect(closeShift).toHaveBeenCalled())
+    expect(closeShift.mock.calls[0]![2]).toBe(150_000_000)
   })
 
   const TILLS = { dayCloseBy: 'till' as const, tills: [{ id: TILL_ID, name: 'Front till', active: true }, { id: 'b3333333-3333-4333-8333-333333333333', name: 'Back till', active: true }] }

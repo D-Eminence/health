@@ -239,14 +239,18 @@ export function Stepper({ id, label, value, max, onChange }: {
 
 /**
  * One Idempotency-Key per order as typed: sending the same order again (after a lost answer, a refusal) reuses it, so
- * nothing is made twice; a changed order gets a new one. In memory only.
+ * nothing is made twice; a changed order gets a new one. `next()` starts the next order: a new sale or delivery has its
+ * own key even when it is typed exactly like the one before (two customers each buying one pack of the same drug), so
+ * the server makes it rather than answering with the first. In memory only.
  */
 export function useAttemptKey() {
   const attempt = useRef<{ signature: string; key: string } | null>(null)
-  return (signature: string) => {
+  const keyFor = (signature: string) => {
     if (attempt.current?.signature !== signature) attempt.current = { signature, key: crypto.randomUUID() }
     return attempt.current.key
   }
+  keyFor.next = () => { attempt.current = null }
+  return keyFor
 }
 
 /** A finished step, folded to one line with a way back into it. */

@@ -48,6 +48,7 @@ const entriesOf = (list: readonly { id: string; name: string; active?: boolean }
 export function PaymentSetup() {
   const { facilityId } = useDeptAccess()
   const settings = useCommerceRead<PaymentSettings>(facilityId ? `settings:${facilityId}` : null, signal => commerce.paymentSettings(facilityId!, signal))
+  const [changedMeanwhile, setChangedMeanwhile] = useState(false)
   // Payment setup that answers 404: billing is not switched on here.
   if (settings.status === 'off') return <div className="flex flex-col gap-5"><PageHeader title="Payment setup" /><NotSwitchedOn message={BILLING_OFF} /></div>
   if (settings.status === 'loading' && settings.data === null) return <div className="flex flex-col gap-5"><PageHeader title="Payment setup" /><LoadingRows rows={4} label="Loading payment setup" /></div>
@@ -56,10 +57,20 @@ export function PaymentSetup() {
     <Alert intent="error" title="Couldn’t load payment setup" action={<Button size="sm" onClick={settings.reload}>Try again</Button>}>{settings.error}</Alert>
   </div>
   const initial = settings.data ?? DEFAULTS
-  return <SetupForm key={initial.version} initial={initial} onSaved={settings.replace} />
+  // Refused because someone else saved the setup meanwhile: it is read again, and the form (keyed on the version read)
+  // starts again from what they saved, saying so.
+  return <SetupForm key={initial.version} initial={initial} changedMeanwhile={changedMeanwhile}
+    onSaved={saved => { setChangedMeanwhile(false); settings.replace(saved) }}
+    onStale={() => { setChangedMeanwhile(true); settings.reload() }} />
 }
 
-function SetupForm({ initial, onSaved }: { readonly initial: PaymentSettings; readonly onSaved: (settings: PaymentSettings) => void }) {
+/** Payment setup refused because it changed since it was read: read again at once, so the words say so. */
+const SETUP_CHANGED = 'Someone else saved the payment setup meanwhile. It has been read again and now shows what they saved: make your changes again, then save.'
+
+function SetupForm({ initial, changedMeanwhile, onSaved, onStale }: {
+  readonly initial: PaymentSettings; readonly changedMeanwhile: boolean
+  readonly onSaved: (settings: PaymentSettings) => void; readonly onStale: () => void
+}) {
   const { facilityId } = useDeptAccess()
   const ids = useId()
   const toast = useToast()
@@ -84,7 +95,7 @@ function SetupForm({ initial, onSaved }: { readonly initial: PaymentSettings; re
   const [tried, setTried] = useState(false)
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
-  const [key] = useState(() => crypto.randomUUID())
+  const [key, setKey] = useState(() => crypto.randomUUID())
 
   const has = (method: PaymentMethod) => methods.includes(method)
   const services = useCommerceRead<ListPage<CatalogueItem>>(facilityId ? `services:${facilityId}` : null,
@@ -139,6 +150,11 @@ function SetupForm({ initial, onSaved }: { readonly initial: PaymentSettings; re
     setBusy(false)
     if (result.ok) { toast.success({ title: 'Payment setup saved' }); onSaved(result.data); return }
     if (result.notAvailable) { setProblem(NOT_SWITCHED_ON); return }
+    if (result.code === 'VERSION_CONFLICT' || result.code === 'PRECONDITION_FAILED') {
+      // Nothing was saved: read again, and the next press is a new request with the version read.
+      setKey(crypto.randomUUID()); setProblem(SETUP_CHANGED); onStale()
+      return
+    }
     setProblem(result.error)
   }
 
@@ -267,7 +283,8 @@ function SetupForm({ initial, onSaved }: { readonly initial: PaymentSettings; re
         </Step>
 
         {tried && blocked ? <Alert intent="error" title="Not saved yet">Check the steps marked above.</Alert> : null}
-        {problem ? <Alert intent="error" title="Not saved">{problem}</Alert> : null}
+        {problem ? <Alert intent="error" title="Not saved">{problem}</Alert>
+          : changedMeanwhile ? <Alert intent="warning" title="Not saved">{SETUP_CHANGED}</Alert> : null}
         <FormActions><Button type="submit" variant="primary" loading={busy}>Save setup</Button></FormActions>
       </form>
     </FormPage>

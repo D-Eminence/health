@@ -30,8 +30,11 @@ function takenOf(shift: Shift): number {
 }
 /** Today, the Lagos day. */
 const today = () => lagosDay()
-/** The most cash a day is opened or closed with (BILL-1 0165: 100,000,000 kobo). */
-const CASH_MAX_KOBO = 100_000_000
+/**
+ * The most cash a day is opened or closed with (BILL-1 0165 and EHR_PLANNED_CONTRACT §6: 100,000,000,000 kobo,
+ * ₦1,000,000,000), so a busy day's true count always closes it.
+ */
+const CASH_MAX_KOBO = 100_000_000_000
 const CASH_TOO_MUCH = `Type an amount up to ${naira(CASH_MAX_KOBO)}.`
 
 /** Whose day a panel shows: the facility's, the signed-in cashier's, or one till's. */
@@ -265,6 +268,8 @@ function OpenDay({ of, shift, onClosed }: { readonly of: DayOf; readonly shift: 
   const waivers = shift.waivers ?? shift.totals.find(total => total.method === 'waiver') ?? { count: 0, amountKobo: 0 }
   const covered = shift.hmoCovered ?? { count: 0, amountKobo: 0 }
   const taken = takenOf(shift)
+  // A day left open overnight holds more than today's: its figures are the day's, since it opened.
+  const span = shift.overdue ? 'in this day' : 'today'
 
   async function close() {
     if (!facilityId || counted === null || error) return
@@ -279,14 +284,14 @@ function OpenDay({ of, shift, onClosed }: { readonly of: DayOf; readonly shift: 
   return <>
     <p className="m-0 text-sm text-ink-2">{of.kind === 'till' ? `${of.till.name} opened` : 'Opened'} {clock(shift.openedAt)} by {of.kind === 'cashier' ? 'you' : shift.openedBy} with <span className="tabular">{naira(shift.openingCashKobo)}</span> in the drawer.</p>
     {shift.overdue ? <Alert intent="warning" size="sm" title="Left open overnight">This day was opened before today. Count the cash and close it, then open today’s.</Alert> : null}
-    <StatGroup cols={totals.length >= 4 ? 4 : 3} label="Taken today by way of paying">
+    <StatGroup cols={totals.length >= 4 ? 4 : 3} label={`Taken ${span} by way of paying`}>
       {totals.map(total => (
         <StatCard key={total.method} icon={METHOD_ICON[total.method]} label={METHOD_LABEL[total.method]} value={naira(total.amountKobo)}
           hint={`${total.count} ${total.count === 1 ? 'payment' : 'payments'}`} />
       ))}
     </StatGroup>
     <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))] gap-3">
-      <SummaryLine label="Recorded today" value={naira(taken)} />
+      <SummaryLine label={`Recorded ${span}`} value={naira(taken)} />
       <SummaryLine label="Still unpaid" value={naira(shift.unpaidBills.amountKobo)} hint={`${shift.unpaidBills.count} ${shift.unpaidBills.count === 1 ? 'bill' : 'bills'}`} />
       <SummaryLine label="Bill follows" value={naira(shift.deferredBills.amountKobo)} hint={`${shift.deferredBills.count} ${shift.deferredBills.count === 1 ? 'bill' : 'bills'} (emergency, unknown patient)`} />
     </div>
@@ -294,7 +299,7 @@ function OpenDay({ of, shift, onClosed }: { readonly of: DayOf; readonly shift: 
       <h3 id={`eod-apart-${shift.id}`} className="m-0 text-[13px] font-medium text-ink-2">Not money taken, so not in the cash</h3>
       <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))] gap-3">
         <SummaryLine label="Waived" value={naira(waivers.amountKobo)} hint={`${waivers.count} ${waivers.count === 1 ? 'waiver' : 'waivers'}`} />
-        <SummaryLine label="HMO to pay" value={naira(covered.amountKobo)} hint={`${covered.count} recorded today, owed by the HMO`} />
+        <SummaryLine label="HMO to pay" value={naira(covered.amountKobo)} hint={`${covered.count} recorded ${span}, owed by the HMO`} />
       </div>
     </section>
 
@@ -327,7 +332,7 @@ function OpenDay({ of, shift, onClosed }: { readonly of: DayOf; readonly shift: 
         <dt className="text-ink-2">Counted</dt><dd className="m-0 text-right text-ink tabular">{naira(counted)}</dd>
         <dt className="font-semibold text-ink">Difference</dt><dd className="m-0 text-right font-semibold text-ink tabular">{differenceText(difference)}</dd>
       </dl> : null}
-      effect={`Today’s totals and your count are saved with your name. Payments after this go into ${of.kind === 'till' ? 'this till’s' : of.kind === 'cashier' ? 'your' : 'the'} next day.`}
+      effect={`${shift.overdue ? 'This day’s' : 'Today’s'} totals and your count are saved with your name. Payments after this go into ${of.kind === 'till' ? 'this till’s' : of.kind === 'cashier' ? 'your' : 'the'} next day.`}
       undo="A closed day can’t be opened again."
       onConfirm={() => { void close() }} />
   </>

@@ -190,6 +190,8 @@ function Counter({ facilityId, permissions }: { readonly facilityId: string; rea
   }
 
   function startAgain() {
+    // The next sale is a new one, even if it is typed exactly like this one: its own Idempotency-Key.
+    keyFor.next()
     if (prescription) photoUpload.release(prescription.photo)
     setLines([]); setCustomer(NO_CUSTOMER); setCustomerOpen('none'); setHidError(''); setPrescription(null); setSale(null)
     setStage('basket'); setSendError(''); setOff(false); setQuery(''); setSaid('')

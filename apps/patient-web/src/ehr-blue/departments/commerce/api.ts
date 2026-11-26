@@ -474,6 +474,20 @@ export function searchTextRefused(q: string | null | undefined): boolean {
   return /HID-[A-HJ-NP-Z2-9]{2,}/i.test(q) || /\d{11,}/.test(compact)
     || q.split(/[^A-Za-z0-9]+/).some(word => /^[A-HJ-NP-Z2-9]{6}$/i.test(word) && /[A-Za-z]/.test(word) && /\d/.test(word))
 }
+/**
+ * An item's name as a search that finds it (BILL-1 `q`: each word typed is the start of a word of the name, 2 to 60
+ * characters): its words, as many as fit. No route reads one price-list item or stock line, so one changed by someone
+ * else meanwhile is found again this way. Null when the name can't be searched for.
+ */
+export function searchForName(name: string): string | null {
+  let q = ''
+  for (const word of name.split(/[^\p{L}\p{N}]+/u).filter(Boolean)) {
+    const next = q ? `${q} ${word}` : word
+    if (next.length > 60) break
+    q = next
+  }
+  return q.length >= 2 && !searchTextRefused(q) ? q : null
+}
 /** The refusal a page gets for such a search, without sending it: in the list's own words. */
 const searchRefused = <T,>(words: string = BILLING_WORDS.BILLING_SEARCH_TEXT_NOT_ALLOWED!): Promise<CommerceResult<T>> =>
   Promise.resolve({ ok: false, error: words, code: 'BILLING_SEARCH_TEXT_NOT_ALLOWED', status: 400 })

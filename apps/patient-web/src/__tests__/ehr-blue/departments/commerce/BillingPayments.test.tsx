@@ -64,6 +64,37 @@ describe('Payments', () => {
     expect(JSON.stringify(calls)).not.toMatch(/HID-|12345678901/)
   })
 
+  it('asks the server for each tab’s own bills, so an unpaid bill older than the newest 25 is still to pay', async () => {
+    const calls: { status?: string; page?: number }[] = []
+    const older = unpaidBill({ id: 'bill-older', number: 'B-000100', patient: { patientId: 'p-old', displayName: 'Chidi Older', healthIdLast4: null } })
+    commerceApi.bills = async (...args: never[]) => {
+      const filter = (args[1] ?? {}) as { status?: string; page?: number }
+      calls.push(filter)
+      if (filter.status === 'open') return ok({ items: [older], nextPage: null })
+      // Every bill, or the paid ones: the newest page is all paid, and more are older.
+      return ok({ items: [billOf({ status: 'paid', dueKobo: 0 })], nextPage: 2 })
+    }
+    renderDept(<Payments />)
+    expect(await screen.findByText('Chidi Older')).toBeTruthy()
+    expect(calls[0]).toMatchObject({ status: 'open', page: 1 })
+    // Every page of To pay is read: its count is said.
+    expect(screen.getByRole('button', { name: /^To pay/ }).textContent).toBe('To pay1')
+    fireEvent.click(screen.getByRole('button', { name: /^Bill follows/ }))
+    await waitFor(() => expect(calls.at(-1)).toMatchObject({ status: 'deferred', page: 1 }))
+    fireEvent.click(screen.getByRole('button', { name: /^Paid/ }))
+    await waitFor(() => expect(calls.at(-1)).toMatchObject({ status: 'paid', page: 1 }))
+    // More paid bills are older than those read: no count is said for the tab, as it would be too few.
+    expect(await screen.findByText('Ada Test')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^Paid/ }).textContent).toBe('Paid')
+    // A transfer waiting for its check may be on a bill of any status: every bill is read, and none on the newest page is
+    // not "No transfers waiting" while older bills are still to be read.
+    fireEvent.click(screen.getByRole('button', { name: /^Waiting for check/ }))
+    await waitFor(() => expect(calls.at(-1)).toEqual({ page: 1 }))
+    expect(await screen.findByText('None among the newest bills')).toBeTruthy()
+    expect(screen.queryByText('No transfers waiting')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Show older bills' })).toBeTruthy()
+  })
+
   it('says billing is not switched on when its bills answer 404', async () => {
     commerceApi.bills = async () => off()
     renderDept(<Payments />)
@@ -94,7 +125,7 @@ describe('Payments', () => {
     const owes = (name: string, id: string) => ({ patient: { patientId: id, displayName: name, healthIdLast4: null },
       bills: [{ billId: `b-${id}`, number: `B-${id}`, createdAt: '2026-11-14T08:00:00Z', dueKobo: 100000, deferred: false }], dueKobo: 100000, oldestDays: 3 })
     commerceApi.outstanding = async (...args: never[]) => {
-      const filter = args[1] as { page?: number }
+      const filter = (args[1] ?? {}) as { page?: number }
       calls.push(filter)
       return filter.page === 2 ? ok({ items: [owes('Chidi Test', 'p-2')], totalDueKobo: 4000000, nextPage: null })
         : ok({ items: [owes('Ada Test', 'p-1')], totalDueKobo: 4000000, nextPage: 2 })
@@ -146,7 +177,7 @@ describe('a bill’s actions', () => {
     const voidPayment = vi.fn(async (..._args: unknown[]) => ok(billOf({ payments: [{ ...billOf().payments[0]!, voided: true }], paidKobo: 0, dueKobo: 450000, version: 6 })))
     commerceApi.voidPayment = voidPayment
     const drawer = await openBill()
-    fireEvent.click(within(drawer).getByRole('button', { name: 'Cancel or refund' }))
+    fireEvent.click(within(drawer).getByRole('button', { name: /^Cancel or refund/ }))
     const sheet = await screen.findByRole('dialog', { name: 'Cancel this payment?' })
     fireEvent.change(within(sheet).getByLabelText('Why is it refunded?'), { target: { value: 'Patient returned the items' } })
     fireEvent.click(within(sheet).getByRole('button', { name: 'Cancel payment' }))
@@ -162,7 +193,7 @@ describe('a bill’s actions', () => {
     const voidPayment = vi.fn(async (..._args: unknown[]) => ok(billOf({ version: 6 })))
     commerceApi.voidPayment = voidPayment
     const drawer = await openBill()
-    fireEvent.click(within(drawer).getByRole('button', { name: 'Cancel or refund' }))
+    fireEvent.click(within(drawer).getByRole('button', { name: /^Cancel or refund/ }))
     const sheet = await screen.findByRole('dialog', { name: 'Cancel this payment?' })
     const till = within(sheet).getByLabelText('Till')
     expect(within(till).getAllByRole('option').map(option => option.textContent)).toEqual(['Choose the till', 'Front till', 'Back till'])
@@ -182,7 +213,7 @@ describe('a bill’s actions', () => {
     const voidPayment = vi.fn(async (..._args: unknown[]) => ok(billOf({ version: 6 })))
     commerceApi.voidPayment = voidPayment
     let drawer = await openBill()
-    fireEvent.click(within(drawer).getByRole('button', { name: 'Cancel or refund' }))
+    fireEvent.click(within(drawer).getByRole('button', { name: /^Cancel or refund/ }))
     let sheet = await screen.findByRole('dialog', { name: 'Cancel this payment?' })
     expect(within(sheet).queryByLabelText('Till')).toBeNull()
     fireEvent.change(within(sheet).getByLabelText('Why is it refunded?'), { target: { value: 'Patient returned the items' } })
@@ -192,9 +223,38 @@ describe('a bill’s actions', () => {
     cleanup()
     commerceApi.paymentSettings = async () => ok(settingsOf({ dayCloseBy: 'till', tills: [{ id: TILL_ID, name: 'Front till', active: true }] }))
     drawer = await openBill(billOf({ payments: [{ ...billOf().payments[0]!, method: 'waiver', reason: 'Staff family' }] }))
-    fireEvent.click(within(drawer).getByRole('button', { name: 'Cancel or refund' }))
-    sheet = await screen.findByRole('dialog', { name: 'Cancel this payment?' })
+    fireEvent.click(within(drawer).getByRole('button', { name: /^Cancel waiver/ }))
+    sheet = await screen.findByRole('dialog', { name: 'Cancel this waiver?' })
     expect(within(sheet).queryByLabelText('Till')).toBeNull()
+  })
+
+  it('cancels a waiver, which took no money, without calling it a refund', async () => {
+    as(OFFICER)
+    const voidPayment = vi.fn(async (..._args: unknown[]) => ok(billOf({ version: 6 })))
+    commerceApi.voidPayment = voidPayment
+    const waiver = { ...billOf().payments[0]!, id: 'pay-w', method: 'waiver' as const, amountKobo: 500000, reason: 'Staff family' }
+    const drawer = await openBill(billOf({ payments: [waiver] }))
+    expect(within(drawer).queryByRole('button', { name: /^Cancel or refund/ })).toBeNull()
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Cancel waiver: ₦5,000.00' }))
+    const sheet = await screen.findByRole('dialog', { name: 'Cancel this waiver?' })
+    // No "Money given back": none was taken.
+    expect(within(sheet).queryByRole('radio', { name: 'Money given back' })).toBeNull()
+    expect(within(sheet).queryByLabelText('Why is it refunded?')).toBeNull()
+    expect(sheet.textContent).not.toMatch(/refund/i)
+    fireEvent.change(within(sheet).getByLabelText('Why is it cancelled?'), { target: { value: 'Waived by mistake, not approved' } })
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Cancel waiver' }))
+    await waitFor(() => expect(voidPayment).toHaveBeenCalled())
+    expect(voidPayment.mock.calls[0]![2]).toBe('pay-w')
+    expect(voidPayment.mock.calls[0]![3]).toBe('Waived by mistake, not approved')
+  })
+
+  it('names each payment’s and each cover’s cancel button by its row', async () => {
+    as(OFFICER)
+    const pos = { ...billOf().payments[0]!, id: 'pay-p', method: 'pos' as const, amountKobo: 100000, reference: '123456789012' }
+    const drawer = await openBill(billOf({ payments: [billOf().payments[0]!, pos] }))
+    expect(within(drawer).getByRole('button', { name: 'Cancel or refund: Cash ₦3,000.00' })).toBeTruthy()
+    expect(within(drawer).getByRole('button', { name: 'Cancel or refund: POS ₦1,000.00' })).toBeTruthy()
+    expect(within(drawer).getByRole('button', { name: 'Cancel HMO cover: Demo HMO ₦2,000.00' })).toBeTruthy()
   })
 
   it('keeps a refund’s reason within what the server takes once "Refund: " is put before it', async () => {
@@ -202,7 +262,7 @@ describe('a bill’s actions', () => {
     const voidPayment = vi.fn(async (..._args: unknown[]) => ok(billOf({ version: 6 })))
     commerceApi.voidPayment = voidPayment
     const drawer = await openBill()
-    fireEvent.click(within(drawer).getByRole('button', { name: 'Cancel or refund' }))
+    fireEvent.click(within(drawer).getByRole('button', { name: /^Cancel or refund/ }))
     const sheet = await screen.findByRole('dialog', { name: 'Cancel this payment?' })
     const reason = within(sheet).getByLabelText('Why is it refunded?')
     expect(reason.getAttribute('maxLength')).toBe('492')
@@ -220,7 +280,7 @@ describe('a bill’s actions', () => {
   it('moves focus to the reason when it is missing, so the refusal is heard', async () => {
     as(OFFICER)
     const drawer = await openBill()
-    fireEvent.click(within(drawer).getByRole('button', { name: 'Cancel or refund' }))
+    fireEvent.click(within(drawer).getByRole('button', { name: /^Cancel or refund/ }))
     const sheet = await screen.findByRole('dialog', { name: 'Cancel this payment?' })
     fireEvent.click(within(sheet).getByRole('button', { name: 'Cancel payment' }))
     const reason = within(sheet).getByLabelText('Why is it refunded?')
@@ -283,7 +343,7 @@ describe('a bill’s actions', () => {
     as(OFFICER)
     commerceApi.voidPayment = async () => refused('SECOND_PERSON_REQUIRED', 'Another member of staff must do this, not the person who recorded the payment.', 403)
     const drawer = await openBill()
-    fireEvent.click(within(drawer).getByRole('button', { name: 'Cancel or refund' }))
+    fireEvent.click(within(drawer).getByRole('button', { name: /^Cancel or refund/ }))
     const sheet = await screen.findByRole('dialog', { name: 'Cancel this payment?' })
     fireEvent.change(within(sheet).getByLabelText('Why is it refunded?'), { target: { value: 'Paid twice by mistake' } })
     fireEvent.click(within(sheet).getByRole('button', { name: 'Cancel payment' }))
@@ -295,7 +355,7 @@ describe('a bill’s actions', () => {
     const voidPayment = vi.fn()
     commerceApi.voidPayment = voidPayment
     const drawer = await openBill()
-    fireEvent.click(within(drawer).getByRole('button', { name: 'Cancel or refund' }))
+    fireEvent.click(within(drawer).getByRole('button', { name: /^Cancel or refund/ }))
     const sheet = await screen.findByRole('dialog', { name: 'Cancel this payment?' })
     fireEvent.change(within(sheet).getByLabelText('Why is it refunded?'), { target: { value: 'short' } })
     fireEvent.click(within(sheet).getByRole('button', { name: 'Cancel payment' }))
@@ -312,7 +372,7 @@ describe('a bill’s actions', () => {
     const confirmPayment = vi.fn(async (..._args: unknown[]) => ok(billOf({ version: 7 })))
     commerceApi.confirmPayment = confirmPayment
     const drawer = await openBill(billOf({ payments: [...billOf().payments, transfer], pendingCheckKobo: 100000, dueKobo: 50000 }))
-    fireEvent.click(within(drawer).getByRole('button', { name: 'Cancel HMO cover' }))
+    fireEvent.click(within(drawer).getByRole('button', { name: /^Cancel HMO cover: Demo HMO/ }))
     let sheet = await screen.findByRole('dialog', { name: 'Cancel this HMO cover?' })
     fireEvent.change(within(sheet).getByLabelText('Why?'), { target: { value: 'The HMO refused the visit' } })
     fireEvent.click(within(sheet).getByRole('button', { name: 'Cancel HMO cover' }))
@@ -381,7 +441,7 @@ describe('a bill’s actions', () => {
 
   it('shows a cashier no cancel, refund or confirm', async () => {
     const drawer = await openBill()
-    for (const name of ['Cancel or refund', 'Cancel HMO cover', 'Cancel bill', 'Confirm transfer']) expect(within(drawer).queryByRole('button', { name })).toBeNull()
+    for (const name of [/^Cancel or refund/, /^Cancel waiver/, /^Cancel HMO cover/, 'Cancel bill', 'Confirm transfer']) expect(within(drawer).queryByRole('button', { name })).toBeNull()
     expect(within(drawer).getByRole('button', { name: 'Add an item' })).toBeTruthy()
   })
 })
@@ -434,6 +494,23 @@ describe('Take payment', () => {
     await waitFor(() => expect(receipt).toHaveBeenCalled())
     expect(receipt.mock.calls[0]).toEqual(expect.arrayContaining(['pay-new']))
     expect(await screen.findByText('Paper receipt 0457')).toBeTruthy()
+  })
+
+  it('ties the till’s refusal to the till, and takes focus there, when no till is chosen', async () => {
+    const BACK_TILL = 'b3333333-3333-4333-8333-333333333333'
+    commerceApi.paymentSettings = async () => ok(settingsOf({ dayCloseBy: 'till', tills: [{ id: TILL_ID, name: 'Front till', active: true },
+      { id: BACK_TILL, name: 'Back till', active: true }] }))
+    const bill = unpaidBill()
+    commerceApi.bill = async () => ok(bill)
+    const recordPayment = vi.fn()
+    commerceApi.recordPayment = recordPayment
+    renderDept(<TakePayment open bill={bill} onClose={() => undefined} />)
+    const till = await screen.findByLabelText('Till')
+    fireEvent.click(screen.getByRole('button', { name: /Take payment/ }))
+    await waitFor(() => expect(document.activeElement).toBe(till))
+    expect(till.getAttribute('aria-invalid')).toBe('true')
+    expect(document.getElementById(till.getAttribute('aria-describedby')!)?.textContent).toBe('Choose the till this is taken at.')
+    expect(recordPayment).not.toHaveBeenCalled()
   })
 
   it('never asks for a medicine whose dispensing was reversed: its line is off the bill', async () => {

@@ -9,7 +9,7 @@ import { useDeptAccess } from '../parts/access'
 import { DrugTile } from '../pharmacy/DrugTile'
 import type { DrugForm } from '../pharmacy/drugForm'
 import {
-  ITEM_SEARCH_REFUSED, KIND_LABEL, commerce, searchTextRefused,
+  ITEM_SEARCH_REFUSED, KIND_LABEL, commerce, searchForName, searchTextRefused,
   type CatalogueForm, type CatalogueItem, type CatalogueItemInput, type CatalogueItemPatch, type CatalogueKind, type Hmo, type ListPage,
   type NationalCodeSystem, type PaymentSettings, type UnpricedCode,
 } from './api'
@@ -26,30 +26,33 @@ const FORM_LABEL: Readonly<Record<CatalogueForm, string>> = {
   inhaler: 'Inhaler', drops: 'Drops', other: 'Other',
 }
 /**
- * The lists an item of each kind can be linked to by a fixed code: ORD-7's national lists, or for a drug or a test one of
- * this facility's own items (HID-FACILITY, by its id: hid-system #336, 0163).
+ * The national lists an item of each kind can be linked to by a code typed in: ORD-7's. One of this facility's own
+ * medicines or tests (HID-FACILITY: hid-system #336, 0163) is linked by its id, which no screen shows, so it is never
+ * typed: it is offered only to an item priced from "Not on the price list" or already linked that way, and shown by name.
  */
 const CODE_SYSTEMS: Readonly<Record<CatalogueKind, readonly NationalCodeSystem[]>> = {
-  drug: ['HID-MED', 'HID-FACILITY'], lab_test: ['LOINC', 'HID-LAB', 'HID-FACILITY'], other: [],
+  drug: ['HID-MED'], lab_test: ['LOINC', 'HID-LAB'], other: [],
 }
 const CODE_HINT: Readonly<Record<NationalCodeSystem, string>> = {
   'HID-MED': 'The national medicine code, like MED-00042.', LOINC: 'The test’s LOINC code, like 718-7.', 'HID-LAB': 'The national lab code.',
-  'HID-FACILITY': 'One of this facility’s own medicines or tests, by its id.',
+  'HID-FACILITY': 'A prescription or lab request for it finds this price.',
 }
 /** A list's name where it is chosen: the national lists by their own names, a facility item in words. */
 const SYSTEM_LABEL: Readonly<Record<NationalCodeSystem, string>> = {
   'HID-MED': 'HID-MED', LOINC: 'LOINC', 'HID-LAB': 'HID-LAB', 'HID-FACILITY': 'This facility’s item',
 }
-/** A facility item's id as the backend takes it (lower case). */
-const FACILITY_ITEM_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 /** A linked code in words: "HID-MED MED-00042", or "This facility’s item" (its id means nothing to staff). */
 const codeText = (system: string, code: string) => system === 'HID-FACILITY' ? SYSTEM_LABEL['HID-FACILITY'] : `${system} ${code}`
 /**
  * The kinds an unpriced code can be priced as: a national medicine code a drug, a national test code a test, and one of
- * this facility's own items either, as the answer does not say which (the backend refuses the wrong one).
+ * this facility's own items either, as the answer does not say which (the backend refuses the wrong one). So a facility
+ * item is listed only where both can be chosen (the full price list), never on a page of one kind, where it may be the
+ * other department's and could not be priced.
  */
 const kindsOfCode = (system: string): readonly CatalogueKind[] =>
   system === 'HID-MED' ? ['drug'] : system === 'HID-FACILITY' ? ['drug', 'lab_test'] : ['lab_test']
+/** Whether this page can price a code: every kind it may be is one the page adds. */
+const pricedHere = (system: string, kinds: readonly CatalogueKind[]) => kindsOfCode(system).every(kind => kinds.includes(kind))
 /** The price list's form as the pharmacy's line drawing (DrugTile): a liquid is drawn as a syrup bottle. */
 const drawn = (form: CatalogueForm | null | undefined): DrugForm => !form ? 'other' : form === 'liquid' ? 'syrup' : form
 const kindOf = (value: string | null): Kind => value === 'drug' || value === 'lab_test' || value === 'other' ? value : 'all'
@@ -96,29 +99,55 @@ export function PriceList({ kinds = ALL_KINDS, title = 'Price list', description
   const searched = q.length >= 2 && !refused ? q : ''
   const [page, setPage] = useState(1)
   const [earlier, setEarlier] = useState<readonly CatalogueItem[]>([])
-  useEffect(() => { setPage(1); setEarlier([]) }, [kind, searched])
-  const items = useCommerceRead<ListPage<CatalogueItem>>(facilityId ? `catalogue:${facilityId}:${kind}:${searched}:${page}` : null,
+  // Read again from the first page when an item changed by someone else could not be found again (below).
+  const [round, setRound] = useState(0)
+  useEffect(() => { setPage(1); setEarlier([]) }, [kind, searched, round])
+  const items = useCommerceRead<ListPage<CatalogueItem>>(facilityId ? `catalogue:${facilityId}:${kind}:${searched}:${round}:${page}` : null,
     signal => commerce.catalogueItems(facilityId!, { ...(kind === 'all' ? {} : { kind }), ...(searched ? { q: searched } : {}), page }, signal))
   const settings = useCommerceRead<PaymentSettings>(facilityId ? `settings:${facilityId}` : null, signal => commerce.paymentSettings(facilityId!, signal))
   const [editing, setEditing] = useState<CatalogueItem | 'new' | Prefill | null>(null)
   const [saved, setSaved] = useState<ReadonlyMap<string, CatalogueItem>>(new Map())
   const [showUnpriced, setShowUnpriced] = useState(false)
+  // The item open was read again because someone else changed it meanwhile; or it could not be found again.
+  const [changedId, setChangedId] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const canManage = permissions.includes('billing.catalogue.manage')
   const hmos = settings.data?.hmos ?? []
+  const open = (next: CatalogueItem | 'new' | Prefill | null) => { setNotice(null); setChangedId(null); setEditing(next) }
 
   const all = useMemo(() => {
     const seen = new Set<string>()
     const read = [...earlier, ...(items.data?.items ?? [])].filter(item => !seen.has(item.id) && Boolean(seen.add(item.id)))
     const added = [...saved.values()].filter(item => !seen.has(item.id) && (kind === 'all' || item.kind === kind))
-    return [...read.map(item => saved.get(item.id) ?? item), ...added]
+    // An item saved here shows as saved until a newer copy is read.
+    return [...read.map(item => { const mine = saved.get(item.id); return mine && mine.version >= item.version ? mine : item }), ...added]
   }, [earlier, items.data, saved, kind])
+
+  /**
+   * A save refused because someone else changed the item meanwhile (nothing was saved): it is read again and opened
+   * afresh, showing what they saved, so the next save sends the version read. No route reads one item, so it is found
+   * by its name; one that can't be found (renamed) is closed and the list read again from its first page.
+   */
+  async function changedMeanwhile(stale: CatalogueItem) {
+    const fresh = facilityId ? await readItemAgain(facilityId, stale) : null
+    if (fresh && fresh.version !== stale.version) {
+      setSaved(previous => new Map(previous).set(fresh.id, fresh))
+      setChangedId(fresh.id)
+      setEditing(current => current !== null && current !== 'new' && 'id' in current && current.id === fresh.id ? fresh : current)
+      return
+    }
+    setEditing(current => current !== null && current !== 'new' && 'id' in current && current.id === stale.id ? null : current)
+    setSaved(previous => { const next = new Map(previous); next.delete(stale.id); return next })
+    setRound(value => value + 1)
+    setNotice(`Someone else changed ${stale.name} meanwhile, so your change wasn’t saved. The price list has been read again: open it and make your change again.`)
+  }
   const shown = all.filter(item => kinds.includes(item.kind))
 
   if (items.status === 'off') return <div className="flex flex-col gap-5"><PageHeader title={title} /><NotSwitchedOn message={BILLING_OFF} /></div>
   return (
     <div className="flex flex-col gap-5">
       <PageHeader title={title} description={description}
-        actions={canManage ? <Button variant="primary" icon={Plus} onClick={() => setEditing('new')}>Add item</Button> : undefined} />
+        actions={canManage ? <Button variant="primary" icon={Plus} onClick={() => open('new')}>Add item</Button> : undefined} />
       <div className="flex flex-col gap-3 @3xl:flex-row @3xl:items-center @3xl:justify-between">
         {kinds.length > 1 ? <FilterTabs<Kind> label="Kind of item" value={kind} onChange={setKind} options={[
           { value: 'all', label: 'All' }, ...KIND_TABS.filter(tab => kinds.includes(tab.value)),
@@ -128,14 +157,15 @@ export function PriceList({ kinds = ALL_KINDS, title = 'Price list', description
           aria-invalid={refused || undefined} aria-describedby={refused ? 'price-search-refused' : undefined} />
       </div>
       {refused ? <p id="price-search-refused" role="alert" className="m-0 text-[13px] font-medium text-danger-ink">{ITEM_SEARCH_REFUSED}</p> : null}
+      {notice ? <Alert intent="warning" title="Not saved">{notice}</Alert> : null}
       {canManage ? <Unpriced facilityId={facilityId} kinds={kinds} open={showUnpriced} onToggle={() => setShowUnpriced(value => !value)}
-        onPrice={code => setEditing(code)} /> : null}
+        onPrice={code => open(code)} /> : null}
       <PageState loading={items.status === 'loading' && all.length === 0} error={items.status === 'error' && all.length === 0 ? items.error : null}
         hasData={all.length > 0 || items.data !== null} onRetry={items.reload} what="the price list" rows={4}
         empty={shown.length === 0 ? { icon: Tag, title: searched ? 'Nothing matches that name' : 'No prices yet',
           description: searched ? 'Try the start of another word of the name, or the generic name.' : canManage ? 'Add the drugs, tests and services you charge for.' : undefined } : null}>
         <ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3 p-0">
-          {shown.map(item => <ItemCard key={item.id} item={item} hmos={hmos} onEdit={canManage ? () => setEditing(item) : null} />)}
+          {shown.map(item => <ItemCard key={item.id} item={item} hmos={hmos} onEdit={canManage ? () => open(item) : null} />)}
         </ul>
       </PageState>
       {items.data?.nextPage ? <Button className="self-center" loading={items.status === 'loading'}
@@ -144,11 +174,25 @@ export function PriceList({ kinds = ALL_KINDS, title = 'Price list', description
         <ItemDrawer key={editing === 'new' ? 'new' : 'id' in editing ? `${editing.id}:${editing.version}` : `code:${editing.code}`}
           item={editing === 'new' || !('id' in editing) ? null : editing} prefill={editing !== 'new' && !('id' in editing) ? editing : null}
           hmos={hmos.filter(hmo => hmo.active !== false)} allHmos={hmos} kinds={kinds}
-          onClose={() => setEditing(null)}
-          onSaved={item => { setSaved(previous => new Map(previous).set(item.id, item)); setEditing(null) }} />
+          changedMeanwhile={editing !== 'new' && 'id' in editing && editing.id === changedId}
+          onClose={() => open(null)} onStale={stale => { void changedMeanwhile(stale) }}
+          onSaved={item => { setSaved(previous => new Map(previous).set(item.id, item)); open(null) }} />
       ) : null}
     </div>
   )
+}
+
+/** One item read again: no route reads one, so it is found by its name in its kind, on the first few pages of that search. */
+async function readItemAgain(facilityId: string, item: CatalogueItem): Promise<CatalogueItem | null> {
+  const q = searchForName(item.name)
+  if (!q) return null
+  for (let page = 1; page <= 5; page += 1) {
+    const result = await commerce.catalogueItems(facilityId, { kind: item.kind, q, page })
+    if (!result.ok) return null
+    const found = result.data.items.find(entry => entry.id === item.id)
+    if (found || !result.data.nextPage) return found ?? null
+  }
+  return null
 }
 
 /** "Not on the price list": national codes that reached the pharmacy or lab in the last 30 days with no price here. */
@@ -157,7 +201,7 @@ function Unpriced({ facilityId, kinds, open, onToggle, onPrice }: {
   readonly onToggle: () => void; readonly onPrice: (prefill: Prefill) => void
 }) {
   const read = useCommerceRead<{ items: UnpricedCode[] }>(facilityId && open ? `unpriced:${facilityId}` : null, signal => commerce.unpricedCodes(facilityId!, signal))
-  const codes = (read.data?.items ?? []).filter(code => kindsOfCode(code.codeSystem).some(kind => kinds.includes(kind)))
+  const codes = (read.data?.items ?? []).filter(code => pricedHere(code.codeSystem, kinds))
   return <Card>
     <CardHeader as="h2" title="Not on the price list" description="Medicines and tests prescribed or requested here in the last 30 days that have no price. Their bills show “Not billed” until they do."
       actions={<Button size="sm" onClick={onToggle} aria-expanded={open}>{open ? 'Hide' : 'Show'}</Button>} />
@@ -215,13 +259,24 @@ const kobo = (value: number | undefined) => value === undefined ? '' : (value / 
 const MAX_PRICE = 100_000_000
 const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
 
-function ItemDrawer({ item, prefill, hmos, allHmos, kinds = ALL_KINDS, onClose, onSaved }: {
+/** A save refused because the item changed since it was read: it is read again at once, so the words say so. */
+const ITEM_CHANGED = 'Someone else changed this item meanwhile, so it wasn’t saved. It is being read again.'
+const ITEM_READ_AGAIN = 'Someone else changed this item meanwhile, so your change wasn’t saved. It now shows what they saved: make your change again, then save.'
+
+function ItemDrawer({ item, prefill, hmos, allHmos, kinds = ALL_KINDS, changedMeanwhile = false, onClose, onSaved, onStale }: {
   readonly item: CatalogueItem | null; readonly prefill: Prefill | null; readonly hmos: readonly Hmo[]; readonly allHmos: readonly Hmo[]
-  readonly kinds?: readonly CatalogueKind[]; readonly onClose: () => void; readonly onSaved: (item: CatalogueItem) => void
+  readonly kinds?: readonly CatalogueKind[]
+  /** Opened afresh after someone else changed it meanwhile: said at the top. */
+  readonly changedMeanwhile?: boolean
+  readonly onClose: () => void; readonly onSaved: (item: CatalogueItem) => void
+  /** A save refused because the item changed since it was read: read it again. */
+  readonly onStale: (item: CatalogueItem) => void
 }) {
   const { facilityId } = useDeptAccess()
   const ids = useId()
   const toast = useToast()
+  // What a new item can be: what this page adds, and for a code from "Not on the price list" only what that code can be.
+  const kindChoices = ALL_KINDS.filter(value => kinds.includes(value) && (!prefill || kindsOfCode(prefill.system).includes(value)))
   const [kind, setKind] = useState<CatalogueKind>(item?.kind ?? prefill?.kind ?? kinds[0] ?? 'drug')
   const [name, setName] = useState(item?.name ?? prefill?.name ?? '')
   const [strength, setStrength] = useState(item?.strength ?? '')
@@ -229,7 +284,11 @@ function ItemDrawer({ item, prefill, hmos, allHmos, kinds = ALL_KINDS, onClose, 
   const [packSize, setPackSize] = useState(item?.packSize ?? '')
   const [prescriptionOnly, setPrescriptionOnly] = useState(item?.prescriptionOnly ?? true)
   const [system, setSystem] = useState<NationalCodeSystem | ''>(item?.nationalCodeSystem ?? prefill?.system ?? '')
-  const [code, setCode] = useState(item?.nationalCode ?? prefill?.code ?? '')
+  // One of this facility's own items, linked from "Not on the price list" or already linked: its id is kept, never typed
+  // or shown, and the item is named instead (its name where priced from the list).
+  const facilityLink = prefill?.system === 'HID-FACILITY' ? { code: prefill.code, name: prefill.name }
+    : item?.nationalCodeSystem === 'HID-FACILITY' && item.nationalCode ? { code: item.nationalCode, name: null } : null
+  const [code, setCode] = useState(facilityLink ? '' : item?.nationalCode ?? prefill?.code ?? '')
   const [active, setActive] = useState(item?.active ?? true)
   const [cash, setCash] = useState(kobo(item?.prices.cashKobo))
   const [hmoText, setHmoText] = useState<Record<string, string>>(() => Object.fromEntries((item?.prices.hmo ?? []).map(price => [price.hmoId, kobo(price.amountKobo)])))
@@ -237,12 +296,14 @@ function ItemDrawer({ item, prefill, hmos, allHmos, kinds = ALL_KINDS, onClose, 
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
   const [off, setOff] = useState(false)
-  const [key] = useState(() => crypto.randomUUID())
+  const [key, setKey] = useState(() => crypto.randomUUID())
+  const [stale, setStale] = useState(false)
 
-  const systems = CODE_SYSTEMS[kind]
+  const systems: readonly NationalCodeSystem[] = facilityLink && kind !== 'other' ? [...CODE_SYSTEMS[kind], 'HID-FACILITY'] : CODE_SYSTEMS[kind]
   const chosenSystem = system && systems.includes(system) ? system : ''
+  const linkedHere = chosenSystem === 'HID-FACILITY' && facilityLink !== null
   // A facility item's id is sent in lower case, as the backend keeps it.
-  const codeSent = chosenSystem === 'HID-FACILITY' ? code.trim().toLowerCase() : code.trim()
+  const codeSent = linkedHere ? facilityLink.code.trim().toLowerCase() : code.trim()
   const cashKobo = parseNaira(cash)
   const hmoPrices = hmos.flatMap(hmo => {
     const text = hmoText[hmo.id]?.trim() ?? ''
@@ -253,16 +314,16 @@ function ItemDrawer({ item, prefill, hmos, allHmos, kinds = ALL_KINDS, onClose, 
     cash: cash.trim() === '' ? 'Type the cash price.' : cashKobo === null ? 'Type an amount like 1,500 or 1500.00.'
       : cashKobo > MAX_PRICE ? 'The most a price can be is ₦1,000,000.00.' : null,
     hmo: hmoPrices.some(price => price.amountKobo === null || price.amountKobo > MAX_PRICE) ? 'Each HMO price must be an amount like 1,200, or left empty.' : null,
-    code: chosenSystem === '' ? null : chosenSystem === 'HID-MED' ? /^MED-\d{5}$/.test(codeSent) ? null : 'Type the code like MED-00042.'
-      : chosenSystem === 'HID-FACILITY' ? FACILITY_ITEM_ID.test(codeSent) ? null : 'Type the item’s id as the facility’s list gives it (36 characters).'
-        : codeSent.length < 1 || codeSent.length > 100 ? 'Type the test’s code.' : null,
+    code: chosenSystem === '' || linkedHere ? null : chosenSystem === 'HID-MED' ? /^MED-\d{5}$/.test(codeSent) ? null : 'Type the code like MED-00042.'
+      : codeSent.length < 1 || codeSent.length > 100 ? 'Type the test’s code.' : null,
     text: kind === 'drug' && (strength.trim().length > 80 || packSize.trim().length > 80) ? 'Keep the strength and pack size to 80 characters each.' : null,
   }
   const blocked = Object.values(errors).some(Boolean)
 
   async function save() {
     setTried(true)
-    if (!facilityId || blocked || cashKobo === null) return
+    // Refused as changed meanwhile: nothing more is sent until the item is read again (the drawer opens afresh).
+    if (!facilityId || blocked || cashKobo === null || stale) return
     setBusy(true); setProblem(null)
     // Strength, form and pack size are a drug's only (BILL-1 §2); the national code is both or neither.
     const input: CatalogueItemInput = {
@@ -292,9 +353,17 @@ function ItemDrawer({ item, prefill, hmos, allHmos, kinds = ALL_KINDS, onClose, 
     setBusy(false)
     if (result.ok) { toast.success({ title: item ? 'Price saved' : 'Item added', message: result.data.name }); onSaved(result.data); return }
     if (result.notAvailable) { setOff(true); return }
+    if (item && (result.code === 'VERSION_CONFLICT' || result.code === 'PRECONDITION_FAILED')) {
+      // Nothing was saved: the item is read again, and the next save is a new request with the version read.
+      setKey(crypto.randomUUID()); setStale(true); setProblem(ITEM_CHANGED); onStale(item)
+      return
+    }
     // Not one of this facility's own items of this kind, in use: in words for a facility item, not "the national list".
-    setProblem(result.code === 'NATIONAL_CODE_NOT_FOUND' && chosenSystem === 'HID-FACILITY'
-      ? `This is not one of this facility’s ${kind === 'drug' ? 'medicines' : 'lab tests'} in use. Check whether it is a drug or a lab test.`
+    // Checking the kind is asked for only where it can be changed: a new item that may be a drug or a test.
+    const kindCanChange = !item && kindChoices.includes('drug') && kindChoices.includes('lab_test')
+    setProblem(result.code === 'NATIONAL_CODE_NOT_FOUND' && linkedHere
+      ? kindCanChange ? `This is not one of this facility’s ${kind === 'drug' ? 'medicines' : 'lab tests'} in use. Check whether it is a drug or a lab test.`
+        : `This is no longer one of this facility’s ${kind === 'drug' ? 'medicines' : 'lab tests'} in use. Set “Linked to” to None to save it without the link.`
       : result.error)
   }
 
@@ -307,11 +376,12 @@ function ItemDrawer({ item, prefill, hmos, allHmos, kinds = ALL_KINDS, onClose, 
       </>}>
       {off ? <NotSwitchedOn message={NOT_SET_UP_UNSAVED} /> : (
         <form className="@container flex flex-col gap-4" onSubmit={event => { event.preventDefault(); void save() }}>
-          {!item && kinds.length > 1 ? (
+          {changedMeanwhile ? <Alert intent="warning" title="Not saved">{ITEM_READ_AGAIN}</Alert> : null}
+          {!item && kindChoices.length > 1 ? (
             <div className="flex flex-col gap-1.5">
               <span className="text-[13px] font-medium text-ink-2" id={`${ids}-kind`}>What is it?</span>
               <Segmented<CatalogueKind> ariaLabel="What is it?" value={kind} onChange={setKind} className="self-start"
-                options={ALL_KINDS.filter(value => kinds.includes(value)).map(value => ({ value, label: KIND_LABEL[value] }))} />
+                options={kindChoices.map(value => ({ value, label: KIND_LABEL[value] }))} />
             </div>
           ) : null}
 
@@ -347,15 +417,18 @@ function ItemDrawer({ item, prefill, hmos, allHmos, kinds = ALL_KINDS, onClose, 
 
           {systems.length > 0 ? (
             <fieldset className="m-0 flex flex-col gap-3 border-0 p-0">
-              <legend className="mb-1 text-[13px] font-medium text-ink-2">National code <span className="font-normal text-ink-3">(optional; lets a {kind === 'drug' ? 'prescription' : 'lab request'} find this price)</span></legend>
+              {/* A facility item is not on a national list: where one can be linked, the group says "Linked to". */}
+              <legend className="mb-1 text-[13px] font-medium text-ink-2">{facilityLink ? 'Linked to' : 'National code'} <span className="font-normal text-ink-3">(optional; lets a {kind === 'drug' ? 'prescription' : 'lab request'} find this price)</span></legend>
               <div className="grid gap-3 @md:grid-cols-[10rem_minmax(0,1fr)]">
-                <Select aria-label="National list" value={chosenSystem} onChange={event => setSystem(event.target.value as NationalCodeSystem | '')}>
+                <Select aria-label={facilityLink ? 'Linked to' : 'National list'} value={chosenSystem} onChange={event => setSystem(event.target.value as NationalCodeSystem | '')}>
                   <option value="">None</option>
                   {systems.map(value => <option key={value} value={value}>{SYSTEM_LABEL[value]}</option>)}
                 </Select>
-                {chosenSystem ? <Input aria-label="Code" autoComplete="off" spellCheck={false} maxLength={100} value={code} onChange={event => setCode(event.target.value)}
-                  placeholder={chosenSystem === 'HID-MED' ? 'MED-00042' : ''} aria-invalid={Boolean(tried && errors.code)}
-                  aria-describedby={`${ids}-code-hint`} /> : null}
+                {linkedHere ? <p className="m-0 self-center text-sm text-ink [overflow-wrap:anywhere]">
+                  This facility’s own {kind === 'drug' ? 'medicine' : 'lab test'}{facilityLink.name ? <>: <span className="font-medium">{facilityLink.name}</span></> : null}</p>
+                  : chosenSystem ? <Input aria-label="Code" autoComplete="off" spellCheck={false} maxLength={100} value={code} onChange={event => setCode(event.target.value)}
+                    placeholder={chosenSystem === 'HID-MED' ? 'MED-00042' : ''} aria-invalid={Boolean(tried && errors.code)}
+                    aria-describedby={`${ids}-code-hint`} /> : null}
               </div>
               {chosenSystem ? <p id={`${ids}-code-hint`} className={cx('m-0 text-xs', tried && errors.code ? 'font-medium text-danger-ink' : 'text-ink-3')}>
                 {tried && errors.code ? errors.code : CODE_HINT[chosenSystem]}</p> : null}

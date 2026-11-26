@@ -30,6 +30,18 @@ const inView: Readonly<Record<View, (bill: Bill) => boolean>> = {
   follows: bill => bill.status === 'deferred',
   paid: bill => bill.status === 'paid',
 }
+/**
+ * What each tab asks the server for (BILL-1 GET bills `status`), so its pages are the facility's bills of that kind and
+ * not only the newest 25 of every kind: To pay reads `open` (unpaid, part paid or deferred; a deferred bill is left to
+ * Bill follows), Bill follows `deferred`, Paid `paid`. A transfer waiting for its check can be on a bill of any of these
+ * (a fully paid one is `paid`), so Waiting for check reads every bill.
+ */
+const STATUS_OF: Readonly<Record<View, 'open' | 'deferred' | 'paid' | undefined>> = {
+  to_pay: 'open', checking: undefined, follows: 'deferred', paid: 'paid',
+}
+const EMPTY_TITLE: Readonly<Record<View, string>> = {
+  to_pay: 'Nothing to pay right now', checking: 'No transfers waiting', follows: 'No bills to follow', paid: 'No paid bills yet',
+}
 
 const daysWord = (days: number) => days === 0 ? 'Today' : days === 1 ? '1 day' : `${days} days`
 
@@ -78,34 +90,37 @@ function Bills({ facilityId }: { readonly facilityId: string }) {
   const [page, setPage] = useState(1)
   const [earlier, setEarlier] = useState<readonly Bill[]>([])
   useEffect(() => { setPage(1); setEarlier([]) }, [source, searched])
-  const read = useCommerceRead<ListPage<Bill>>(`bills:${facilityId}:${source}:${searched}:${page}`,
-    signal => commerce.bills(facilityId, { ...(source === 'all' ? {} : { source }), ...(searched ? { q: searched } : {}), page }, signal))
+  const status = STATUS_OF[view]
+  const read = useCommerceRead<ListPage<Bill>>(`bills:${facilityId}:${view}:${source}:${searched}:${page}`,
+    signal => commerce.bills(facilityId, { ...(status ? { status } : {}), ...(source === 'all' ? {} : { source }), ...(searched ? { q: searched } : {}), page }, signal))
   const settings = useCommerceRead<PaymentSettings>(`settings:${facilityId}`, signal => commerce.paymentSettings(facilityId, signal))
   const [paying, setPaying] = useState<Bill | null>(null)
   const [viewingId, setViewingId] = useState<string | null>(null)
   const [saved, setSaved] = useState<ReadonlyMap<string, Bill>>(new Map())
 
   const canTake = permissions.includes('billing.payment.record')
-  // The list as read (with the pages before it), with each bill saved here since put in its place, so a card changes the
-  // moment it is paid.
+  // The tab's list as read (with the pages before it), with each bill saved here since put in its place, so a card
+  // changes the moment it is paid; a copy read since that is newer wins.
   const all = useMemo(() => {
     const seen = new Set<string>()
     return [...earlier, ...(read.data?.items ?? [])].filter(bill => !seen.has(bill.id) && Boolean(seen.add(bill.id)))
-      .map(bill => saved.get(bill.id) ?? bill)
+      .map(bill => { const mine = saved.get(bill.id); return mine && mine.version >= bill.version ? mine : bill })
   }, [earlier, read.data, saved])
-  const counts = useMemo(() => Object.fromEntries((Object.keys(inView) as View[]).map(key => [key, all.filter(inView[key]).length])) as Record<View, number>, [all])
   const shown = all.filter(inView[view])
+  const more = Boolean(read.data?.nextPage)
+  // A tab's count is said only once every page of it is read: a count of the pages read so far would be too few.
+  const count = (tab: View) => tab === view && read.data && !more ? shown.length : undefined
   const remember = (bill: Bill) => setSaved(previous => new Map(previous).set(bill.id, bill))
   const viewing = viewingId ? all.find(bill => bill.id === viewingId) ?? saved.get(viewingId) ?? null : null
 
   if (read.status === 'off') return <NotSwitchedOn message={BILLING_OFF} />
   return <>
     <div className="flex flex-col gap-3 @3xl:flex-row @3xl:flex-wrap @3xl:items-center @3xl:justify-between">
-      <FilterTabs<View> label="Bills" value={view} onChange={setView} options={[
-        { value: 'to_pay', label: 'To pay', count: counts.to_pay },
-        { value: 'checking', label: 'Waiting for check', count: counts.checking },
-        { value: 'follows', label: 'Bill follows', count: counts.follows },
-        { value: 'paid', label: 'Paid', count: counts.paid },
+      <FilterTabs<View> label="Bills" value={view} onChange={next => { setView(next); setPage(1); setEarlier([]) }} options={[
+        { value: 'to_pay', label: 'To pay', count: count('to_pay') },
+        { value: 'checking', label: 'Waiting for check', count: count('checking') },
+        { value: 'follows', label: 'Bill follows', count: count('follows') },
+        { value: 'paid', label: 'Paid', count: count('paid') },
       ]} />
       <div className="flex flex-wrap gap-2">
         <Select aria-label="From" value={source} onChange={event => setSource(event.target.value as SourceFilter)} className="w-40">
@@ -122,9 +137,12 @@ function Bills({ facilityId }: { readonly facilityId: string }) {
     {refused ? <p id="payments-search-refused" role="alert" className="m-0 text-[13px] font-medium text-danger-ink">{BILLING_WORDS.BILLING_SEARCH_TEXT_NOT_ALLOWED}</p> : null}
     <PageState loading={read.status === 'loading' && all.length === 0} error={read.status === 'error' && all.length === 0 ? read.error : null}
       hasData={all.length > 0 || read.data !== null} onRetry={read.reload} what="bills" rows={4}
-      empty={shown.length === 0 ? {
+      empty={shown.length === 0 ? more ? {
+        // Older bills are still to be read: "nothing" would not be true.
+        icon: ReceiptIcon, title: 'None among the newest bills', description: 'Show older bills to look further back.',
+      } : {
         icon: ReceiptIcon,
-        title: searched ? 'No bill matches that' : view === 'to_pay' ? 'Nothing to pay right now' : view === 'checking' ? 'No transfers waiting' : view === 'follows' ? 'No bills to follow' : 'No paid bills yet',
+        title: searched ? 'No bill matches that' : EMPTY_TITLE[view],
         description: searched ? 'Try the bill number, as on the slip (B-000412), the receipt number, or the start of the name.'
           : view === 'to_pay' ? 'Bills from check-in, the pharmacy and the lab show here as they are made.' : undefined,
       } : null}>

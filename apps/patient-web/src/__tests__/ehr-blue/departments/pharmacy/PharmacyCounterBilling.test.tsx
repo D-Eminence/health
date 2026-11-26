@@ -1,11 +1,11 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, renderHook, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { batchExpired, daysLeft, expiryOf, StockPage } from '../../../../ehr-blue/departments/pharmacy/Stock'
 import { Sell } from '../../../../ehr-blue/departments/pharmacy/Sell'
 import { PaperPrescription } from '../../../../ehr-blue/departments/pharmacy/PaperPrescription'
 import { ReceiveStock } from '../../../../ehr-blue/departments/pharmacy/ReceiveStock'
 import { Sales } from '../../../../ehr-blue/departments/pharmacy/Sales'
-import { outsideOrder, EMPTY_OUTSIDE } from '../../../../ehr-blue/departments/pharmacy/walkIn'
+import { outsideOrder, EMPTY_OUTSIDE, useAttemptKey } from '../../../../ehr-blue/departments/pharmacy/walkIn'
 import type { Bill, CatalogueItem, PaymentSettings, StockLine } from '../../../../ehr-blue/departments/commerce/api'
 import { DEMO_PHARMACY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
 import { billOf } from '../commerce/billingFixtures'
@@ -110,6 +110,76 @@ describe('Stock', () => {
     fireEvent.change(within(sheet).getByLabelText(/^Reorder level/), { target: { value: '80' } })
     fireEvent.click(within(sheet).getByRole('button', { name: 'Save settings' }))
     expect(await within(sheet).findByText('The unit cannot change while there is stock.')).toBeTruthy()
+  })
+
+  it('reads the next 50 items with Show more, keeping those read before', async () => {
+    const calls: { page?: number }[] = []
+    const paracetamolLine: StockLine = { ...AMOXICILLIN, catalogueItemId: 'cat-para', name: 'Paracetamol', expiredOnHand: 0, batches: [], version: 1 }
+    commerceApi.stock = async (...args: never[]) => {
+      const filter = (args[1] ?? {}) as { page?: number }
+      calls.push(filter)
+      return filter.page === 2 ? ok({ items: [paracetamolLine], nextPage: null }) : ok({ items: [AMOXICILLIN], nextPage: 2 })
+    }
+    renderDept(<StockPage />)
+    expect(await screen.findByRole('button', { name: /Amoxicillin/ })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Show more' }))
+    expect(await screen.findByRole('button', { name: /Paracetamol/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Amoxicillin/ })).toBeTruthy()
+    expect(calls.map(call => call.page)).toEqual([1, 2])
+    expect(screen.queryByRole('button', { name: 'Show more' })).toBeNull()
+  })
+
+  it('reads an item’s stock settings again when someone changed them meanwhile, shows theirs, and sends the next save anew', async () => {
+    // Another pharmacist changed the reorder level meanwhile (version 2 → 3).
+    const theirs: StockLine = { ...AMOXICILLIN, reorderLevel: 70, version: 3 }
+    let changed = false
+    const reads: unknown[] = []
+    commerceApi.stock = async (...args: never[]) => { reads.push(args[1]); return ok({ items: [changed ? theirs : AMOXICILLIN], nextPage: null }) }
+    commerceApi.stockMovements = async () => ok({ items: [], nextPage: null })
+    const settings = vi.fn()
+      .mockImplementationOnce(async () => { changed = true; return { ok: false, error: 'Someone else changed this. Reload it and try again.', code: 'VERSION_CONFLICT', status: 412 } })
+      .mockResolvedValueOnce(ok({ ...theirs, reorderLevel: 80, version: 4 }))
+    commerceApi.stockSettings = settings
+    renderDept(<StockPage />)
+    fireEvent.click(await screen.findByRole('button', { name: /Amoxicillin/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Stock settings' }))
+    const sheet = await screen.findByRole('dialog', { name: 'Stock settings' })
+    fireEvent.change(within(sheet).getByLabelText(/^Reorder level/), { target: { value: '80' } })
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Save settings' }))
+    expect(await within(sheet).findByText('Someone else changed this item’s stock settings meanwhile. They have been read again: check them, then save again.')).toBeTruthy()
+    // Found again by its name (no route reads one item), and the form shows what they saved.
+    await waitFor(() => expect((within(sheet).getByLabelText(/^Reorder level/) as HTMLInputElement).value).toBe('70'))
+    expect(reads).toContainEqual(expect.objectContaining({ q: 'Amoxicillin' }))
+    fireEvent.change(within(sheet).getByLabelText(/^Reorder level/), { target: { value: '80' } })
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Save settings' }))
+    await waitFor(() => expect(settings).toHaveBeenCalledTimes(2))
+    expect(settings.mock.calls.map(call => (call[2] as { expectedVersion: number }).expectedVersion)).toEqual([2, 3])
+    expect(settings.mock.calls[1]![3]).not.toBe(settings.mock.calls[0]![3])
+  })
+
+  it('says a failed or refused drug search when counting stock for an item, with Try again, never "no drug matches"', async () => {
+    commerceApi.stock = async () => ok({ items: [], nextPage: null })
+    let fail = true
+    // As commerce.catalogueItems answers: a lost connection, or a Health ID refused without being sent.
+    commerceApi.catalogueItems = async (...args: never[]) => ((args[1] ?? {}) as { q?: string }).q?.startsWith('HID-')
+      ? { ok: false, error: 'Search by the item’s name. Do not type a Health ID or NIN here.', code: 'BILLING_SEARCH_TEXT_NOT_ALLOWED', status: 400 }
+      : fail ? { ok: false, error: 'Couldn’t reach Health ID. Check the connection and try again.', status: 0 } : ok({ items: [PARACETAMOL], nextPage: null })
+    renderDept(<StockPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Count stock for an item' }))
+    const sheet = await screen.findByRole('dialog', { name: 'Count stock for an item' })
+    fireEvent.change(within(sheet).getByLabelText(/^Drug/), { target: { value: 'para' } })
+    expect(await within(sheet).findByText('Couldn’t reach Health ID. Check the connection and try again.')).toBeTruthy()
+    expect(within(sheet).queryByText('No drug without stock counting matches')).toBeNull()
+    expect(within(sheet).queryByRole('combobox', { name: 'Choose the drug' })).toBeNull()
+    fail = false
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Try again' }))
+    const choose = await within(sheet).findByRole('combobox', { name: 'Choose the drug' })
+    await waitFor(() => expect(within(choose).getAllByRole('option').map(option => option.textContent)).toContain('Paracetamol 500 mg'))
+    // A Health ID typed as the drug's name is refused in the list's own words, and nothing is searched.
+    fireEvent.change(within(sheet).getByLabelText(/^Drug/), { target: { value: 'HID-ZDEMAAA2' } })
+    expect(await within(sheet).findByText('Search by the item’s name. Do not type a Health ID or NIN here.')).toBeTruthy()
+    expect(within(sheet).queryByRole('button', { name: 'Try again' })).toBeNull()
+    expect(within(sheet).queryByText('No drug without stock counting matches')).toBeNull()
   })
 
   it('counts Lagos days to a batch’s expiry: on its expiry day it is still given out, so it is not "Expired"', () => {
@@ -270,6 +340,45 @@ describe('a counter sale', () => {
     expect(handOver.mock.calls[1]![2]).not.toBe(handOver.mock.calls[0]![2])
   })
 
+  it('gives each new sale its own Idempotency-Key, even one exactly like the sale before; a retry of one sale keeps its key', async () => {
+    const ors: CatalogueItem = { ...PARACETAMOL, prices: { cashKobo: 0, hmo: [] } }
+    commerceApi.catalogueItems = async () => ok({ items: [ors], nextPage: null })
+    commerceApi.stock = async () => ok({ items: [], nextPage: null })
+    commerceApi.paymentSettings = async () => ok(sellSettings('both'))
+    const made = madeSale({ status: 'paid', totalKobo: 0, dueKobo: 0 })
+    const walkIn = vi.fn()
+      .mockResolvedValueOnce({ ok: false, error: 'Couldn’t reach Health ID. Check the connection and try again.', status: 0 })
+      .mockResolvedValue(ok({ workItemIds: [], bill: made }))
+    commerceApi.pharmacyWalkIn = walkIn
+    commerceApi.handOverSale = async () => ok({ handedOverAt: '2026-11-26T09:10:00Z', bill: { ...made, version: 2, handedOverAt: '2026-11-26T09:10:00Z' } })
+    renderDept(<Sell />)
+    // The first customer: one Paracetamol, no name or phone. The first press is lost and pressed again.
+    fireEvent.click(await screen.findByRole('button', { name: /^Add: Paracetamol 500 mg/ }))
+    fireEvent.click((await screen.findAllByRole('button', { name: /Take payment/ }))[0]!)
+    expect(await screen.findByText(/The sale wasn’t made/)).toBeTruthy()
+    fireEvent.click(screen.getAllByRole('button', { name: /Take payment/ })[0]!)
+    fireEvent.click(await screen.findByRole('button', { name: 'Handed over' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'New sale' }))
+    // The next customer buys exactly the same.
+    fireEvent.click(await screen.findByRole('button', { name: /^Add: Paracetamol 500 mg/ }))
+    fireEvent.click((await screen.findAllByRole('button', { name: /Take payment/ }))[0]!)
+    await waitFor(() => expect(walkIn).toHaveBeenCalledTimes(3))
+    expect(walkIn.mock.calls[2]![1]).toEqual(walkIn.mock.calls[1]![1])
+    expect(walkIn.mock.calls[1]![2]).toBe(walkIn.mock.calls[0]![2])
+    expect(walkIn.mock.calls[2]![2]).not.toBe(walkIn.mock.calls[1]![2])
+  })
+
+  it('keeps one key for an order as typed, and gives the next order its own even when typed the same (also the lab’s New request)', () => {
+    const { result } = renderHook(() => useAttemptKey())
+    const first = result.current('order-a')
+    expect(result.current('order-a')).toBe(first)
+    result.current.next()
+    const second = result.current('order-a')
+    expect(second).not.toBe(first)
+    expect(result.current('order-a')).toBe(second)
+    expect(result.current('order-b')).not.toBe(second)
+  })
+
   it('leaves photoFileId out of an outside order without a photo', () => {
     expect(outsideOrder({ ...EMPTY_OUTSIDE, prescriberName: 'Dr Test' })).not.toHaveProperty('photoFileId')
   })
@@ -305,6 +414,31 @@ describe('receiving stock', () => {
   })
 })
 
+describe('receiving stock again', () => {
+  it('gives each delivery its own Idempotency-Key, even one exactly like the delivery before', async () => {
+    commerceApi.catalogueItems = async () => ok({ items: [CIPRO], nextPage: null })
+    commerceApi.stock = async () => ok({ items: [], nextPage: null })
+    const receive = vi.fn(async (..._args: unknown[]) => ok({ lines: [] }))
+    commerceApi.receiveStock = receive
+    renderDept(<ReceiveStock />)
+    async function deliver() {
+      fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'cipro' } })
+      fireEvent.click(await screen.findByRole('button', { name: /Ciprofloxacin/ }))
+      fireEvent.change(screen.getByLabelText('Batch number'), { target: { value: 'CIP-0042' } })
+      fireEvent.change(screen.getByLabelText('Expiry date'), { target: { value: '2030-01-31' } })
+      fireEvent.change(screen.getByLabelText('Quantity'), { target: { value: '100' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Save stock received' }))
+      expect(await screen.findByText('Stock received')).toBeTruthy()
+    }
+    await deliver()
+    fireEvent.click(screen.getByRole('button', { name: 'Receive another delivery' }))
+    await deliver()
+    expect(receive).toHaveBeenCalledTimes(2)
+    expect(receive.mock.calls[1]![1]).toEqual(receive.mock.calls[0]![1])
+    expect(receive.mock.calls[1]![2]).not.toBe(receive.mock.calls[0]![2])
+  })
+})
+
 describe('Sales & receipts', () => {
   it('says billing is not switched on when its bills answer 404', async () => {
     renderDept(<Sales />)
@@ -336,6 +470,63 @@ describe('Sales & receipts', () => {
     await waitFor(() => expect(voidPayment).toHaveBeenCalled())
     expect(voidPayment.mock.calls[0]![3]).toBe('Refund: Customer brought the pack back')
     expect(voidPayment.mock.calls[0]![6]).toBe('till-back')
+  })
+
+  it('reads the next 25 sales with Show more sales, and says only the sales shown are counted until every page is read', async () => {
+    const sale = (id: string, name: string, paidKobo: number, at: string) => ({ ...madeSale({ id, status: 'paid', paidKobo, dueKobo: 0, createdAt: at,
+      patient: { patientId: `p-${id}`, displayName: name, healthIdLast4: null } }) })
+    const calls: { page?: number }[] = []
+    commerceApi.bills = async (...args: never[]) => {
+      const filter = (args[1] ?? {}) as { page?: number }
+      calls.push(filter)
+      return filter.page === 2 ? ok({ items: [sale('s-2', 'Bisi Earlier', 5000, '2026-11-26T08:00:00Z')], nextPage: null })
+        : ok({ items: [sale('s-1', 'Ade Newest', 20000, '2026-11-26T10:00:00Z')], nextPage: 2 })
+    }
+    renderDept(<Sales />)
+    expect(await screen.findByText('Ade Newest')).toBeTruthy()
+    expect(document.body.textContent).toContain('Newest 1 sale today shown · ₦200.00 taken in them')
+    expect(document.body.textContent).not.toContain('1 sale today ·')
+    fireEvent.click(screen.getByRole('button', { name: 'Show more sales' }))
+    expect(await screen.findByText('Bisi Earlier')).toBeTruthy()
+    expect(screen.getByText('Ade Newest')).toBeTruthy()
+    expect(document.body.textContent).toContain('2 sales today · ₦250.00 taken')
+    expect(calls.map(call => call.page)).toEqual([1, 2])
+    expect(screen.queryByRole('button', { name: 'Show more sales' })).toBeNull()
+  })
+
+  it('calls a payment cancelled as recorded by mistake "Cancelled", not a refund, and still offers Take payment on the sale', async () => {
+    session.rest = 'sale-7'
+    const twice = { id: 'pay-x', method: 'cash' as const, amountKobo: 20000, receivedBy: 'Bola Cashier', receivedAt: '2026-11-26T09:05:00Z', voided: true,
+      status: 'recorded' as const, receiptNumber: 'R-2026-000610', voidReason: 'Entered twice', voidedBy: 'Chidi Officer' }
+    commerceApi.bill = async () => ok(madeSale({ id: 'sale-7', status: 'unpaid', paidKobo: 0, dueKobo: 20000, payments: [twice] }))
+    commerceApi.paymentSettings = async () => ok(sellSettings('both'))
+    renderDept(<Sales />)
+    const list = await screen.findByRole('list', { name: 'Cancelled payments' })
+    expect(list.textContent).toBe('Cancelled ₦200.00 (Cash): Entered twice · Chidi Officer')
+    expect(document.body.textContent).not.toMatch(/Refunded/)
+    expect(screen.getByRole('button', { name: /^Take payment ₦200\.00/ })).toBeTruthy()
+  })
+
+  it('still calls a payment given back "Refunded", and never offers to refund a waiver', async () => {
+    session.facility = fakeFacility([...PHARMACIST, 'billing.payment.void'], { id: DEMO_PHARMACY_ID, name: 'Demo Pharmacy', roles: ['pharmacist'] })
+    session.rest = 'sale-8'
+    const back = { id: 'pay-r', method: 'cash' as const, amountKobo: 20000, receivedBy: 'Bola Cashier', receivedAt: '2026-11-26T09:05:00Z', voided: true,
+      status: 'recorded' as const, receiptNumber: 'R-2026-000611', voidReason: 'Refund: Customer brought the pack back', voidedBy: 'Chidi Officer' }
+    commerceApi.bill = async () => ok(madeSale({ id: 'sale-8', status: 'unpaid', paidKobo: 0, dueKobo: 20000, payments: [back] }))
+    commerceApi.paymentSettings = async () => ok(sellSettings('both'))
+    const { unmount } = renderDept(<Sales />)
+    const list = await screen.findByRole('list', { name: 'Refunds' })
+    expect(list.textContent).toBe('Refunded ₦200.00 (Cash): Customer brought the pack back · Chidi Officer')
+    expect(screen.getAllByText('Refunded').length).toBeGreaterThan(0)
+    expect(screen.queryByRole('button', { name: /^Take payment/ })).toBeNull()
+    unmount()
+    session.rest = 'sale-9'
+    const waiver = { id: 'pay-w', method: 'waiver' as const, amountKobo: 20000, receivedBy: 'Bola Cashier', receivedAt: '2026-11-26T09:05:00Z', voided: false,
+      status: 'recorded' as const, receiptNumber: 'R-2026-000612' }
+    commerceApi.bill = async () => ok(madeSale({ id: 'sale-9', status: 'paid', paidKobo: 0, dueKobo: 0, payments: [waiver] }))
+    renderDept(<Sales />)
+    expect(await screen.findByRole('button', { name: 'Print receipt' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Refund' })).toBeNull()
   })
 
   it('names a counter sale by the name given and the last four of a Health ID only', async () => {

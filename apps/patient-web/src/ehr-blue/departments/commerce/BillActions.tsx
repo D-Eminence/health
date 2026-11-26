@@ -18,11 +18,12 @@ import { useCommerceRead } from './useCommerceRead'
 /**
  * What can be done to one bill (hid-system BILL-1), each behind the code the backend checks and through a confirmation
  * that says what it does: confirm a transfer arrived, cancel a payment (a refund is a cancelled payment with "Refund:
- * …", BILL-4), cancel HMO cover, add or cancel a line, "Bill follows" for an emergency, cancel a bill with nothing paid,
- * and print a payment's receipt. The backend refuses the person who took a payment from cancelling or confirming it
- * (SECOND_PERSON_REQUIRED); its words are shown as they come. With a day per till, a payment is cancelled or refunded at
- * a till, whose day records it. An action refused because someone changed the bill meanwhile has the bill read again
- * (`onStale`), and is sent again only when pressed again, with the version read.
+ * …", BILL-4; a waiver took no money, so it is only cancelled, never refunded), cancel HMO cover, add or cancel a line,
+ * "Bill follows" for an emergency, cancel a bill with nothing paid, and print a payment's receipt. The backend refuses
+ * the person who took a payment from cancelling or confirming it (SECOND_PERSON_REQUIRED); its words are shown as they
+ * come. With a day per till, a payment is cancelled or refunded at a till, whose day records it. An action refused
+ * because someone changed the bill meanwhile has the bill read again (`onStale`), and is sent again only when pressed
+ * again, with the version read.
  */
 
 type Sheet =
@@ -38,6 +39,11 @@ const REASON_MIN = 8
 const REASON_MAX = 500
 /** A refund is sent as "Refund: " and the reason, and the server takes 500 characters in all. */
 const REFUND_PREFIX = 'Refund: '
+/**
+ * A payment's cancel button: money taken can be given back (a refund) or have been recorded by mistake; a waiver took no
+ * money, so it is only ever cancelled, never refunded.
+ */
+const voidWord = (payment: Pick<Payment, 'method'>) => voidTakesTill(payment) ? 'Cancel or refund' : 'Cancel waiver'
 /** Refused because the bill changed since it was read: it is read again at once, so the words say so. */
 const BILL_CHANGED = 'Someone else changed this bill meanwhile. It has been read again: check it, then try again.'
 
@@ -92,7 +98,8 @@ export function BillActions({ bill, settings = null, onChanged, onPrint, onStale
           {payment.status === 'pending_check' && can('billing.payment.confirm') && open
             ? <Button size="sm" variant="soft" icon={CircleCheck} onClick={() => setSheet({ kind: 'confirm', payment })}>Confirm transfer</Button> : null}
           {onPrint && payment.receiptNumber ? <Button size="sm" icon={Printer} onClick={() => onPrint(payment)}>Receipt</Button> : null}
-          {can('billing.payment.void') ? <Button size="sm" icon={Undo2} onClick={() => setSheet({ kind: 'void-payment', payment })}>Cancel or refund</Button> : null}
+          {can('billing.payment.void') ? <Button size="sm" icon={Undo2} onClick={() => setSheet({ kind: 'void-payment', payment })}
+            aria-label={`${voidWord(payment)}: ${voidTakesTill(payment) ? `${METHOD_LABEL[payment.method] ?? 'Payment'} ` : ''}${naira(payment.amountKobo)}`}>{voidWord(payment)}</Button> : null}
         </span>
       </li>)}
     </ul> : null}
@@ -103,7 +110,8 @@ export function BillActions({ bill, settings = null, onChanged, onPrint, onStale
           <span className="block font-medium text-ink">HMO to pay · {cover.hmoName} <span className="tabular">{naira(cover.amountKobo)}</span></span>
           <span className="block text-caption text-ink-3">Owed by the HMO, not paid · code {cover.approvalCode} · {cover.recordedBy}</span>
         </span>
-        {can('billing.payment.void') ? <Button size="sm" icon={X} onClick={() => setSheet({ kind: 'cancel-cover', cover })}>Cancel HMO cover</Button> : null}
+        {can('billing.payment.void') ? <Button size="sm" icon={X} onClick={() => setSheet({ kind: 'cancel-cover', cover })}
+          aria-label={`Cancel HMO cover: ${cover.hmoName} ${naira(cover.amountKobo)}`}>Cancel HMO cover</Button> : null}
       </li>)}
     </ul> : null}
 
@@ -149,7 +157,9 @@ function ActionSheet({ bill, sheet, tills, onStale, onClose, onDone }: {
   const [quantity, setQuantity] = useState('1')
   const [tillPicked, setTillPicked] = useState('')
   const needsReason = sheet.kind === 'void-payment' || sheet.kind === 'cancel-cover' || sheet.kind === 'cancel-line' || sheet.kind === 'void-bill'
-  const refunding = sheet.kind === 'void-payment' && refund === 'refund'
+  // Only money taken can be given back: a waiver is cancelled, never "refunded" (its reason is sent as typed).
+  const moneyVoid = sheet.kind === 'void-payment' && voidTakesTill(sheet.payment)
+  const refunding = moneyVoid && refund === 'refund'
   const reasonMax = refunding ? REASON_MAX - REFUND_PREFIX.length : REASON_MAX
   const reasonError = needsReason && (reason.trim().length < REASON_MIN || reason.trim().length > reasonMax)
     ? `Say why, in ${REASON_MIN} to ${reasonMax} characters.` : null
@@ -181,7 +191,7 @@ function ActionSheet({ bill, sheet, tills, onStale, onClose, onDone }: {
       case 'add-line': result = await commerce.addLine(facilityId, bill.id, { catalogueItemId: item!.id, quantity: count, expectedVersion: bill.version }, key); break
     }
     setBusy(false)
-    if (result.ok) { toast.success({ title: DONE[sheet.kind], message: `Bill ${result.data.number}` }); onDone(result.data); return }
+    if (result.ok) { toast.success({ title: sheet.kind === 'void-payment' && !moneyVoid ? 'Waiver cancelled' : DONE[sheet.kind], message: `Bill ${result.data.number}` }); onDone(result.data); return }
     if (!result.notAvailable && (result.code === 'VERSION_CONFLICT' || result.code === 'PRECONDITION_FAILED')) {
       // Nothing was saved: the bill is read again, and the next press is a new request with the version read.
       setKey(crypto.randomUUID()); setProblem(BILL_CHANGED); onStale?.()
@@ -190,7 +200,7 @@ function ActionSheet({ bill, sheet, tills, onStale, onClose, onDone }: {
     setProblem(result.notAvailable ? NOT_SET_UP_UNSAVED : result.error)
   }
 
-  const words = SHEET_WORDS[sheet.kind]
+  const words = sheet.kind === 'void-payment' && !moneyVoid ? WAIVER_WORDS : SHEET_WORDS[sheet.kind]
   let subject: ReactNode = <p className="m-0 text-sm text-ink-2">{billName(bill)} · Bill {bill.number}</p>
   if (sheet.kind === 'confirm' || sheet.kind === 'void-payment') subject = <p className="m-0 text-sm text-ink-2">{billName(bill)} · Bill {bill.number} · {METHOD_LABEL[sheet.payment.method] ?? 'Payment'} <span className="tabular">{naira(sheet.payment.amountKobo)}</span>{sheet.payment.reference ? ` · ref ${sheet.payment.reference}` : ''}</p>
   if (sheet.kind === 'cancel-cover') subject = <p className="m-0 text-sm text-ink-2">{sheet.cover.hmoName} · <span className="tabular">{naira(sheet.cover.amountKobo)}</span> · code {sheet.cover.approvalCode}</p>
@@ -200,9 +210,9 @@ function ActionSheet({ bill, sheet, tills, onStale, onClose, onDone }: {
     destructive={sheet.kind === 'void-bill' || sheet.kind === 'void-payment'} subject={subject} effect={words.effect} undo={words.undo}
     onConfirm={() => { void run() }}>
     <div className="flex flex-col gap-4">
-      {sheet.kind === 'void-payment' ? <Segmented ariaLabel="Why is it cancelled?" value={refund} onChange={setRefund} className="self-start"
+      {moneyVoid ? <Segmented ariaLabel="Why is it cancelled?" value={refund} onChange={setRefund} className="self-start"
         options={[{ value: 'refund', label: 'Money given back' }, { value: 'cancel', label: 'Recorded by mistake' }]} /> : null}
-      {needsReason ? <Field label={sheet.kind === 'void-payment' && refund === 'refund' ? 'Why is it refunded?' : 'Why?'} htmlFor={`${ids}-reason`}
+      {needsReason ? <Field label={refunding ? 'Why is it refunded?' : sheet.kind === 'void-payment' ? 'Why is it cancelled?' : 'Why?'} htmlFor={`${ids}-reason`}
         error={tried ? reasonError : null} errorId={`${ids}-reason-error`}>
         <Textarea id={`${ids}-reason`} rows={3} maxLength={reasonMax} value={reason} onChange={event => setReason(event.target.value)}
           aria-invalid={Boolean(tried && reasonError)} aria-describedby={tried && reasonError ? `${ids}-reason-error` : undefined} />
@@ -225,6 +235,10 @@ const DONE: Readonly<Record<Sheet['kind'], string>> = {
   confirm: 'Transfer confirmed', 'void-payment': 'Payment cancelled', 'cancel-cover': 'HMO cover cancelled',
   'cancel-line': 'Line cancelled', 'void-bill': 'Bill cancelled', defer: 'Bill follows', 'add-line': 'Item added',
 }
+/** Cancelling a waiver: no money was taken, so none is given back. */
+const WAIVER_WORDS = { title: 'Cancel this waiver?', confirm: 'Cancel waiver',
+  effect: 'The waiver stays on the bill as cancelled, with your name and the reason. What it waived goes back on what is owed.',
+  undo: 'It can’t be undone: record the waiver again if it was right. The person who recorded it can’t cancel it.' }
 const SHEET_WORDS: Readonly<Record<Sheet['kind'], { title: string; confirm: string; effect: string; undo: string }>> = {
   confirm: { title: 'Confirm this transfer?', confirm: 'Money arrived',
     effect: 'You checked the facility’s account and the money arrived with this reference.', undo: 'Only confirm money you can see in the account. The person who recorded it can’t confirm it.' },

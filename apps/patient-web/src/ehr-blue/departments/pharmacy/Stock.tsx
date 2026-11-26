@@ -1,11 +1,11 @@
 import { formatDate, lagosDay } from '@hid/ui/display'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { CalendarClock, ChevronRight, ListPlus, PackagePlus, PackageX, Search, Settings2, SlidersHorizontal, TriangleAlert } from 'lucide-react'
 import { Drawer, Segmented } from '../../../kasuwa/interactive'
 import { ConfirmSheet, PageState } from '../../../kasuwa/parts'
 import { Alert, Badge, Button, Field, FilterTabs, Input, PageHeader, Select, Textarea, cx } from '../../../kasuwa/ui'
 import { useBluePage } from '../../frame/pageContext'
-import { commerce, type CatalogueItem, type ListPage, type StockAdjustment, type StockBatch, type StockLine, type StockMovement } from '../commerce/api'
+import { commerce, ITEM_SEARCH_REFUSED, searchForName, searchTextRefused, type CatalogueItem, type ListPage, type StockAdjustment, type StockBatch, type StockLine, type StockMovement } from '../commerce/api'
 import { BILLING_OFF, NOT_SET_UP_UNSAVED, NotSwitchedOn } from '../commerce/NotSwitchedOn'
 import { useCommerceRead } from '../commerce/useCommerceRead'
 import { useDeptAccess } from '../parts/access'
@@ -60,12 +60,37 @@ function StockList() {
   const [query, setQuery] = useState('')
   const [q, setQ] = useState('')
   useEffect(() => { const timer = setTimeout(() => setQ(query.trim()), 250); return () => clearTimeout(timer) }, [query])
-  const read = useCommerceRead<ListPage<StockLine>>(facilityId && canRead ? `stock:${facilityId}:${tab}:${q}` : null,
-    signal => commerce.stock(facilityId!, { q, ...(tab === 'all' ? {} : { filter: tab }) }, signal))
-  const [openId, setOpenId] = useState<string | null>(null)
+  // 50 items a page (0166 stock_list): Show more reads the next, and keeps those read before it.
+  const [page, setPage] = useState(1)
+  const [earlier, setEarlier] = useState<readonly StockLine[]>([])
+  const [listed, setListed] = useState(`${tab}:${q}`)
+  if (listed !== `${tab}:${q}`) { setListed(`${tab}:${q}`); setPage(1); setEarlier([]) }
+  const read = useCommerceRead<ListPage<StockLine>>(facilityId && canRead ? `stock:${facilityId}:${tab}:${q}:${page}` : null,
+    signal => commerce.stock(facilityId!, { q, ...(tab === 'all' ? {} : { filter: tab }), page }, signal))
   const [counting, setCounting] = useState(false)
-  const lines = read.data?.items ?? []
-  const opened = lines.find(line => line.catalogueItemId === openId) ?? null
+  const lines = useMemo(() => {
+    const seen = new Set<string>()
+    return [...earlier, ...(read.data?.items ?? [])].filter(line => !seen.has(line.catalogueItemId) && Boolean(seen.add(line.catalogueItemId)))
+  }, [earlier, read.data])
+  const more = Boolean(read.data?.nextPage)
+  // The item open: the list's copy, or (once it is off the pages read) the copy it was opened with or last saved as.
+  const [openedCopy, setOpenedCopy] = useState<StockLine | null>(null)
+  const opened = openedCopy ? lines.find(line => line.catalogueItemId === openedCopy.catalogueItemId) ?? openedCopy : null
+  /** An item as saved or read again, put in its place on every page read, then the page read again. */
+  function putInPlace(line: StockLine) {
+    const swap = (list: readonly StockLine[]) => list.map(entry => entry.catalogueItemId === line.catalogueItemId ? line : entry)
+    setEarlier(swap)
+    if (read.data?.items.some(entry => entry.catalogueItemId === line.catalogueItemId)) read.replace({ ...read.data, items: swap(read.data.items) })
+    setOpenedCopy(current => current?.catalogueItemId === line.catalogueItemId ? line : current)
+    read.reload()
+  }
+  /** Refused because someone changed the item meanwhile: no route reads one item, so it is found again by its name. */
+  async function readAgain(line: StockLine) {
+    if (!facilityId) return
+    const fresh = await readStockLineAgain(facilityId, line)
+    if (fresh) putInPlace(fresh)
+    else read.reload()
+  }
 
   if (!facilityId || !canRead) return <div className="flex flex-col gap-6">
     <PageHeader title="Stock" />
@@ -94,20 +119,37 @@ function StockList() {
       </div>
       {read.status === 'error' && lines.length > 0 ? <Alert intent="error" title="Couldn’t refresh stock" size="sm"
         action={<Button size="sm" onClick={read.reload}>Try again</Button>}>{read.error} What is shown may be out of date.</Alert> : null}
-      <PageState loading={read.status === 'loading'} error={lines.length ? null : read.error} hasData={lines.length > 0} onRetry={read.reload}
+      <PageState loading={read.status === 'loading' && lines.length === 0} error={lines.length ? null : read.error} hasData={lines.length > 0} onRetry={read.reload}
         what="stock" rows={4} empty={read.status === 'ready' && lines.length === 0 ? (q
           ? { icon: Search, title: 'Nothing matches', description: 'Check the spelling, or search by another name.' }
           : tab === 'low' ? { icon: PackagePlus, title: 'Nothing is running low', description: 'Items at or below their reorder level show here.' }
             : tab === 'expiring' ? { icon: CalendarClock, title: 'Nothing expiring soon', description: `Batches expiring in the next ${SOON_DAYS} days show here.` }
               : { icon: PackagePlus, title: 'No stock yet', description: 'Receive a delivery to start counting what is on the shelf.' }) : null}>
         <ul aria-label="Stock" className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3 p-0">
-          {lines.map(line => <StockCard key={line.catalogueItemId} line={line} onOpen={() => setOpenId(line.catalogueItemId)} />)}
+          {lines.map(line => <StockCard key={line.catalogueItemId} line={line} onOpen={() => setOpenedCopy(line)} />)}
         </ul>
       </PageState>
+      {more ? <Button className="self-center" loading={read.status === 'loading'}
+        onClick={() => { setEarlier(lines); setPage(read.data!.nextPage!) }}>Show more</Button> : null}
     </>
-    <StockDrawer facilityId={facilityId} line={opened} canManage={canManage} onClose={() => setOpenId(null)} onChanged={read.reload} />
-    {counting ? <StockSettingsSheet facilityId={facilityId} line={null} onClose={() => setCounting(false)} onSaved={() => { setCounting(false); read.reload() }} /> : null}
+    <StockDrawer facilityId={facilityId} line={opened} canManage={canManage} onClose={() => setOpenedCopy(null)} onChanged={putInPlace}
+      onStale={line => { void readAgain(line) }} />
+    {counting ? <StockSettingsSheet facilityId={facilityId} line={null} onClose={() => setCounting(false)} onSaved={() => { setCounting(false); read.reload() }}
+      onStale={read.reload} /> : null}
   </div>
+}
+
+/** One stock line read again: no route reads one, so it is found by its name, on the first few pages of that search. */
+async function readStockLineAgain(facilityId: string, line: StockLine): Promise<StockLine | null> {
+  const q = searchForName(line.name)
+  if (!q) return null
+  for (let page = 1; page <= 5; page += 1) {
+    const result = await commerce.stock(facilityId, { q, page })
+    if (!result.ok) return null
+    const found = result.data.items.find(entry => entry.catalogueItemId === line.catalogueItemId)
+    if (found || !result.data.nextPage) return found ?? null
+  }
+  return null
 }
 
 function StockCard({ line, onOpen }: { readonly line: StockLine; readonly onOpen: () => void }) {
@@ -151,9 +193,12 @@ const REASON_WORD: Readonly<Record<StockAdjustment['reason'], string>> = {
 }
 
 /** One item's batches and movements, and the Adjust step on a batch. */
-function StockDrawer({ facilityId, line, canManage, onClose, onChanged }: {
+function StockDrawer({ facilityId, line, canManage, onClose, onChanged, onStale }: {
   readonly facilityId: string; readonly line: StockLine | null; readonly canManage: boolean
-  readonly onClose: () => void; readonly onChanged: () => void
+  /** The item as saved: put in its place. */
+  readonly onClose: () => void; readonly onChanged: (line: StockLine) => void
+  /** A save refused because someone changed the item meanwhile: read it again. */
+  readonly onStale: (line: StockLine) => void
 }) {
   const movements = useCommerceRead<ListPage<StockMovement>>(line ? `movements:${facilityId}:${line.catalogueItemId}` : null,
     signal => commerce.stockMovements(facilityId, line!.catalogueItemId, signal))
@@ -207,16 +252,16 @@ function StockDrawer({ facilityId, line, canManage, onClose, onChanged }: {
       </section>
     </div>
     <AdjustSheet facilityId={facilityId} line={line} batch={adjusting} onClose={() => setAdjusting(null)}
-      onDone={text => { setAdjusting(null); setSaid(text); movements.reload(); onChanged() }} />
-    {settingUp ? <StockSettingsSheet facilityId={facilityId} line={line} onClose={() => setSettingUp(false)}
-      onSaved={next => { setSettingUp(false); setSaid(`Counted in ${next.unit}, reorder at ${next.reorderLevel}.`); onChanged() }} /> : null}
+      onDone={(text, next) => { setAdjusting(null); setSaid(text); movements.reload(); onChanged(next) }} />
+    {settingUp ? <StockSettingsSheet facilityId={facilityId} line={line} onClose={() => setSettingUp(false)} onStale={() => onStale(line)}
+      onSaved={next => { setSettingUp(false); setSaid(`Counted in ${next.unit}, reorder at ${next.reorderLevel}.`); onChanged(next) }} /> : null}
   </Drawer>
 }
 
 /** Adjust one batch, with a reason: what changes, by how much, and why, confirmed before it is saved. */
 function AdjustSheet({ facilityId, line, batch, onClose, onDone }: {
   readonly facilityId: string; readonly line: StockLine; readonly batch: StockLine['batches'][number] | null
-  readonly onClose: () => void; readonly onDone: (said: string) => void
+  readonly onClose: () => void; readonly onDone: (said: string, line: StockLine) => void
 }) {
   const [direction, setDirection] = useState<'remove' | 'add'>('remove')
   const [amount, setAmount] = useState('')
@@ -244,7 +289,7 @@ function AdjustSheet({ facilityId, line, batch, onClose, onDone }: {
     const change = direction === 'remove' ? -quantity : quantity
     const result = await commerce.adjustStock(facilityId, { catalogueItemId: line.catalogueItemId, batchId: batch.batchId, change, reason, note: note.trim() || null }, key.current)
     setBusy(false)
-    if (result.ok) { onDone(`Batch ${batch.batchNumber}: ${change > 0 ? `+${change}` : change} ${line.unit}, ${REASON_WORD[reason].toLowerCase()}.`); return }
+    if (result.ok) { onDone(`Batch ${batch.batchNumber}: ${change > 0 ? `+${change}` : change} ${line.unit}, ${REASON_WORD[reason].toLowerCase()}.`, result.data); return }
     if (result.notAvailable) { setOff(true); return }
     setError(result.error)
   }
@@ -272,13 +317,20 @@ function AdjustSheet({ facilityId, line, batch, onClose, onDone }: {
   </ConfirmSheet>
 }
 
+/** Stock settings refused because someone changed them meanwhile: read again at once, so the words say so. */
+const SETTINGS_CHANGED = 'Someone else changed this item’s stock settings meanwhile. They have been read again: check them, then save again.'
+/** Counting started by someone else meanwhile: the drug is on the Stock list now, so it is no longer offered here. */
+const COUNTED_MEANWHILE = 'Someone else started counting this drug meanwhile, so it is on the Stock list now. Choose another, or close this.'
+
 /**
  * Stock settings (BILL-1 §7): the unit an item is counted in and its reorder level. For an item already counted, change
  * them (the unit can't change while any batch holds stock: STOCK_UNIT_LOCKED). With no item, choose a drug on the price
  * list whose stock is not counted yet, and start counting it.
  */
-function StockSettingsSheet({ facilityId, line, onClose, onSaved }: {
+function StockSettingsSheet({ facilityId, line, onClose, onSaved, onStale }: {
   readonly facilityId: string; readonly line: StockLine | null; readonly onClose: () => void; readonly onSaved: (line: StockLine) => void
+  /** Refused because someone changed the item's stock meanwhile: read it again (nothing was saved). */
+  readonly onStale: () => void
 }) {
   const [query, setQuery] = useState('')
   const [q, setQ] = useState('')
@@ -292,8 +344,11 @@ function StockSettingsSheet({ facilityId, line, onClose, onSaved }: {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [off, setOff] = useState(false)
-  const [key] = useState(() => crypto.randomUUID())
+  const [key, setKey] = useState(() => crypto.randomUUID())
   const hasStock = Boolean(line && (line.onHand > 0 || (line.expiredOnHand ?? 0) > 0))
+  // The item read again after someone changed it meanwhile: the form shows what they saved, to check before saving again.
+  const [shownVersion, setShownVersion] = useState(line?.version)
+  if (line && line.version !== shownVersion) { setShownVersion(line.version); setUnit(line.unit); setReorder(String(line.reorderLevel)) }
   async function save() {
     if (busy) return
     const target = line?.catalogueItemId ?? itemId
@@ -306,6 +361,14 @@ function StockSettingsSheet({ facilityId, line, onClose, onSaved }: {
     setBusy(false)
     if (result.ok) { onSaved(result.data); return }
     if (result.notAvailable) { setOff(true); return }
+    if (result.code === 'VERSION_CONFLICT' || result.code === 'PRECONDITION_FAILED') {
+      // Nothing was saved: the item is read again, and the next press is a new request with the version read.
+      setKey(crypto.randomUUID())
+      if (line) setError(SETTINGS_CHANGED)
+      else { setItemId(''); found.reload(); setError(COUNTED_MEANWHILE) }
+      onStale()
+      return
+    }
     setError(result.error)
   }
   return <ConfirmSheet open onClose={() => { if (!busy) onClose() }} title={line ? 'Stock settings' : 'Count stock for an item'} busy={busy}
@@ -318,10 +381,15 @@ function StockSettingsSheet({ facilityId, line, onClose, onSaved }: {
         <Field label="Drug" htmlFor="stock-setup-q" hint="Type at least 2 letters of its name.">
           <Input id="stock-setup-q" type="search" autoComplete="off" value={query} className="h-11" onChange={event => { setQuery(event.target.value); setItemId(''); setError('') }} />
         </Field>
-        {q.length >= 2 ? <Select aria-label="Choose the drug" value={itemId} onChange={event => { setItemId(event.target.value); setError('') }}>
-          <option value="">{found.status === 'loading' ? 'Searching…' : choices.length ? 'Choose the drug' : 'No drug without stock counting matches'}</option>
-          {choices.map(item => <option key={item.id} value={item.id}>{item.name}{item.strength ? ` ${item.strength}` : ''}</option>)}
-        </Select> : null}
+        {q.length < 2 ? null
+          // A search refused (a Health ID or NIN typed) or failed says so, never "no drug matches"; a failed one with Try again.
+          : searchTextRefused(q) ? <p role="alert" className="m-0 text-[13px] font-medium text-danger-ink">{ITEM_SEARCH_REFUSED}</p>
+          : found.status === 'error' ? <Alert size="sm" intent="error" title="Couldn’t search the price list"
+            action={<Button size="sm" onClick={found.reload}>Try again</Button>}>{found.error}</Alert>
+            : <Select aria-label="Choose the drug" value={itemId} onChange={event => { setItemId(event.target.value); setError('') }}>
+              <option value="">{found.status === 'loading' ? 'Searching…' : choices.length ? 'Choose the drug' : 'No drug without stock counting matches'}</option>
+              {choices.map(item => <option key={item.id} value={item.id}>{item.name}{item.strength ? ` ${item.strength}` : ''}</option>)}
+            </Select>}
       </> : null}
       <Field label="Counted in" htmlFor="stock-setup-unit" hint={hasStock ? 'It has stock, so the unit can’t change now.' : 'The smallest unit given out: tablet, capsule, bottle, vial.'}>
         <Input id="stock-setup-unit" autoComplete="off" maxLength={40} value={unit} disabled={hasStock} className="h-11" onChange={event => { setUnit(event.target.value); setError('') }} />

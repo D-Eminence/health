@@ -4,6 +4,7 @@ import { Drawer } from '../../../kasuwa/interactive'
 import { Alert, Button, Field, Input, Select, Textarea, cx, type Icon } from '../../../kasuwa/ui'
 import { LoadingRows } from '../../../kasuwa/parts'
 import { useToast } from '../../../kasuwa/toast'
+import { useFocusById } from '../../../staff/focus'
 import { useDeptAccess } from '../parts/access'
 import { commerce, dayTills, METHOD_LABEL, SOURCE_LABEL, billName, type Bill, type CatalogueItem, type PaymentInput, type PaymentMethod, type PaymentSettings, type ReceiptData, type WorkItemBill } from './api'
 import { naira, parseNaira } from './money'
@@ -131,6 +132,12 @@ function TakePaymentDrawer({ bill: given, onPaid, onClose }: {
     till: needsTill && !till ? 'Choose the till this is taken at.' : null,
   }
   const blocked = Object.values(errors).some(Boolean)
+  const focus = useFocusById()
+  /** The fields in the order the form shows them: a payment held back takes the user to the first one to fix. */
+  const fieldOrder: readonly [keyof typeof errors, string][] = [
+    ['amount', `${ids}-amount`], ['given', `${ids}-given`], ['hmo', `${ids}-hmo`], ['reference', `${ids}-ref`], ['reason', `${ids}-reason`],
+    ['till', `${ids}-till`], ['paper', `${ids}-paper`],
+  ]
 
   // The receipt's heading takes focus as it replaces the form, so a screen reader hears it and a key lands in it.
   const receiptRef = useRef<HTMLHeadingElement>(null)
@@ -138,7 +145,12 @@ function TakePaymentDrawer({ bill: given, onPaid, onClose }: {
 
   async function save() {
     setTried(true)
-    if (!facilityId || !bill || !method || blocked || amount === null) return
+    if (blocked) {
+      const first = fieldOrder.find(([field]) => errors[field])
+      if (first) focus(first[1])
+      return
+    }
+    if (!facilityId || !bill || !method || amount === null) return
     setSaving(true); setProblem(null)
     const payment: PaymentInput = {
       method, amountKobo: method === 'waiver' ? due : amount,
@@ -286,8 +298,9 @@ function TakePaymentDrawer({ bill: given, onPaid, onClose }: {
                         {method === 'hmo' ? <>
                           <Alert size="sm" intent="info">Recorded as owed by the HMO, not paid. The HMO pays it after its claim is accepted.</Alert>
                           {hmos.length === 0 ? <Alert size="sm" intent="info">No HMOs are set up yet. Add them in Payment setup.</Alert>
-                            : <Field label="HMO" htmlFor={`${ids}-hmo`} error={tried ? errors.hmo : null}>
-                              <Select id={`${ids}-hmo`} value={chosenHmo?.id ?? ''} onChange={event => setHmoId(event.target.value)} aria-invalid={Boolean(tried && errors.hmo)}>
+                            : <Field label="HMO" htmlFor={`${ids}-hmo`} error={tried ? errors.hmo : null} errorId={`${ids}-hmo-error`}>
+                              <Select id={`${ids}-hmo`} value={chosenHmo?.id ?? ''} onChange={event => setHmoId(event.target.value)} aria-invalid={Boolean(tried && errors.hmo)}
+                                aria-describedby={tried && errors.hmo ? `${ids}-hmo-error` : undefined}>
                                 {hmos.length > 1 ? <option value="">Choose the HMO</option> : null}
                                 {hmos.map(entry => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
                               </Select>
@@ -308,8 +321,9 @@ function TakePaymentDrawer({ bill: given, onPaid, onClose }: {
                         </> : null}
 
                         {needsTill ? (
-                          <Field label="Till" htmlFor={`${ids}-till`} error={tried ? errors.till : null}>
-                            <Select id={`${ids}-till`} value={till?.id ?? ''} onChange={event => setTillPicked(event.target.value)} aria-invalid={Boolean(tried && errors.till)}>
+                          <Field label="Till" htmlFor={`${ids}-till`} error={tried ? errors.till : null} errorId={`${ids}-till-error`}>
+                            <Select id={`${ids}-till`} value={till?.id ?? ''} onChange={event => setTillPicked(event.target.value)} aria-invalid={Boolean(tried && errors.till)}
+                              aria-describedby={tried && errors.till ? `${ids}-till-error` : undefined}>
                               {tills.length > 1 ? <option value="">Choose the till</option> : null}
                               {tills.map(entry => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
                             </Select>

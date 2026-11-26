@@ -27,8 +27,13 @@ const localDay = () => lagosDay()
 /** "14:05", Lagos time: the list shows today's sales only by default, and "All" sales show their date (below). */
 const clock = (iso: string) => formatTime(iso)
 
-/** Money given back on a sale: its payments taken back (each recorded with the reason). */
-const refundedOf = (bill: Bill) => bill.payments.filter(payment => payment.voided).reduce((sum, payment) => sum + payment.amountKobo, 0)
+/**
+ * A cancelled payment that was a refund: money given back, sent as "Refund: " and the reason (BILL-4). Any other was
+ * cancelled as recorded by mistake (Payments' "Recorded by mistake", or a waiver cancelled): no money went back.
+ */
+const isRefund = (payment: Payment) => payment.voided && /^Refund:/i.test(payment.voidReason ?? '')
+/** Money given back on a sale: its refunds only. */
+const refundedOf = (bill: Bill) => bill.payments.filter(isRefund).reduce((sum, payment) => sum + payment.amountKobo, 0)
 
 /** A sale's state in a word: Paid, Unpaid ₦x, Part paid, Bill follows, Refunded. */
 function saleState(bill: Bill): { word: string; tone: Tone } {
@@ -64,9 +69,19 @@ function SalesList({ when, onWhen, query, onQuery }: {
   const [q, setQ] = useState(query.trim())
   useEffect(() => { const timer = setTimeout(() => setQ(query.trim()), 250); return () => clearTimeout(timer) }, [query])
   const date = when === 'today' ? localDay() : undefined
-  const read = useCommerceRead<ListPage<Bill>>(facilityId && canRead ? `sales:${facilityId}:${date ?? ''}:${q}` : null,
-    signal => commerce.bills(facilityId!, { source: 'pharmacy', date, q }, signal))
-  const bills = useMemo(() => [...(read.data?.items ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt)), [read.data])
+  // 25 sales a page (BILL-1 GET bills), newest first: Show more reads the next, and keeps those read before it.
+  const [page, setPage] = useState(1)
+  const [earlier, setEarlier] = useState<readonly Bill[]>([])
+  const [listed, setListed] = useState(`${date ?? ''}:${q}`)
+  if (listed !== `${date ?? ''}:${q}`) { setListed(`${date ?? ''}:${q}`); setPage(1); setEarlier([]) }
+  const read = useCommerceRead<ListPage<Bill>>(facilityId && canRead ? `sales:${facilityId}:${date ?? ''}:${q}:${page}` : null,
+    signal => commerce.bills(facilityId!, { source: 'pharmacy', date, q, page }, signal))
+  const bills = useMemo(() => {
+    const seen = new Set<string>()
+    return [...earlier, ...(read.data?.items ?? [])].filter(bill => !seen.has(bill.id) && Boolean(seen.add(bill.id)))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+  }, [earlier, read.data])
+  const more = Boolean(read.data?.nextPage)
   const taken = bills.reduce((sum, bill) => sum + bill.paidKobo, 0)
 
   if (!facilityId || !canRead) return <div className="flex flex-col gap-6">
@@ -75,8 +90,10 @@ function SalesList({ when, onWhen, query, onQuery }: {
   </div>
 
   return <div className="flex flex-col gap-5">
-    <PageHeader title="Sales & receipts" description={when === 'today' && read.status === 'ready'
-      ? <><span className="tabular">{bills.length}</span> {bills.length === 1 ? 'sale' : 'sales'} today · <span className="font-medium text-ink tabular">{naira(taken)}</span> taken</> : undefined} />
+    {/* Today's count and takings once every page of today is read; until then, only the sales shown, said as such. */}
+    <PageHeader title="Sales & receipts" description={when === 'today' && read.status === 'ready' && !q
+      ? more ? <>Newest <span className="tabular">{bills.length}</span> {bills.length === 1 ? 'sale' : 'sales'} today shown · <span className="font-medium text-ink tabular">{naira(taken)}</span> taken in them</>
+        : <><span className="tabular">{bills.length}</span> {bills.length === 1 ? 'sale' : 'sales'} today · <span className="font-medium text-ink tabular">{naira(taken)}</span> taken</> : undefined} />
     <div className="flex flex-col gap-3 @3xl:flex-row @3xl:flex-wrap @3xl:items-center @3xl:justify-between">
       <FilterTabs<When> label="Which sales" value={when} onChange={onWhen} options={[{ value: 'today', label: 'Today' }, { value: 'all', label: 'All' }]} />
       <div className="relative min-w-0 @3xl:w-80">
@@ -89,7 +106,7 @@ function SalesList({ when, onWhen, query, onQuery }: {
     {read.status === 'error' && bills.length > 0 ? <Alert intent="error" size="sm" title="Couldn’t refresh sales"
       action={<Button size="sm" onClick={read.reload}>Try again</Button>}>{read.error}</Alert> : null}
     {read.status === 'off' ? <NotSwitchedOn message={BILLING_OFF} /> : null}
-    <PageState loading={read.status === 'loading'} error={bills.length ? null : read.error} hasData={bills.length > 0} onRetry={read.reload}
+    <PageState loading={read.status === 'loading' && bills.length === 0} error={bills.length ? null : read.error} hasData={bills.length > 0} onRetry={read.reload}
       what="sales" rows={4} empty={read.status !== 'loading' && read.status !== 'off' && bills.length === 0 ? (q
         ? { icon: Search, title: 'No sale matches that', description: 'Try the bill number as on the slip (B-000412), or part of the name.' }
         : { icon: ReceiptText, title: when === 'today' ? 'No sales yet today' : 'No sales yet', description: 'Sales from the counter and prescriptions show here.' }) : null}>
@@ -97,6 +114,8 @@ function SalesList({ when, onWhen, query, onQuery }: {
         {bills.map(bill => <SaleCard key={bill.id} bill={bill} today={when === 'today'} />)}
       </ul>
     </PageState>
+    {more ? <Button className="self-center" loading={read.status === 'loading'}
+      onClick={() => { setEarlier(bills); setPage(read.data!.nextPage!) }}>Show more sales</Button> : null}
   </div>
 }
 
@@ -149,6 +168,7 @@ function SaleRecord({ billId }: { readonly billId: string }) {
       empty={null}>{read.status === 'off' ? <NotSwitchedOn message={BILLING_OFF} /> : null}</PageState>
   </div>
 
+  // A refunded sale is not asked for again; a payment cancelled as recorded by mistake leaves the sale owed.
   const owed = (bill.status === 'unpaid' || bill.status === 'part_paid') && refundedOf(bill) === 0
   const canPay = owed && permissions.includes('billing.payment.record')
   // A counter sale paid but not yet handed over: finish it here. A counter sale is always paid first (BILL-1 §8).
@@ -165,17 +185,20 @@ function SaleRecord({ billId }: { readonly billId: string }) {
     }
     setHanding({ busy: false, error: result.notAvailable ? NOT_SWITCHED_ON : result.error, key })
   }
-  const refundable = bill.payments.filter(payment => !payment.voided)
+  // Only money taken is given back: a waiver took none (it is cancelled on the bill in Payments, never refunded).
+  const refundable = bill.payments.filter(payment => !payment.voided && voidTakesTill(payment))
   const canRefund = refundable.length > 0 && permissions.includes('billing.payment.void')
   const state = saleState(bill)
+  const cancelled = bill.payments.filter(payment => payment.voided)
 
   return <div data-layout="column" className="mx-auto flex w-full max-w-2xl flex-col gap-5">
     <PageHeader back={back} title={<>{billName(bill)}</>}
       description={<><span className="tabular">Bill {bill.number}</span> · {timeAgo(bill.createdAt)} · <Badge size="sm" tone={state.tone}>{state.word}</Badge></>} />
     <Receipt bill={bill} receipt={receipt.data} facilityName={facility?.name} hmos={settings.data?.hmos} footer={settings.data?.receiptFooter} />
-    {refundedOf(bill) > 0 ? <ul aria-label="Refunds" className="m-0 flex list-none flex-col gap-1 p-0 text-[14px] text-ink-2">
-      {bill.payments.filter(payment => payment.voided).map(payment => <li key={payment.id}>
-        Refunded <span className="font-medium text-ink tabular">{naira(payment.amountKobo)}</span> ({METHOD_LABEL[payment.method] ?? 'Payment'}){payment.voidReason ? `: ${payment.voidReason.replace(/^Refund:\s*/, '')}` : ''}{payment.voidedBy ? ` · ${payment.voidedBy}` : ''}</li>)}
+    {cancelled.length > 0 ? <ul aria-label={cancelled.every(isRefund) ? 'Refunds' : cancelled.some(isRefund) ? 'Refunds and cancelled payments' : 'Cancelled payments'}
+      className="m-0 flex list-none flex-col gap-1 p-0 text-[14px] text-ink-2">
+      {cancelled.map(payment => <li key={payment.id}>
+        {isRefund(payment) ? 'Refunded' : 'Cancelled'} <span className="font-medium text-ink tabular">{naira(payment.amountKobo)}</span> ({METHOD_LABEL[payment.method] ?? 'Payment'}){payment.voidReason ? `: ${payment.voidReason.replace(/^Refund:\s*/i, '')}` : ''}{payment.voidedBy ? ` · ${payment.voidedBy}` : ''}</li>)}
     </ul> : null}
     {toHandOver ? <Alert intent="warning" title="Not handed over yet"
       action={<Button size="sm" icon={PackageCheck} aria-busy={handing.busy || undefined} aria-disabled={handing.busy || undefined} onClick={() => void handOver()}>

@@ -93,6 +93,8 @@ function ReceiveForm({ facilityId }: { readonly facilityId: string }) {
     setError(result.error)
   }
   function again() {
+    // Another delivery is a new one, even if it is typed exactly like this one: its own Idempotency-Key.
+    keyFor.next()
     setSupplier(''); setInvoice(''); setLines([newLine()]); setErrors({}); setSaved(null)
     focus('receive-supplier')
   }

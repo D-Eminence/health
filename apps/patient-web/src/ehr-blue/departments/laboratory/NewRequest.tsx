@@ -19,6 +19,8 @@ import { errorText } from '../parts/errors'
 import { MadeHealthIdPanel, NewHealthIdForm } from '../pharmacy/newHealthId'
 import { PaidLine, PaymentStep, usePaymentSettings } from '../pharmacy/pointOfCare'
 import { billOwing, paysFirst, summaryOf } from '../pharmacy/pocFields'
+// One Idempotency-Key per request as typed (a resend reuses it); `next()` gives the next request its own.
+import { useAttemptKey } from '../pharmacy/walkIn'
 import { Labels, usePrint, type SampleLabel } from './labPrint'
 import { normalizeHealthId, normalizePhone, stampText } from './labText'
 
@@ -54,15 +56,6 @@ function outsideOf(doctor: Doctor): OutsideOrder | null {
     prescriberEmail: doctor.email.trim() || null, prescriberPhone: doctor.phone.trim() ? normalizePhone(doctor.phone) : null,
     photoFileId: doctor.photo?.fileId ?? null,
   } : null
-}
-
-/** One Idempotency-Key per request as typed: sending the same again (after a lost answer, a refusal) reuses it. */
-function useAttemptKey() {
-  const attempt = useRef<{ signature: string; key: string } | null>(null)
-  return (signature: string) => {
-    if (attempt.current?.signature !== signature) attempt.current = { signature, key: crypto.randomUUID() }
-    return attempt.current.key
-  }
 }
 
 /** A step: open while it is being done, folded to one line with Change once done, not shown before it is reached. */
@@ -171,6 +164,7 @@ function RequestForm({ facilityId, permissions }: { readonly facilityId: string;
     setSendError(result.error)
   }
   function again() {
+    keyFor.next()
     setStep(1); setTests([]); setPriority('routine'); setBasics(EMPTY_BASICS); photoUpload.release(doctor.photo); setDoctor(EMPTY_DOCTOR)
     setCreated(null); setCleared(null); setPayLater(false); setCollected(null); setCollectLater(false); setSendError(''); setOff(false)
     focus(SEARCH_ID)
