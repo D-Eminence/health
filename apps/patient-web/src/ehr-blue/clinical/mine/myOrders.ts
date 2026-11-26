@@ -1,4 +1,5 @@
 import { isHidApiError } from '@hid/http'
+import { formatDate, formatDateTime } from '@hid/ui/display'
 import type { MyOrder, MyOrdersKindFilter } from '../../../staff/api'
 import { errorText } from '../../departments/parts/errors'
 import { lagosToday } from '../../departments/waiting/waitingRules'
@@ -87,16 +88,12 @@ export function sinceRefusalWords(caught: unknown): string {
   return isHidApiError(caught) && caught.code === 'MY_ORDERS_SINCE_TOO_OLD' ? SINCE_TOO_OLD : SINCE_IN_FUTURE
 }
 
-/** When an order was made, in West Africa Time as its progress words are (progress.ts), never all in numbers. */
-const LAGOS_MOMENT = new Intl.DateTimeFormat('en-GB', {
-  timeZone: 'Africa/Lagos', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
-})
-
-/** "20 Nov 2026, 10:15" in Lagos for the order's createdAt; '' when it is missing or not a date. */
+/**
+ * "20 Nov 2026, 10:15" in Lagos for the order's createdAt, as its progress words are (progress.ts), never all in
+ * numbers; '' when it is missing or not a date. Lagos time comes from the one helper (@hid/ui/display, P2-4).
+ */
 export function orderedWhen(value: string | null | undefined): string {
-  if (!value) return ''
-  const at = new Date(value)
-  return Number.isNaN(at.getTime()) ? '' : LAGOS_MOMENT.format(at)
+  return formatDateTime(value)
 }
 
 /** The earliest day the list can start from, in Lagos: today 2 years ago (29 Feb is taken as 28 Feb). */
@@ -116,10 +113,8 @@ export function sinceProblem(value: string, today: string = lagosToday()): strin
 
 /** "21 Nov 2026" for a server day ("2026-11-21"), never all in numbers. */
 export function dayWords(value: string): string {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
-  if (!match) return ''
-  const day = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])))
-  return Number.isNaN(day.getTime()) ? '' : day.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
+  // Only a server day is taken: the day as written, never moved by a zone (formatDate keeps a calendar day as it is).
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? formatDate(value) : ''
 }
 
 /** What the list covers: the contract's words for the first view, the day chosen after "Look further back". */
