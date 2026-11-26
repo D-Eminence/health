@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { BoundaryViolationError, assertEndpointAllowed } from '../boundaries'
 import { BrowserRouteError, assertRegisteredBrowserRequest } from '../browser-routes'
-import { findEndpoint } from '../registry'
+import { HID_ENDPOINTS, findEndpoint } from '../registry'
 
 /**
  * Nursing on the ward (hid-system NUR-1, migrations 0174-0177, on claude/sprint-inpatient-backend, #343), as the blue
@@ -28,8 +28,17 @@ describe('nursing routes (hid-system NUR-1)', () => {
     expect(findEndpoint('ehr.clinicalShifts')?.permissions).toEqual({ POST: ['ehr.clinical-shift.manage'] })
     expect(findEndpoint('ehr.shiftAssignments')?.permissions).toEqual({ PUT: ['ehr.shift-assignment.manage'] })
     expect(findEndpoint('ehr.handoverPatient')?.permissions).toEqual({ PUT: ['ehr.handover.write'] })
-    // The ward list opens with either ward code, so none is listed as required.
-    expect(findEndpoint('ehr.wards')?.permissions).toBeUndefined()
+    // ADT-1's reads the nursing pages stand on, registered as ADT-1's own pages register them (health#335), so the two
+    // never disagree: the ward list opens with either ward code, so none is listed for GET.
+    expect(findEndpoint('ehr.wards')?.methods).toEqual(['GET', 'POST'])
+    expect(findEndpoint('ehr.wards')?.permissions).toEqual({ POST: ['ehr.ward.manage'] })
+    expect(findEndpoint('ehr.admissions')?.methods).toEqual(['GET', 'POST'])
+    expect(findEndpoint('ehr.admissions')?.permissions).toEqual({ GET: ['ehr.ward.read'], POST: ['ehr.admission.read', 'ehr.admission.decide'] })
+    expect(findEndpoint('ehr.admission')?.methods).toEqual(['GET', 'PATCH'])
+    expect(findEndpoint('ehr.admission')?.permissions).toEqual({ GET: ['ehr.ward.read'], PATCH: ['ehr.admission.read', 'ehr.admission.decide'] })
+    for (const name of ['ehr.wards', 'ehr.admissions', 'ehr.admission']) {
+      expect(HID_ENDPOINTS.filter(endpoint => endpoint.name === name)).toHaveLength(1)
+    }
   })
 
   it('tells the ward round from a stay’s record, and a task from its steps', () => {

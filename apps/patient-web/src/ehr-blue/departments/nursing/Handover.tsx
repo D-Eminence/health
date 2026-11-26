@@ -4,6 +4,7 @@ import { EhrBadge, EhrButton, EhrEmptyState, EhrField, EhrInput, EhrSelect, EhrT
 import { lagosClock } from '@hid/ui/display'
 import { isHidApiError } from '@hid/http'
 import { nursingApi, type ClinicalShift, type HandoverPatient, type HandoverSheet } from '../../../staff/api'
+import { useFocusById } from '../../../staff/focus'
 import { useDeptAccess } from '../parts/access'
 import { DeptNotice } from '../parts/DeptNotice'
 import { DeptPage, DeptSection, DeptUnavailable } from '../parts/DeptPage'
@@ -104,6 +105,7 @@ function Sheet({ facilityId, query }: { readonly facilityId: string; readonly qu
   const loader = useCallback((id: string) => learning(nursingApi.handover(id, { wardId, date, shiftId })), [wardId, date, shiftId])
   const sheet = useFacilityRead(facilityId, true, loader, 'The handover could not be loaded.')
   const keyFor = useIdempotencyKeys()
+  const focus = useFocusById()
   const [problem, setProblem] = useState('')
   const [done, setDone] = useState('')
   const value = sheet.value
@@ -112,13 +114,16 @@ function Sheet({ facilityId, query }: { readonly facilityId: string; readonly qu
   const write = canWriteHandover(permissions)
 
   async function step(chosen: 'give' | 'accept', current: HandoverSheet) {
-    if (!current.handoverId || current.rowVersion === null) return
+    const { handoverId, rowVersion } = current
+    if (!handoverId || rowVersion === null) return
     setProblem('')
     setDone('')
     try {
-      await nursingApi.handoverStep(facilityId, { handoverId: current.handoverId, rowVersion: current.rowVersion }, chosen,
-        keyFor(`handover-${chosen}`, { id: current.handoverId, version: current.rowVersion }))
+      await keyFor.send(`handover-${chosen}`, { id: handoverId, version: rowVersion },
+        key => nursingApi.handoverStep(facilityId, { handoverId, rowVersion }, chosen, key))
       setDone(chosen === 'give' ? 'Handover given. A nurse on the next shift accepts it.' : 'Handover accepted.')
+      // The button goes as the sheet is read again: focus on the sheet's heading.
+      focus(SHEET_ID)
       void sheet.refresh()
     } catch (caught) {
       setProblem(refusalWords(caught, 'The handover could not be changed. Try again.'))
@@ -127,7 +132,7 @@ function Sheet({ facilityId, query }: { readonly facilityId: string; readonly qu
 
   const team = (ids: readonly string[]) => ids.length === 0 ? 'No one assigned' : ids.map(id => memberText(id, membershipId, names)).join(', ')
   return (
-    <DeptSection title={value ? `Handover for ${lagosDate(value.date)}` : 'Handover'} headingId="handover-sheet"
+    <DeptSection title={value ? `Handover for ${lagosDate(value.date)}` : 'Handover'} headingId={SHEET_ID}
       actions={<EhrButton variant="secondary" size="sm" onClick={() => void sheet.refresh()}>Refresh</EhrButton>}>
       {sheet.caught ? <DeptNotice role="alert" tone={notServed(sheet.caught) ? 'info' : 'critical'}>{refusalWords(sheet.caught, 'The handover could not be loaded.')}</DeptNotice> : null}
       {value === null && sheet.loading ? <p className="hid-ehr-state-message" role="status">Loading the handover…</p> : null}
@@ -163,6 +168,8 @@ function Sheet({ facilityId, query }: { readonly facilityId: string; readonly qu
   )
 }
 
+const SHEET_ID = 'handover-sheet'
+
 /** The note being written, and the note and version it started from. */
 interface NoteDraft { note: string; watch: boolean; from: { note: string; watch: boolean; version: number | null } }
 
@@ -190,7 +197,10 @@ function HandoverRow({ facilityId, sheet, patient, canWrite, keyFor, onRead }: {
   const [draft, setDraft] = useState<NoteDraft | null>(null)
   const [problem, setProblem] = useState('')
   const [chartClosed, setChartClosed] = useState(false)
+  const focus = useFocusById()
   const headingId = `handover-${patient.admissionId}`
+  const writeId = `${headingId}-write`
+  const noteId = `${headingId}-note`
   const editing = draft !== null
 
   // A newer read while the note is open and nothing has been typed: start from the newer note.
@@ -203,7 +213,15 @@ function HandoverRow({ facilityId, sheet, patient, canWrite, keyFor, onRead }: {
     setProblem('')
     setChartClosed(false)
     setDraft(draftOf(patient))
+    focus(noteId)
     onRead()
+  }
+
+  /** The note closes (saved, or Go back): focus on the button that opened it, shown again. */
+  function close() {
+    setDraft(null)
+    setProblem('')
+    focus([writeId, headingId])
   }
 
   async function save(event: FormEvent) {
@@ -217,9 +235,9 @@ function HandoverRow({ facilityId, sheet, patient, canWrite, keyFor, onRead }: {
     if (draft.from.version !== patient.itemRowVersion) { setProblem(NOTE_CHANGED); return }
     const input = { note, watch: draft.watch, ...(draft.from.version !== null ? { expectedRowVersion: draft.from.version } : {}) }
     try {
-      await nursingApi.handoverNote(facilityId, sheet, patient.admissionId, input,
-        keyFor('handover-note', { sheet: sheet.handoverId, admission: patient.admissionId, ...input }))
-      setDraft(null)
+      await keyFor.send('handover-note', { sheet: sheet.handoverId, admission: patient.admissionId, ...input },
+        key => nursingApi.handoverNote(facilityId, sheet, patient.admissionId, input, key))
+      close()
       onRead()
     } catch (caught) {
       if (isChartAccessRefusal(caught)) setChartClosed(true)
@@ -232,7 +250,7 @@ function HandoverRow({ facilityId, sheet, patient, canWrite, keyFor, onRead }: {
   return (
     <li className="hid-ehr-dept-waiting-card" aria-labelledby={headingId}>
       <div className="hid-ehr-dept-waiting-main">
-        <h3 id={headingId} className="hid-ehr-dept-waiting-name">
+        <h3 id={headingId} className="hid-ehr-dept-waiting-name" tabIndex={-1}>
           <PatientLink card={patient.patient} to={`${PATIENT_BASE}/${patient.admissionId}/observations`} />
         </h3>
         <PatientIdentity card={patient.patient} bedName={patient.bedName} />
@@ -251,11 +269,11 @@ function HandoverRow({ facilityId, sheet, patient, canWrite, keyFor, onRead }: {
           <div><dt>Handover note</dt><dd>{patient.noteHidden ? 'Open the record to read the note.' : patient.handoverNote ?? 'No note yet'}</dd></div>
         </dl>
         {canWrite && patient.chartShown && !editing ? (
-          <EhrButton size="sm" variant="secondary" onClick={open}>{patient.handoverNote ? 'Change the note' : 'Write a note'}</EhrButton>
+          <EhrButton id={writeId} size="sm" variant="secondary" onClick={open}>{patient.handoverNote ? 'Change the note' : 'Write a note'}</EhrButton>
         ) : null}
         {draft ? (
           <form className="hid-ehr-dept-nursing-form" onSubmit={event => void save(event)} aria-label={`Handover note for ${patient.patient.nameHidden ? patient.patient.initials : patient.patient.fullName ?? ''}`}>
-            <EhrField label="Handover note" hint="Saved to the patient’s record as a signed nursing handover note.">
+            <EhrField label="Handover note" hint="Saved to the patient’s record as a signed nursing handover note." controlId={noteId}>
               <EhrTextarea value={draft.note} maxLength={2000} onChange={event => setDraft({ ...draft, note: event.target.value })} />
             </EhrField>
             <label className="hid-ehr-dept-waiting-toggle">
@@ -266,7 +284,7 @@ function HandoverRow({ facilityId, sheet, patient, canWrite, keyFor, onRead }: {
             {chartClosed ? <p className="hid-ehr-state-message"><Link className="hid-ehr-dept-link" to="/provider/patients">Find the patient on Patients</Link></p> : null}
             <div className="hid-ehr-dept-nursing-actions">
               <EhrButton type="submit" size="sm">Save the note</EhrButton>
-              <EhrButton size="sm" variant="quiet" onClick={() => { setDraft(null); setProblem('') }}>Go back</EhrButton>
+              <EhrButton size="sm" variant="quiet" onClick={close}>Go back</EhrButton>
             </div>
           </form>
         ) : null}

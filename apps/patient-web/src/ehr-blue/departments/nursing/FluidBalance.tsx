@@ -1,6 +1,7 @@
 import { useCallback, useState, type FormEvent } from 'react'
 import { EhrBadge, EhrButton, EhrEmptyState, EhrField, EhrInput, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
 import { FLUID_IN_KINDS, FLUID_OUT_KINDS, nursingApi, type FluidEntry, type FluidInput, type WardPatientCard } from '../../../staff/api'
+import { useFocusById } from '../../../staff/focus'
 import { useDeptAccess } from '../parts/access'
 import { DeptNotice } from '../parts/DeptNotice'
 import { DeptSection } from '../parts/DeptPage'
@@ -24,6 +25,7 @@ export function FluidBalance({ facilityId, admission }: { readonly facilityId: s
   const [adding, setAdding] = useState(false)
   const [saved, setSaved] = useState('')
   const keyFor = useIdempotencyKeys()
+  const focus = useFocusById()
   const admissionId = admission?.admissionId ?? ''
   const loader = useCallback((id: string) => learning(nursingApi.fluidDay(id, admissionId, day || undefined)), [admissionId, day])
   const fluid = useFacilityRead(facilityId, Boolean(admissionId), loader, 'The fluid balance could not be loaded.')
@@ -39,10 +41,16 @@ export function FluidBalance({ facilityId, admission }: { readonly facilityId: s
       {saved ? <p className="hid-ehr-state-message" role="status">{saved}</p> : null}
       {adding ? (
         <FluidForm facilityId={facilityId} admissionId={admissionId} keyFor={keyFor}
-          onDone={message => { setAdding(false); if (message) { setSaved(message); void fluid.refresh() } }} />
+          onDone={message => {
+            setAdding(false)
+            // Back to the button that opened the form (shown again as it closes).
+            focus([ADD_ID, 'fluid-day'])
+            if (message) { setSaved(message); void fluid.refresh() }
+          }} />
       ) : null}
       <DeptSection title="Fluid balance" headingId="fluid-day"
-        actions={canRecord && !adding ? <EhrButton size="sm" onClick={() => { setSaved(''); setAdding(true) }}>Add intake or output</EhrButton> : undefined}>
+        actions={canRecord && !adding
+          ? <EhrButton id={ADD_ID} size="sm" onClick={() => { setSaved(''); setAdding(true); focus(FORM_ID) }}>Add intake or output</EhrButton> : undefined}>
         <EhrField label="Fluid day" hint="Each fluid day starts at the facility’s hour (07:00 unless it chose another).">
           <EhrInput type="date" value={day} max={lagosDay()} onChange={event => setDay(event.target.value)} />
         </EhrField>
@@ -86,6 +94,9 @@ export function FluidBalance({ facilityId, admission }: { readonly facilityId: s
   )
 }
 
+const ADD_ID = 'fluid-add'
+const FORM_ID = 'fluid-form'
+
 function EntryRow({ facilityId, entry, by, canRecord, keyFor, onChanged }: {
   readonly facilityId: string
   readonly entry: FluidEntry
@@ -97,16 +108,22 @@ function EntryRow({ facilityId, entry, by, canRecord, keyFor, onChanged }: {
   const [marking, setMarking] = useState(false)
   const [reason, setReason] = useState('')
   const [problem, setProblem] = useState('')
+  const focus = useFocusById()
   const inError = entry.status === 'entered_in_error'
   const headingId = `fluid-${entry.entryId}`
+  const markId = `${headingId}-mark`
+  const reasonId = `${headingId}-reason`
   const amount = entry.notMeasured ? 'Not measured' : `${entry.volumeMl ?? 0} mL`
 
   async function mark(event: FormEvent) {
     event.preventDefault()
     if (reason.trim().length < 8) { setProblem('Say why in at least 8 characters.'); return }
     try {
-      await nursingApi.fluidEnteredInError(facilityId, entry, reason.trim(), keyFor('fluid-error', { id: entry.entryId, reason: reason.trim() }))
+      await keyFor.send('fluid-error', { id: entry.entryId, reason: reason.trim() },
+        key => nursingApi.fluidEnteredInError(facilityId, entry, reason.trim(), key))
       setMarking(false)
+      // The entry stays, struck through: focus on it, as the form and its button go.
+      focus(headingId)
       onChanged()
     } catch (caught) {
       setProblem(refusalWords(caught, 'The entry could not be marked. Try again.'))
@@ -116,7 +133,7 @@ function EntryRow({ facilityId, entry, by, canRecord, keyFor, onChanged }: {
   return (
     <li className={['hid-ehr-dept-waiting-card', inError ? 'hid-ehr-dept-nursing-struck' : ''].filter(Boolean).join(' ')} aria-labelledby={headingId}>
       <div className="hid-ehr-dept-waiting-main">
-        <h3 id={headingId} className="hid-ehr-dept-waiting-name">{`${entry.direction === 'in' ? 'In' : 'Out'}: ${FLUID_KIND_WORDS[entry.kind] ?? entry.kind}, ${amount}`}</h3>
+        <h3 id={headingId} className="hid-ehr-dept-waiting-name" tabIndex={-1}>{`${entry.direction === 'in' ? 'In' : 'Out'}: ${FLUID_KIND_WORDS[entry.kind] ?? entry.kind}, ${amount}`}</h3>
         {inError ? <div className="hid-ehr-dept-waiting-badges"><EhrBadge tone="critical">Entered in error</EhrBadge></div> : null}
         <dl className="hid-ehr-dept-waiting-facts">
           <div><dt>Time</dt><dd>{lagosWhen(entry.recordedAt)}</dd></div>
@@ -124,16 +141,17 @@ function EntryRow({ facilityId, entry, by, canRecord, keyFor, onChanged }: {
           <div><dt>Recorded by</dt><dd>{by}</dd></div>
           {inError && entry.enteredInErrorReason ? <div><dt>Why entered in error</dt><dd>{entry.enteredInErrorReason}</dd></div> : null}
         </dl>
-        {canRecord && !inError && !marking ? <EhrButton size="sm" variant="secondary" onClick={() => setMarking(true)}>Mark entered in error</EhrButton> : null}
+        {canRecord && !inError && !marking
+          ? <EhrButton id={markId} size="sm" variant="secondary" onClick={() => { setMarking(true); focus(reasonId) }}>Mark entered in error</EhrButton> : null}
         {marking ? (
           <form className="hid-ehr-dept-nursing-form" onSubmit={event => void mark(event)} aria-label="Mark entered in error">
-            <EhrField label="Why is this entered in error?" hint="At least 8 characters. The entry stays, struck through, out of the totals.">
+            <EhrField label="Why is this entered in error?" hint="At least 8 characters. The entry stays, struck through, out of the totals." controlId={reasonId}>
               <EhrTextarea value={reason} maxLength={500} onChange={event => setReason(event.target.value)} />
             </EhrField>
             {problem ? <DeptNotice role="alert" tone="critical">{problem}</DeptNotice> : null}
             <div className="hid-ehr-dept-nursing-actions">
               <EhrButton type="submit" size="sm" variant="danger">Mark entered in error</EhrButton>
-              <EhrButton size="sm" variant="quiet" onClick={() => { setMarking(false); setProblem('') }}>Go back</EhrButton>
+              <EhrButton size="sm" variant="quiet" onClick={() => { setMarking(false); setProblem(''); focus(markId) }}>Go back</EhrButton>
             </div>
           </form>
         ) : null}
@@ -180,7 +198,7 @@ function FluidForm({ facilityId, admissionId, keyFor, onDone }: {
     const body = fluidBody({ direction, kind, volume, notMeasured, time, note })
     if ('problem' in body) { setProblem(body.problem); return }
     try {
-      await nursingApi.recordFluid(facilityId, admissionId, body, keyFor('fluid', body))
+      await keyFor.send('fluid', body, key => nursingApi.recordFluid(facilityId, admissionId, body, key))
       onDone(`${direction === 'in' ? 'Intake' : 'Output'} saved.`)
     } catch (caught) {
       setProblem(refusalWords(caught, 'The entry could not be saved. Try again.'))
@@ -188,7 +206,7 @@ function FluidForm({ facilityId, admissionId, keyFor, onDone }: {
   }
 
   return (
-    <DeptSection title="Add intake or output">
+    <DeptSection title="Add intake or output" headingId={FORM_ID}>
       <form className="hid-ehr-dept-nursing-form" onSubmit={event => void submit(event)} aria-label="Add intake or output">
         <EhrField label="In or out">
           <EhrSelect value={direction} onChange={event => { setDirection(event.target.value as 'in' | 'out'); setKind('') }}>

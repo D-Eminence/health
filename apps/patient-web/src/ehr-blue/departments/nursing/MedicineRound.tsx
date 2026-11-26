@@ -4,6 +4,7 @@ import { EhrBadge, EhrButton, EhrEmptyState, EhrField, EhrInput, EhrSelect, EhrT
 import {
   DOSE_OUTCOMES, nursingApi, type DoseInput, type DoseOutcome, type DoseRecord, type MarOrder, type SupplySource,
 } from '../../../staff/api'
+import { useFocusById } from '../../../staff/focus'
 import { useDeptAccess } from '../parts/access'
 import { DeptNotice } from '../parts/DeptNotice'
 import { DeptPage, DeptSection, DeptUnavailable } from '../parts/DeptPage'
@@ -113,6 +114,7 @@ export function PatientMedicines({ facilityId, admissionId }: { readonly facilit
   const keyFor = useIdempotencyKeys()
   const [recording, setRecording] = useState<{ order: MarOrder; scheduledFor: string | null } | null>(null)
   const [done, setDone] = useState('')
+  const focus = useFocusById()
   const canRecord = canRecordDose(permissions)
 
   if (record.caught && isChartAccessRefusal(record.caught)) return <ChartAccessNotice />
@@ -132,16 +134,22 @@ export function PatientMedicines({ facilityId, admissionId }: { readonly facilit
         <DoseForm key={`${recording.order.prescriptionId}-${recording.scheduledFor ?? 'any'}`} facilityId={facilityId} admissionId={admissionId}
           order={recordingOrder} given={givenTimes(recordingOrder.prescriptionId)} scheduledFor={recording.scheduledFor} keyFor={keyFor}
           onRefused={() => void record.refresh()}
-          onDone={saved => { setRecording(null); if (saved) { setDone(saved); void record.refresh() } }} />
+          onDone={saved => {
+            // The form goes: focus back on the order (its dose recorded) or on the button that opened it (Go back).
+            const orderId = orderHeadingId(recording.order.prescriptionId)
+            focus(saved ? [orderId, ORDERS_ID] : [recordButtonId(recording.order.prescriptionId, recording.scheduledFor), orderId, ORDERS_ID])
+            setRecording(null)
+            if (saved) { setDone(saved); void record.refresh() }
+          }} />
       ) : null}
       {record.value ? (
-        <DeptSection title="Medicines" headingId="mar-orders"
+        <DeptSection title="Medicines" headingId={ORDERS_ID}
           actions={<EhrButton variant="secondary" size="sm" onClick={() => void record.refresh()}>Refresh</EhrButton>}>
           {orders.length === 0 ? <EhrEmptyState title="No medicines ordered" message="Medicines ordered for this stay show here." /> : (
-            <ul className="hid-ehr-dept-waiting-list" aria-labelledby="mar-orders">
+            <ul className="hid-ehr-dept-waiting-list" aria-labelledby={ORDERS_ID}>
               {orders.map(order => (
                 <OrderRow key={order.prescriptionId} order={order} canRecord={canRecord && recording === null}
-                  onRecord={scheduledFor => { setDone(''); setRecording({ order, scheduledFor }); void record.refresh() }} />
+                  onRecord={scheduledFor => { setDone(''); setRecording({ order, scheduledFor }); focus(DOSE_FORM_ID); void record.refresh() }} />
               ))}
             </ul>
           )}
@@ -165,6 +173,13 @@ export function PatientMedicines({ facilityId, admissionId }: { readonly facilit
   )
 }
 
+const ORDERS_ID = 'mar-orders'
+/** The dose form's heading (and, once recorded with something to check, its "Dose recorded" heading). */
+const DOSE_FORM_ID = 'mar-dose-form'
+const orderHeadingId = (prescriptionId: string) => `order-${prescriptionId}`
+const recordButtonId = (prescriptionId: string, scheduledFor: string | null) =>
+  `${orderHeadingId(prescriptionId)}-record-${scheduledFor ? Date.parse(scheduledFor) : 'any'}`
+
 const MAR_CHANGED = 'The medicines have changed since they were read. They have been read again: check the dose and save it again.'
 
 function orderTitle(order: Pick<MarOrder, 'medicationDisplay' | 'strength' | 'doseForm'>) {
@@ -176,7 +191,7 @@ function OrderRow({ order, canRecord, onRecord }: {
   readonly canRecord: boolean
   readonly onRecord: (scheduledFor: string | null) => void
 }) {
-  const headingId = `order-${order.prescriptionId}`
+  const headingId = orderHeadingId(order.prescriptionId)
   const active = order.status === 'active'
   const scheduled = order.schedule !== null && order.schedule.kind !== 'as_needed'
   // A dose is recorded once it is due (60 minutes either side of its time) or late; an upcoming one waits.
@@ -184,7 +199,7 @@ function OrderRow({ order, canRecord, onRecord }: {
   return (
     <li className="hid-ehr-dept-waiting-card" aria-labelledby={headingId}>
       <div className="hid-ehr-dept-waiting-main">
-        <h3 id={headingId} className="hid-ehr-dept-waiting-name">{orderTitle(order)}</h3>
+        <h3 id={headingId} className="hid-ehr-dept-waiting-name" tabIndex={-1}>{orderTitle(order)}</h3>
         <dl className="hid-ehr-dept-waiting-facts">
           <div><dt>Dose</dt><dd>{order.dose ? `${order.dose.quantity} ${order.dose.unit}` : '—'}{order.route ? `, ${order.route}` : ''}</dd></div>
           <div><dt>When</dt><dd>{order.schedule ? `${SCHEDULE_WORDS[order.schedule.kind]}${order.schedule.times?.length ? `: ${order.schedule.times.join(', ')}` : ''}` : 'No schedule'}</dd></div>
@@ -207,14 +222,17 @@ function OrderRow({ order, canRecord, onRecord }: {
                 <span>{lagosWhen(dose.scheduledFor)}</span>
                 <EhrBadge tone={doseStateTone(dose.state)}>{DOSE_STATE_WORDS[dose.state]}</EhrBadge>
                 {canRecord && active && !dose.administrationId && open.includes(dose)
-                  ? <EhrButton size="sm" variant="secondary" onClick={() => onRecord(dose.scheduledFor)}>{`Record ${lagosWhen(dose.scheduledFor)} dose`}</EhrButton> : null}
+                  ? <EhrButton id={recordButtonId(order.prescriptionId, dose.scheduledFor)} size="sm" variant="secondary"
+                    onClick={() => onRecord(dose.scheduledFor)}>{`Record ${lagosWhen(dose.scheduledFor)} dose`}</EhrButton> : null}
               </li>
             ))}
           </ul>
         ) : null}
         {canRecord && active && !scheduled ? (
           <div className="hid-ehr-dept-nursing-actions">
-            <EhrButton size="sm" onClick={() => onRecord(null)}>{order.asNeeded ? 'Record an as-needed dose' : 'Record a dose'}</EhrButton>
+            <EhrButton id={recordButtonId(order.prescriptionId, null)} size="sm" onClick={() => onRecord(null)}>
+              {order.asNeeded ? 'Record an as-needed dose' : 'Record a dose'}
+            </EhrButton>
           </div>
         ) : null}
       </div>
@@ -257,6 +275,7 @@ function DoseForm({ facilityId, admissionId, order, given: givenBefore, schedule
   const [problem, setProblem] = useState('')
   const [warnings, setWarnings] = useState<string[] | null>(null)
   const [asked, setAsked] = useState<Asked>({ differs: false, supply: false, overrideAt: null })
+  const focus = useFocusById()
 
   const given = outcome === 'given'
   const givenAt = lagosInputToIso(time)
@@ -297,8 +316,9 @@ function DoseForm({ facilityId, admissionId, order, given: givenBefore, schedule
       if (reasonText.trim()) input.reasonText = reasonText.trim()
     }
     try {
-      const answer = await nursingApi.recordDose(facilityId, admissionId, input, keyFor('dose', input))
-      if (answer.warnings.length > 0) { setWarnings(answer.warnings); return }
+      const answer = await keyFor.send('dose', input, key => nursingApi.recordDose(facilityId, admissionId, input, key))
+      // Recorded with something to check: the form gives way to what to check, with focus on its heading.
+      if (answer.warnings.length > 0) { setWarnings(answer.warnings); focus(DOSE_FORM_ID); return }
       onDone(`${OUTCOME_WORDS[outcome]}: ${orderTitle(order)} recorded.`)
     } catch (caught) {
       const code = isHidApiError(caught) ? caught.code : ''
@@ -306,16 +326,17 @@ function DoseForm({ facilityId, admissionId, order, given: givenBefore, schedule
       if (code === 'SUPPLY_SOURCE_REQUIRED') setAsked(previous => ({ ...previous, supply: true }))
       if (code === 'AS_NEEDED_OVERRIDE_REASON_REQUIRED') setAsked(previous => ({ ...previous, overrideAt: givenAt }))
       // A reason sent that the server does not need (a dose since entered in error): the record is read again, and the
-      // form no longer asks for it.
-      setProblem(code === 'VALIDATION_FAILED' && input.overrideReason !== undefined ? MAR_CHANGED
-        : refusalWords(caught, 'The dose could not be recorded. Try again.'))
+      // form no longer asks for it, whatever the server asked before.
+      const overrideRefused = code === 'VALIDATION_FAILED' && input.overrideReason !== undefined
+      if (overrideRefused) setAsked(previous => ({ ...previous, overrideAt: null }))
+      setProblem(overrideRefused ? MAR_CHANGED : refusalWords(caught, 'The dose could not be recorded. Try again.'))
       onRefused()
     }
   }
 
   if (warnings) {
     return (
-      <DeptSection title="Dose recorded">
+      <DeptSection title="Dose recorded" headingId={DOSE_FORM_ID}>
         <DeptNotice tone="caution" title="Check this dose">
           <ul>{warnings.map(code => <li key={code}>{WARNING_WORDS[code] ?? 'Check this dose with the order.'}</li>)}</ul>
         </DeptNotice>
@@ -325,7 +346,7 @@ function DoseForm({ facilityId, admissionId, order, given: givenBefore, schedule
   }
 
   return (
-    <DeptSection title={`Record a dose: ${orderTitle(order)}`}>
+    <DeptSection title={`Record a dose: ${orderTitle(order)}`} headingId={DOSE_FORM_ID}>
       <form className="hid-ehr-dept-nursing-form" onSubmit={event => void submit(event)} aria-label="Record a dose">
         {scheduledFor ? <p className="hid-ehr-state-message">Due {lagosWhen(scheduledFor)}</p> : null}
         <p className="hid-ehr-state-message">Pharmacy: {PHARMACY_WORDS[order.pharmacyState]}</p>
@@ -412,15 +433,21 @@ function DoseRow({ facilityId, dose, order, by, canRecord, keyFor, onChanged }: 
   const [marking, setMarking] = useState(false)
   const [reason, setReason] = useState('')
   const [problem, setProblem] = useState('')
+  const focus = useFocusById()
   const inError = dose.status === 'entered_in_error'
   const headingId = `dose-${dose.administrationId}`
+  const markId = `${headingId}-mark`
+  const reasonId = `${headingId}-reason`
 
   async function mark(event: FormEvent) {
     event.preventDefault()
     if (reason.trim().length < 8) { setProblem('Say why in at least 8 characters.'); return }
     try {
-      await nursingApi.doseEnteredInError(facilityId, dose, reason.trim(), keyFor('dose-error', { id: dose.administrationId, reason: reason.trim() }))
+      await keyFor.send('dose-error', { id: dose.administrationId, reason: reason.trim() },
+        key => nursingApi.doseEnteredInError(facilityId, dose, reason.trim(), key))
       setMarking(false)
+      // The record stays, struck through: focus on it, as the form and its button go.
+      focus(headingId)
       onChanged()
     } catch (caught) {
       setProblem(refusalWords(caught, 'The dose could not be marked. Try again.'))
@@ -430,7 +457,7 @@ function DoseRow({ facilityId, dose, order, by, canRecord, keyFor, onChanged }: 
   return (
     <li className={['hid-ehr-dept-waiting-card', inError ? 'hid-ehr-dept-nursing-struck' : ''].filter(Boolean).join(' ')} aria-labelledby={headingId}>
       <div className="hid-ehr-dept-waiting-main">
-        <h3 id={headingId} className="hid-ehr-dept-waiting-name">{order ? orderTitle(order) : 'Medicine'}</h3>
+        <h3 id={headingId} className="hid-ehr-dept-waiting-name" tabIndex={-1}>{order ? orderTitle(order) : 'Medicine'}</h3>
         <div className="hid-ehr-dept-waiting-badges">
           <EhrBadge tone={dose.outcome === 'given' ? 'positive' : 'caution'}>{OUTCOME_WORDS[dose.outcome]}</EhrBadge>
           {inError ? <EhrBadge tone="critical">Entered in error</EhrBadge> : null}
@@ -452,17 +479,18 @@ function DoseRow({ facilityId, dose, order, by, canRecord, keyFor, onChanged }: 
         </dl>
         {dose.warnings.length > 0 ? <p className="hid-ehr-state-message">{dose.warnings.map(code => WARNING_WORDS[code] ?? '').filter(Boolean).join(' ')}</p> : null}
         {canRecord && !inError && !marking ? (
-          <EhrButton size="sm" variant="secondary" onClick={() => setMarking(true)}>Mark entered in error</EhrButton>
+          <EhrButton id={markId} size="sm" variant="secondary" onClick={() => { setMarking(true); focus(reasonId) }}>Mark entered in error</EhrButton>
         ) : null}
         {marking ? (
           <form className="hid-ehr-dept-nursing-form" onSubmit={event => void mark(event)} aria-label="Mark entered in error">
-            <EhrField label="Why is this entered in error?" hint="At least 8 characters. The record stays, struck through, and the dose is due again.">
+            <EhrField label="Why is this entered in error?" hint="At least 8 characters. The record stays, struck through, and the dose is due again."
+              controlId={reasonId}>
               <EhrTextarea value={reason} maxLength={500} onChange={event => setReason(event.target.value)} />
             </EhrField>
             {problem ? <DeptNotice role="alert" tone="critical">{problem}</DeptNotice> : null}
             <div className="hid-ehr-dept-nursing-actions">
               <EhrButton type="submit" size="sm" variant="danger">Mark entered in error</EhrButton>
-              <EhrButton size="sm" variant="quiet" onClick={() => { setMarking(false); setProblem('') }}>Go back</EhrButton>
+              <EhrButton size="sm" variant="quiet" onClick={() => { setMarking(false); setProblem(''); focus(markId) }}>Go back</EhrButton>
             </div>
           </form>
         ) : null}

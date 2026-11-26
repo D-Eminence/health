@@ -118,6 +118,18 @@ const RELEASE_A = 'Served by hid-system staging-novu-ci-20261005 from Release A 
   + 'main, which answers 404. '
 const ACCOUNT_DELETION_NOTE = 'Novu: hid-system 0096; 404 before'
 /**
+ * Inpatient admission, wards and beds, transfers and discharge (hid-system ADT-1, migrations 0170-0173, provisional;
+ * Release D). Built on hid-system claude/sprint-inpatient-backend (hid-system#343) and not live: an ehr-api before it
+ * answers 404, and while the service flag INPATIENT_ENABLED is off every route answers 503 INPATIENT_NOT_AVAILABLE. Ward
+ * setup (routes 2-6) is healthcare operations; every other route is direct care (the ward list and a bed's status take
+ * either). Every write an Idempotency-Key; wards, beds, admissions and movements by UUID, never a Health ID or NIN in an
+ * address. The death record (route 22), ward-team access (route 23) and the ward charges are switched off or BILL-1's,
+ * and the website calls none of them yet.
+ */
+const ADT_1 = 'hid-system ADT-1 (0170-0173, Release D; claude/sprint-inpatient-backend, hid-system#343, not live): 404 before it, 503 '
+  + 'INPATIENT_NOT_AVAILABLE while INPATIENT_ENABLED is off. X-Facility-ID; every write an Idempotency-Key and, on a ward, bed or '
+  + 'admission, expectedRowVersion (412 WARD_VERSION_CONFLICT or ADMISSION_VERSION_CONFLICT).'
+/**
  * "Notifications on this device" (B6, contract b6-contract.md §3): payload-free Web Push, the subscription stored by
  * Identity. Served by Novu from hid-system 0097, and only once the owner has configured the push keys: before that, and
  * on a backend before 0097, each route answers 404, which the portal takes as not offered (the section is hidden).
@@ -421,9 +433,6 @@ const LATE_CORRECTION_ROUTE = `${LATE_CORRECTION_NOVU} Staff session with X-Faci
 const NUR_1 = 'hid-system NUR-1 (0174-0177, Release D; claude/sprint-inpatient-backend, not live): 404 before it, 503 '
   + 'NURSING_NOT_AVAILABLE while NURSING_ENABLED or INPATIENT_ENABLED is off. X-Facility-ID, direct-care; every write an '
   + 'Idempotency-Key; a stale expectedRowVersion is 412 NURSING_VERSION_CONFLICT.'
-/** ADT-1's reads the nursing pages use (hid-system 0170-0173, the same branch, not live; 503 INPATIENT_NOT_AVAILABLE while off). */
-const ADT_1_READ = 'hid-system ADT-1 (0170-0173, Release D; claude/sprint-inpatient-backend, not live): 404 before it, 503 '
-  + 'INPATIENT_NOT_AVAILABLE while INPATIENT_ENABLED is off. X-Facility-ID; patients, admissions and wards by UUID.'
 const PA = ['PATCH'] as const, PU = ['PUT'] as const, GPU = ['GET', 'PUT'] as const
 
 export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
@@ -1002,21 +1011,31 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     one('PATCH','ehr.encounter.read','ehr.encounter.write'),
     `${RELEASE_A} X-Facility-ID, direct-care. Body { expectedRowVersion, stage?, triageLevel? (null clears), `
     + 'assignedMembershipId? (null clears) }. 200 the card; 409 VISIT_QUEUE_ENTRY_CHANGED or VISIT_QUEUE_ENTRY_CLOSED.')),
+  // Inpatient admission, wards and beds (hid-system ADT-1, 0170-0173, Release D; on the branch claude/sprint-inpatient-backend,
+  // hid-system#343, not live). The pages say "Inpatient care is not switched on yet." on a 404 or 503.
+  // Any one of ehr.ward.read or ehr.ward.manage opens the ward list, so neither is listed as required.
+  proposed(r('ehr.wards','ehr','/api/v1/ehr/wards',GP,false,one('POST','ehr.ward.manage'),
+    `${ADT_1} GET (direct-care or healthcare-operations; ehr.ward.read or ehr.ward.manage) query includeInactive?, `
+    + 'includeBeds? (true): 200 { items: [{ wardId, name, wardType, takes, active, bedCount, overflowCount, occupied, available, '
+    + 'cleaning, maintenance, overflowInUse, staffCount, rowVersion, beds?, staffMembershipIds? }] }, counts only. POST '
+    + '(healthcare-operations) { name (2-80), wardType, takes? } 201 { ward, replayed }; 409 WARD_NAME_TAKEN.')),
+  proposed(r('ehr.admissions','ehr','/api/v1/ehr/admissions',GP,false,{GET:['ehr.ward.read'],POST:['ehr.admission.read','ehr.admission.decide']},
+    `${ADT_1} direct-care. GET query status? (open, requested, admitted, discharge_ready, discharged, cancelled), wardId?, `
+    + 'wardType?: 200 { items: card[], hasMore, limit: 500 }. POST { patientId, source, fromEncounterId?, edAttendanceId?, '
+    + 'visitQueueEntryId?, reason (1-300), careTeam?, responsibleMembershipId, requestedWardId?, motherAdmissionId? } with '
+    + 'chart write access: 201 { admission, replayed }; 409 ADMISSION_ALREADY_OPEN.')),
+  proposed(r('ehr.admission','ehr','/api/v1/ehr/admissions/:admissionId',GPA,false,
+    {GET:['ehr.ward.read'],PATCH:['ehr.admission.read','ehr.admission.decide']},
+    `${ADT_1} direct-care. GET 200 { admission: card, movements } (never the handover text). PATCH { expectedRowVersion, `
+    + 'careTeam?, responsibleMembershipId?, expectedDischargeOn?, reason? } while open.')),
   r('ehr.vitals','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals',GP,false,{GET:['ehr.vital.read'],POST:['ehr.vital.write']}),
   r('ehr.vital','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals/:vitalId',G,false,one('GET','ehr.vital.read')),
   r('ehr.vitalCorrections','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals/:vitalId/corrections',GP,false,{GET:['ehr.vital.read'],POST:['ehr.vital.write']}),
   r('ehr.notes','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/clinical-notes',GP,false,{GET:['ehr.note.read'],POST:['ehr.note.write']}),
   r('ehr.note','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/clinical-notes/:noteId',GPA,false,{GET:['ehr.note.read'],PATCH:['ehr.note.write']}),
   r('ehr.noteRevisions','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/clinical-notes/:noteId/revisions',GP,false,{GET:['ehr.note.read'],POST:['ehr.note.write']}),
-  // Nursing on the ward (hid-system NUR-1, 0174-0177; with ADT-1's three reads it stands on), on the branch
-  // claude/sprint-inpatient-backend (#343), not live: the nursing pages say "not switched on yet" on 404 or 503.
-  proposed(r('ehr.wards','ehr','/api/v1/ehr/wards',G,false,undefined,
-    `${ADT_1_READ} Route 1: open with ehr.ward.read or ehr.ward.manage (either; none is listed as required). Query `
-    + 'includeInactive?, includeBeds? (each ward\'s beds and staffMembershipIds). Counts never name a patient.')),
-  proposed(r('ehr.admissions','ehr','/api/v1/ehr/admissions',G,false,one('GET','ehr.ward.read'),
-    `${ADT_1_READ} Route 11: query status?, wardId?, wardType?. 200 { items: card[], hasMore, limit: 500 }; names under Q190 A.`)),
-  proposed(r('ehr.admission','ehr','/api/v1/ehr/admissions/:admissionId',G,false,one('GET','ehr.ward.read'),
-    `${ADT_1_READ} Route 12: 200 { admission: card, movements } (never the handover text).`)),
+  // Nursing on the ward (hid-system NUR-1, 0174-0177), on the branch claude/sprint-inpatient-backend (#343), not live:
+  // the nursing pages say "not switched on yet" on 404 or 503. ADT-1's ward and admission reads it stands on are above.
   proposed(r('ehr.observationChart','ehr','/api/v1/ehr/admissions/:admissionId/observation-chart',G,false,
     one('GET','ehr.vital.read','ehr.admission.read'),
     `${NUR_1} Route 2: query from?, to? (up to 7 days; default the last 24 hours), view? (all | hourly: the ICU grid). `

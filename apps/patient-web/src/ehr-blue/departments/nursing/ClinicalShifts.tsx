@@ -1,6 +1,7 @@
 import { useCallback, useState, type FormEvent } from 'react'
 import { EhrBadge, EhrButton, EhrEmptyState, EhrField, EhrInput, EhrSelect } from '@hid/ui/ehr'
 import { nursingApi, type ClinicalShift, type ShiftAssignment, type ShiftAssignments, type ShiftDuty } from '../../../staff/api'
+import { useFocusById } from '../../../staff/focus'
 import { useDeptAccess } from '../parts/access'
 import { DeptNotice } from '../parts/DeptNotice'
 import { DeptPage, DeptSection, DeptUnavailable } from '../parts/DeptPage'
@@ -65,7 +66,8 @@ function ShiftRow({ facilityId, shift, manage, keyFor, onChanged }: {
   async function toggle() {
     setProblem('')
     try {
-      await nursingApi.updateShift(facilityId, shift, { active: !shift.active }, keyFor('shift-active', { id: shift.shiftId, version: shift.rowVersion, active: !shift.active }))
+      await keyFor.send('shift-active', { id: shift.shiftId, version: shift.rowVersion, active: !shift.active },
+        key => nursingApi.updateShift(facilityId, shift, { active: !shift.active }, key))
       onChanged()
     } catch (caught) {
       setProblem(refusalWords(caught, 'The shift could not be changed. Try again.'))
@@ -96,8 +98,9 @@ function NewShift({ facilityId, existing, keyFor, onAdded }: {
   const [endsAt, setEndsAt] = useState('')
   const [problem, setProblem] = useState('')
   const [done, setDone] = useState('')
+  const focus = useFocusById()
 
-  async function add(input: { name: string; startsAt: string; endsAt: string }) {
+  async function add(input: { name: string; startsAt: string; endsAt: string }, suggested = false) {
     setProblem('')
     setDone('')
     if (!input.name.trim() || input.name.trim().length > 40) { setProblem('Name the shift in up to 40 characters.'); return }
@@ -107,8 +110,10 @@ function NewShift({ facilityId, existing, keyFor, onAdded }: {
     }
     const body = { name: input.name.trim(), startsAt: input.startsAt, endsAt: input.endsAt }
     try {
-      await nursingApi.createShift(facilityId, body, keyFor('shift-new', body))
+      await keyFor.send('shift-new', body, key => nursingApi.createShift(facilityId, body, key))
       setDone(`${body.name} added.`)
+      // A suggestion added is no longer offered once the shifts are read again: focus on this section's heading.
+      if (suggested) focus(NEW_SHIFT_ID)
       setName('')
       setStartsAt('')
       setEndsAt('')
@@ -121,11 +126,11 @@ function NewShift({ facilityId, existing, keyFor, onAdded }: {
   const named = new Set(existing.filter(shift => shift.active).map(shift => shift.name.toLowerCase()))
   const suggestions = SUGGESTED_SHIFTS.filter(shift => !named.has(shift.name.toLowerCase()))
   return (
-    <DeptSection title="Add a shift">
+    <DeptSection title="Add a shift" headingId={NEW_SHIFT_ID}>
       {suggestions.length > 0 ? (
         <div className="hid-ehr-dept-nursing-actions" aria-label="Suggested shifts">
           {suggestions.map(shift => (
-            <EhrButton key={shift.name} size="sm" variant="secondary" onClick={() => add(shift)}>{`Add ${shift.name} ${shift.startsAt} to ${shift.endsAt}`}</EhrButton>
+            <EhrButton key={shift.name} size="sm" variant="secondary" onClick={() => add(shift, true)}>{`Add ${shift.name} ${shift.startsAt} to ${shift.endsAt}`}</EhrButton>
           ))}
         </div>
       ) : null}
@@ -140,6 +145,10 @@ function NewShift({ facilityId, existing, keyFor, onAdded }: {
     </DeptSection>
   )
 }
+
+const NEW_SHIFT_ID = 'shift-new'
+const ADD_SOMEONE_ID = 'assign-add'
+const whoId = (index: number) => `assign-who-${index}`
 
 interface Row { membershipId: string; duty: ShiftDuty; admissionIds: string[] }
 
@@ -193,6 +202,7 @@ function ShiftList({ facilityId, query, staffIds }: {
   const listed = list.value
   const names = useStaffNames(facilityId, [...staffIds, ...(listed?.assignments.map(row => row.membershipId) ?? [])])
   const keyFor = useIdempotencyKeys()
+  const focus = useFocusById()
   const [problem, setProblem] = useState('')
   const [done, setDone] = useState('')
 
@@ -221,7 +231,7 @@ function ShiftList({ facilityId, query, staffIds }: {
       admissionIds: row.duty === 'on_call_doctor' ? [] : row.admissionIds }))
     const body = { date, shiftId, wardId, expectedVersion: current.version, assignments }
     try {
-      const answer = await nursingApi.setAssignments(facilityId, body, keyFor('assign', body))
+      const answer = await keyFor.send('assign', body, key => nursingApi.setAssignments(facilityId, body, key))
       setRows(null)
       setDone(answer.warnings.includes('icu_nurse_over_two') ? 'Saved. An ICU nurse has more than two patients.' : 'Saved.')
       void list.refresh()
@@ -243,7 +253,7 @@ function ShiftList({ facilityId, query, staffIds }: {
                 return (
                   <li key={index} className="hid-ehr-dept-waiting-card" aria-label={named.line}>
                     <div className="hid-ehr-dept-waiting-main hid-ehr-dept-nursing-form">
-                      <EhrField label="Who">
+                      <EhrField label="Who" controlId={whoId(index)}>
                         <EhrSelect value={row.membershipId} onChange={event => change(index, { membershipId: event.target.value })}>
                           <option value="">Choose</option>
                           {people.map(id => <option key={id} value={id}>{memberText(id, membershipId, names)}</option>)}
@@ -267,7 +277,11 @@ function ShiftList({ facilityId, query, staffIds }: {
                           ))}
                         </fieldset>
                       ) : null}
-                      <EhrButton size="sm" variant="quiet" aria-label={named.remove} onClick={() => setRows(shown.filter((_, at) => at !== index))}>Remove</EhrButton>
+                      <EhrButton size="sm" variant="quiet" aria-label={named.remove} onClick={() => {
+                        setRows(shown.filter((_, at) => at !== index))
+                        // The line goes with its button: focus on the next line, else the one before, else "Add someone".
+                        focus([whoId(index + 1 < shown.length ? index : index - 1), ADD_SOMEONE_ID])
+                      }}>Remove</EhrButton>
                     </div>
                   </li>
                 )
@@ -275,7 +289,10 @@ function ShiftList({ facilityId, query, staffIds }: {
             </ul>
           )}
           <div className="hid-ehr-dept-nursing-actions">
-            <EhrButton size="sm" variant="secondary" onClick={() => setRows([...shown, { membershipId: '', duty: 'nurse', admissionIds: [] }])}>Add someone</EhrButton>
+            <EhrButton id={ADD_SOMEONE_ID} size="sm" variant="secondary" onClick={() => {
+              setRows([...shown, { membershipId: '', duty: 'nurse', admissionIds: [] }])
+              focus(whoId(shown.length))
+            }}>Add someone</EhrButton>
             <EhrButton onClick={() => save(listed)}>Save who is on</EhrButton>
           </div>
           {problem ? <DeptNotice role="alert" tone="critical">{problem}</DeptNotice> : null}

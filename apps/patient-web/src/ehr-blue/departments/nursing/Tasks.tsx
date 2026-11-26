@@ -1,6 +1,7 @@
 import { useCallback, useState, type FormEvent } from 'react'
 import { EhrBadge, EhrButton, EhrEmptyState, EhrField, EhrInput, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
 import { nursingApi, type NursingTask, type WardPatientCard } from '../../../staff/api'
+import { useFocusById } from '../../../staff/focus'
 import { useDeptAccess } from '../parts/access'
 import { DeptNotice } from '../parts/DeptNotice'
 import { DeptPage, DeptSection, DeptUnavailable } from '../parts/DeptPage'
@@ -15,6 +16,10 @@ import { PatientIdentity, PatientLink, ScreenWarning, WardPicker, WardsState, us
 const STATUS_WORDS: Readonly<Record<NursingTask['status'], string>> = {
   assigned: 'To do', in_progress: 'In progress', completed: 'Done', cancelled: 'Cancelled',
 }
+
+/** "New task" and its form's heading: focus goes to the form as it opens, and back to the button as it closes. */
+export const NEW_TASK_ID = 'nursing-task-new'
+export const TASK_FORM_ID = 'nursing-task-form'
 
 /**
  * Nursing tasks (NUR-1 routes 8-10), in place of Akos's sample (the sample engine's "nursing-tasks"): a ward's tasks,
@@ -33,16 +38,19 @@ function WardTasks({ facilityId }: { readonly facilityId: string }) {
   const { wards, active, wardId, choose } = useWardChoice(facilityId)
   const [adding, setAdding] = useState(false)
   const [added, setAdded] = useState(0)
+  const [said, setSaid] = useState('')
+  const focus = useFocusById()
   return (
     <DeptPage eyebrow={EYEBROW} title={TASKS_TITLE} className="hid-ehr-dept-nursing"
       description="Care tasks on the ward: who does what, and when."
       primaryAction={wardId && canWriteTasks(permissions) && canListAdmissions(permissions) && !adding
-        ? <EhrButton onClick={() => setAdding(true)}>New task</EhrButton> : undefined}>
+        ? <EhrButton id={NEW_TASK_ID} onClick={() => { setSaid(''); setAdding(true); focus(TASK_FORM_ID) }}>New task</EhrButton> : undefined}>
       <ScreenWarning />
       <WardsState wards={wards} active={active} />
       {active.length > 1 ? <WardPicker active={active} wardId={wardId} onChoose={choose} /> : null}
+      {said ? <p className="hid-ehr-state-message" role="status">{said}</p> : null}
       {wardId && adding ? <TaskForm facilityId={facilityId} wardId={wardId}
-        onDone={done => { setAdding(false); if (done) setAdded(n => n + 1) }} /> : null}
+        onDone={done => { setAdding(false); focus(NEW_TASK_ID); if (done) { setSaid('Task added.'); setAdded(n => n + 1) } }} /> : null}
       {wardId ? <TaskList key={wardId} facilityId={facilityId} where={{ wardId }} showPatient refreshKey={added} /> : null}
     </DeptPage>
   )
@@ -67,6 +75,8 @@ export function TaskList({ facilityId, where, showPatient, refreshKey = 0 }: {
   const items = tasks.value?.items ?? []
   const names = useStaffNames(facilityId, items.map(task => task.assignedMembershipId))
   const keyFor = useIdempotencyKeys()
+  const focus = useFocusById()
+  const [said, setSaid] = useState('')
   const headingId = `tasks-${status}`
 
   return (
@@ -84,13 +94,20 @@ export function TaskList({ facilityId, where, showPatient, refreshKey = 0 }: {
       </div>
       {tasks.caught ? <DeptNotice role="alert" tone={notServed(tasks.caught) ? 'info' : 'critical'}>{refusalWords(tasks.caught, 'The tasks could not be loaded.')}</DeptNotice> : null}
       {tasks.value === null && tasks.loading ? <p className="hid-ehr-state-message" role="status">Loading the tasks…</p> : null}
+      {said ? <p className="hid-ehr-state-message" role="status">{said}</p> : null}
       {tasks.value !== null && items.length === 0
         ? <EhrEmptyState title={status === 'open' ? 'No open tasks' : 'No done tasks'} message="Tasks show here, the soonest due first." /> : null}
       {items.length > 0 ? (
         <ul className="hid-ehr-dept-waiting-list" aria-labelledby={headingId}>
           {items.map(task => (
             <TaskRow key={task.taskId} facilityId={facilityId} task={task} showPatient={showPatient} me={membershipId}
-              names={names} canWrite={canWriteTasks(permissions)} keyFor={keyFor} onChanged={() => void tasks.refresh()} />
+              names={names} canWrite={canWriteTasks(permissions)} keyFor={keyFor} onStep={() => setSaid('')}
+              onChanged={(message, leaves) => {
+                setSaid(message)
+                // A task done or cancelled leaves the open list as it is read again: focus goes to the list's heading.
+                if (leaves) focus(headingId)
+                void tasks.refresh()
+              }} />
           ))}
         </ul>
       ) : null}
@@ -100,7 +117,7 @@ export function TaskList({ facilityId, where, showPatient, refreshKey = 0 }: {
 
 type Step = 'start' | 'complete' | 'cancel'
 
-function TaskRow({ facilityId, task, showPatient, me, names, canWrite, keyFor, onChanged }: {
+function TaskRow({ facilityId, task, showPatient, me, names, canWrite, keyFor, onStep, onChanged }: {
   readonly facilityId: string
   readonly task: NursingTask
   readonly showPatient: boolean
@@ -108,25 +125,41 @@ function TaskRow({ facilityId, task, showPatient, me, names, canWrite, keyFor, o
   readonly names: ReadonlyMap<string, string | null>
   readonly canWrite: boolean
   readonly keyFor: IdempotencyKeys
-  readonly onChanged: () => void
+  /** A step is begun: what the last one said is cleared. */
+  readonly onStep: () => void
+  /** A step is done: what to say, and whether the task leaves the open list. */
+  readonly onChanged: (message: string, leaves: boolean) => void
 }) {
   const [step, setStep] = useState<Step | null>(null)
   const [text, setText] = useState('')
   const [problem, setProblem] = useState('')
-  const [done, setDone] = useState('')
+  const focus = useFocusById()
   const headingId = `task-${task.taskId}`
+  const textId = `${headingId}-text`
+  const buttonId = (chosen: Step) => `${headingId}-${chosen}`
   const open = task.status === 'assigned' || task.status === 'in_progress'
+
+  /** Opens Complete's or Cancel's form in place of the buttons, with focus in it; Go back puts focus on the button again. */
+  function choose(chosen: Step | null) {
+    const was = step
+    setStep(chosen)
+    setText('')
+    setProblem('')
+    if (chosen) { onStep(); focus(textId) } else if (was) focus(buttonId(was))
+  }
 
   async function send(chosen: Step, extra: { completionRecord?: string; reason?: string }) {
     setProblem('')
+    onStep()
     const body = { task: task.taskId, version: task.rowVersion, chosen, extra }
     try {
-      const answer = await nursingApi.taskStep(facilityId, task, chosen, extra, keyFor(`task-${chosen}`, body))
+      const answer = await keyFor.send(`task-${chosen}`, body, key => nursingApi.taskStep(facilityId, task, chosen, extra, key))
       setStep(null)
       setText('')
-      setDone(chosen === 'complete' && answer.nextTaskId ? 'Task done. The next one is on the list.'
-        : chosen === 'complete' ? 'Task done.' : chosen === 'cancel' ? 'Task cancelled.' : 'Task started.')
-      onChanged()
+      // Started, the task stays on the list: focus on it, as its Start button goes when it is read again.
+      if (chosen === 'start') focus(headingId)
+      onChanged(chosen === 'complete' && answer.nextTaskId ? 'Task done. The next one is on the list.'
+        : chosen === 'complete' ? 'Task done.' : chosen === 'cancel' ? 'Task cancelled.' : 'Task started.', chosen !== 'start')
     } catch (caught) {
       setProblem(refusalWords(caught, 'The task could not be changed. Try again.'))
     }
@@ -145,7 +178,7 @@ function TaskRow({ facilityId, task, showPatient, me, names, canWrite, keyFor, o
   return (
     <li className="hid-ehr-dept-waiting-card hid-ehr-dept-nursing-task" aria-labelledby={headingId}>
       <div className="hid-ehr-dept-waiting-main">
-        <h3 id={headingId} className="hid-ehr-dept-waiting-name">{task.name}</h3>
+        <h3 id={headingId} className="hid-ehr-dept-waiting-name" tabIndex={-1}>{task.name}</h3>
         {showPatient ? (
           <div className="hid-ehr-dept-nursing-patient">
             <PatientLink card={task.patient} to={`${PATIENT_BASE}/${task.admissionId}/tasks`} />
@@ -166,24 +199,23 @@ function TaskRow({ facilityId, task, showPatient, me, names, canWrite, keyFor, o
             <div><dt>Completion record</dt><dd>{task.completionRecord ?? 'Open the patient’s record to read it.'}</dd></div>
           ) : null}
         </dl>
-        {done ? <p className="hid-ehr-state-message" role="status">{done}</p> : null}
         {problem ? <DeptNotice role="alert" tone="critical">{problem}</DeptNotice> : null}
         {canWrite && open && step === null ? (
           <div className="hid-ehr-dept-nursing-actions">
-            {task.status === 'assigned' ? <EhrButton size="sm" onClick={() => send('start', {})}>Start task</EhrButton> : null}
-            {task.status === 'in_progress' ? <EhrButton size="sm" onClick={() => { setStep('complete'); setProblem('') }}>Complete task</EhrButton> : null}
-            <EhrButton size="sm" variant="secondary" onClick={() => { setStep('cancel'); setProblem('') }}>Cancel task</EhrButton>
+            {task.status === 'assigned' ? <EhrButton id={buttonId('start')} size="sm" onClick={() => send('start', {})}>Start task</EhrButton> : null}
+            {task.status === 'in_progress' ? <EhrButton id={buttonId('complete')} size="sm" onClick={() => choose('complete')}>Complete task</EhrButton> : null}
+            <EhrButton id={buttonId('cancel')} size="sm" variant="secondary" onClick={() => choose('cancel')}>Cancel task</EhrButton>
           </div>
         ) : null}
         {step ? (
           <form className="hid-ehr-dept-nursing-form" onSubmit={submit} aria-label={step === 'complete' ? `Complete ${task.name}` : `Cancel ${task.name}`}>
-            <EhrField label={step === 'complete' ? 'Completion record (optional)' : 'Why is it cancelled?'}
+            <EhrField label={step === 'complete' ? 'Completion record (optional)' : 'Why is it cancelled?'} controlId={textId}
               hint={step === 'complete' ? 'What was done and anything to watch. Saved to the patient’s record.' : 'At least 8 characters.'}>
               <EhrTextarea value={text} maxLength={step === 'complete' ? 2000 : 300} onChange={event => setText(event.target.value)} />
             </EhrField>
             <div className="hid-ehr-dept-nursing-actions">
               <EhrButton type="submit" size="sm">{step === 'complete' ? 'Save as done' : 'Cancel the task'}</EhrButton>
-              <EhrButton size="sm" variant="quiet" onClick={() => { setStep(null); setText(''); setProblem('') }}>Go back</EhrButton>
+              <EhrButton size="sm" variant="quiet" onClick={() => choose(null)}>Go back</EhrButton>
             </div>
           </form>
         ) : null}
@@ -228,7 +260,7 @@ export function TaskForm({ facilityId, wardId, admission, onDone }: {
     if (hours !== undefined && (!Number.isInteger(hours) || hours < 1 || hours > 168)) { setProblem('A task can repeat every 1 to 168 hours.'); return }
     const body = { name: name.trim(), dueAt, ...(assignee ? { assignedMembershipId: assignee } : {}), ...(hours ? { repeatEveryHours: hours } : {}) }
     try {
-      await nursingApi.createTask(facilityId, patient, body, keyFor('task-new', { patient, ...body }))
+      await keyFor.send('task-new', { patient, ...body }, key => nursingApi.createTask(facilityId, patient, body, key))
       onDone(true)
     } catch (caught) {
       setProblem(refusalWords(caught, 'The task could not be added. Try again.'))
@@ -237,7 +269,7 @@ export function TaskForm({ facilityId, wardId, admission, onDone }: {
 
   const people = admissions.value?.items ?? []
   return (
-    <DeptSection title="New task">
+    <DeptSection title="New task" headingId={TASK_FORM_ID}>
       <form className="hid-ehr-dept-nursing-form" onSubmit={event => void submit(event)} aria-label="New task">
         {admission ? null : (
           <EhrField label="Patient">

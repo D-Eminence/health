@@ -18,6 +18,8 @@ afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules()
 
 const nav = () => screen.getByRole('navigation', { name: 'Main navigation' })
 const nurse = () => facility(REAL_FACILITY, 'Fictional Hospital', NURSE, ['nurse'])
+/** A press from the keyboard: focus on the control, then its click. */
+const press = (control: HTMLElement) => { control.focus(); fireEvent.click(control) }
 
 describe('Nursing tasks in the frame', () => {
   it('replaces the sample on its address, lists the ward’s tasks with Lagos times and names under Q190 A', async () => {
@@ -123,7 +125,10 @@ describe('Nursing tasks in the frame', () => {
     const sent = serve({
       [SESSION]: [sessionAt(member, [member])],
       [WARDS]: many(() => json({ items: [ward()] })),
-      [ADMISSIONS]: [() => json({ items: [card(), hiddenCard()], hasMore: false, limit: 500 })],
+      // Bed 7 is ready for discharge and still on the ward; a stay still waiting for a bed is not on it yet.
+      [ADMISSIONS]: [() => json({ items: [card(), { ...hiddenCard(), status: 'discharge_ready' },
+        card({ admissionId: 'd0000000-0000-4000-8000-0000000000d3', fullName: 'Waiting Bedless', initials: 'W B', status: 'requested', bedName: null })],
+      hasMore: false, limit: 500 })],
       [TASKS]: many(() => json({ items: [] })),
       [NEW_TASK]: [() => json({ task: task(), replayed: false }, 201)],
     })
@@ -132,6 +137,7 @@ describe('Nursing tasks in the frame', () => {
     fireEvent.click(screen.getByRole('button', { name: 'New task' }))
     const form = await screen.findByRole('form', { name: 'New task' })
     await waitFor(() => expect(within(form).getAllByRole('option').map(option => option.textContent)).toContain('Bed 7 · B T'))
+    expect(within(form).getAllByRole('option').map(option => option.textContent)).not.toContain('W B')
     fireEvent.click(within(form).getByRole('button', { name: 'Add task' }))
     expect(await within(form).findByText('Choose the patient.')).toBeDefined()
     fireEvent.change(within(form).getByLabelText('Patient'), { target: { value: ADMISSION } })
@@ -143,7 +149,50 @@ describe('Nursing tasks in the frame', () => {
     expect(sentTo(sent, NEW_TASK)[0]!.body).toEqual({ name: 'Check blood glucose', dueAt: '2026-12-03T21:30:00.000Z', repeatEveryHours: 4 })
     const url = String(vi.mocked(fetch).mock.calls.find(([address]) => String(address).includes('/ehr/admissions?'))![0])
     expect(new URL(url).searchParams.get('wardId')).toBe(WARD)
+    expect(new URL(url).searchParams.get('status')).toBe('open')
+    expect(await screen.findByText('Task added.')).toBeDefined()
     noIdentityInAddresses()
+  })
+
+  it('keeps focus with each form: in it as it opens, back on its button as it closes, on the list once a task leaves it', async () => {
+    const member = nurse()
+    const started = task({ status: 'in_progress', rowVersion: 4 })
+    serve({
+      [SESSION]: [sessionAt(member, [member])],
+      [WARDS]: many(() => json({ items: [ward()] })),
+      [ADMISSIONS]: many(() => json({ items: [card()], hasMore: false, limit: 500 })),
+      // Read first, again once started, and again once cancelled.
+      [TASKS]: [() => json({ items: [task()] }), () => json({ items: [started] }), ...many(() => json({ items: [] }))],
+      [taskStep('start')]: [() => json({ task: started, replayed: false })],
+      [taskStep('cancel')]: [() => json({ task: task({ status: 'cancelled' }), replayed: false })],
+    })
+    await openStaffApp('/provider/nursing-tasks')
+    const row = () => screen.getByRole('listitem', { name: 'Turn the patient' })
+    await screen.findByRole('listitem', { name: 'Turn the patient' })
+
+    press(screen.getByRole('button', { name: 'New task' }))
+    expect(document.activeElement).toBe(screen.getByRole('heading', { level: 2, name: 'New task' }))
+    press(within(screen.getByRole('form', { name: 'New task' })).getByRole('button', { name: 'Go back' }))
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'New task' }))
+
+    // Started: the task stays, its Start button goes once read again.
+    press(within(row()).getByRole('button', { name: 'Start task' }))
+    expect(await within(row()).findByRole('button', { name: 'Complete task' })).toBeDefined()
+    expect(document.activeElement).toBe(within(row()).getByRole('heading', { level: 3, name: 'Turn the patient' }))
+    expect(screen.getByText('Task started.')).toBeDefined()
+
+    press(within(row()).getByRole('button', { name: 'Cancel task' }))
+    expect(document.activeElement).toBe(within(row()).getByLabelText('Why is it cancelled?'))
+    press(within(row()).getByRole('button', { name: 'Go back' }))
+    expect(document.activeElement).toBe(within(row()).getByRole('button', { name: 'Cancel task' }))
+
+    // Cancelled, the task leaves the open list: focus on the list's heading, and the list says so.
+    press(within(row()).getByRole('button', { name: 'Cancel task' }))
+    fireEvent.change(within(row()).getByLabelText('Why is it cancelled?'), { target: { value: 'Patient moved to theatre' } })
+    press(within(row()).getByRole('button', { name: 'Cancel the task' }))
+    expect(await screen.findByText('No open tasks')).toBeDefined()
+    expect(screen.getByText('Task cancelled.')).toBeDefined()
+    expect(document.activeElement).toBe(screen.getByRole('heading', { level: 2, name: 'Open tasks' }))
   })
 
   it('says it is not switched on yet while NURSING_ENABLED is off (503), and stops listing the nursing pages', async () => {
@@ -234,7 +283,7 @@ describe('Medicine round in the frame', () => {
     // The round reads doses from 24 hours back: yesterday's late dose carries its date, today's the time only.
     expect(within(first).getByText('2 Dec 2026, 14:00')).toBeDefined()
     expect(within(first).getByText('14:00')).toBeDefined()
-    expect(within(first).getByText('Amoxicillin 500 mg')).toBeDefined()
+    expect(within(first).getAllByText('Amoxicillin 500 mg')).toHaveLength(2)
     expect(within(first).getByRole('link', { name: 'Ada Wardone' }).getAttribute('href')).toBe(`/provider/ward-patient/${ADMISSION}/medicines`)
     const hidden = screen.getByRole('listitem', { name: 'B T' })
     expect(within(hidden).getByText('2 due')).toBeDefined()

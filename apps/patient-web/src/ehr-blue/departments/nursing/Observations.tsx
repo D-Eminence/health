@@ -2,6 +2,7 @@ import { useCallback, useState, type FormEvent } from 'react'
 import { isHidApiError } from '@hid/http'
 import { EhrBadge, EhrButton, EhrEmptyState, EhrField, EhrInput, EhrSelect } from '@hid/ui/ehr'
 import { nursingApi, type ObservationReading, type ObservationValues, type WardPatientCard } from '../../../staff/api'
+import { useFocusById } from '../../../staff/focus'
 import { useDeptAccess } from '../parts/access'
 import { DeptNotice } from '../parts/DeptNotice'
 import { DeptSection } from '../parts/DeptPage'
@@ -25,6 +26,7 @@ export function ObservationChart({ facilityId, admission }: { readonly facilityI
   const [hourly, setHourly] = useState(false)
   const [adding, setAdding] = useState(false)
   const [saved, setSaved] = useState('')
+  const focus = useFocusById()
   const admissionId = admission?.admissionId ?? ''
   const loader = useCallback((id: string) => learning(nursingApi.observationChart(id, admissionId, hourly)), [admissionId, hourly])
   const chart = useFacilityRead(facilityId, Boolean(admissionId), loader, 'The observation chart could not be loaded.')
@@ -40,10 +42,16 @@ export function ObservationChart({ facilityId, admission }: { readonly facilityI
       {saved ? <p className="hid-ehr-state-message" role="status">{saved}</p> : null}
       {adding && admission ? (
         <ObservationForm facilityId={facilityId} admission={admission}
-          onDone={message => { setAdding(false); if (message) { setSaved(message); void chart.refresh() } }} />
+          onDone={message => {
+            setAdding(false)
+            // Back to the button that opened the form (shown again as it closes).
+            focus([RECORD_ID, 'obs-chart'])
+            if (message) { setSaved(message); void chart.refresh() }
+          }} />
       ) : null}
       <DeptSection title="Observation chart" headingId="obs-chart"
-        actions={canRecord && !adding ? <EhrButton size="sm" onClick={() => { setSaved(''); setAdding(true) }}>Record observations</EhrButton> : undefined}>
+        actions={canRecord && !adding
+          ? <EhrButton id={RECORD_ID} size="sm" onClick={() => { setSaved(''); setAdding(true); focus(FORM_ID) }}>Record observations</EhrButton> : undefined}>
         {chart.value && chart.value.wardType !== 'icu' ? (
           <label className="hid-ehr-dept-waiting-toggle">
             <input type="checkbox" checked={hourly} onChange={event => setHourly(event.target.checked)} />
@@ -89,6 +97,9 @@ export function ObservationChart({ facilityId, admission }: { readonly facilityI
   )
 }
 
+const RECORD_ID = 'obs-record'
+const FORM_ID = 'obs-form'
+
 function ReadingRow({ reading, by }: { readonly reading: ObservationReading; readonly by: string }) {
   const inError = reading.status === 'entered_in_error'
   const lines = observationLines(reading.values)
@@ -105,15 +116,16 @@ function ReadingRow({ reading, by }: { readonly reading: ObservationReading; rea
         ) : null}
         <dl className="hid-ehr-dept-waiting-facts">
           {lines.map(line => {
-            // A reading entered in error is shown with its status and no flag. Each value's own flag is shown, so a line of
-            // two values (blood pressure) says each of its flags by its part.
+            // A reading entered in error is shown with its status and no flag. Each value's own flag is shown, and on a line
+            // of several values (blood pressure) by its part, so which value is flagged is never left to guess.
             const flags = inError ? [] : line.measures.flatMap(measure => reading.flags.filter(candidate => candidate.measure === measure))
+            const byPart = line.measures.length > 1
             return (
               <div key={line.label}>
                 <dt>{line.label}</dt>
                 <dd>{line.text}{flags.map((flag, index) => (
                   <span key={`${flag.measure}-${index}`}> <EhrBadge tone={flag.level === 'far_outside_usual' ? 'critical' : 'caution'}>
-                    {`${flags.length > 1 && FLAG_PART_WORDS[flag.measure] ? `${FLAG_PART_WORDS[flag.measure]}: ` : ''}${FLAG_WORDS[flag.level] ?? 'Check this value'}`}
+                    {`${byPart && FLAG_PART_WORDS[flag.measure] ? `${FLAG_PART_WORDS[flag.measure]}: ` : ''}${FLAG_WORDS[flag.level] ?? 'Check this value'}`}
                   </EhrBadge></span>
                 ))}</dd>
               </div>
@@ -204,8 +216,8 @@ function ObservationForm({ facilityId, admission, onDone }: {
     const body = observationBody(draft)
     if ('problem' in body) { setProblem(body.problem); return }
     try {
-      const answer = await nursingApi.recordObservation(facilityId, admission.patientId, admission.encounterId!, body.values, body.recordedAt,
-        keyFor('observation', body))
+      const answer = await keyFor.send('observation', body,
+        key => nursingApi.recordObservation(facilityId, admission.patientId, admission.encounterId!, body.values, body.recordedAt, key))
       const warnings = (answer as { warnings?: unknown[] } | null)?.warnings
       onDone(Array.isArray(warnings) && warnings.length > 0
         ? 'Observations saved. Some values are outside the usual range: check them on the chart.' : 'Observations saved.')
@@ -217,7 +229,7 @@ function ObservationForm({ facilityId, admission, onDone }: {
   }
 
   return (
-    <DeptSection title="Record observations">
+    <DeptSection title="Record observations" headingId={FORM_ID}>
       <form className="hid-ehr-dept-nursing-form hid-ehr-dept-nursing-grid" onSubmit={event => void submit(event)} aria-label="Record observations">
         <EhrField label="Time (Lagos time)"><EhrInput type="datetime-local" value={draft.time} onChange={set('time')} /></EhrField>
         {NUMBER_FIELDS.map(([field, , label]) => (

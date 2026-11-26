@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { EhrButton, EhrModuleTabs } from '@hid/ui/ehr'
 import { nursingApi } from '../../../staff/api'
+import { useFocusById } from '../../../staff/focus'
 import { useBluePage } from '../../frame/pageContext'
 import { useDeptAccess } from '../parts/access'
 import { DeptNotice } from '../parts/DeptNotice'
@@ -15,7 +16,7 @@ import {
 } from './nursingRules'
 import { ObservationChart } from './Observations'
 import { PatientIdentity } from './parts'
-import { TaskForm, TaskList } from './Tasks'
+import { NEW_TASK_ID, TASK_FORM_ID, TaskForm, TaskList } from './Tasks'
 
 type Tab = 'observations' | 'medicines' | 'fluids' | 'tasks'
 const TAB_WORDS: Readonly<Record<Tab, string>> = { observations: 'Observations', medicines: 'Medicines', fluids: 'Fluid balance', tasks: 'Tasks' }
@@ -58,6 +59,8 @@ function PatientChart({ facilityId, admissionId, tab, tabs }: {
   const read = useFacilityRead(facilityId, true, loader, 'This patient could not be loaded.')
   const [adding, setAdding] = useState(false)
   const [added, setAdded] = useState(0)
+  const [said, setSaid] = useState('')
+  const focus = useFocusById()
   const card = read.value?.admission ?? null
   const open = card !== null && (card.status === 'admitted' || card.status === 'discharge_ready')
   const back = tab === 'medicines' ? ROUND_BASE : TASKS_BASE
@@ -67,7 +70,7 @@ function PatientChart({ facilityId, admissionId, tab, tabs }: {
       onBack={() => navigate(card?.wardId ? `${back}?ward=${card.wardId}` : back)} backLabel="Back to the ward"
       description={card ? [card.wardName, card.admissionNumber].filter(Boolean).join(' · ') : undefined}
       primaryAction={tab === 'tasks' && open && canWriteTasks(permissions) && !adding
-        ? <EhrButton onClick={() => setAdding(true)}>New task</EhrButton> : undefined}>
+        ? <EhrButton id={NEW_TASK_ID} onClick={() => { setSaid(''); setAdding(true); focus(TASK_FORM_ID) }}>New task</EhrButton> : undefined}>
       <DeptNotice tone="caution" title="Staff only">{SCREEN_WARNING}</DeptNotice>
       {card ? <PatientIdentity card={card} /> : null}
       {read.caught ? <DeptNotice role="alert" tone={notServed(read.caught) ? 'info' : 'critical'}>{refusalWords(read.caught, 'This patient could not be loaded.')}</DeptNotice> : null}
@@ -75,7 +78,7 @@ function PatientChart({ facilityId, admissionId, tab, tabs }: {
       {tabs.length > 1 ? (
         <EhrModuleTabs label="Ward chart" currentId={tab}
           tabs={tabs.map(id => ({ id, label: TAB_WORDS[id], href: `${PATIENT_BASE}/${admissionId}/${id}` }))}
-          onNavigate={(chosen, event) => { event.preventDefault(); setAdding(false); navigate(chosen.href) }} />
+          onNavigate={(chosen, event) => { event.preventDefault(); setAdding(false); setSaid(''); navigate(chosen.href) }} />
       ) : null}
       {read.value === null && read.loading ? <p className="hid-ehr-state-message" role="status">Loading the patient…</p> : null}
       {read.caught && notServed(read.caught) ? null : (
@@ -85,8 +88,9 @@ function PatientChart({ facilityId, admissionId, tab, tabs }: {
           {tab === 'fluids' && read.value ? <FluidBalance facilityId={facilityId} admission={card} /> : null}
           {tab === 'tasks' ? (
             <>
+              {said ? <p className="hid-ehr-state-message" role="status">{said}</p> : null}
               {adding && card ? <TaskForm facilityId={facilityId} admission={card}
-                onDone={done => { setAdding(false); if (done) setAdded(n => n + 1) }} /> : null}
+                onDone={done => { setAdding(false); focus(NEW_TASK_ID); if (done) { setSaid('Task added.'); setAdded(n => n + 1) } }} /> : null}
               <TaskList facilityId={facilityId} where={{ admissionId }} showPatient={false} refreshKey={added} />
             </>
           ) : null}

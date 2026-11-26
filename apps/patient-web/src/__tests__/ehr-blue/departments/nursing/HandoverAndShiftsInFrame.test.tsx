@@ -17,6 +17,8 @@ beforeEach(() => withNursingPages())
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules() })
 
 const nurse = () => facility(REAL_FACILITY, 'Fictional Hospital', NURSE, ['nurse'])
+/** A press from the keyboard: focus on the control, then its click. */
+const press = (control: HTMLElement) => { control.focus(); fireEvent.click(control) }
 const shiftsOf = (...items: ReturnType<typeof shift>[]) => () => json({ items: items.length ? items : [shift()], fluidDayStartsAtHour: 7 })
 
 function sheet(overrides: Record<string, unknown> = {}) {
@@ -88,16 +90,22 @@ describe('Shift handover in the frame', () => {
     expect(await screen.findByText('Write a note for a patient to start this shift’s sheet.')).toBeDefined()
     expect(screen.queryByRole('button', { name: 'Give the handover' })).toBeNull()
     const ada = await screen.findByRole('listitem', { name: 'Ada Wardone' })
-    fireEvent.click(within(ada).getByRole('button', { name: 'Write a note' }))
+    // The note opens in place of its button, with focus in it; Go back puts focus on the button again.
+    press(within(ada).getByRole('button', { name: 'Write a note' }))
+    expect(document.activeElement).toBe(within(ada).getByLabelText('Handover note'))
+    press(within(ada).getByRole('button', { name: 'Go back' }))
+    expect(document.activeElement).toBe(within(ada).getByRole('button', { name: 'Write a note' }))
+    press(within(ada).getByRole('button', { name: 'Write a note' }))
     fireEvent.change(within(ada).getByLabelText('Handover note'), { target: { value: 'Breathing better on 2 L.' } })
     fireEvent.click(within(ada).getByRole('checkbox', { name: 'Watch closely next shift' }))
-    fireEvent.click(within(ada).getByRole('button', { name: 'Save the note' }))
+    press(within(ada).getByRole('button', { name: 'Save the note' }))
     await waitFor(() => expect(sentTo(sent, route)).toHaveLength(1))
     const put = sentTo(sent, route)[0]!
     expect(put.body).toEqual({ note: 'Breathing better on 2 L.', watch: true, wardId: WARD, date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), shiftId: SHIFT })
     expect(put.headers.get('Idempotency-Key')).toBeTruthy()
-    fireEvent.click(await screen.findByRole('button', { name: 'Give the handover' }))
+    press(await screen.findByRole('button', { name: 'Give the handover' }))
     expect(await screen.findByText('Handover given. A nurse on the next shift accepts it.')).toBeDefined()
+    expect(document.activeElement).toBe(screen.getByRole('heading', { level: 2, name: /^Handover for / }))
     expect(sentTo(sent, `POST /api/v1/ehr/handovers/${HANDOVER}/give`)[0]!.body).toEqual({ expectedRowVersion: 2 })
   })
 
@@ -168,6 +176,28 @@ describe('Shift handover in the frame', () => {
 })
 
 describe('Clinical shifts in the frame', () => {
+  it('adds a shift again once stopped as a new request, never as the first one replayed', async () => {
+    const admin = facility(REAL_FACILITY, 'Fictional Hospital', ADMIN, ['admin'])
+    const sent = serve({
+      [SESSION]: [sessionAt(admin, [admin])],
+      // None yet; then Morning, stopped by mistake.
+      [SHIFTS]: [() => json({ items: [], fluidDayStartsAtHour: 7 }), ...many(shiftsOf(shift({ active: false })))],
+      [NEW_SHIFT]: [() => json({ shiftId: SHIFT, replayed: false }, 201), () => json({ shiftId: SHIFT_NEXT, replayed: false }, 201)],
+      [WARDS]: many(() => json({ items: [] })),
+    })
+    await openStaffApp('/provider/clinical-shifts')
+    press(await screen.findByRole('button', { name: 'Add Morning 07:30 to 14:30' }))
+    expect(await screen.findByText('Morning added.')).toBeDefined()
+    // A suggestion added is no longer offered once the shifts are read again: focus goes to its section's heading.
+    expect(document.activeElement).toBe(screen.getByRole('heading', { level: 2, name: 'Add a shift' }))
+    expect(await screen.findByText('Stopped')).toBeDefined()
+    press(screen.getByRole('button', { name: 'Add Morning 07:30 to 14:30' }))
+    await waitFor(() => expect(sentTo(sent, NEW_SHIFT)).toHaveLength(2))
+    const [first, second] = sentTo(sent, NEW_SHIFT)
+    expect(second!.body).toEqual(first!.body)
+    expect(second!.headers.get('Idempotency-Key')).not.toBe(first!.headers.get('Idempotency-Key'))
+  })
+
   it('lets an admin add the suggested shifts under healthcare operations, and says the limit in plain words', async () => {
     const admin = facility(REAL_FACILITY, 'Fictional Hospital', ADMIN, ['admin'])
     const sent = serve({
@@ -205,7 +235,8 @@ describe('Clinical shifts in the frame', () => {
       [SESSION]: [sessionAt(member, [member])],
       [SHIFTS]: many(shiftsOf()),
       [WARDS]: many(wardsOf()),
-      [ADMISSIONS]: many(() => json({ items: [card(), hiddenCard()], hasMore: false, limit: 500 })),
+      // Bed 7 is ready for discharge and still on the ward: still allocated to a nurse.
+      [ADMISSIONS]: many(() => json({ items: [card(), { ...hiddenCard(), status: 'discharge_ready' }], hasMore: false, limit: 500 })),
       [ASSIGNMENTS]: many(() => json({ date: '2026-12-03', shiftId: SHIFT, wardId: WARD, from: '2026-12-03T06:30:00.000Z', to: '2026-12-03T13:30:00.000Z',
         version: 4, assignments: [{ membershipId: ME, duty: 'nurse_in_charge', admissionIds: [ADMISSION] }] })),
       [SET_ASSIGNMENTS]: [() => json({ list: { version: 5 }, warnings: ['icu_nurse_over_two'], replayed: false })],
@@ -217,7 +248,14 @@ describe('Clinical shifts in the frame', () => {
     expect(screen.queryByRole('form', { name: 'Add a shift' })).toBeNull()
     const onShift = await screen.findByRole('list', { name: 'On this shift' })
     await waitFor(() => expect(within(onShift).getAllByRole('checkbox').length).toBe(2))
-    fireEvent.click(screen.getByRole('button', { name: 'Add someone' }))
+    const asked = new URL(String(vi.mocked(fetch).mock.calls.find(([address]) => String(address).includes('/ehr/admissions?'))![0]))
+    expect(asked.searchParams.get('status')).toBe('open')
+    // A new line takes focus on who it is for; a line removed gives it to the next line, or "Add someone".
+    press(screen.getByRole('button', { name: 'Add someone' }))
+    expect(document.activeElement).toBe(within(screen.getByRole('listitem', { name: 'Someone new, nurse' })).getByLabelText('Who'))
+    press(screen.getByRole('button', { name: 'Remove this new line as nurse' }))
+    expect(document.activeElement).toBe(within(screen.getByRole('listitem', { name: 'You, nurse in charge' })).getByLabelText('Who'))
+    press(screen.getByRole('button', { name: 'Add someone' }))
     const rows = within(screen.getByRole('list', { name: 'On this shift' })).getAllByRole('listitem')
     fireEvent.change(within(rows[1]!).getByLabelText('Who'), { target: { value: COLLEAGUE } })
     fireEvent.click(within(rows[1]!).getByRole('checkbox', { name: 'Bed 7 · B T' }))
@@ -241,8 +279,9 @@ describe('Clinical shifts in the frame', () => {
       [SHIFTS]: many(shiftsOf(shift(), shift({ shiftId: SHIFT_NEXT, name: 'Afternoon', startsAt: '14:00', endsAt: '21:00' }))),
       [WARDS]: many(wardsOf()),
       [ADMISSIONS]: many(() => json({ items: [card()], hasMore: false, limit: 500 }), 10),
-      // Morning, then Afternoon refused, then Morning again and Afternoon read.
-      [ASSIGNMENTS]: [() => json(morning), () => problem(503, 'SERVICE_UNAVAILABLE', 'Service unavailable'), () => json(morning), () => json(afternoon)],
+      // Morning, then Afternoon refused (a read is tried three times), then Morning again and Afternoon read.
+      [ASSIGNMENTS]: [() => json(morning), ...many(() => problem(503, 'SERVICE_UNAVAILABLE', 'Service unavailable'), 3), () => json(morning),
+        () => json(afternoon)],
       [SET_ASSIGNMENTS]: [() => json({ list: { version: 4 }, warnings: [], replayed: false })],
     })
     await openStaffApp('/provider/clinical-shifts')
@@ -258,7 +297,7 @@ describe('Clinical shifts in the frame', () => {
     fireEvent.change(screen.getByLabelText('Shift'), { target: { value: SHIFT_NEXT } })
     expect(screen.queryByRole('list', { name: 'On this shift' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Save who is on' })).toBeNull()
-    expect(await screen.findByRole('alert')).toBeDefined()
+    expect(await screen.findByRole('alert', {}, { timeout: 5000 })).toBeDefined()
     expect(screen.queryByRole('list', { name: 'On this shift' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Save who is on' })).toBeNull()
 

@@ -3,23 +3,40 @@ import { FACILITY_STAFF_NAMES_MAX_IDS, staffApi } from '../../../staff/api'
 import { newKey } from './nursingRules'
 
 /**
- * One Idempotency-Key per request body: the same body sent again (a retry after a lost answer) carries the same key, so
- * the server answers its first answer ("replayed") and records nothing twice; any other body gets a key of its own, as
- * the server refuses a key reused for another body (IDEMPOTENCY_KEY_REUSED). In memory for the page's life only.
+ * One Idempotency-Key per request body until the server accepts it: the same body sent again after a lost answer or a
+ * refusal (a retry) carries the same key, so the server answers its first answer ("replayed") and records nothing
+ * twice. Once a request succeeds its key is forgotten, so the same body sent again after that (a second 500 mL bag at
+ * the same minute, a shift added again) is a new request with a key of its own. Any other body gets a key of its own,
+ * as the server refuses a key reused for another body (IDEMPOTENCY_KEY_REUSED). In memory for the page's life only.
  */
-export type IdempotencyKeys = (action: string, body: unknown) => string
+export interface IdempotencyKeys {
+  /** The key for this body: the same one until a request sent with it succeeds. */
+  (action: string, body: unknown): string
+  /** Sends the request with the body's key, and forgets the key once the request succeeds. */
+  send<T>(action: string, body: unknown, request: (key: string) => Promise<T>): Promise<T>
+}
 export function useIdempotencyKeys(): IdempotencyKeys {
   const [keyFor] = useState<IdempotencyKeys>(() => {
     const keys = new Map<string, string>()
-    return (action: string, body: unknown) => {
-      const signature = `${action}\n${JSON.stringify(body)}`
-      let key = keys.get(signature)
+    const signature = (action: string, body: unknown) => `${action}\n${JSON.stringify(body)}`
+    const keyFor = (action: string, body: unknown) => {
+      const asked = signature(action, body)
+      let key = keys.get(asked)
       if (!key) {
         key = newKey()
-        keys.set(signature, key)
+        keys.set(asked, key)
       }
       return key
     }
+    return Object.assign(keyFor, {
+      async send<T>(action: string, body: unknown, request: (key: string) => Promise<T>): Promise<T> {
+        const key = keyFor(action, body)
+        const answer = await request(key)
+        const asked = signature(action, body)
+        if (keys.get(asked) === key) keys.delete(asked)
+        return answer
+      },
+    })
   })
   return keyFor
 }

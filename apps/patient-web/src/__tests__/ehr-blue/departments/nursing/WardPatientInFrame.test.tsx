@@ -21,6 +21,9 @@ afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules()
 const nurse = () => facility(REAL_FACILITY, 'Fictional Hospital', NURSE, ['nurse'])
 const BASE = `/provider/ward-patient/${ADMISSION}`
 const HOUR = 60 * 60 * 1000
+/** A press from the keyboard: focus on the control, then its click. */
+const press = (control: HTMLElement) => { control.focus(); fireEvent.click(control) }
+const key = (call: { headers: Headers }) => call.headers.get('Idempotency-Key')
 
 function chartOf(overrides: Record<string, unknown> = {}) {
   return () => json({ admissionId: ADMISSION, encounterId: 'e1', wardType: 'general', from: '2026-12-02T08:00:00.000Z', to: '2026-12-03T08:00:00.000Z',
@@ -92,6 +95,31 @@ describe('the observation chart', () => {
     const reading = await screen.findByRole('listitem', { name: '3 Dec 2026, 07:00' })
     expect(within(reading).getByText('Systolic: Outside the usual range')).toBeDefined()
     expect(within(reading).getByText('Diastolic: Check this entry')).toBeDefined()
+  })
+
+  it('names the part of a blood pressure a lone flag is for', async () => {
+    const member = nurse()
+    serve({ [SESSION]: [sessionAt(member, [member])], [ADMISSION_READ]: [() => json({ admission: card(), movements: [] })],
+      [CHART]: many(chartOf({ readings: [{ vitalId: 'v4', recordedAt: '2026-12-03T06:00:00.000Z', status: 'recorded', corrected: false,
+        values: { systolicMmhg: 120, diastolicMmhg: 205, pulseBpm: 132 }, recordedByMembershipId: null, rowVersion: 1,
+        flags: [{ measure: 'diastolicMmhg', level: 'check_entry' }, { measure: 'pulseBpm', level: 'far_outside_usual' }] }] })) })
+    await openStaffApp(`${BASE}/observations`)
+    const reading = await screen.findByRole('listitem', { name: '3 Dec 2026, 07:00' })
+    expect(within(reading).getByText('Diastolic: Check this entry')).toBeDefined()
+    // A line of one value needs no part.
+    expect(within(reading).getByText('Far outside the usual range')).toBeDefined()
+  })
+
+  it('keeps focus with the form: on its heading as it opens, and back on its button as it closes', async () => {
+    const member = nurse()
+    serve({ [SESSION]: [sessionAt(member, [member])], [ADMISSION_READ]: [() => json({ admission: card(), movements: [] })],
+      [CHART]: many(chartOf({ readings: [] })) })
+    await openStaffApp(`${BASE}/observations`)
+    expect(await screen.findByText('No observations yet')).toBeDefined()
+    press(screen.getByRole('button', { name: 'Record observations' }))
+    expect(document.activeElement).toBe(screen.getByRole('heading', { level: 2, name: 'Record observations' }))
+    press(within(screen.getByRole('form', { name: 'Record observations' })).getByRole('button', { name: 'Go back' }))
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Record observations' }))
   })
 
   it('records observations with the new fields on the stay’s visit, and checks the oxygen and GCS rules first', async () => {
@@ -236,7 +264,7 @@ describe('the medicine administration record', () => {
       [DOSE]: [() => json({ administration: givenPrn(now - 2 * HOUR, 'p2'), warnings: ['as_needed_inside_gap'], replayed: false }, 201),
         () => json({ administration: givenPrn(now, 'p3'), warnings: [], replayed: false }, 201)] })
     await openStaffApp(`${BASE}/medicines`)
-    fireEvent.click(within(await screen.findByRole('listitem', { name: 'Paracetamol 1 g tablet' })).getByRole('button', { name: 'Record an as-needed dose' }))
+    fireEvent.click(within(within(await screen.findByRole('list', { name: 'Medicines' })).getByRole('listitem', { name: 'Paracetamol 1 g tablet' })).getByRole('button', { name: 'Record an as-needed dose' }))
     let form = screen.getByRole('form', { name: 'Record a dose' })
     // Given now: no reason asked.
     expect(within(form).queryByLabelText(OVERRIDE)).toBeNull()
@@ -252,7 +280,7 @@ describe('the medicine administration record', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Done' }))
 
     // Recorded at the time it is allowed again: no reason, and none sent.
-    fireEvent.click(within(await screen.findByRole('listitem', { name: 'Paracetamol 1 g tablet' })).getByRole('button', { name: 'Record an as-needed dose' }))
+    fireEvent.click(within(within(await screen.findByRole('list', { name: 'Medicines' })).getByRole('listitem', { name: 'Paracetamol 1 g tablet' })).getByRole('button', { name: 'Record an as-needed dose' }))
     form = screen.getByRole('form', { name: 'Record a dose' })
     expect(within(form).queryByLabelText(OVERRIDE)).toBeNull()
     fireEvent.click(within(form).getByRole('button', { name: 'Save the dose' }))
@@ -273,7 +301,7 @@ describe('the medicine administration record', () => {
       [DOSE]: [() => problem(400, 'SUPPLY_SOURCE_REQUIRED', 'Bad Request'), () => problem(400, 'AS_NEEDED_OVERRIDE_REASON_REQUIRED', 'Bad Request'),
         () => json({ administration: givenPrn(now, 'p5'), warnings: [], replayed: false }, 201)] })
     await openStaffApp(`${BASE}/medicines`)
-    fireEvent.click(within(await screen.findByRole('listitem', { name: 'Paracetamol 1 g tablet' })).getByRole('button', { name: 'Record an as-needed dose' }))
+    fireEvent.click(within(within(await screen.findByRole('list', { name: 'Medicines' })).getByRole('listitem', { name: 'Paracetamol 1 g tablet' })).getByRole('button', { name: 'Record an as-needed dose' }))
     const form = screen.getByRole('form', { name: 'Record a dose' })
     expect(within(form).queryByLabelText(OVERRIDE)).toBeNull()
     expect(within(form).queryByLabelText('Where the medicine came from')).toBeNull()
@@ -289,6 +317,63 @@ describe('the medicine administration record', () => {
     expect(sentTo(sent, DOSE)[2]!.body).toMatchObject({ supplySource: 'ward_stock', overrideReason: 'Pain 8 of 10 after the dressing change' })
     // The record is read as the form opens and after each refusal, so the form works from the latest.
     expect(sentTo(sent, MAR).length).toBeGreaterThanOrEqual(4)
+  })
+
+  it('asks for no reason the server says it does not need, even after it asked for one', async () => {
+    const member = nurse()
+    const now = Date.now()
+    // Last given 5 hours ago, 4-hourly: nothing the page read makes a dose now sooner than ordered.
+    const sent = serve({ [SESSION]: [sessionAt(member, [member])], [ADMISSION_READ]: [() => json({ admission: card(), movements: [] })],
+      [MAR]: many(marOf([prn({ lastGivenAt: new Date(now - 5 * HOUR).toISOString(), nextAllowedAt: new Date(now - HOUR).toISOString() })],
+        [givenPrn(now - 5 * HOUR, 'p1')]), 10),
+      // A dose the page never read asks for a reason; it is entered in error meanwhile, so the reason is then refused.
+      [DOSE]: [() => problem(400, 'AS_NEEDED_OVERRIDE_REASON_REQUIRED', 'Bad Request'), () => problem(400, 'VALIDATION_FAILED', 'Bad Request'),
+        () => json({ administration: givenPrn(now, 'p6'), warnings: [], replayed: false }, 201)] })
+    await openStaffApp(`${BASE}/medicines`)
+    fireEvent.click(within(within(await screen.findByRole('list', { name: 'Medicines' })).getByRole('listitem', { name: 'Paracetamol 1 g tablet' }))
+      .getByRole('button', { name: 'Record an as-needed dose' }))
+    const form = screen.getByRole('form', { name: 'Record a dose' })
+    fireEvent.click(within(form).getByRole('button', { name: 'Save the dose' }))
+    expect(await within(form).findByText('This is sooner or more often than ordered. Say why.')).toBeDefined()
+    fireEvent.change(within(form).getByLabelText(OVERRIDE), { target: { value: 'Pain 8 of 10 after the dressing change' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Save the dose' }))
+    expect(await within(form).findByText(/The medicines have changed since they were read/)).toBeDefined()
+    expect(sentTo(sent, DOSE)[1]!.body).toMatchObject({ overrideReason: 'Pain 8 of 10 after the dressing change' })
+    expect(within(form).queryByLabelText(OVERRIDE)).toBeNull()
+    fireEvent.click(within(form).getByRole('button', { name: 'Save the dose' }))
+    expect(await screen.findByText('Given: Paracetamol 1 g tablet recorded.')).toBeDefined()
+    expect(sentTo(sent, DOSE)[2]!.body).not.toHaveProperty('overrideReason')
+  })
+
+  it('keeps focus with the dose form and the entered-in-error form as they open and close', async () => {
+    const member = nurse()
+    serve({ [SESSION]: [sessionAt(member, [member])], [ADMISSION_READ]: [() => json({ admission: card(), movements: [] })],
+      [MAR]: many(marOf([order({ pharmacyState: 'dispensed' })]), 10),
+      [DOSE]: [() => json({ administration: doseRecord({ administrationId: 'n2', scheduledFor: '2026-12-03T13:00:00.000Z' }), warnings: ['late'],
+        replayed: false }, 201)] })
+    await openStaffApp(`${BASE}/medicines`)
+    const amoxicillin = () => within(screen.getByRole('list', { name: 'Medicines' })).getByRole('listitem', { name: 'Amoxicillin 500 mg capsule' })
+    await screen.findByRole('list', { name: 'Medicines' })
+    const record = () => within(amoxicillin()).getByRole('button', { name: 'Record 3 Dec 2026, 14:00 dose' })
+    // The form opens above the medicines, in place of every Record button: focus goes to its heading.
+    press(record())
+    expect(document.activeElement).toBe(screen.getByRole('heading', { level: 2, name: 'Record a dose: Amoxicillin 500 mg capsule' }))
+    press(within(screen.getByRole('form', { name: 'Record a dose' })).getByRole('button', { name: 'Go back' }))
+    expect(document.activeElement).toBe(record())
+    // Recorded with something to check: focus on what to check, then on the order once done.
+    press(record())
+    fireEvent.change(within(screen.getByRole('form', { name: 'Record a dose' })).getByLabelText('Time (Lagos time)'), { target: { value: '2026-12-03T15:05' } })
+    press(within(screen.getByRole('form', { name: 'Record a dose' })).getByRole('button', { name: 'Save the dose' }))
+    expect(await screen.findByText('Given more than 60 minutes after the due time.')).toBeDefined()
+    expect(document.activeElement).toBe(screen.getByRole('heading', { level: 2, name: 'Dose recorded' }))
+    press(screen.getByRole('button', { name: 'Done' }))
+    expect(document.activeElement).toBe(within(amoxicillin()).getByRole('heading', { level: 3 }))
+
+    const recorded = screen.getByRole('list', { name: 'Doses recorded' })
+    press(within(recorded).getByRole('button', { name: 'Mark entered in error' }))
+    expect(document.activeElement).toBe(within(recorded).getByLabelText('Why is this entered in error?'))
+    press(within(recorded).getByRole('button', { name: 'Go back' }))
+    expect(document.activeElement).toBe(within(recorded).getByRole('button', { name: 'Mark entered in error' }))
   })
 
   it('names a late dose from yesterday by its date, so it is never taken for today’s', async () => {
@@ -377,6 +462,34 @@ describe('fluid balance', () => {
     fireEvent.click(within(form).getByRole('button', { name: 'Save' }))
     expect(await screen.findByText('Output saved.')).toBeDefined()
     expect(sentTo(sent, NEW_FLUID)[0]!.body).toEqual({ direction: 'out', kind: 'drain', volumeMl: 150, recordedAt: '2026-12-03T11:40:00.000Z' })
+    // Sent again after the refusal, it is the same request: the same key.
+    expect(key(sentTo(sent, NEW_FLUID)[1]!)).toBe(key(sentTo(sent, NEW_FLUID)[0]!))
+  })
+
+  it('records a second entry the same as the first as an entry of its own, never as the first one replayed', async () => {
+    const member = nurse()
+    const sent = serve({ [SESSION]: [sessionAt(member, [member])], [ADMISSION_READ]: [() => json({ admission: card(), movements: [] })],
+      [FLUIDS]: many(dayOf, 10), [NEW_FLUID]: [() => json({ entryId: 'x7', replayed: false }, 201), () => json({ entryId: 'x8', replayed: false }, 201)] })
+    await openStaffApp(`${BASE}/fluids`)
+    await screen.findByLabelText('Fluid totals')
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-12-03T12:00:00.000Z'))
+    for (const saved of [1, 2]) {
+      // Two 500 mL bags of IV fluid, both at 12:30.
+      press(screen.getByRole('button', { name: 'Add intake or output' }))
+      expect(document.activeElement).toBe(screen.getByRole('heading', { level: 2, name: 'Add intake or output' }))
+      const form = screen.getByRole('form', { name: 'Add intake or output' })
+      fireEvent.change(within(form).getByLabelText('What'), { target: { value: 'iv' } })
+      fireEvent.change(within(form).getByLabelText('Amount (mL)'), { target: { value: '500' } })
+      fireEvent.change(within(form).getByLabelText('Time (Lagos time)'), { target: { value: '2026-12-03T12:30' } })
+      press(within(form).getByRole('button', { name: 'Save' }))
+      await waitFor(() => expect(sentTo(sent, NEW_FLUID)).toHaveLength(saved))
+      expect(await screen.findByText('Intake saved.')).toBeDefined()
+      // The form goes: focus back on the button that opened it.
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add intake or output' }))
+    }
+    const [first, second] = sentTo(sent, NEW_FLUID)
+    expect(second!.body).toEqual(first!.body)
+    expect(key(second!)).not.toBe(key(first!))
   })
 
   it('reads another fluid day by its date in the query, never a patient detail', async () => {
