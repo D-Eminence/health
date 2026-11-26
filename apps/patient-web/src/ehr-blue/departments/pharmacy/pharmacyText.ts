@@ -1,4 +1,4 @@
-import { formatTimeOrDateTime } from '@hid/ui/display'
+import { formatDateTime, formatTimeOrDateTime } from '@hid/ui/display'
 import type { EhrBadgeTone } from '@hid/ui/ehr'
 import type { Tone } from '../../../kasuwa/ui'
 import { routeLabel } from '../../../plainLabels'
@@ -139,8 +139,8 @@ export interface ChangedAfterNotice {
  * example writes it (a pharmacist reads it days later). Empty when it is not a time.
  */
 export function lastChangeText(changedAt: string): string {
-  const at = new Date(changedAt)
-  return Number.isNaN(at.getTime()) ? '' : `Last change: ${LAGOS_DAY.format(at)}, ${LAGOS_CLOCK.format(at)}`
+  const when = formatDateTime(changedAt)
+  return when ? `Last change: ${when}` : ''
 }
 
 /**
