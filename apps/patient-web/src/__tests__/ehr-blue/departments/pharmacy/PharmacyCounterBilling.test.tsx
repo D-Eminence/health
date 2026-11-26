@@ -219,6 +219,35 @@ describe('a counter sale', () => {
     expect(screen.queryByText(/Someone else changed this/)).toBeNull()
   })
 
+  it('hands over a sale paid in the payment step’s own drawer with the version it has once paid', async () => {
+    commerceApi.catalogueItems = async () => ok({ items: [PARACETAMOL], nextPage: null })
+    commerceApi.stock = async () => ok({ items: [], nextPage: null })
+    commerceApi.paymentSettings = async () => ok(sellSettings('both'))
+    commerceApi.pharmacyWalkIn = async () => ok({ workItemIds: [], bill: madeSale() })
+    commerceApi.bill = async () => ok(madeSale())
+    const recordPayment = vi.fn(async (..._args: unknown[]) => ok(paidSale(2)))
+    commerceApi.recordPayment = recordPayment
+    const handOver = vi.fn(async (..._args: unknown[]) => ok({ handedOverAt: '2026-11-26T09:10:00Z', bill: { ...paidSale(3), handedOverAt: '2026-11-26T09:10:00Z' } }))
+    commerceApi.handOverSale = handOver
+    renderDept(<Sell />)
+    fireEvent.click(await screen.findByRole('button', { name: /^Add: Paracetamol 500 mg/ }))
+    fireEvent.click((await screen.findAllByRole('button', { name: /Take payment/ }))[0]!)
+    // The counter's own drawer opens at once; it is closed, and the payment step's Take payment is used instead.
+    const first = await screen.findByRole('dialog', { name: /Take payment/ })
+    fireEvent.click(within(first).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    fireEvent.click(await screen.findByRole('button', { name: 'Take payment' }))
+    const drawer = await screen.findByRole('dialog', { name: /Take payment/ })
+    fireEvent.click(await within(drawer).findByRole('button', { name: /^Take payment ₦200\.00/ }))
+    await waitFor(() => expect(recordPayment).toHaveBeenCalled())
+    expect(recordPayment.mock.calls[0]![2]).toMatchObject({ method: 'cash', amountKobo: 20000, expectedVersion: 1 })
+    fireEvent.click(await within(await screen.findByRole('dialog', { name: /Paid/ })).findByRole('button', { name: 'Done' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Handed over' }))
+    await waitFor(() => expect(handOver).toHaveBeenCalled())
+    expect(handOver.mock.calls[0]![3]).toBe(2)
+    expect(await screen.findByText('Sale complete')).toBeTruthy()
+  })
+
   it('reads a sale again when the hand-over is refused because it changed, and sends the next press anew', async () => {
     const ors: CatalogueItem = { ...PARACETAMOL, id: 'cat-para', prices: { cashKobo: 0, hmo: [] } }
     commerceApi.catalogueItems = async () => ok({ items: [ors], nextPage: null })
