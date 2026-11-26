@@ -209,6 +209,20 @@ export function utcToLagosInput(value: string | number | Date = Date.now()): str
   return `${clock.year}-${two(clock.month)}-${two(clock.day)}T${two(clock.hour)}:${two(clock.minute)}`
 }
 
+/** Route 16's limits on a discharge time, in its own words: the field's hint, the check before sending, and the refusal. */
+export const DISCHARGE_TIME_WORDS = 'The discharge time must be after admission, within the last 24 hours, and not in the future.'
+
+/**
+ * When a discharge may say it happened (route 16, DISCHARGE_TIME_INVALID otherwise): not before admission, no more than
+ * 24 hours ago, and not in the future. Instants in ms; `min` and `max` are the field's limits in Lagos, `min` rounded up to
+ * the next minute so the earliest time the field offers is one the backend takes.
+ */
+export function dischargeTimeRange(admittedAt: string | null | undefined, now: number = Date.now()) {
+  const admitted = admittedAt ? Date.parse(admittedAt) : Number.NaN
+  const earliest = Math.max(now - 86_400_000, Number.isFinite(admitted) ? admitted : Number.NEGATIVE_INFINITY)
+  return { earliest, latest: now, min: utcToLagosInput(Math.ceil(earliest / 60_000) * 60_000), max: utcToLagosInput(now) }
+}
+
 /** The census can show today or a Lagos day up to 90 days back. */
 export function censusRange(now: number = Date.now()): { readonly min: string; readonly max: string } {
   return { min: lagosDay(now - 90 * 86_400_000), max: lagosDay(now) }
@@ -255,7 +269,7 @@ export const INPATIENT_REFUSALS: Readonly<Record<string, string>> = {
   MOTHER_ADMISSION_INVALID: 'Choose the mother’s current admission at this facility.',
   DISCHARGE_SUMMARY_REQUIRED: 'Write the discharge summary before discharging the patient.',
   DIED_AT_REQUIRED: 'Enter the time of death.',
-  DISCHARGE_TIME_INVALID: 'The discharge time must be after admission, and not in the future.',
+  DISCHARGE_TIME_INVALID: DISCHARGE_TIME_WORDS,
   SIGNATURE_REQUIRED: 'Type SIGN to sign.',
   REPRINT_REASON_REQUIRED: 'Say why the band is being printed again.',
   ADMISSION_NOT_FOUND: 'This ward, bed or admission is not at this facility.',

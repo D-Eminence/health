@@ -157,6 +157,13 @@ describe('Ward configuration', () => {
         roles: ['cashier'], isAdministrator: false, isSelf: false, joinedAt: null, licence: null },
     ] })
 
+  /** An admin at a facility that signed itself up: the only kind whose staff list Identity reads (the team's choices). */
+  const selfServiceAdmin = () => ({ ...facility(REAL_FACILITY, 'Fictional Hospital', ADMIN, ['admin']),
+    selfService: { review: 'reviewed', organizationType: 'hospital' } })
+  const STAFF = 'GET /api/v1/identity/facility-staff'
+  const notRetried = (status: number, code: string) => () => new Response(JSON.stringify({ type: 'about:blank', title: code, status, code,
+    detail: 'x', retryable: false }), { status, headers: { 'Content-Type': 'application/problem+json' } })
+
   it('is the admins’ page: lists every ward with its beds under healthcare operations, and sets up a new one', async () => {
     const admin = facility(REAL_FACILITY, 'Fictional Hospital', ADMIN, ['admin'])
     const sent = serve({
@@ -193,7 +200,7 @@ describe('Ward configuration', () => {
   })
 
   it('adds a bed, takes one out of use (never deletes it), and saves the ward’s team of nurses, clinicians and doctors', async () => {
-    const admin = facility(REAL_FACILITY, 'Fictional Hospital', ADMIN, ['admin'])
+    const admin = selfServiceAdmin()
     const sent = serve({
       [SESSION]: [sessionAt(admin, [admin])], [WARDS]: many(configured, 6), ['GET /api/v1/identity/facility-staff']: [staff],
       [`POST /api/v1/ehr/wards/${WARD_FEMALE}/beds`]: [() => json({ bedId: BED_9, ward: ward(WARD_FEMALE, 'Female Medical Ward'), replayed: false }, 201)],
@@ -227,7 +234,7 @@ describe('Ward configuration', () => {
   })
 
   it('drops team members who no longer hold a ward role (or left), says who, and saves the rest', async () => {
-    const admin = facility(REAL_FACILITY, 'Fictional Hospital', ADMIN, ['admin'])
+    const admin = selfServiceAdmin()
     // Tolu's role is now a cashier's (no longer a ward role); ...0009's membership ended (the staff list no longer has them).
     const stale = () => json({ items: [
       { ...ward(WARD_FEMALE, 'Female Medical Ward', { takes: 'female' }), beds: [], staffMembershipIds: [
@@ -252,11 +259,11 @@ describe('Ward configuration', () => {
   })
 
   it('cannot change a team while the staff list cannot be read, so no one is dropped by mistake', async () => {
-    const admin = facility(REAL_FACILITY, 'Fictional Hospital', ADMIN, ['admin'])
+    const admin = selfServiceAdmin()
     const sent = serve({
       [SESSION]: [sessionAt(admin, [admin])], [WARDS]: many(configured, 4),
-      // Not retried (a 4xx): the page itself must offer the read again.
-      ['GET /api/v1/identity/facility-staff']: [() => problem(404, 'NOT_FOUND', 'x'), staff],
+      // Not retried by the client: the page itself must offer the read again.
+      [STAFF]: [notRetried(503, 'UPSTREAM_UNAVAILABLE'), staff],
     })
     await openStaffApp('/provider/ward-config')
     const section = (await screen.findByRole('heading', { name: 'Female Medical Ward' })).closest('section')!
@@ -306,6 +313,110 @@ describe('Ward configuration', () => {
     expect(sentTo(sent, `PATCH /api/v1/ehr/wards/${WARD_FEMALE}`)[0]!.body).toEqual({ expectedRowVersion: 4, active: false })
     await waitFor(() => expect(sentTo(sent, WARDS).length).toBeGreaterThan(1))
     expect(document.body.textContent).not.toMatch(/permission/i)
+  })
+
+  it('says Health ID support manages the staff where the facility did not sign itself up, without reading it or offering Refresh', async () => {
+    // A governed facility (no self sign-up): Identity refuses its staff list (403 STAFF_MANAGEMENT_NOT_AVAILABLE).
+    const admin = facility(REAL_FACILITY, 'Fictional Hospital', ADMIN, ['admin'])
+    const sent = serve({ [SESSION]: [sessionAt(admin, [admin])], [WARDS]: many(configured, 4), [STAFF]: [staff] })
+    await openStaffApp('/provider/ward-config')
+    const section = (await screen.findByRole('heading', { name: 'Female Medical Ward' })).closest('section')!
+    fireEvent.click(within(section).getByRole('button', { name: 'Ward team' }))
+    expect(within(section).getByText('Health ID support manages who works at Fictional Hospital, so a ward’s team cannot be set here yet.')).toBeDefined()
+    expect(within(section).queryByRole('button', { name: 'Save team' })).toBeNull()
+    expect(within(section).queryByRole('checkbox')).toBeNull()
+    expect(document.body.textContent).not.toContain('Select Refresh')
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    await waitFor(() => expect(sentTo(sent, WARDS).length).toBeGreaterThan(1))
+    expect(sentTo(sent, STAFF)).toEqual([])
+    fireEvent.click(within(section).getByRole('button', { name: 'Close' }))
+    expect(within(section).queryByText(/Health ID support manages/)).toBeNull()
+  })
+
+  it('takes the staff list’s own refusal as final too: support manages the staff, so Refresh does not read it again', async () => {
+    const admin = selfServiceAdmin()
+    const sent = serve({ [SESSION]: [sessionAt(admin, [admin])], [WARDS]: many(configured, 4),
+      [STAFF]: [() => problem(403, 'STAFF_MANAGEMENT_NOT_AVAILABLE', 'x'), staff] })
+    await openStaffApp('/provider/ward-config')
+    const section = (await screen.findByRole('heading', { name: 'Female Medical Ward' })).closest('section')!
+    fireEvent.click(within(section).getByRole('button', { name: 'Ward team' }))
+    expect(await within(section).findByText('Health ID support manages who works at Fictional Hospital, so a ward’s team cannot be set here yet.')).toBeDefined()
+    expect(within(section).queryByRole('button', { name: 'Save team' })).toBeNull()
+    expect(document.body.textContent).not.toContain('Select Refresh')
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    await waitFor(() => expect(sentTo(sent, WARDS).length).toBeGreaterThan(1))
+    expect(sentTo(sent, STAFF)).toHaveLength(1)
+    expect(document.body.textContent).not.toMatch(/permission/i)
+  })
+
+  it('saves a team with the version its form was opened from: a change read since is refused, the form closes, and opens again from it', async () => {
+    const admin = selfServiceAdmin()
+    const BISI = 'm0000000-0000-4000-8000-000000000001'
+    const FEMI = 'm0000000-0000-4000-8000-000000000002'
+    const teamAt = (rowVersion: number, staffMembershipIds: string[]) => () => json({ items: [
+      { ...ward(WARD_FEMALE, 'Female Medical Ward', { takes: 'female', rowVersion }), beds: [], staffMembershipIds }] })
+    const team = `PUT /api/v1/ehr/wards/${WARD_FEMALE}/staff`
+    const sent = serve({
+      // Read with Bisi on the team (version 4); then another admin took her off (version 5).
+      [SESSION]: [sessionAt(admin, [admin])], [WARDS]: [teamAt(4, [BISI]), ...many(teamAt(5, []), 4)], [STAFF]: [staff],
+      [team]: [() => problem(412, 'WARD_VERSION_CONFLICT', 'x'), () => json({ ward: ward(WARD_FEMALE, 'Female Medical Ward', { rowVersion: 6 }), replayed: false })],
+    })
+    await openStaffApp('/provider/ward-config')
+    const section = (await screen.findByRole('heading', { name: 'Female Medical Ward' })).closest('section')!
+    fireEvent.click(within(section).getByRole('button', { name: 'Ward team' }))
+    expect(await within(section).findByRole('checkbox', { name: 'Nurse Bisi Fiction' })).toHaveProperty('checked', true)
+    // The list is read again while the form is open: the form still shows what it was opened from.
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    await waitFor(() => expect(sentTo(sent, WARDS)).toHaveLength(2))
+    fireEvent.click(within(section).getByRole('checkbox', { name: 'Dr Femi Fiction' }))
+    fireEvent.click(within(section).getByRole('button', { name: 'Save team' }))
+    expect(await screen.findByText('Someone else changed this. Reload it and try again.')).toBeDefined()
+    // Sent with version 4, so the other admin's change is refused rather than overwritten with Bisi put back.
+    expect(sentTo(sent, team)[0]!.body).toEqual({ expectedRowVersion: 4, membershipIds: [BISI, FEMI] })
+    await waitFor(() => expect(within(section).queryByRole('button', { name: 'Save team' })).toBeNull())
+    expect(sentTo(sent, WARDS)).toHaveLength(3)
+
+    fireEvent.click(within(section).getByRole('button', { name: 'Ward team' }))
+    expect(within(section).getByRole('checkbox', { name: 'Nurse Bisi Fiction' })).toHaveProperty('checked', false)
+    fireEvent.click(within(section).getByRole('checkbox', { name: 'Dr Femi Fiction' }))
+    fireEvent.click(within(section).getByRole('button', { name: 'Save team' }))
+    expect(await screen.findByText('Female Medical Ward’s team is saved.')).toBeDefined()
+    expect(sentTo(sent, team)[1]!.body).toEqual({ expectedRowVersion: 5, membershipIds: [FEMI] })
+  })
+
+  it('changes a ward or renames a bed with the version its form was opened from, and closes the form when that changed', async () => {
+    const admin = facility(REAL_FACILITY, 'Fictional Hospital', ADMIN, ['admin'])
+    const wardAt = (rowVersion: number, takes: string, bedName: string, bedVersion: number) => () => json({ items: [
+      { ...ward(WARD_FEMALE, 'Female Medical Ward', { takes, rowVersion }), staffMembershipIds: [],
+        beds: [{ bedId: BED_1, name: bedName, kind: 'bed', status: 'available', active: true, rowVersion: bedVersion }] }] })
+    const sent = serve({
+      // Another admin made the ward take anyone (version 5) and renamed Bed 1 (version 3) while these forms were open.
+      [SESSION]: [sessionAt(admin, [admin])], [WARDS]: [wardAt(4, 'female', 'Bed 1', 2), ...many(wardAt(5, 'any', 'Bed 1B', 3), 4)],
+      [`PATCH /api/v1/ehr/wards/${WARD_FEMALE}`]: [() => problem(412, 'WARD_VERSION_CONFLICT', 'x')],
+      [`PATCH /api/v1/ehr/beds/${BED_1}`]: [() => problem(412, 'WARD_VERSION_CONFLICT', 'x')],
+    })
+    await openStaffApp('/provider/ward-config')
+    const section = (await screen.findByRole('heading', { name: 'Female Medical Ward' })).closest('section')!
+    fireEvent.click(within(section).getByRole('button', { name: 'Change ward' }))
+    fireEvent.click(within(section).getByRole('button', { name: 'Rename Bed 1' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    expect(await within(section).findByRole('heading', { name: 'Bed 1B' })).toBeDefined()
+
+    fireEvent.change(within(section).getByRole('textbox', { name: 'Ward name' }), { target: { value: 'Women’s Medical Ward' } })
+    fireEvent.click(within(section).getByRole('button', { name: 'Save ward' }))
+    expect(await screen.findByText('Someone else changed this. Reload it and try again.')).toBeDefined()
+    // Only the name, which this admin changed, and version 4: not "takes: female" again under version 5.
+    expect(sentTo(sent, `PATCH /api/v1/ehr/wards/${WARD_FEMALE}`)[0]!.body).toEqual({ expectedRowVersion: 4, name: 'Women’s Medical Ward' })
+    await waitFor(() => expect(within(section).queryByRole('button', { name: 'Save ward' })).toBeNull())
+
+    fireEvent.change(within(section).getByRole('textbox', { name: 'New name' }), { target: { value: 'Bed 1A' } })
+    fireEvent.click(within(section).getByRole('button', { name: 'Save name' }))
+    await waitFor(() => expect(sentTo(sent, `PATCH /api/v1/ehr/beds/${BED_1}`)).toHaveLength(1))
+    expect(sentTo(sent, `PATCH /api/v1/ehr/beds/${BED_1}`)[0]!.body).toEqual({ expectedRowVersion: 2, name: 'Bed 1A' })
+    await waitFor(() => expect(within(section).queryByRole('button', { name: 'Save name' })).toBeNull())
+    // Opened again, the rename starts from the name as it is now.
+    fireEvent.click(within(section).getByRole('button', { name: 'Rename Bed 1B' }))
+    expect(within(section).getByRole('textbox', { name: 'New name' })).toHaveProperty('value', 'Bed 1B')
   })
 
   it('tells a nurse only the facility’s admins set up wards, without reading', async () => {

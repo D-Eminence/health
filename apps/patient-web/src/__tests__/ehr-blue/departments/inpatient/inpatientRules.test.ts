@@ -1,15 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import {
-  INPATIENT_REFUSALS, NOT_AVAILABLE, ageText, canAllocate, canDecide, canManageWards, canPrintBand, canReadWards, canSetBedStatus,
-  cardName, censusRange, daysText, dischargedText, forgetInpatientServed, inpatientServed, lagosInputToUtc, learnFrom, lengthProblem,
+  DISCHARGE_TIME_WORDS, INPATIENT_REFUSALS, NOT_AVAILABLE, ageText, canAllocate, canDecide, canManageWards, canPrintBand, canReadWards,
+  canSetBedStatus, cardName, censusRange, daysText, dischargeTimeRange, dischargedText, forgetInpatientServed, inpatientServed, lagosInputToUtc, learnFrom, lengthProblem,
   memberText, movementText, ninText, notServed, outcomeText, refusalWords, utcToLagosInput,
 } from '../../../../ehr-blue/departments/inpatient/inpatientRules'
 import { bedMoves } from '../../../../ehr-blue/departments/inpatient/BedBoard'
 import {
   dischargeBody, dischargeMedicines, expectedDayProblem, expectedDayRange, freeBeds, needsPreparing, needsSummary, sexDiffers,
 } from '../../../../ehr-blue/departments/inpatient/AdmissionRecord'
-import { goneText, teamChoice, teamStaffOf } from '../../../../ehr-blue/departments/inpatient/WardConfig'
+import { goneText, staffNotRead, teamChoice, teamStaffOf } from '../../../../ehr-blue/departments/inpatient/WardConfig'
 import { motherChoices } from '../../../../ehr-blue/departments/inpatient/NewAdmission'
 import type { AdmissionCard, FacilityStaffMember, Ward } from '../../../../staff/api'
 
@@ -152,10 +152,30 @@ describe('the discharge (route 16)', () => {
     expect(dischargeBody('dama', empty, extra, now)).toBe('Enter the presenting problem.')
     expect(dischargeBody('routine', summary, { ...extra, signature: 'sign' }, now)).toBe('Type SIGN to sign.')
     expect(dischargeBody('routine', summary, { ...extra, dischargedAt: '2026-12-03T14:00' }, now))
-      .toBe('The discharge time must be after admission, and not in the future.')
+      .toBe('The discharge time must be after admission, within the last 24 hours, and not in the future.')
     expect(dischargeBody('died', empty, extra, now)).toBe('Enter the time of death.')
     expect(dischargeBody('died', empty, { ...extra, diedAt: '2026-12-03T13:30' }, now)).toBe('The time of death cannot be in the future.')
     expect(dischargeBody('referred_out', summary, { ...extra, referredTo: 'x' }, now)).toBe('Enter the facility’s name of at least 2 characters.')
+  })
+  it('takes a discharge time only after admission and within the last 24 hours, as route 16 does, and says so', () => {
+    const admitted = { ...extra, admittedAt: '2026-12-01T23:30:00.000Z' }
+    // 27 hours ago, though after admission: route 16 refuses it, so the page does before sending.
+    expect(dischargeBody('absconded', empty, { ...admitted, dischargedAt: '2026-12-02T10:00' }, now)).toBe(DISCHARGE_TIME_WORDS)
+    // Exactly 24 hours ago is taken; a minute more is not.
+    expect(dischargeBody('absconded', empty, { ...admitted, dischargedAt: '2026-12-02T13:00' }, now))
+      .toEqual({ outcome: 'absconded', signature: 'SIGN', dischargedAt: '2026-12-02T12:00:00.000Z' })
+    expect(dischargeBody('absconded', empty, { ...admitted, dischargedAt: '2026-12-02T12:59' }, now)).toBe(DISCHARGE_TIME_WORDS)
+    // Before admission (admitted at 09:00 Lagos today).
+    const today = { ...extra, admittedAt: '2026-12-03T08:00:00.000Z' }
+    expect(dischargeBody('absconded', empty, { ...today, dischargedAt: '2026-12-03T08:30' }, now)).toBe(DISCHARGE_TIME_WORDS)
+    expect(dischargeBody('absconded', empty, { ...today, dischargedAt: '2026-12-03T09:00' }, now))
+      .toEqual({ outcome: 'absconded', signature: 'SIGN', dischargedAt: '2026-12-03T08:00:00.000Z' })
+    // The field's limits in Lagos: the later of admission and 24 hours ago (to the next whole minute), and now.
+    expect(dischargeTimeRange('2026-12-01T23:30:00.000Z', now + 30_000)).toMatchObject({ min: '2026-12-02T13:01', max: '2026-12-03T13:00' })
+    expect(dischargeTimeRange('2026-12-03T08:00:00.000Z', now)).toMatchObject({ min: '2026-12-03T09:00', max: '2026-12-03T13:00' })
+    expect(dischargeTimeRange(null, now)).toMatchObject({ min: '2026-12-02T13:00' })
+    // The refusal itself names the 24-hour limit too.
+    expect(refusalWords(problem(400, 'DISCHARGE_TIME_INVALID'), 'x')).toBe(DISCHARGE_TIME_WORDS)
   })
   it('sends a death with its time and no summary, and a referral with the facility', () => {
     expect(dischargeBody('died', empty, { ...extra, diedAt: '2026-12-03T05:40' }, now))
@@ -245,6 +265,14 @@ describe('a ward’s team (route 6)', () => {
     expect(goneText(['m-9', 'm-8'], staff.names)).toBe('2 former staff members')
     expect(goneText(['m-3'], staff.names)).toBe('Tolu Fiction')
     expect(teamChoice(undefined, new Set(), staff)).toEqual({ send: [], gone: [] })
+  })
+  it('tells a staff list Identity does not read here (support manages the staff, or no route) from one that failed', () => {
+    expect(staffNotRead(problem(403, 'STAFF_MANAGEMENT_NOT_AVAILABLE'), 'Fictional Hospital'))
+      .toBe('Health ID support manages who works at Fictional Hospital, so a ward’s team cannot be set here yet.')
+    expect(staffNotRead(problem(404, 'NOT_FOUND'), 'Fictional Hospital')).toBe('The staff list is not switched on yet, so a ward’s team cannot be set now.')
+    // Worth reading again: Refresh.
+    expect(staffNotRead(problem(503, 'UPSTREAM_UNAVAILABLE'), 'Fictional Hospital')).toBeNull()
+    expect(staffNotRead(problem(0, 'NETWORK_ERROR'), 'Fictional Hospital')).toBeNull()
   })
 })
 

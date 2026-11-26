@@ -15,10 +15,10 @@ import { DeptNotice, type DeptNoticeTone } from '../parts/DeptNotice'
 import { DeptPage, DeptSection } from '../parts/DeptPage'
 import { useIdempotencyKeys, useStaffNames } from './hooks'
 import {
-  CONDITION_WORDS, DEATH_RECORD_OFF, EYEBROW, OUTCOME_HINTS, OUTCOME_WORDS, RELOAD_AFTER, REPRINT_WORDS, SIGN_WORD,
-  canAllocate, canDecide, canPrintBand, canReadAdmission, cardName, daysText, dischargedText, isCancelled, lagosDateTime, lagosInputToUtc,
-  learnFrom, lengthProblem, memberText, movementText, notServed, outcomeText, placeText, refusalWords, sourceText,
-  takesText, utcToLagosInput, dayText,
+  CONDITION_WORDS, DEATH_RECORD_OFF, DISCHARGE_TIME_WORDS, EYEBROW, OUTCOME_HINTS, OUTCOME_WORDS, RELOAD_AFTER, REPRINT_WORDS,
+  SIGN_WORD, canAllocate, canDecide, canPrintBand, canReadAdmission, cardName, daysText, dischargeTimeRange, dischargedText,
+  isCancelled, lagosDateTime, lagosInputToUtc, learnFrom, lengthProblem, memberText, movementText, notServed, outcomeText, placeText,
+  refusalWords, sourceText, takesText, utcToLagosInput, dayText,
 } from './inpatientRules'
 import { AdmissionBadges, AdmissionIdentity, ScreenWarning } from './parts'
 import { BandPaper, DischargeSummaryPaper, useInpatientPrint } from './prints'
@@ -537,7 +537,7 @@ const EMPTY_SUMMARY: SummaryValues = {
 
 /** What the form sends, or the first problem with it. No outcome is ever assumed: the doctor chooses one. */
 export function dischargeBody(outcome: DischargeOutcome | '', values: SummaryValues, extra: { dischargedAt: string; diedAt: string;
-  referredTo: string; signature: string }, now: number = Date.now()): DischargeInput | string {
+  referredTo: string; signature: string; admittedAt?: string | null }, now: number = Date.now()): DischargeInput | string {
   if (!outcome) return 'Choose the outcome.'
   const filled = values.presentingProblem.trim() !== '' || values.courseInHospital.trim() !== ''
   if (needsSummary(outcome) || filled) {
@@ -550,7 +550,10 @@ export function dischargeBody(outcome: DischargeOutcome | '', values: SummaryVal
     }
   }
   const at = extra.dischargedAt ? lagosInputToUtc(extra.dischargedAt) : null
-  if (extra.dischargedAt && (!at || Date.parse(at) > now)) return 'The discharge time must be after admission, and not in the future.'
+  if (extra.dischargedAt) {
+    const { earliest, latest } = dischargeTimeRange(extra.admittedAt, now)
+    if (!at || Date.parse(at) > latest || Date.parse(at) < earliest) return DISCHARGE_TIME_WORDS
+  }
   let diedAt: string | null = null
   if (outcome === 'died') {
     diedAt = extra.diedAt ? lagosInputToUtc(extra.diedAt) : null
@@ -596,10 +599,11 @@ function DischargeForm({ card, busy, onCancel, onSave }: {
   const [problem, setProblem] = useState('')
   const change = (next: Partial<SummaryValues>) => setValues(previous => ({ ...previous, ...next }))
   const now = utcToLagosInput()
+  const range = dischargeTimeRange(card.admittedAt)
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const body = dischargeBody(outcome, values, { dischargedAt, diedAt, referredTo, signature })
+    const body = dischargeBody(outcome, values, { dischargedAt, diedAt, referredTo, signature, admittedAt: card.admittedAt })
     if (typeof body === 'string') { setProblem(body); return }
     setProblem('')
     await onSave(body)
@@ -634,8 +638,9 @@ function DischargeForm({ card, busy, onCancel, onSave }: {
           <EhrInput type="datetime-local" value={diedAt} max={now} onChange={event => setDiedAt(event.target.value)} />
         </EhrField>
       ) : null}
-      <EhrField label="Discharge time (optional)" controlId="discharge-at" hint="Lagos time. Left empty, now.">
-        <EhrInput type="datetime-local" value={dischargedAt} max={now} onChange={event => setDischargedAt(event.target.value)} />
+      <EhrField label="Discharge time (optional)" controlId="discharge-at"
+        hint="Lagos time, after admission and within the last 24 hours. Left empty, now.">
+        <EhrInput type="datetime-local" value={dischargedAt} min={range.min} max={range.max} onChange={event => setDischargedAt(event.target.value)} />
       </EhrField>
       <fieldset className="hid-ehr-dept-inpatient-choices">
         <legend>{!outcome || needsSummary(outcome) ? 'Discharge summary' : 'Discharge summary (optional)'}</legend>
