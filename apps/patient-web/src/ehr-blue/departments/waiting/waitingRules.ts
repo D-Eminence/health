@@ -81,23 +81,16 @@ export const NEXT_STEP: Readonly<Partial<Record<VisitQueueStage, { readonly stag
   with_clinician: { stage: 'finished', label: 'Finished' },
 }
 
-export const TRIAGE_LEVELS = [1, 2, 3, 4, 5] as const
+// The five triage levels are shared with the emergency department board and Triage & Vitals (one module).
+export { TRIAGE_LEVELS, triageText, triageTone } from '../parts/triageLevels'
 
-const TRIAGE_WORDS: Readonly<Record<number, string>> = {
-  1: 'Level 1: most urgent',
-  2: 'Level 2: very urgent',
-  3: 'Level 3: urgent',
-  4: 'Level 4: less urgent',
-  5: 'Level 5: not urgent',
-}
-
-export function triageText(level: number | null): string {
-  return level !== null && Object.hasOwn(TRIAGE_WORDS, level) ? TRIAGE_WORDS[level]! : 'No triage level yet'
-}
-
-export function triageTone(level: number | null): EhrBadgeTone {
-  if (level === null) return 'neutral'
-  return level <= 2 ? 'critical' : level === 3 ? 'caution' : 'neutral'
+/**
+ * A row that is also on the emergency department board (hid-system ED-1, `edAttendanceId`): it says so, and links to the
+ * patient's record on the board, by the ED record's id only.
+ */
+export const EMERGENCY_DEPARTMENT = 'Emergency department'
+export function emergencyRecordHref(attendanceId: string): string {
+  return `/provider/emergency-department/${encodeURIComponent(attendanceId)}`
 }
 
 /** Who will see the patient: the session's own membership is "You"; another member's id is never shown. */
@@ -136,6 +129,8 @@ export const VISIT_QUEUE_REFUSALS: Readonly<Record<string, string>> = {
   VISIT_QUEUE_NOTHING_TO_CHANGE: 'Choose a stage, a triage level or who will see the patient.',
   VISIT_QUEUE_UPDATE_INVALID: 'Choose a stage, a triage level from 1 to 5, or who will see the patient.',
   VISIT_QUEUE_UNAVAILABLE: 'The waiting list is not available yet. Try again later.',
+  // hid-system 0168's guard: an emergency department patient's row is changed on the board only.
+  VISIT_QUEUE_ON_ED_BOARD: 'This patient is on the emergency department board. Make this change on the board. The list has been loaded again.',
   // ehr-api's guard, for a member without encounter read and write here (its own text names a permission).
   PERMISSION_DENIED: UNAVAILABLE_MESSAGE,
   // An ehr-api before 0135 (hid-system main) has no such route.
@@ -147,7 +142,8 @@ export const CHECK_IN_INVALID = VISIT_QUEUE_REFUSALS.CHECK_IN_NEEDS_ONE_PATIENT!
 export const UPDATE_INVALID = VISIT_QUEUE_REFUSALS.VISIT_QUEUE_UPDATE_INVALID!
 
 /** Refusals after which the list is read again at once: the card on screen is out of date. */
-export const RELOAD_AFTER: ReadonlySet<string> = new Set(['VISIT_QUEUE_ENTRY_CHANGED', 'VISIT_QUEUE_ENTRY_CLOSED', 'VISIT_QUEUE_ENTRY_NOT_FOUND'])
+export const RELOAD_AFTER: ReadonlySet<string> = new Set(['VISIT_QUEUE_ENTRY_CHANGED', 'VISIT_QUEUE_ENTRY_CLOSED', 'VISIT_QUEUE_ENTRY_NOT_FOUND',
+  'VISIT_QUEUE_ON_ED_BOARD'])
 
 export const SEARCH_HINT = 'Use the full name and date of birth, the Health ID with the last name or date of birth, or the phone number with '
   + 'the last name. For this facility’s own patients, the last name and date of birth, the phone number or the Health ID is enough.'

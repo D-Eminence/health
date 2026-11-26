@@ -118,6 +118,17 @@ const RELEASE_A = 'Served by hid-system staging-novu-ci-20261005 from Release A 
   + 'main, which answers 404. '
 const ACCOUNT_DELETION_NOTE = 'Novu: hid-system 0096; 404 before'
 /**
+ * The emergency department board (hid-system ED-1, migrations 0168 and 0169, provisional; Release D). Built on
+ * claude/sprint-emergency-backend and not live: an ehr-api before it answers 404, and while the service flag
+ * ED_BOARD_ENABLED is off every route answers 503 ED_BOARD_NOT_AVAILABLE. Direct care at the X-Facility-ID facility (an
+ * arrival from an emergency search's matchRef sends emergency). Every route also needs 0135's ehr.encounter.read and
+ * ehr.encounter.write. No Health ID or NIN in any path, query, body or answer.
+ */
+const ED_1 = 'hid-system ED-1 (0168-0169, Release D; claude/sprint-emergency-backend, not live): 404 before it, 503 '
+  + 'ED_BOARD_NOT_AVAILABLE while ED_BOARD_ENABLED is off. X-Facility-ID, direct-care; every write an Idempotency-Key.'
+/** ED-1's codes, each with 0135's waiting-list pair (the backend checks all of them). */
+const ed = (method: EndpointMethod, code: string) => one(method, code, 'ehr.encounter.read', 'ehr.encounter.write')
+/**
  * "Notifications on this device" (B6, contract b6-contract.md §3): payload-free Web Push, the subscription stored by
  * Identity. Served by Novu from hid-system 0097, and only once the owner has configured the push keys: before that, and
  * on a backend before 0097, each route answers 404, which the portal takes as not offered (the section is hidden).
@@ -596,6 +607,14 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'emergency. Body exactly { firstName, lastName, dateOfBirth, reason (8-500) }; the same answer with mode emergency and '
     + 'at most 5 cards. The cards give no access: break-glass sends a card\'s matchRef with its own reason (ID-5). 400 '
     + 'EMERGENCY_SEARCH_REASON_REQUIRED, 423 BREAK_GLASS_DISABLED, 429 PATIENT_SEARCH_LIMITED.')),
+  // An unknown patient's record (hid-system ID-7, 0145, Release B on staging-novu-ci-20261005; not served by hid-system
+  // main). The emergency board's New arrival makes one and puts it on the board by its patientId; only "make one" is called.
+  proposed(r('identity.unknownPatients','identity','/api/v1/identity/unknown-patients',P,false,
+    one('POST','identity.registration.write'),
+    'hid-system ID-7 (0145). X-Facility-ID, healthcare-operations (also purpose in the body), with an Idempotency-Key. Body '
+    + '{ gender, estimatedAgeYears? (0-120), unknownReason, arrivalNote? (1-1000, encrypted) }. 201 { patientId, recordKind: '
+    + 'unknown, label, displayName, sex, dateOfBirth, dateOfBirthEstimated, ninStatus, status, version, hid (this answer '
+    + 'only, for the wristband), replayed }. A sealed demo facility is refused.')),
   proposed(r('identity.ownFacilityAccess','identity','/api/v1/identity/own-facility-access',P,false,
     one('POST','identity.patient.open-own-facility'),
     'Release A (0131, ID-4) on hid-system staging-novu-ci-20261005; not served by hid-system main. X-Facility-ID, '
@@ -986,6 +1005,39 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     one('PATCH','ehr.encounter.read','ehr.encounter.write'),
     `${RELEASE_A} X-Facility-ID, direct-care. Body { expectedRowVersion, stage?, triageLevel? (null clears), `
     + 'assignedMembershipId? (null clears) }. 200 the card; 409 VISIT_QUEUE_ENTRY_CHANGED or VISIT_QUEUE_ENTRY_CLOSED.')),
+  // The emergency department board (hid-system ED-1, migrations 0168 and 0169, Release D; on the branch
+  // claude/sprint-emergency-backend, not live). An ED patient is a waiting-list row plus an ED record. Every route answers
+  // 503 ED_BOARD_NOT_AVAILABLE while ED_BOARD_ENABLED is off, and an ehr-api before it answers 404: the page then says
+  // "The emergency board is not available yet."
+  proposed(r('ehr.edBoard','ehr','/api/v1/ehr/ed-board',G,false,ed('GET','ehr.ed.read'),
+    `${ED_1} Query includeClosedToday=true also lists the records closed that arrived today (its only query). 200 { items: `
+    + 'card[], counts: { waiting, beingSeen, disposition }, hasMore, limit: 200 }, by column, then triage level, then '
+    + 'arrival. A card has healthIdLast4 only; presentingComplaint is null with complaintHidden for the front desk.')),
+  proposed(r('ehr.edAttendances','ehr','/api/v1/ehr/ed-attendances',P,false,ed('POST','ehr.ed.arrive'),
+    `${ED_1} Body exactly one of matchRef (this member's direct-care search, 10 minutes; or, sent as emergency, an `
+    + 'emergency search while holding an active break-glass grant here) or patientId (this facility\'s own, every unknown '
+    + 'record made here), arrivalMode, arrivedAt?, triageLevel? and presentingComplaint? (ehr.ed.triage). 201 { outcome: '
+    + 'arrived | moved_from_waiting_list | already_on_board, attendance, replayed }; 403 ED_ARRIVAL_NEEDS_SEARCH.')),
+  proposed(r('ehr.edAttendance','ehr','/api/v1/ehr/ed-attendances/:attendanceId',G,false,ed('GET','ehr.ed.read'),
+    `${ED_1} 200 { attendance: card, history: [{ kind, at, byMembershipId, fromStage, toStage, triageLevel, outcome, reason, `
+    + 'complaintChanged }] }; 404 ED_ATTENDANCE_NOT_FOUND (also another facility\'s record).')),
+  proposed(r('ehr.edAttendanceTriage','ehr','/api/v1/ehr/ed-attendances/:attendanceId/triage',P,false,ed('POST','ehr.ed.triage'),
+    `${ED_1} Body { expectedRowVersion, triageLevel (1-5), presentingComplaint? (null clears) }. 200 { attendance, `
+    + 'replayed }; 409 ED_ATTENDANCE_DECIDED; 412 ED_VERSION_CONFLICT.')),
+  proposed(r('ehr.edAttendanceMove','ehr','/api/v1/ehr/ed-attendances/:attendanceId/move',P,false,ed('POST','ehr.ed.triage'),
+    `${ED_1} Body { expectedRowVersion, stage? (waiting|triage|ready|with_clinician), assignedMembershipId? (null clears) }, `
+    + 'at least one (400 ED_NOTHING_TO_CHANGE).')),
+  proposed(r('ehr.edAttendanceVisit','ehr','/api/v1/ehr/ed-attendances/:attendanceId/visit',P,false,ed('POST','ehr.ed.triage'),
+    `${ED_1} Body { expectedRowVersion, encounterId } (EHR-C1's emergency visit); 400 ED_VISIT_INVALID for every reason.`)),
+  proposed(r('ehr.edAttendanceDisposition','ehr','/api/v1/ehr/ed-attendances/:attendanceId/disposition',P,false,
+    ed('POST','ehr.ed.disposition'),
+    `${ED_1} Body { expectedRowVersion, outcome, admitToDepartmentCode? and admittingMembershipId? (admit_requested), `
+    + 'referredToFacilityName? (referred_out), reason? (8-500, to change a decision) }.')),
+  proposed(r('ehr.edAttendanceLeave','ehr','/api/v1/ehr/ed-attendances/:attendanceId/leave',P,false,ed('POST','ehr.ed.triage'),
+    `${ED_1} Body { expectedRowVersion }: "Left the department", only once decided (409 ED_ATTENDANCE_NOT_DECIDED).`)),
+  proposed(r('ehr.edAttendanceCancel','ehr','/api/v1/ehr/ed-attendances/:attendanceId/cancel',P,false,ed('POST','ehr.ed.arrive'),
+    `${ED_1} Body { expectedRowVersion, reason (8-500) }: an arrival made in error, while open with no visit or decision `
+    + '(409 ED_CANCEL_NOT_ALLOWED). The record is kept.')),
   r('ehr.vitals','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals',GP,false,{GET:['ehr.vital.read'],POST:['ehr.vital.write']}),
   r('ehr.vital','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals/:vitalId',G,false,one('GET','ehr.vital.read')),
   r('ehr.vitalCorrections','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals/:vitalId/corrections',GP,false,{GET:['ehr.vital.read'],POST:['ehr.vital.write']}),

@@ -47,6 +47,7 @@ const CLINICAL_SIDEBAR: Readonly<Record<string, string>> = {
   patients: 'Front desk', registration: 'Front desk', 'in-person-check': 'Front desk', 'waiting-list': 'Front desk',
   appointments: 'Front desk', journey: 'Front desk',
   triage: 'Care', clinical: 'Care', nursing: 'Care', 'nursing-tasks': 'Care', requests: 'Care', emergency: 'Care',
+  'emergency-department': 'Care',
   inpatient: 'Wards & units', wards: 'Wards & units', maternity: 'Wards & units',
   surgery: 'Wards & units', icu: 'Wards & units', dental: 'Wards & units',
 }

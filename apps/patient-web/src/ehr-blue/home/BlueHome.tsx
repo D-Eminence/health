@@ -55,7 +55,7 @@ export function areaName(page: { readonly path: string; readonly group: string }
 
 export function areaTone(page: { readonly path: string; readonly group: string }): AreaTone {
   const base = basePath(page.path)
-  if (base === 'emergency') return 'danger'
+  if (base === 'emergency' || base === 'emergency-department') return 'danger'
   if (page.group === 'Clinical') return FRONT_DESK.has(base) ? 'brand' : base === 'requests' ? 'brand' : 'success'
   if (page.group === 'Diagnostics') return 'violet'
   if (page.group === 'Pharmacy') return 'info'

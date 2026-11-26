@@ -9,6 +9,7 @@ import { Workspace, useClinical, useWorkspaceHref } from '../parts/Workspace'
 import { useSampleAccess } from '../sample/access'
 import { SampleCreate, SampleDetail, SampleList } from '../sample/SampleWorkspace'
 import { BreakGlassCard, CurrentEmergency } from './BreakGlass'
+import { canRead as canReadEdBoard, useEdBoardServed } from '../../departments/emergency/edRules'
 import { EmergencySummaryPage } from './EmergencySummary'
 
 /**
@@ -32,11 +33,21 @@ function EmergencyHome() {
   const href = useWorkspaceHref()
   const demo = useDemoFacility()
   const can = useSampleAccess()
+  const clinical = useClinical()
+  // The live board is its own page (hid-system ED-1): offered here to the members it is open to, as long as the board has
+  // not answered that it is not served (a backend before 0168, or ED_BOARD_ENABLED off), as the sidebar lists it.
+  const served = useEdBoardServed()
+  const board = served !== false && canReadEdBoard(clinical.permissions)
   return (
     <div className="flex flex-col gap-8">
       {/* The form and the board share one column width, so neither sticks out past the other (owner, 18 Nov 2026). */}
       <FormPage wide title="Emergency access" description="See the emergency summary of a patient who can’t consent."
-        actions={demo && can('emergency', 'create') ? <Button to={href('new')}>New board entry</Button> : undefined}>
+        actions={board || (demo && can('emergency', 'create')) ? (
+          <>
+            {board ? <Button variant="secondary" to="/provider/emergency-department">Emergency department board</Button> : null}
+            {demo && can('emergency', 'create') ? <Button to={href('new')}>New board entry</Button> : null}
+          </>
+        ) : undefined}>
         <CurrentEmergency />
         <BreakGlassCard />
       </FormPage>

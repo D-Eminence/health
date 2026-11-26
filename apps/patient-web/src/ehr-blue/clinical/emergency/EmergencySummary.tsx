@@ -15,6 +15,7 @@ import { ChartGate, readEndsAccess, type Chart } from '../parts/chart'
 import { formatWhen } from '../parts/format'
 import { codeText, MoreDetails } from '../parts/MoreDetails'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
+import { EmergencyBoardArrival } from '../../departments/emergency/EmergencyBoardArrival'
 import { ACCESS_CLOSED, CLOSE_FAILED, CLOSE_GRANT, CLOSE_REASON, actionUnavailable } from './access'
 import { emergencyAllergies, type EmergencyAllergies } from './emergencyAllergies'
 import { ReleasedResults } from './ReleasedResults'
@@ -410,6 +411,7 @@ function NoEmergencyPatient() {
 /** emergency/summary: the read-only emergency summary of the patient open under emergency access. */
 export function EmergencySummaryPage() {
   const href = useWorkspaceHref()
+  const { permissions } = useClinical()
   const [closed, setClosed] = useState(0)
   const said = useRef<HTMLParagraphElement>(null)
 
@@ -427,7 +429,12 @@ export function EmergencySummaryPage() {
       </div>
       <ChartGate allowEmergency>
         {chart => chart.purpose === 'emergency'
-          ? <Summary key={chart.patientId} chart={chart} onClosed={() => setClosed(value => value + 1)} />
+          ? (
+            <>
+              <Summary key={chart.patientId} chart={chart} onClosed={() => setClosed(value => value + 1)} />
+              <EmergencyBoardArrival facilityId={chart.facilityId} patientId={chart.patientId} permissions={permissions} />
+            </>
+          )
           : <NoEmergencyPatient />}
       </ChartGate>
     </FormPage>

@@ -15,6 +15,7 @@ import { isHidApiError } from '@hid/http'
 import type { PatientSearchAnswer, PatientSearchCard } from '../../../staff/patientSearch'
 import { SEARCH_EXPIRED } from '../patients/searchWords'
 import { CHOOSE_PATIENT, EmergencyNameSearch } from './EmergencySearch'
+import { rememberEmergencyCard } from '../../departments/emergency/emergencyArrival'
 import {
   COMMAND_FAILED, EMERGENCY_ACCESS, EMERGENCY_MINUTES, HID_FORMAT, NOTICE_SHORT, NOTICE_WHEN, NOT_GRANTED, REASON_MAX, REASON_MIN, REASON_TOO_SHORT,
   actionUnavailable, breakGlassRefusal, emergencyNotice, healthIdProblem,
@@ -211,8 +212,12 @@ export function BreakGlassCard() {
           patient: { patientId: grant.patientId, hid: '', fullName: card.fullName, dateOfBirth: card.dateOfBirth ?? undefined, gender: card.sex ?? undefined },
         },
       })
-      // An answer after the session or facility changed opens nothing.
-      if (opened) navigate(href.to('emergency', 'summary'))
+      // An answer after the session or facility changed opens nothing. The card is kept, in memory only, so the summary can
+      // offer to put the patient on the emergency board (ED-1, Q-ED-3 A).
+      if (opened) {
+        rememberEmergencyCard(facility.id, grant.patientId, card.matchRef)
+        navigate(href.to('emergency', 'summary'))
+      }
     } catch (caught) {
       setError(plainErrorText(caught, COMMAND_FAILED, { audience: 'facility' }))
     } finally {

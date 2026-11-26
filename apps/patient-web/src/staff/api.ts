@@ -3292,6 +3292,13 @@ export interface VisitQueueCard {
   recordKind?: 'standard' | 'unknown'
   /** hid-system 0145 (ID-7): the date of birth is an estimate (an unknown patient's age). Absent before 0145. */
   dateOfBirthEstimated?: boolean
+  /**
+   * hid-system ED-1 (0168): the open or decided emergency department record of the row, or null (also null on a database
+   * without 0168, and always null while ED_BOARD_ENABLED is off: the row is then an ordinary waiting-list row, and a
+   * change to it also closes its ED record). Absent before ED-1. The row then shows "Emergency department" and links to
+   * the board.
+   */
+  edAttendanceId?: string | null
 }
 
 export interface VisitQueueList { items: VisitQueueCard[]; hasMore: boolean; limit: number }
@@ -3316,4 +3323,195 @@ export const visitQueueApi = {
   update: (facilityId: string, entry: Pick<VisitQueueCard, 'entryId' | 'rowVersion'>, change: VisitQueueChange) =>
     client.request<VisitQueueCard>({ method: 'PATCH', path: `/api/v1/ehr/visit-queue/${encodeURIComponent(entry.entryId)}`,
       body: { expectedRowVersion: entry.rowVersion, ...change }, headers: facilityHeaders(facilityId, 'direct-care') }),
+}
+
+/**
+ * The emergency department board (hid-system ED-1, migrations 0168 and 0169, Release D; INTERFACE_CONTRACT.md "ED-1"),
+ * built on claude/sprint-emergency-backend and not live: an ehr-api before it answers 404, and while the service flag
+ * ED_BOARD_ENABLED is off every route answers 503 ED_BOARD_NOT_AVAILABLE. An emergency department patient is a row of the
+ * waiting list plus an ED record, so the stage, triage level and who sees the patient are the waiting list's own fields
+ * (0135). Direct care at the X-Facility-ID facility; an arrival from an emergency search's matchRef sends emergency. No
+ * Health ID or NIN in any path, query, body or answer: patients by UUID, ED records by UUID, new arrivals by a search
+ * card's matchRef. Every write sends an Idempotency-Key the caller keeps per request body.
+ */
+export const ED_ARRIVAL_MODES = ['walk_in', 'ambulance', 'brought_by_public', 'police', 'referred', 'other'] as const
+export type EdArrivalMode = (typeof ED_ARRIVAL_MODES)[number]
+export const ED_OUTCOMES = ['discharged', 'admit_requested', 'referred_out', 'sent_to_outpatients', 'left_before_seen',
+  'left_against_advice', 'died'] as const
+export type EdOutcome = (typeof ED_OUTCOMES)[number]
+export type EdColumn = 'waiting' | 'being_seen' | 'disposition' | 'closed'
+export type EdStatus = 'open' | 'decided' | 'closed'
+export type EdOpenStage = 'waiting' | 'triage' | 'ready' | 'with_clinician'
+
+export interface EdDisposition {
+  outcome: EdOutcome
+  decidedAt: string
+  decidedByMembershipId: string | null
+  admitToDepartmentCode: string | null
+  admittingMembershipId: string | null
+  referredToFacilityName: string | null
+}
+
+/** One patient on the board (route 2's card, every answer's `attendance`). */
+export interface EdCard {
+  attendanceId: string
+  entryId: string
+  patientId: string
+  /** "Unknown patient U-0007" for an unknown record (0145); the real name once it is identified. */
+  fullName: string
+  recordKind: 'standard' | 'unknown'
+  unknownLabel: string | null
+  sex: string | null
+  dateOfBirth: string | null
+  dateOfBirthEstimated: boolean
+  healthIdLast4: string | null
+  chartBlocked: boolean
+  arrivalBasis: 'search' | 'own-facility' | 'emergency'
+  arrivalMode: EdArrivalMode
+  arrivedAt: string
+  minutesInDepartment: number
+  column: EdColumn
+  stage: VisitQueueStage
+  triageLevel: number | null
+  triagedAt: string | null
+  triagedByMembershipId: string | null
+  /** Null with complaintHidden for a member without ehr.ed.triage (the front desk). */
+  presentingComplaint: string | null
+  complaintHidden: boolean
+  assignedMembershipId: string | null
+  encounterId: string | null
+  status: EdStatus
+  disposition: EdDisposition | null
+  leftAt: string | null
+  rowVersion: number
+}
+
+export interface EdBoard {
+  items: EdCard[]
+  counts: { waiting: number; beingSeen: number; disposition: number }
+  hasMore: boolean
+  limit: number
+}
+
+export type EdHistoryKind = 'arrived' | 'moved_from_waiting_list' | 'triaged' | 'moved' | 'visit_linked' | 'disposition'
+  | 'disposition_changed' | 'left' | 'cancelled' | 'closed_on_waiting_list'
+
+export interface EdHistoryEvent {
+  kind: EdHistoryKind
+  at: string
+  byMembershipId: string | null
+  fromStage: VisitQueueStage | null
+  toStage: VisitQueueStage | null
+  triageLevel: number | null
+  outcome: EdOutcome | null
+  reason: string | null
+  complaintChanged: boolean
+}
+
+export interface EdRecord { attendance: EdCard; history: EdHistoryEvent[] }
+export interface EdWritten { attendance: EdCard; replayed: boolean }
+export interface EdArrived extends EdWritten { outcome: 'arrived' | 'moved_from_waiting_list' | 'already_on_board' }
+
+/** Route 1's body: exactly one patient (a search card's matchRef, or this facility's own patient's id). */
+export interface EdArrivalInput {
+  arrivalMode: EdArrivalMode
+  arrivedAt?: string
+  triageLevel?: number
+  presentingComplaint?: string
+}
+export type EdArrivalPatient = { matchRef: string; emergency?: boolean } | { patientId: string }
+
+export interface EdDispositionInput {
+  outcome: EdOutcome
+  admitToDepartmentCode?: string
+  admittingMembershipId?: string
+  referredToFacilityName?: string
+  reason?: string
+}
+
+function attendancePath(attendanceId: string, action?: string) {
+  return `/api/v1/ehr/ed-attendances/${encodeURIComponent(attendanceId)}${action ? `/${action}` : ''}`
+}
+
+export const edBoardApi = {
+  /** Route 2: this facility's open and decided records (with the flag, also those closed that arrived today). */
+  board: (facilityId: string, includeClosedToday = false) =>
+    client.get<EdBoard>('/api/v1/ehr/ed-board', { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false,
+      ...(includeClosedToday ? { query: { includeClosedToday: true } } : {}) }),
+  /** Route 3: one record and its history (never the complaint's text in the history). */
+  record: (facilityId: string, attendanceId: string) =>
+    client.get<EdRecord>(attendancePath(attendanceId), { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false }),
+  /**
+   * Route 1: put a patient on the board. An emergency search's matchRef (Q-ED-3 A) is sent as emergency, every other
+   * arrival as direct care. The triage fields are sent only when given.
+   */
+  arrive: (facilityId: string, patient: EdArrivalPatient, input: EdArrivalInput, idempotencyKey: string) =>
+    client.post<EdArrived>('/api/v1/ehr/ed-attendances',
+      { ...('matchRef' in patient ? { matchRef: patient.matchRef } : { patientId: patient.patientId }), ...input },
+      { headers: { ...facilityHeaders(facilityId, 'matchRef' in patient && patient.emergency ? 'emergency' : 'direct-care'),
+        ...keyHeaders(idempotencyKey) } }),
+  /** Route 4: the triage level, and the complaint (null clears it; left out keeps it). */
+  triage: (facilityId: string, card: Pick<EdCard, 'attendanceId' | 'rowVersion'>,
+    input: { triageLevel: number; presentingComplaint?: string | null }, idempotencyKey: string) =>
+    client.post<EdWritten>(attendancePath(card.attendanceId, 'triage'), { expectedRowVersion: card.rowVersion, ...input },
+      { headers: { ...facilityHeaders(facilityId, 'direct-care'), ...keyHeaders(idempotencyKey) } }),
+  /** Route 5: the stage and who sees the patient ("Start care" sends with_clinician and the member's own membership). */
+  move: (facilityId: string, card: Pick<EdCard, 'attendanceId' | 'rowVersion'>,
+    input: { stage?: EdOpenStage; assignedMembershipId?: string | null }, idempotencyKey: string) =>
+    client.post<EdWritten>(attendancePath(card.attendanceId, 'move'), { expectedRowVersion: card.rowVersion, ...input },
+      { headers: { ...facilityHeaders(facilityId, 'direct-care'), ...keyHeaders(idempotencyKey) } }),
+  /** Route 6: link the patient's emergency visit (EHR-C1) to the record. Reads no clinical content. */
+  linkVisit: (facilityId: string, card: Pick<EdCard, 'attendanceId' | 'rowVersion'>, encounterId: string, idempotencyKey: string) =>
+    client.post<EdWritten>(attendancePath(card.attendanceId, 'visit'), { expectedRowVersion: card.rowVersion, encounterId },
+      { headers: { ...facilityHeaders(facilityId, 'direct-care'), ...keyHeaders(idempotencyKey) } }),
+  /** Route 7: where the patient goes next; a change of decision carries a reason. */
+  disposition: (facilityId: string, card: Pick<EdCard, 'attendanceId' | 'rowVersion'>, input: EdDispositionInput, idempotencyKey: string) =>
+    client.post<EdWritten>(attendancePath(card.attendanceId, 'disposition'), { expectedRowVersion: card.rowVersion, ...input },
+      { headers: { ...facilityHeaders(facilityId, 'direct-care'), ...keyHeaders(idempotencyKey) } }),
+  /** Route 8: "Left the department" ("Handed over to the ward" for an admission request). */
+  leave: (facilityId: string, card: Pick<EdCard, 'attendanceId' | 'rowVersion'>, idempotencyKey: string) =>
+    client.post<EdWritten>(attendancePath(card.attendanceId, 'leave'), { expectedRowVersion: card.rowVersion },
+      { headers: { ...facilityHeaders(facilityId, 'direct-care'), ...keyHeaders(idempotencyKey) } }),
+  /** Route 9: an arrival made in error, with a reason. The record is kept. */
+  cancel: (facilityId: string, card: Pick<EdCard, 'attendanceId' | 'rowVersion'>, reason: string, idempotencyKey: string) =>
+    client.post<EdWritten>(attendancePath(card.attendanceId, 'cancel'), { expectedRowVersion: card.rowVersion, reason },
+      { headers: { ...facilityHeaders(facilityId, 'direct-care'), ...keyHeaders(idempotencyKey) } }),
+  /**
+   * EHR-C1's emergency visit for the patient open in the chart, reusing the open visit today (`reuseOpenVisit`), for
+   * route 6. Only after the chart opened under the usual access; the board itself gives none.
+   */
+  emergencyVisit: (facilityId: string, patientId: string, startedAt: string, idempotencyKey: string) =>
+    client.post<Encounter>(patientPath(patientId),
+      { encounterType: 'emergency', status: 'in_progress', startedAt, chiefComplaint: 'Emergency department attendance', reuseOpenVisit: true },
+      { headers: { ...facilityHeaders(facilityId, 'direct-care'), ...keyHeaders(idempotencyKey) } }),
+}
+
+/**
+ * An unknown patient's record (hid-system ID-7, 0145): made at the desk for a person who cannot say who they are, then
+ * put on the board by its patientId (this facility's own patient). `hid` is in this answer only, for the wristband.
+ */
+export const UNKNOWN_PATIENT_REASONS = ['unconscious', 'confused', 'unaccompanied_child', 'cannot_communicate', 'other'] as const
+export type UnknownPatientReason = (typeof UNKNOWN_PATIENT_REASONS)[number]
+export interface UnknownPatientInput {
+  gender: 'female' | 'male' | 'intersex' | 'other' | 'unknown'
+  estimatedAgeYears?: number
+  unknownReason: UnknownPatientReason
+  arrivalNote?: string
+}
+export interface UnknownPatientMade {
+  patientId: string
+  recordKind: 'unknown'
+  label: string
+  displayName: string
+  sex: string | null
+  dateOfBirth: string | null
+  dateOfBirthEstimated: boolean
+  hid: string
+  replayed: boolean
+}
+
+export const unknownPatientApi = {
+  create: (facilityId: string, input: UnknownPatientInput, idempotencyKey: string) =>
+    client.post<UnknownPatientMade>('/api/v1/identity/unknown-patients', { ...input, purpose: 'healthcare-operations' },
+      { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders(idempotencyKey) } }),
 }
