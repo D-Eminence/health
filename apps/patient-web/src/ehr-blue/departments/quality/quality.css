@@ -1,0 +1,255 @@
+/*
+ * Quality & Safety (departments/quality): the few looks departments.css does not have. The views as a row of links, the
+ * facility's counts by status, the report form's choices with their hints, the incident's facts, corrective actions and
+ * history. On a phone every row wraps, so nothing scrolls sideways. Every rule sits under .hid-ehr and names
+ * hid-ehr-qs-* classes; values come from the --ehr-* tokens.
+ */
+
+.hid-ehr .hid-ehr-qs-tabs ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 14px;
+  padding: 0;
+  list-style: none;
+}
+
+.hid-ehr .hid-ehr-qs-tabs a {
+  display: inline-block;
+  padding: 6px 12px;
+  border: 1px solid var(--ehr-line);
+  border-radius: var(--ehr-radius-md);
+  color: var(--ehr-text);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.hid-ehr .hid-ehr-qs-tabs a:hover {
+  border-color: var(--ehr-line-strong);
+}
+
+.hid-ehr .hid-ehr-qs-tabs a[aria-current='page'] {
+  border-color: var(--ehr-brand);
+  background: var(--ehr-tint);
+  color: var(--ehr-brand-dark);
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-qs-tabs a:focus-visible,
+.hid-ehr .hid-ehr-qs-status-counts button:focus-visible {
+  outline: var(--ehr-focus-ring-width) solid var(--ehr-brand);
+  outline-offset: 2px;
+}
+
+.hid-ehr .hid-ehr-qs-status-counts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hid-ehr .hid-ehr-qs-status-counts button {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--ehr-line);
+  border-radius: var(--ehr-radius-md);
+  background: var(--ehr-surface);
+  color: var(--ehr-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.hid-ehr .hid-ehr-qs-status-counts button[aria-pressed='true'] {
+  border-color: var(--ehr-brand);
+  background: var(--ehr-tint);
+}
+
+.hid-ehr .hid-ehr-qs-count-label {
+  color: var(--ehr-muted);
+  font-size: 13px;
+}
+
+.hid-ehr .hid-ehr-qs-count-value {
+  color: var(--ehr-ink);
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-qs-incident-cell {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.hid-ehr .hid-ehr-qs-number {
+  color: var(--ehr-muted);
+  font-size: 12px;
+}
+
+.hid-ehr .hid-ehr-qs-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.hid-ehr .hid-ehr-qs-plain {
+  margin: 0 0 10px;
+  color: var(--ehr-text);
+}
+
+.hid-ehr .hid-ehr-qs-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-qs-form {
+  display: grid;
+  gap: 16px;
+}
+
+.hid-ehr .hid-ehr-qs-choices {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.hid-ehr .hid-ehr-qs-choices legend {
+  margin-bottom: 6px;
+  padding: 0;
+  color: var(--ehr-ink);
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-qs-inline {
+  grid-template-columns: repeat(auto-fit, minmax(9rem, max-content));
+  column-gap: 18px;
+}
+
+.hid-ehr .hid-ehr-qs-inline legend,
+.hid-ehr .hid-ehr-qs-inline .hid-ehr-hint,
+.hid-ehr .hid-ehr-qs-inline .hid-ehr-error {
+  grid-column: 1 / -1;
+}
+
+.hid-ehr .hid-ehr-qs-choice,
+.hid-ehr .hid-ehr-qs-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.hid-ehr .hid-ehr-qs-choice input,
+.hid-ehr .hid-ehr-qs-check input {
+  margin-top: 3px;
+  accent-color: var(--ehr-brand);
+}
+
+.hid-ehr .hid-ehr-qs-choice-text {
+  display: grid;
+  gap: 2px;
+}
+
+.hid-ehr .hid-ehr-qs-choice-label {
+  color: var(--ehr-ink);
+}
+
+.hid-ehr .hid-ehr-qs-choice-hint {
+  color: var(--ehr-muted);
+  font-size: 13px;
+}
+
+.hid-ehr .hid-ehr-qs-drawer-form {
+  display: grid;
+  gap: 14px;
+}
+
+.hid-ehr .hid-ehr-qs-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 12px 18px;
+  margin: 0 0 12px;
+}
+
+.hid-ehr .hid-ehr-qs-facts > div {
+  min-width: 0;
+}
+
+.hid-ehr .hid-ehr-qs-fact-wide {
+  grid-column: 1 / -1;
+}
+
+.hid-ehr .hid-ehr-qs-facts dt {
+  color: var(--ehr-muted);
+  font-size: 13px;
+}
+
+.hid-ehr .hid-ehr-qs-facts dd {
+  margin: 2px 0 0;
+  color: var(--ehr-ink);
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-qs-steps,
+.hid-ehr .hid-ehr-qs-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 10px;
+  margin-top: 10px;
+}
+
+.hid-ehr .hid-ehr-qs-actions,
+.hid-ehr .hid-ehr-qs-history {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hid-ehr .hid-ehr-qs-action {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--ehr-line);
+  border-radius: var(--ehr-radius-md);
+  background: var(--ehr-surface);
+}
+
+.hid-ehr .hid-ehr-qs-action-title {
+  margin: 0;
+  color: var(--ehr-ink);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-qs-history-entry {
+  display: grid;
+  gap: 2px;
+  padding-left: 12px;
+  border-left: 2px solid var(--ehr-line);
+}
+
+.hid-ehr .hid-ehr-qs-history-when {
+  color: var(--ehr-muted);
+  font-size: 13px;
+}
+
+.hid-ehr .hid-ehr-qs-history-what {
+  color: var(--ehr-ink);
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-qs-history-detail {
+  color: var(--ehr-text);
+  font-size: 14px;
+}

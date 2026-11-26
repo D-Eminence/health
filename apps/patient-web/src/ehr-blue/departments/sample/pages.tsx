@@ -32,8 +32,16 @@ export const samplePages: EhrBluePage[] = [
   sample('services', { group: 'Settings', label: 'Service catalogue', icon: <TagIcon /> }, servicesSample),
   sample('supply', { group: 'Supply', label: 'Supply', tabLabel: 'Stock', icon: <BoxIcon /> }, inventorySample),
   sample('procurement', { group: 'Supply', label: 'Procurement', tabOf: 'supply', icon: <BoxIcon /> }, procurementSample),
-  sample('quality', { group: 'Administration', label: 'Quality & Safety', icon: <FlagIcon /> }, qualitySample),
   sample('shifts', { group: 'People', label: 'Shifts & Roster', icon: <ClockIcon /> }, shiftsSample),
   sample('ambulance', { group: 'Network & Services', label: 'Dispatch', icon: <TruckIcon /> }, ambulanceSample),
   sample('vehicles', { group: 'Settings', label: 'Vehicle configuration', icon: <VehicleIcon /> }, vehiclesSample),
 ]
+
+/**
+ * Quality & Safety's sample (the design's three fictional incidents), no longer a page of its own: the live page
+ * (departments/quality, hid-system QUAL-1) shows it in its place at the demo facilities while the backend does not serve
+ * quality reporting, or to a member who does not hold quality.incident.report yet, as the design's roles allow. Nothing
+ * here reaches Health ID.
+ */
+export const qualitySamplePage: EhrBluePage =
+  sample('quality', { group: 'Administration', label: 'Quality & Safety', icon: <FlagIcon /> }, qualitySample)

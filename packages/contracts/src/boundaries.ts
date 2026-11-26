@@ -235,7 +235,13 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'ehr.consultations',
       // The waiting list: check-in by a search's matchRef, the list, and each row's stage, triage level and who will see
       // the patient (hid-system 0135, EHR-C7, Release A; a backend before it answers 404).
-      'ehr.visitQueue', 'ehr.visitQueueCheckIn', 'ehr.visitQueueEntry'],
+      'ehr.visitQueue', 'ehr.visitQueueCheckIn', 'ehr.visitQueueEntry',
+      // Quality and safety reporting: incidents and near misses, the monthly counts (and their CSV) and quality leads
+      // (hid-system QUAL-1, 0197 and 0198; 404 before it, 503 while QUALITY_INCIDENTS_ENABLED is off).
+      'ehr.qualityMe', 'ehr.qualityIncidents', 'ehr.qualityIncident', 'ehr.qualityIncidentAssign',
+      'ehr.qualityIncidentInvestigation', 'ehr.qualityIncidentActions', 'ehr.qualityIncidentAction',
+      'ehr.qualityIncidentResolve', 'ehr.qualityIncidentReopen', 'ehr.qualityIncidentCorrection',
+      'ehr.qualityIncidentCounts', 'ehr.qualityIncidentCountsCsv', 'ehr.qualityLeads', 'ehr.qualityLeadEnd'],
     // Facility billing (docs/BILLING_SPEC.md; proposed routes) and the price catalogue it shows. Not demo requests.
     commercial: ['commercial.pricing', 'commercial.subscription', 'commercial.subscriptionTrial',
       'commercial.subscriptionCheckout', 'commercial.invoices',

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, vi, type MockInstance } from 'vitest'
 import { screen, within } from '@testing-library/react'
 import { Route, Routes, useLocation } from 'react-router-dom'
 import type { SampleWorkspace } from '../../../../ehr-blue/departments/parts/sample/SampleWorkspace'
-import { samplePages } from '../../../../ehr-blue/departments/sample/pages'
+import { qualitySamplePage, samplePages } from '../../../../ehr-blue/departments/sample/pages'
 import { renderDept } from '../harness'
 
 /**
@@ -31,7 +31,8 @@ export function renderSample(path: string, { editable = false }: { readonly edit
   return renderDept(
     <>
       <Routes>
-        {samplePages.map(page => (
+        {/* Quality & Safety's sample is shown by its live page while that is switched off (departments/quality). */}
+        {[...samplePages, qualitySamplePage].map(page => (
           <Route key={page.path} path={`/ehr/${page.path}`} element={editable ? editableCopy(page.element) : page.element} />
         ))}
       </Routes>

@@ -118,6 +118,18 @@ const RELEASE_A = 'Served by hid-system staging-novu-ci-20261005 from Release A 
   + 'main, which answers 404. '
 const ACCOUNT_DELETION_NOTE = 'Novu: hid-system 0096; 404 before'
 /**
+ * Quality and safety reporting: incidents and near misses (hid-system QUAL-1, migrations 0197 and 0198, provisional;
+ * Release D). Built on claude/sprint-quality-backend and not live: an ehr-api before it answers 404, and while the service
+ * flag QUALITY_INCIDENTS_ENABLED is off every route answers 503 QUALITY_NOT_AVAILABLE. Healthcare operations at the
+ * X-Facility-ID facility. Every route needs quality.incident.report; manager steps also need quality.incident.manage or a
+ * named quality lead row (which the session does not show), and naming or ending leads quality.incident.manage itself.
+ * No Health ID or NIN in any path, query, body or answer: the patient by UUID in a body only.
+ */
+const QUAL_1 = 'hid-system QUAL-1 (0197-0198, Release D; claude/sprint-quality-backend, not live): 404 before it, 503 '
+  + 'QUALITY_NOT_AVAILABLE while QUALITY_INCIDENTS_ENABLED is off. X-Facility-ID, healthcare-operations; every write an '
+  + 'Idempotency-Key, and on an incident its expectedRowVersion (412 QUALITY_VERSION_CONFLICT).'
+const QUALITY_REPORT = 'quality.incident.report'
+/**
  * "Notifications on this device" (B6, contract b6-contract.md §3): payload-free Web Push, the subscription stored by
  * Identity. Served by Novu from hid-system 0097, and only once the owner has configured the push keys: before that, and
  * on a backend before 0097, each route answers 404, which the portal takes as not offered (the section is hidden).
@@ -986,6 +998,56 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     one('PATCH','ehr.encounter.read','ehr.encounter.write'),
     `${RELEASE_A} X-Facility-ID, direct-care. Body { expectedRowVersion, stage?, triageLevel? (null clears), `
     + 'assignedMembershipId? (null clears) }. 200 the card; 409 VISIT_QUEUE_ENTRY_CHANGED or VISIT_QUEUE_ENTRY_CLOSED.')),
+  // Quality and safety reporting (hid-system QUAL-1, 0197 and 0198, Release D; on the branch claude/sprint-quality-backend,
+  // not live). Reports are confidential: the reporter and the linked patient are answered to managers only. The page says
+  // "Quality and safety reporting is not switched on yet." while the routes answer 404 or 503 QUALITY_NOT_AVAILABLE.
+  proposed(r('ehr.qualityMe','ehr','/api/v1/ehr/quality/me',G,false,one('GET',QUALITY_REPORT),
+    `${QUAL_1} 200 { canReport, isManager, managerBasis: role | quality_lead | null, canNameLeads, patientLinkAvailable, `
+    + 'lists: { listVersion, listStatus: draft | signed, categories [{ code, label, hint }], harmLevels [{ code, label, hint, '
+    + 'toldRequired }], toldValues }, departmentCodes }.')),
+  proposed(r('ehr.qualityIncidents','ehr','/api/v1/ehr/quality/incidents',GP,false,{ GET: [QUALITY_REPORT], POST: [QUALITY_REPORT] },
+    `${QUAL_1} GET: status (reported|assigned|investigated|resolved|open), category, harmLevel, departmentCode, occurredFrom `
+    + 'and occurredTo (Lagos days), mine (reported|assigned), limit (1-100), cursor; 200 { items, nextCursor, limit, counts '
+    + '(managers only) }, no reporter, patient or text but the title. POST: { title, description, occurredAt, departmentCode?, '
+    + 'locationText?, category, harmLevel, immediateAction?, patientOrFamilyTold?, patientId? }; 201 { incident, actions, '
+    + 'history, replayed }; 503 QUALITY_PATIENT_LINK_NOT_AVAILABLE, 403 QUALITY_PATIENT_LINK_REFUSED.')),
+  proposed(r('ehr.qualityIncident','ehr','/api/v1/ehr/quality/incidents/:incidentId',G,false,one('GET',QUALITY_REPORT),
+    `${QUAL_1} 200 { incident, actions, history } in this member's view (manager, reviewer or reporter); 404 `
+    + 'QUALITY_INCIDENT_NOT_FOUND also for an incident this member may not see.')),
+  proposed(r('ehr.qualityIncidentAssign','ehr','/api/v1/ehr/quality/incidents/:incidentId/assign',P,false,one('POST',QUALITY_REPORT),
+    `${QUAL_1} Manager. Body { expectedRowVersion, reviewerMembershipId }; 400 QUALITY_REVIEWER_INVALID or QUALITY_NOTHING_TO_CHANGE.`)),
+  proposed(r('ehr.qualityIncidentInvestigation','ehr','/api/v1/ehr/quality/incidents/:incidentId/investigation',P,false,
+    one('POST',QUALITY_REPORT),
+    `${QUAL_1} Reviewer or manager. Body { expectedRowVersion, findings (10-4000) }; 409 QUALITY_STATUS_INVALID from reported.`)),
+  proposed(r('ehr.qualityIncidentActions','ehr','/api/v1/ehr/quality/incidents/:incidentId/actions',P,false,one('POST',QUALITY_REPORT),
+    `${QUAL_1} Reviewer or manager. Body { expectedRowVersion, description (5-500), ownerMembershipId, dueDate }; 201.`)),
+  proposed(r('ehr.qualityIncidentAction','ehr','/api/v1/ehr/quality/incidents/:incidentId/actions/:actionId',P,false,
+    one('POST',QUALITY_REPORT),
+    `${QUAL_1} Reviewer or manager. Body { expectedRowVersion, status? (open|done|cancelled), note? (2-500, to cancel), `
+    + 'ownerMembershipId?, dueDate? }; 404 QUALITY_ACTION_NOT_FOUND.')),
+  proposed(r('ehr.qualityIncidentResolve','ehr','/api/v1/ehr/quality/incidents/:incidentId/resolve',P,false,one('POST',QUALITY_REPORT),
+    `${QUAL_1} Manager. Body { expectedRowVersion, resolution (10-2000) }; 409 QUALITY_ACTIONS_OPEN or QUALITY_STATUS_INVALID.`)),
+  proposed(r('ehr.qualityIncidentReopen','ehr','/api/v1/ehr/quality/incidents/:incidentId/reopen',P,false,one('POST',QUALITY_REPORT),
+    `${QUAL_1} Manager. Body { expectedRowVersion, reason (8-500) }: resolved back to assigned.`)),
+  proposed(r('ehr.qualityIncidentCorrection','ehr','/api/v1/ehr/quality/incidents/:incidentId/correction',P,false,
+    one('POST',QUALITY_REPORT),
+    `${QUAL_1} Manager. Body { expectedRowVersion, reason (8-500), category?, harmLevel?, departmentCode?, locationText?, `
+    + 'patientOrFamilyTold?, patientId? } (null clears); the report as filed never changes.')),
+  proposed(r('ehr.qualityIncidentCounts','ehr','/api/v1/ehr/quality/incident-counts',G,false,one('GET',QUALITY_REPORT),
+    `${QUAL_1} Manager. Query month (YYYY-MM, started). 200 { month, basis: occurred, listVersion, listStatus, generatedAt, `
+    + 'total, rows [{ category, harmLevel, departmentCode, count }] }: exact counts, no id, text, name, patient or staff member.')),
+  // The same address with format=csv answers the counts as a file (Content-Disposition: attachment), read through the
+  // download transport: the browser contract tells the two apart by the response the caller asks for.
+  { ...proposed(r('ehr.qualityIncidentCountsCsv','ehr','/api/v1/ehr/quality/incident-counts',G,false,one('GET',QUALITY_REPORT),
+    `${QUAL_1} Manager. Query month and format=csv: text/csv, quality-incident-counts-YYYY-MM.csv, first line "Internal `
+    + 'quality-improvement record. Counts only.", then month,category_code,category,harm_level_code,harm_level,department_code,count.')),
+  responseKind: 'download', requiredQuery: { GET: ['month', 'format'] } },
+  proposed(r('ehr.qualityLeads','ehr','/api/v1/ehr/quality/leads',GP,false,{ GET: [QUALITY_REPORT], POST: [QUALITY_REPORT, 'quality.incident.manage'] },
+    `${QUAL_1} GET (manager): 200 { leads [{ leadId, membershipId, namedAt, namedByMembershipId }], limit: 10 }. POST `
+    + '(quality.incident.manage): { membershipId }; 201 { lead, replayed }; 409 QUALITY_LEAD_EXISTS or QUALITY_LEAD_LIMIT.')),
+  proposed(r('ehr.qualityLeadEnd','ehr','/api/v1/ehr/quality/leads/:leadId/end',P,false,
+    one('POST',QUALITY_REPORT,'quality.incident.manage'),
+    `${QUAL_1} Body { reason (8-500) }; 200 { lead, replayed }, the row kept; 409 QUALITY_LEAD_ENDED, 404 QUALITY_LEAD_NOT_FOUND.`)),
   r('ehr.vitals','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals',GP,false,{GET:['ehr.vital.read'],POST:['ehr.vital.write']}),
   r('ehr.vital','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals/:vitalId',G,false,one('GET','ehr.vital.read')),
   r('ehr.vitalCorrections','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals/:vitalId/corrections',GP,false,{GET:['ehr.vital.read'],POST:['ehr.vital.write']}),

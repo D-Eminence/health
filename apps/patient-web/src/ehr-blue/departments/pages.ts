@@ -11,6 +11,7 @@ import { commercePages } from './commerce/page'
 import { registrationPage } from './registration/page'
 import { inPersonCheckPage } from './inperson/page'
 import { waitingListPage } from './waiting/page'
+import { qualityPage } from './quality/page'
 import { samplePages } from './sample/pages'
 import './departments.css'
 
@@ -33,5 +34,6 @@ export const pages: EhrBluePage[] = [
   facilityPage,
   hrPage,
   ...commercePages,
+  qualityPage,
   ...samplePages,
 ]

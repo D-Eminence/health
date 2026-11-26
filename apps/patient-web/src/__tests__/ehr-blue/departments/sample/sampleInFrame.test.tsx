@@ -16,10 +16,12 @@ beforeEach(() => {
     const actual = await importOriginal<typeof BlueRoutes>()
     const frame = await import('../../../../ehr-blue/frame/pages')
     const home = await import('../../../../ehr-blue/home/pages')
-    const { samplePages } = await import('../../../../ehr-blue/departments/sample/pages')
+    // Quality & Safety's sample stands in for its live page here, as it does while quality reporting is switched off.
+    const { qualitySamplePage, samplePages } = await import('../../../../ehr-blue/departments/sample/pages')
     return {
       ...actual,
-      BLUE_PAGES: actual.collectPages({ './frame/pages.ts': frame, './home/pages.ts': home, './departments/pages.ts': { pages: samplePages } }),
+      BLUE_PAGES: actual.collectPages({ './frame/pages.ts': frame, './home/pages.ts': home,
+        './departments/pages.ts': { pages: [...samplePages, qualitySamplePage] } }),
     }
   })
 })

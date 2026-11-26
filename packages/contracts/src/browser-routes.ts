@@ -86,8 +86,13 @@ export function assertRegisteredBrowserRequest(
     throw new BrowserRouteError('UNKNOWN_ROUTE', 'The request route is not in the browser contract.')
   }
   const mostSpecific = Math.max(...candidates.map(endpoint => specificity(endpoint.path)))
-  const endpoint = candidates.find(candidate =>
-    specificity(candidate.path) === mostSpecific && candidate.methods.some(allowed => allowed === method))
+  const allows = (candidate: EndpointDescriptor) =>
+    specificity(candidate.path) === mostSpecific && candidate.methods.some(allowed => allowed === method)
+  // One address may answer JSON and, asked for a file, a download (QUAL-1's counts and their CSV): the entry for the
+  // response asked for is taken first. An address with one entry is unchanged, and refused below if the kinds differ.
+  const download = (candidate: EndpointDescriptor) => candidate.responseKind === 'download'
+  const endpoint = candidates.find(candidate => allows(candidate) && download(candidate) === (responseType === 'download'))
+    ?? candidates.find(allows)
   if (!endpoint) {
     throw new BrowserRouteError('WRONG_METHOD', 'The request method is not allowed for this route.')
   }

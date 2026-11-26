@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import type { SampleDefinition } from '../../../../ehr-blue/departments/parts/sample/model'
-import { samplePages } from '../../../../ehr-blue/departments/sample/pages'
+import { qualitySamplePage, samplePages } from '../../../../ehr-blue/departments/sample/pages'
 import { pageTabs } from '../../../../ehr-blue/frame/pageAccess'
 import { basePath } from '../../../../ehr-blue/frame/pageHref'
 import { moduleOf } from '../../../../ehr-blue/frame/sampleAccess'
@@ -9,7 +9,8 @@ import { guardBrowser, heading, noticeUnderHeading, renderSample, where } from '
 
 /*
  * The ten sample-only workspaces as the frame lists them: each one's place in the sidebar or among a page's tabs, its
- * title, the sample notice and its fictional rows. None reads the staff session other than through the frame's design
+ * title, the sample notice and its fictional rows. Quality & Safety's is no longer a page of its own: the live page
+ * (hid-system QUAL-1) shows it in its place while quality reporting is switched off, so it is checked here last. None reads the staff session other than through the frame's design
  * role check (useSampleCan, answered here by sampleViewer) or calls the staff API, none touches browser storage, and
  * none makes a request.
  */
@@ -50,20 +51,24 @@ const EXPECTED = [
     newTitle: 'New stock',
   },
   { base: 'procurement', group: 'Supply', label: 'Procurement', tabOf: 'supply', title: 'Procurement', rows: ['Stock request', 'Quarterly restock', 'Glove top-up'], newTitle: 'New procurement' },
+  { base: 'shifts', group: 'People', label: 'Shifts & Roster', title: 'Shifts & Roster', rows: ['c4a2d06b', 'fc22475a', '8e31b5c2'], newTitle: 'New shifts & roster' },
+  { base: 'ambulance', group: 'Network & Services', label: 'Dispatch', title: 'Dispatch', rows: ['0465c81e', '57e5e7d4', 'a91f3c08'], newTitle: 'New dispatch' },
+  { base: 'vehicles', group: 'Settings', label: 'Vehicle configuration', title: 'Vehicle configuration', rows: ['DEMO-VEHICLE', 'AMB-02', 'AMB-03'], newTitle: 'New vehicle configuration' },
   {
     base: 'quality', group: 'Administration', label: 'Quality & Safety', title: 'Quality & Safety', newTitle: 'New quality & safety',
     rows: ['Delayed sample transport (fictional)', 'Near-miss labelling (fictional)', 'Wet floor near ward entrance (fictional)'],
   },
-  { base: 'shifts', group: 'People', label: 'Shifts & Roster', title: 'Shifts & Roster', rows: ['c4a2d06b', 'fc22475a', '8e31b5c2'], newTitle: 'New shifts & roster' },
-  { base: 'ambulance', group: 'Network & Services', label: 'Dispatch', title: 'Dispatch', rows: ['0465c81e', '57e5e7d4', 'a91f3c08'], newTitle: 'New dispatch' },
-  { base: 'vehicles', group: 'Settings', label: 'Vehicle configuration', title: 'Vehicle configuration', rows: ['DEMO-VEHICLE', 'AMB-02', 'AMB-03'], newTitle: 'New vehicle configuration' },
 ]
+
+/** The nine sample pages, then Quality & Safety's sample, which the live page shows while it is switched off. */
+const SAMPLES = [...samplePages, qualitySamplePage]
 
 describe('the sample pages', () => {
   it('lists the ten workspaces as sample pages with no permission, in the design\'s groups, each taking the addresses below it', () => {
-    expect(samplePages.map(page => ({ path: page.path, group: page.group, label: page.label, tabOf: page.tabOf, tabLabel: page.tabLabel })))
+    expect(SAMPLES.map(page => ({ path: page.path, group: page.group, label: page.label, tabOf: page.tabOf, tabLabel: page.tabLabel })))
       .toEqual(EXPECTED.map(({ base, group, label, tabOf, tabLabel }) => ({ path: `${base}/*`, group, label, tabOf, tabLabel })))
-    for (const page of samplePages) {
+    expect(samplePages.some(page => page.path === 'quality/*')).toBe(false)
+    for (const page of SAMPLES) {
       expect(page.status).toBe('sample')
       expect(page.permission).toBeUndefined()
       expect(page.icon).toBeDefined()
@@ -73,7 +78,7 @@ describe('the sample pages', () => {
 
   it('asks for its actions\' and Create record\'s verbs in the design module the frame opens it as', () => {
     // The frame opens a page by its address's design module (moduleOf); the page checks its verbs in its definition's id.
-    const modules = samplePages.map(page => [
+    const modules = SAMPLES.map(page => [
       basePath(page.path), moduleOf(page), (page.element.props as { readonly definition: SampleDefinition }).definition.id,
     ])
     expect(modules).toEqual([
@@ -83,15 +88,15 @@ describe('the sample pages', () => {
       ['services', 'services', 'services'],
       ['supply', 'inventory', 'inventory'],
       ['procurement', 'procurement', 'procurement'],
-      ['quality', 'quality', 'quality'],
       ['shifts', 'shifts', 'shifts'],
       ['ambulance', 'ambulance', 'ambulance'],
       ['vehicles', 'vehicles', 'vehicles'],
+      ['quality', 'quality', 'quality'],
     ])
   })
 
   it('joins the frame\'s tabs as the design draws them: Claims | Policies and Stock | Procurement', () => {
-    const tabsOf = (base: string) => pageTabs(samplePages, samplePages.find(page => basePath(page.path) === base)!)
+    const tabsOf = (base: string) => pageTabs(SAMPLES, SAMPLES.find(page => basePath(page.path) === base)!)
       .map((tab, index) => `${basePath(tab.path)}:${index === 0 ? tab.tabLabel ?? tab.label : tab.label}`)
     expect(tabsOf('insurance')).toEqual(['insurance:Claims', 'policies:Policies'])
     expect(tabsOf('policies')).toEqual(['insurance:Claims', 'policies:Policies'])

@@ -7,7 +7,7 @@ import {
   parseShareInvitationAccepted, parseSharedWithMe, parseStaffShareInvitations,
   type ShareInvitationAccepted, type SharedPatient, type StaffShareInvitationList,
 } from '../shareRecords'
-import { createApiClient, HidApiError, isConnectionFailure, isHidApiError, NO_RETRY, PLAIN, PlainError, uploadPresignedObject, type ApiClient, type RequestSpec } from '@hid/http'
+import { createApiClient, HidApiError, isConnectionFailure, isHidApiError, NO_RETRY, PLAIN, PlainError, uploadPresignedObject, type ApiClient, type DownloadResult, type RequestSpec } from '@hid/http'
 import { createRegisteredBrowserClient } from '@hid/api'
 import { getEnvironment } from './env'
 import {
@@ -3316,4 +3316,319 @@ export const visitQueueApi = {
   update: (facilityId: string, entry: Pick<VisitQueueCard, 'entryId' | 'rowVersion'>, change: VisitQueueChange) =>
     client.request<VisitQueueCard>({ method: 'PATCH', path: `/api/v1/ehr/visit-queue/${encodeURIComponent(entry.entryId)}`,
       body: { expectedRowVersion: entry.rowVersion, ...change }, headers: facilityHeaders(facilityId, 'direct-care') }),
+}
+
+/**
+ * Quality and safety reporting: incidents and near misses (hid-system QUAL-1, migrations 0197 and 0198, provisional;
+ * Release D; INTERFACE_CONTRACT.md "QUAL-1"), built on claude/sprint-quality-backend and not live: an ehr-api before it
+ * answers 404, and while the service flag QUALITY_INCIDENTS_ENABLED is off every route answers 503
+ * QUALITY_NOT_AVAILABLE. Healthcare operations at the X-Facility-ID facility. Reports are confidential: a manager (a
+ * holder of quality.incident.manage, or a named quality lead) sees the reporter and the linked patient; the reviewer
+ * sees neither; the reporter sees their own report and its status only. No Health ID or NIN in any path, query, body or
+ * answer: incidents, actions and leads by UUID, staff by membership UUID, the patient by UUID in a body only. Every write
+ * sends an Idempotency-Key the caller keeps per request body, and the card's rowVersion (412 QUALITY_VERSION_CONFLICT).
+ */
+export type QualityStatus = 'reported' | 'assigned' | 'investigated' | 'resolved'
+export type QualityView = 'manager' | 'reviewer' | 'reporter'
+export type QualityTold = 'yes' | 'no' | 'not_applicable'
+export type QualityActionStatus = 'open' | 'done' | 'cancelled'
+
+export interface QualityListEntry { code: string; label: string; hint: string }
+export interface QualityHarmLevel extends QualityListEntry { toldRequired: boolean }
+/** The DRAFT (or, once signed, the signed) category list and harm scale; codes fixed by the database, words by the list. */
+export interface QualityLists {
+  listVersion: string
+  listStatus: 'draft' | 'signed'
+  categories: QualityListEntry[]
+  harmLevels: QualityHarmLevel[]
+  toldValues: QualityTold[]
+}
+
+/** Route 1: what this member can do here. A named lead's session holds only report: isManager says they manage. */
+export interface QualityMe {
+  canReport: boolean
+  isManager: boolean
+  managerBasis: 'role' | 'quality_lead' | null
+  canNameLeads: boolean
+  patientLinkAvailable: boolean
+  lists: QualityLists
+  departmentCodes: string[]
+}
+
+/** The linked patient, for managers only (identity details, never clinical content). */
+export interface QualityPatient {
+  patientId: string
+  fullName: string
+  recordKind: 'standard' | 'unknown'
+  unknownLabel: string | null
+  sex: string | null
+  dateOfBirth: string | null
+  healthIdLast4: string | null
+}
+
+export interface QualityIncidentCard {
+  incidentId: string
+  incidentNumber: number
+  view: QualityView
+  title: string
+  description: string
+  occurredAt: string
+  occurredDay: string
+  departmentCode: string | null
+  locationText: string | null
+  category: string
+  harmLevel: string
+  immediateAction: string | null
+  patientOrFamilyTold: QualityTold | null
+  listVersion: string
+  status: QualityStatus
+  reportedAt: string
+  reportedByMe: boolean
+  /** Null in the reviewer's and the reporter's views (reporterHidden: true for the reviewer). */
+  reporterMembershipId: string | null
+  reporterHidden: boolean
+  patientLinked: boolean
+  patientHidden: boolean
+  patient: QualityPatient | null
+  reviewerMembershipId: string | null
+  assignedAt: string | null
+  investigation: { findings: string; recordedAt: string; recordedByMembershipId: string | null } | null
+  /**
+   * The contract names the field but not its shape (the investigation's is { findings, recordedAt,
+   * recordedByMembershipId }): read through qualityResolutionOf, which takes { text | resolution, resolvedAt |
+   * recordedAt, resolvedByMembershipId | recordedByMembershipId } or the text alone.
+   */
+  resolution: QualityResolutionAnswer | string | null
+  reopenedCount: number
+  openActions: number
+  overdueActions: number
+  can: { assign: boolean; investigate: boolean; addAction: boolean; resolve: boolean; reopen: boolean; correct: boolean }
+  updatedAt: string
+  rowVersion: number
+}
+
+export interface QualityResolutionAnswer {
+  text?: string | null
+  resolution?: string | null
+  resolvedAt?: string | null
+  recordedAt?: string | null
+  resolvedByMembershipId?: string | null
+  recordedByMembershipId?: string | null
+}
+export interface QualityResolution { text: string; at: string | null; byMembershipId: string | null }
+/** The card's resolution as one shape, or null when there is none (or none this member may see). */
+export function qualityResolutionOf(card: Pick<QualityIncidentCard, 'resolution'>): QualityResolution | null {
+  const answer = card.resolution
+  if (typeof answer === 'string') return answer.trim() ? { text: answer, at: null, byMembershipId: null } : null
+  if (!answer || typeof answer !== 'object') return null
+  const text = answer.text ?? answer.resolution ?? ''
+  if (!text) return null
+  return { text, at: answer.resolvedAt ?? answer.recordedAt ?? null,
+    byMembershipId: answer.resolvedByMembershipId ?? answer.recordedByMembershipId ?? null }
+}
+
+export interface QualityAction {
+  actionId: string
+  description: string
+  ownerMembershipId: string
+  dueDate: string
+  status: QualityActionStatus
+  overdue: boolean
+  completedAt: string | null
+  note: string | null
+  createdAt: string
+  createdByMembershipId: string | null
+}
+
+export type QualityHistoryKind = 'reported' | 'patient_linked' | 'assigned' | 'reassigned' | 'investigation_recorded'
+  | 'investigation_amended' | 'action_added' | 'action_updated' | 'resolved' | 'reopened' | 'corrected' | 'patient_link_changed'
+
+/** One history entry, oldest first. The reporter's view holds only kind, at, fromStatus and toStatus. */
+export interface QualityHistoryEntry {
+  kind: QualityHistoryKind
+  at: string
+  byMembershipId?: string | null
+  fromStatus?: QualityStatus | null
+  toStatus?: QualityStatus | null
+  reason?: string | null
+  text?: string | null
+  actionId?: string | null
+  /** Coded values before and after; a patient-link entry never names the patient. */
+  changes?: Record<string, { from: unknown; to: unknown }> | null
+}
+
+export interface QualityIncidentRecord { incident: QualityIncidentCard; actions: QualityAction[]; history: QualityHistoryEntry[] }
+export interface QualityWritten extends QualityIncidentRecord { replayed: boolean }
+
+/** Route 3's item: no reporter, no patient, no text but the title. */
+export interface QualityIncidentSummary {
+  incidentId: string
+  incidentNumber: number
+  title: string
+  category: string
+  harmLevel: string
+  departmentCode: string | null
+  occurredAt: string
+  reportedAt: string
+  status: QualityStatus
+  reviewerMembershipId: string | null
+  patientLinked: boolean
+  reportedByMe: boolean
+  assignedToMe: boolean
+  openActions: number
+  overdueActions: number
+  rowVersion: number
+}
+export interface QualityIncidentCounts { reported: number; assigned: number; investigated: number; resolved: number }
+export interface QualityIncidentList {
+  items: QualityIncidentSummary[]
+  nextCursor: string | null
+  limit: number
+  /** The whole facility's counts, for managers only. */
+  counts: QualityIncidentCounts | null
+}
+export interface QualityListFilters {
+  status?: QualityStatus | 'open'
+  category?: string
+  harmLevel?: string
+  departmentCode?: string
+  /** Lagos days, inclusive, at most 366 days apart. */
+  occurredFrom?: string
+  occurredTo?: string
+  mine?: 'reported' | 'assigned'
+  limit?: number
+  cursor?: string
+}
+
+/** Route 2's body. `patientId` only from the page the report was started on (Q-QUAL-2 A), and only while the link is on. */
+export interface QualityReportInput {
+  title: string
+  description: string
+  occurredAt: string
+  departmentCode?: string
+  locationText?: string
+  category: string
+  harmLevel: string
+  immediateAction?: string
+  patientOrFamilyTold?: QualityTold
+  patientId?: string
+}
+
+/** Route 11's body: a reason and at least one change; null clears the department, place, "told" or the patient. */
+export interface QualityCorrection {
+  reason: string
+  category?: string
+  harmLevel?: string
+  departmentCode?: string | null
+  locationText?: string | null
+  patientOrFamilyTold?: QualityTold | null
+  patientId?: string | null
+}
+
+export interface QualityActionChange {
+  status?: QualityActionStatus
+  note?: string
+  ownerMembershipId?: string
+  dueDate?: string
+}
+
+export interface QualityCountRow { category: string; harmLevel: string; departmentCode: string | null; count: number }
+export interface QualityCounts {
+  month: string
+  basis: 'occurred'
+  listVersion: string
+  listStatus: 'draft' | 'signed'
+  generatedAt: string
+  total: number
+  rows: QualityCountRow[]
+}
+
+export interface QualityLead {
+  leadId: string
+  membershipId: string
+  namedAt: string
+  namedByMembershipId: string | null
+  endedAt?: string | null
+  endedByMembershipId?: string | null
+}
+
+const QUALITY = '/api/v1/ehr/quality'
+const qualityHeaders = (facilityId: string) => facilityHeaders(facilityId, 'healthcare-operations')
+const qualityWrite = (facilityId: string, idempotencyKey: string) => ({ ...qualityHeaders(facilityId), ...keyHeaders(idempotencyKey) })
+function incidentPath(incidentId: string, step?: string) {
+  return `${QUALITY}/incidents/${encodeURIComponent(incidentId)}${step ? `/${step}` : ''}`
+}
+
+export const qualityApi = {
+  /** Route 1. */
+  me: (facilityId: string) =>
+    client.get<QualityMe>(`${QUALITY}/me`, { headers: qualityHeaders(facilityId), dedupe: false }),
+  /** Route 2: file a report (201, the card in this member's view). */
+  report: (facilityId: string, input: QualityReportInput, idempotencyKey: string) =>
+    client.post<QualityWritten>(`${QUALITY}/incidents`, input, { headers: qualityWrite(facilityId, idempotencyKey), retry: NO_RETRY }),
+  /** Route 3: the list, newest report first; only the filters given are sent. */
+  list: (facilityId: string, filters: QualityListFilters = {}) => {
+    const query: Record<string, string | number> = {}
+    for (const [key, value] of Object.entries(filters)) if (value !== undefined && value !== '') query[key] = value
+    return client.get<QualityIncidentList>(`${QUALITY}/incidents`, { headers: qualityHeaders(facilityId), dedupe: false,
+      ...(Object.keys(query).length ? { query } : {}) })
+  },
+  /** Route 4: the card, its actions and its history in this member's view. */
+  incident: (facilityId: string, incidentId: string) =>
+    client.get<QualityIncidentRecord>(incidentPath(incidentId), { headers: qualityHeaders(facilityId), dedupe: false }),
+  /** Route 5 (manager): choose or change the reviewer. */
+  assign: (facilityId: string, card: Pick<QualityIncidentCard, 'incidentId' | 'rowVersion'>, reviewerMembershipId: string, idempotencyKey: string) =>
+    client.post<QualityWritten>(incidentPath(card.incidentId, 'assign'), { expectedRowVersion: card.rowVersion, reviewerMembershipId },
+      { headers: qualityWrite(facilityId, idempotencyKey), retry: NO_RETRY }),
+  /** Route 6 (reviewer or manager): the findings; from investigated, an amendment. */
+  investigate: (facilityId: string, card: Pick<QualityIncidentCard, 'incidentId' | 'rowVersion'>, findings: string, idempotencyKey: string) =>
+    client.post<QualityWritten>(incidentPath(card.incidentId, 'investigation'), { expectedRowVersion: card.rowVersion, findings },
+      { headers: qualityWrite(facilityId, idempotencyKey), retry: NO_RETRY }),
+  /** Route 7 (reviewer or manager): a corrective action (201). */
+  addAction: (facilityId: string, card: Pick<QualityIncidentCard, 'incidentId' | 'rowVersion'>,
+    input: { description: string; ownerMembershipId: string; dueDate: string }, idempotencyKey: string) =>
+    client.post<QualityWritten>(incidentPath(card.incidentId, 'actions'), { expectedRowVersion: card.rowVersion, ...input },
+      { headers: qualityWrite(facilityId, idempotencyKey), retry: NO_RETRY }),
+  /** Route 8 (reviewer or manager): an action's status, note, owner or due date. */
+  updateAction: (facilityId: string, card: Pick<QualityIncidentCard, 'incidentId' | 'rowVersion'>, actionId: string,
+    change: QualityActionChange, idempotencyKey: string) =>
+    client.post<QualityWritten>(`${incidentPath(card.incidentId, 'actions')}/${encodeURIComponent(actionId)}`,
+      { expectedRowVersion: card.rowVersion, ...change }, { headers: qualityWrite(facilityId, idempotencyKey), retry: NO_RETRY }),
+  /** Route 9 (manager): only from investigated, every action done or cancelled. */
+  resolve: (facilityId: string, card: Pick<QualityIncidentCard, 'incidentId' | 'rowVersion'>, resolution: string, idempotencyKey: string) =>
+    client.post<QualityWritten>(incidentPath(card.incidentId, 'resolve'), { expectedRowVersion: card.rowVersion, resolution },
+      { headers: qualityWrite(facilityId, idempotencyKey), retry: NO_RETRY }),
+  /** Route 10 (manager): back to assigned, with a reason. */
+  reopen: (facilityId: string, card: Pick<QualityIncidentCard, 'incidentId' | 'rowVersion'>, reason: string, idempotencyKey: string) =>
+    client.post<QualityWritten>(incidentPath(card.incidentId, 'reopen'), { expectedRowVersion: card.rowVersion, reason },
+      { headers: qualityWrite(facilityId, idempotencyKey), retry: NO_RETRY }),
+  /** Route 11 (manager): category, harm level, place, "told" or the patient link, with a reason; the report as filed stays. */
+  correct: (facilityId: string, card: Pick<QualityIncidentCard, 'incidentId' | 'rowVersion'>, correction: QualityCorrection, idempotencyKey: string) =>
+    client.post<QualityWritten>(incidentPath(card.incidentId, 'correction'), { expectedRowVersion: card.rowVersion, ...correction },
+      { headers: qualityWrite(facilityId, idempotencyKey), retry: NO_RETRY }),
+  /** Route 12 (manager): the month's de-identified counts. */
+  counts: (facilityId: string, month: string) =>
+    client.get<QualityCounts>(`${QUALITY}/incident-counts`, { query: { month }, headers: qualityHeaders(facilityId), dedupe: false }),
+  /** Route 12 as a CSV file (manager): exact counts only, headed "Internal quality-improvement record. Counts only." */
+  countsCsv: (facilityId: string, month: string) =>
+    client.get<DownloadResult>(`${QUALITY}/incident-counts`, { query: { month, format: 'csv' }, headers: qualityHeaders(facilityId),
+      responseType: 'download', dedupe: false, retry: NO_RETRY }),
+  /** Route 13 (manager): the active quality leads. */
+  leads: (facilityId: string) =>
+    client.get<{ leads: QualityLead[]; limit: number }>(`${QUALITY}/leads`, { headers: qualityHeaders(facilityId), dedupe: false }),
+  /** Route 14 (quality.incident.manage): name a lead from this facility's staff. */
+  nameLead: (facilityId: string, membershipId: string, idempotencyKey: string) =>
+    client.post<{ lead: QualityLead; replayed: boolean }>(`${QUALITY}/leads`, { membershipId },
+      { headers: qualityWrite(facilityId, idempotencyKey), retry: NO_RETRY }),
+  /** Route 15 (quality.incident.manage): end a lead with a reason; the row is kept. */
+  endLead: (facilityId: string, leadId: string, reason: string, idempotencyKey: string) =>
+    client.post<{ lead: QualityLead; replayed: boolean }>(`${QUALITY}/leads/${encodeURIComponent(leadId)}/end`, { reason },
+      { headers: qualityWrite(facilityId, idempotencyKey), retry: NO_RETRY }),
+  /**
+   * This facility's current staff to choose a reviewer, an action's owner or a lead from (SX-9 with no ids: up to 500
+   * names, current members first). Never a typed id. The server checks each choice holds quality.incident.report.
+   */
+  staffChoices: (facilityId: string) =>
+    client.get<unknown>('/api/v1/identity/facility-staff-names', { headers: facilityHeaders(facilityId, 'healthcare-operations'),
+      dedupe: false, retry: NO_RETRY }).then(facilityStaffNamesOf),
 }

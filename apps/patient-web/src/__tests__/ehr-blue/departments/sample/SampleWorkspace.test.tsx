@@ -5,7 +5,7 @@ import { useSiblingPages } from '../../../../ehr-blue/departments/parts/sample/n
 import type { DemoRole } from '../../../../ehr-blue/frame/roleView'
 import { ambulanceSample, qualitySample, servicesSample, shiftsSample, vehiclesSample } from '../../../../ehr-blue/departments/sample/admin'
 import { billingSample, insuranceSample, policiesSample } from '../../../../ehr-blue/departments/sample/finance'
-import { samplePages } from '../../../../ehr-blue/departments/sample/pages'
+import { qualitySamplePage, samplePages } from '../../../../ehr-blue/departments/sample/pages'
 import { inventorySample, procurementSample } from '../../../../ehr-blue/departments/sample/supply'
 import { renderDept } from '../harness'
 import {
@@ -684,7 +684,7 @@ describe('no Edit record on the sample records (the design has none)', () => {
   })
 
   it('shows it on no record of any sample page, whatever its status', () => {
-    for (const page of samplePages) {
+    for (const page of [...samplePages, qualitySamplePage]) {
       const view = renderSample(page.path.replace('/*', ''))
       const count = within(screen.getByRole('table')).getAllByRole('row').length - 1
       expect(count).toBeGreaterThan(0)
