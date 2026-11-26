@@ -75,11 +75,16 @@ export const DOCUMENTS_FAILED = 'Documents could not be loaded.'
  * clinical document first), sends it with the file, and each listed document names its type. Until then no type is
  * asked, sent or shown, and the upload is exactly today's. "Extract with OCR" hands over the same ids whatever the type.
  */
-export function DocumentsCard({ chart, encounterId, list, canWrite }: {
+export function DocumentsCard({ chart, encounterId, list, canWrite, words }: {
   chart: Chart
   encounterId: string
   list: RecordList<DocumentRecord>
   canWrite: boolean
+  /**
+   * The card's own words where it is not the visit's Documents (the dental visit's X-ray images, hid-system DEN-1): its
+   * title, a line under it, and the upload's heading and button. The upload itself is the same.
+   */
+  words?: { readonly title: string; readonly intro?: string; readonly uploadHeading: string; readonly uploadButton: string }
 }) {
   const { facilityId, patientId } = chart
   const { state } = useClinical()
@@ -157,7 +162,8 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
   }
 
   return (
-    <EhrCard title="Documents">
+    <EhrCard title={words?.title ?? 'Documents'}>
+      {words?.intro ? <p className="hid-ehr-clinical-note">{words.intro}</p> : null}
       {list.error ? <ErrorBox>{list.error}</ErrorBox> : null}
       <ListPaging list={list} />
       {access.ownDocumentsOnly ? <p className="hid-ehr-clinical-note">{OWN_DOCUMENTS_ONLY}</p> : null}
@@ -197,7 +203,7 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
       {canWrite && !uploadsHere ? <p className="hid-ehr-clinical-note" role="status">{NO_UPLOAD_HERE}</p> : null}
       {canWrite && uploadsHere ? (
         <form className="hid-ehr-clinical-form" noValidate onSubmit={event => void upload(event)}>
-          <SubHeading>Upload a document</SubHeading>
+          <SubHeading>{words?.uploadHeading ?? 'Upload a document'}</SubHeading>
           <p className="hid-ehr-clinical-note">{UPLOAD_NOTE}</p>
           {offersChoice ? (
             <EhrField label="Document type">
@@ -210,7 +216,7 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
             <EhrInput ref={input} name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff" required onChange={() => setFileError(undefined)} />
           </EhrField>
           <div className="hid-ehr-clinical-form-footer">
-            <EhrButton type="submit" variant="secondary" busy={uploading}>{uploading ? 'Uploading…' : 'Upload document'}</EhrButton>
+            <EhrButton type="submit" variant="secondary" busy={uploading}>{uploading ? 'Uploading…' : words?.uploadButton ?? 'Upload document'}</EhrButton>
           </div>
           <div role="status" className="hid-ehr-clinical-status">{notice}</div>
         </form>

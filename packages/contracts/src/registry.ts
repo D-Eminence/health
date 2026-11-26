@@ -118,6 +118,16 @@ const RELEASE_A = 'Served by hid-system staging-novu-ci-20261005 from Release A 
   + 'main, which answers 404. '
 const ACCOUNT_DELETION_NOTE = 'Novu: hid-system 0096; 404 before'
 /**
+ * The dental clinic (hid-system DEN-1, migrations 0194-0196, provisional; Release D). Built on
+ * claude/sprint-dental-backend and not live: an ehr-api before it answers 404, and while the service flag DENTAL_ENABLED
+ * is off (or the database has no 0195) every route answers 503 DENTAL_NOT_AVAILABLE. Only dentists hold the two codes
+ * (0194; Q-DEN-1 A). Direct care at the X-Facility-ID facility, under the patient's consent (read_records for reads,
+ * write_records for writes; 403 CONSENT_REQUIRED). No Health ID or NIN in any path, query, body or answer.
+ */
+const DEN_1 = 'hid-system DEN-1 (0194-0196, Release D; claude/sprint-dental-backend, not live; not served by hid-system '
+  + 'main): 404 before it, 503 DENTAL_NOT_AVAILABLE while DENTAL_ENABLED is off. X-Facility-ID, direct-care; every write '
+  + 'an Idempotency-Key (a replay answers replayed: true; another body 409 IDEMPOTENCY_KEY_REUSED).'
+/**
  * "Notifications on this device" (B6, contract b6-contract.md §3): payload-free Web Push, the subscription stored by
  * Identity. Served by Novu from hid-system 0097, and only once the owner has configured the push keys: before that, and
  * on a backend before 0097, each route answers 404, which the portal takes as not offered (the section is hidden).
@@ -986,6 +996,57 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     one('PATCH','ehr.encounter.read','ehr.encounter.write'),
     `${RELEASE_A} X-Facility-ID, direct-care. Body { expectedRowVersion, stage?, triageLevel? (null clears), `
     + 'assignedMembershipId? (null clears) }. 200 the card; 409 VISIT_QUEUE_ENTRY_CHANGED or VISIT_QUEUE_ENTRY_CLOSED.')),
+  // The dental clinic (hid-system DEN-1, migrations 0194-0196, Release D; on the branch claude/sprint-dental-backend, not
+  // live). A dental visit is an outpatient visit with the tooth chart and procedures attached. Every route answers 503
+  // DENTAL_NOT_AVAILABLE while DENTAL_ENABLED is off, and an ehr-api before it answers 404: the Dental page then says
+  // "The dental clinic is not switched on yet."
+  proposed(r('ehr.dentalLists','ehr','/api/v1/ehr/dental/lists',G,false,one('GET','ehr.dental.read'),
+    `${DEN_1} No patient, no consent. 200 { toothConditions, procedures, anaesthetics, techniques: { version, status: draft | `
+    + 'signed, items }, surfaces: [M, O, D, B, L], photosAvailable } (photosAvailable false while DENTAL_PHOTOS_ENABLED is off).')),
+  proposed(r('ehr.dentalVisit','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/dental-visit',['GET','POST','PATCH'],false,
+    { GET: ['ehr.dental.read'], POST: ['ehr.dental.write'], PATCH: ['ehr.dental.write'] },
+    `${DEN_1} POST {} starts the dental record on an outpatient visit: 201 { outcome: started | already_started, visit }. GET `
+    + '{ visit, chart, chartVersionsThisVisit, plannedProcedures, doneThisVisit } (404 DENTAL_VISIT_NOT_FOUND). PATCH { '
+    + 'expectedRowVersion, followUpOn (tomorrow to two years) | null, followUpNote (1-500) | null }: 200 { visit }; 412 '
+    + 'DENTAL_VERSION_CONFLICT. 400 DENTAL_VISIT_ENCOUNTER_INVALID; 409 DENTAL_VISIT_CLOSED (writes on a finished visit).')),
+  proposed(r('ehr.dentalVisits','ehr','/api/v1/ehr/dental-visits',G,false,one('GET','ehr.dental.read'),
+    `${DEN_1} Query days (1-30, default 1: today in Lagos). 200 { items: [{ patient: { patientId, fullName, sex, dateOfBirth, `
+    + 'healthIdLast4 }, visit }], hiddenCount, hasMore, limit: 200 }: only patients this member may read now; the rest counted.')),
+  proposed(r('ehr.dentalChart','ehr','/api/v1/ehr/patients/:patientId/dental-chart',G,false,one('GET','ehr.dental.read'),
+    `${DEN_1} Query versionId? (one version; 404 DENTAL_CHART_NOT_FOUND). 200 { chart | null, versions: [{ versionId, `
+    + 'versionNo, recordedAt, recordedByMembershipId, encounterId, enteredInError }] }, newest first; this facility\'s charts only.')),
+  proposed(r('ehr.dentalChartSave','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/dental-chart',P,false,
+    one('POST','ehr.dental.write'),
+    `${DEN_1} Body { basedOnVersionId | null, dentition: permanent | primary | mixed, findings: [{ tooth (FDI), condition, `
+    + 'surfaces | null, note | null }] (0-200), note }: 201 { chart }; 409 DENTAL_CHART_CHANGED (another saved first), '
+    + 'DENTAL_VISIT_NOT_STARTED, DENTAL_VISIT_CLOSED; 400 DENTAL_TOOTH_INVALID, DENTAL_CONDITION_INVALID, DENTAL_SURFACES_INVALID.')),
+  proposed(r('ehr.dentalChartEnteredInError','ehr','/api/v1/ehr/patients/:patientId/dental-chart/:versionId/entered-in-error',P,false,
+    one('POST','ehr.dental.write'),
+    `${DEN_1} Body { reason (8-500) }: the newest version only (409 DENTAL_CHART_NOT_LATEST). 200 { chart | null } (the newest `
+    + 'after the change).')),
+  proposed(r('ehr.dentalProcedureRecord','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/dental-procedures',P,false,
+    one('POST','ehr.dental.write'),
+    `${DEN_1} Body { status: planned | done, procedureCode | procedureName (2-120, by name), site (by name only), tooth, `
+    + 'surfaces, quadrant (1-4), arch (upper | lower), doneAt? (done), anaesthetic { agentCode, agentOther, techniqueCode, '
+    + 'cartridges } (done only, required), notes }: 201 { procedure }; 400 DENTAL_PROCEDURE_INVALID, DENTAL_SITE_INVALID, '
+    + 'DENTAL_ANAESTHETIC_INVALID, DENTAL_DONE_TIME_INVALID.')),
+  proposed(r('ehr.dentalProcedureDone','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/dental-procedures/:procedureId/done',
+    P,false,one('POST','ehr.dental.write'),
+    `${DEN_1} Body { expectedRowVersion, doneAt?, anaesthetic, surfaces?, notes? }: a planned procedure done in this visit, `
+    + 'signed by the caller. 200 { procedure }; 409 DENTAL_PROCEDURE_NOT_PLANNED; 412 DENTAL_VERSION_CONFLICT.')),
+  proposed(r('ehr.dentalProcedureCancel','ehr','/api/v1/ehr/patients/:patientId/dental-procedures/:procedureId/cancel',P,false,
+    one('POST','ehr.dental.write'),
+    `${DEN_1} Body { expectedRowVersion, reason (8-500) }: 200 { procedure }; 409 DENTAL_PROCEDURE_NOT_PLANNED.`)),
+  proposed(r('ehr.dentalProcedureEnteredInError','ehr','/api/v1/ehr/patients/:patientId/dental-procedures/:procedureId/entered-in-error',
+    P,false,one('POST','ehr.dental.write'),
+    `${DEN_1} Body { expectedRowVersion, reason (8-500) }: only a done procedure (409 DENTAL_PROCEDURE_NOT_DONE), only by the `
+    + 'dentist who signed it (403 DENTAL_NOT_SIGNER). 200 { procedure }.')),
+  proposed(r('ehr.dentalProcedures','ehr','/api/v1/ehr/patients/:patientId/dental-procedures',G,false,one('GET','ehr.dental.read'),
+    `${DEN_1} Query status (planned | done | all, default all). 200 { items: procedure[], hasMore, limit: 200 }, newest first.`)),
+  proposed(r('ehr.dentalSummary','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/dental-summary',G,false,
+    one('GET','ehr.dental.read'),
+    `${DEN_1} The printable visit summary, audited as a print: { patient (healthIdLast4 only), facilityName, visit, encounter, `
+    + 'chart, doneThisVisit, plannedProcedures, diagnoses, prescriptions, listStatus, printedAt }.')),
   r('ehr.vitals','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals',GP,false,{GET:['ehr.vital.read'],POST:['ehr.vital.write']}),
   r('ehr.vital','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals/:vitalId',G,false,one('GET','ehr.vital.read')),
   r('ehr.vitalCorrections','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals/:vitalId/corrections',GP,false,{GET:['ehr.vital.read'],POST:['ehr.vital.write']}),

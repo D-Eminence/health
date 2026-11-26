@@ -60,6 +60,8 @@ export function staffProblemText(caught: unknown, context: StaffProblemContext):
     case 'STAFF_INVITATION_ALREADY_MEMBER': return `This person already works at ${facility}.`
     case 'STAFF_INVITATION_SELF': return 'You can’t invite yourself.'
     case 'STAFF_INVITATION_ROLE_NOT_ALLOWED': return `${facility} can’t invite someone in this role.`
+    // hid-system DEN-1: Identity refuses the dentist role while the dental clinic is switched off (DENTAL_ENABLED).
+    case 'STAFF_ROLE_NOT_AVAILABLE': return 'Dentists can be added once the dental clinic is switched on.'
     case 'STAFF_INVITATION_INVALID': case 'VALIDATION_FAILED': return 'Some details weren’t accepted. Check the name, email '
       + 'address and licence number, then try again.'
     case 'IDEMPOTENCY_KEY_REUSED': return 'This invitation changed while it was being sent. Check the details and send it again.'

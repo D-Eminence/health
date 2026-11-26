@@ -1,6 +1,6 @@
 /*
- * Clinical paper: a prescription (A5), a discharge summary and a lab result (A4). The paper is on the page only while it
- * prints, as a child of <body> (usePaperPrint puts it there), and is never shown on screen. In print the rest of the
+ * Clinical paper: a prescription (A5), a discharge summary, a lab result and a dental visit summary (A4). The paper is
+ * on the page only while it prints, as a child of <body> (usePaperPrint puts it there), and is never shown on screen. In print the rest of the
  * page is display: none, so it takes no room and prints no blank pages after the paper, and the paper is an in-flow
  * block, so its named page (and so its paper size) applies. Black on white whatever the screen's theme. The named pages
  * have no margin, so the browser prints no web address, title or date of its own round the paper (print.css); the
@@ -28,7 +28,8 @@
     font: 11pt/1.4 system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif !important;
   }
   body > [data-clinical-print='prescription'] { page: clinical-a5; padding: 10mm !important; }
-  body > [data-clinical-print='discharge'], body > [data-clinical-print='lab-result'] { page: clinical-a4; padding: 14mm !important; }
+  body > [data-clinical-print='discharge'], body > [data-clinical-print='lab-result'],
+  body > [data-clinical-print='dental-summary'] { page: clinical-a4; padding: 14mm !important; }
 }
 
 .hid-clinical-paper { display: flex; flex-direction: column; gap: 4mm; color: #000; background: #fff; }

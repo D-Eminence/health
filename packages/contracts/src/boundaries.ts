@@ -235,7 +235,13 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'ehr.consultations',
       // The waiting list: check-in by a search's matchRef, the list, and each row's stage, triage level and who will see
       // the patient (hid-system 0135, EHR-C7, Release A; a backend before it answers 404).
-      'ehr.visitQueue', 'ehr.visitQueueCheckIn', 'ehr.visitQueueEntry'],
+      'ehr.visitQueue', 'ehr.visitQueueCheckIn', 'ehr.visitQueueEntry',
+      // The dental clinic: the lists, a visit's dental record and follow-up, the facility's dental visits, the tooth chart
+      // and its versions, and procedures planned, done, cancelled or marked entered in error, and the printed summary
+      // (hid-system DEN-1, 0194-0196; 404 before it, 503 while DENTAL_ENABLED is off).
+      'ehr.dentalLists', 'ehr.dentalVisit', 'ehr.dentalVisits', 'ehr.dentalChart', 'ehr.dentalChartSave',
+      'ehr.dentalChartEnteredInError', 'ehr.dentalProcedureRecord', 'ehr.dentalProcedureDone', 'ehr.dentalProcedureCancel',
+      'ehr.dentalProcedureEnteredInError', 'ehr.dentalProcedures', 'ehr.dentalSummary'],
     // Facility billing (docs/BILLING_SPEC.md; proposed routes) and the price catalogue it shows. Not demo requests.
     commercial: ['commercial.pricing', 'commercial.subscription', 'commercial.subscriptionTrial',
       'commercial.subscriptionCheckout', 'commercial.invoices',

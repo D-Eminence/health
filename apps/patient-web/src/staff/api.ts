@@ -3317,3 +3317,288 @@ export const visitQueueApi = {
     client.request<VisitQueueCard>({ method: 'PATCH', path: `/api/v1/ehr/visit-queue/${encodeURIComponent(entry.entryId)}`,
       body: { expectedRowVersion: entry.rowVersion, ...change }, headers: facilityHeaders(facilityId, 'direct-care') }),
 }
+
+/**
+ * The dental clinic (hid-system DEN-1, migrations 0194-0196, provisional; Release D; INTERFACE_CONTRACT.md "DEN-1"),
+ * built on claude/sprint-dental-backend and not live: an ehr-api before it answers 404, and while the service flag
+ * DENTAL_ENABLED is off (or the database has no 0195) every route answers 503 DENTAL_NOT_AVAILABLE. A dental visit is an
+ * ordinary outpatient (ambulatory) visit with the dental record attached: a FDI tooth chart saved as numbered versions,
+ * and procedures planned, recorded as done (signed by the dentist), cancelled or marked entered in error. Only dentists
+ * hold ehr.dental.read and ehr.dental.write (0194; Q-DEN-1 A). Direct care at the X-Facility-ID facility, under the
+ * patient's consent as the visit's other records. No Health ID or NIN in any path, query, body or answer: patients,
+ * visits, chart versions and procedures by UUID. Every write sends an Idempotency-Key the caller keeps per request body.
+ */
+export type DentalDentition = 'permanent' | 'primary' | 'mixed'
+/** Worked out from the record, never stored (Q256 A): nothing yet, a chart or plan, a procedure done, the visit completed. */
+export type DentalStage = 'started' | 'assessed' | 'treated' | 'completed'
+export type DentalListStatus = 'draft' | 'signed'
+export type DentalSite = 'tooth' | 'tooth_surfaces' | 'quadrant' | 'arch' | 'whole_mouth'
+export type DentalArch = 'upper' | 'lower'
+export type DentalProcedureStatus = 'planned' | 'done' | 'cancelled' | 'entered_in_error'
+export type DentalCategory = 'diagnostic' | 'preventive' | 'restorative' | 'endodontic' | 'periodontal' | 'surgical'
+  | 'prosthetic' | 'other'
+
+export interface DentalVisit {
+  visitId: string
+  patientId: string
+  encounterId: string
+  encounterStatus: string
+  encounterStartedAt: string
+  startedAt: string
+  startedByMembershipId: string | null
+  stage: DentalStage
+  /** A Lagos calendar day ("2027-06-03") or null. */
+  followUpOn: string | null
+  followUpNote: string | null
+  rowVersion: number
+}
+
+export interface DentalFinding {
+  /** FDI two-digit tooth (ISO 3950). */
+  tooth: number
+  condition: string
+  /** 1-5 of M, O, D, B, L in that order, for a condition that takes surfaces; otherwise null. */
+  surfaces: string | null
+  note: string | null
+}
+
+/** Who marked a chart or procedure, when, and why (entered in error, or a cancel). */
+export interface DentalMark { at: string; byMembershipId: string | null; reason: string }
+
+export interface DentalChart {
+  versionId: string
+  versionNo: number
+  basedOnVersionId: string | null
+  encounterId: string
+  dentition: DentalDentition
+  recordedAt: string
+  recordedByMembershipId: string | null
+  listVersion: string
+  listStatus: DentalListStatus
+  findings: DentalFinding[]
+  note: string | null
+  enteredInError: DentalMark | null
+}
+
+export interface DentalChartVersion {
+  versionId: string
+  versionNo: number
+  recordedAt: string
+  recordedByMembershipId?: string | null
+  encounterId?: string
+  enteredInError: boolean
+}
+
+export interface DentalAnaesthetic {
+  agentCode: string
+  agentName: string
+  agentOther: string | null
+  techniqueCode: string | null
+  techniqueName: string | null
+  cartridges: number | null
+}
+
+export interface DentalProcedure {
+  procedureId: string
+  patientId: string
+  procedureCode: string | null
+  procedureName: string
+  /** Typed by name (Q-DEN-5 A): shown "Not on the list". */
+  byName: boolean
+  listVersion: string | null
+  listStatus: DentalListStatus | null
+  site: DentalSite
+  tooth: number | null
+  surfaces: string | null
+  quadrant: number | null
+  arch: DentalArch | null
+  status: DentalProcedureStatus
+  plannedEncounterId: string | null
+  plannedAt: string | null
+  plannedByMembershipId: string | null
+  doneEncounterId: string | null
+  doneAt: string | null
+  performedByMembershipId: string | null
+  signedAt: string | null
+  anaesthetic: DentalAnaesthetic | null
+  notes: string | null
+  cancelled: DentalMark | null
+  enteredInError: DentalMark | null
+  rowVersion: number
+}
+
+export interface DentalList<Item> { version: string; status: DentalListStatus; items: Item[] }
+export interface DentalConditionItem { code: string; label: string; takesSurfaces: boolean }
+export interface DentalProcedureItem { code: string; name: string; category: DentalCategory; site: DentalSite }
+export interface DentalNamedItem { code: string; name: string }
+
+/** Route 1: the active lists (draft until the clinical lead signs them) and whether photos may be attached. */
+export interface DentalLists {
+  toothConditions: DentalList<DentalConditionItem>
+  procedures: DentalList<DentalProcedureItem>
+  anaesthetics: DentalList<DentalNamedItem>
+  techniques: DentalList<DentalNamedItem>
+  surfaces: string[]
+  photosAvailable: boolean
+}
+
+/** Route 3: the visit's dental record. `chart` is the patient's newest chart at this facility, from any visit. */
+export interface DentalVisitRecord {
+  visit: DentalVisit
+  chart: DentalChart | null
+  chartVersionsThisVisit: DentalChartVersion[]
+  plannedProcedures: DentalProcedure[]
+  doneThisVisit: DentalProcedure[]
+}
+
+/** Route 5's patient card, as the waiting list's: identity details only, the Health ID's last 4 characters. */
+export interface DentalPatientCard {
+  patientId: string
+  fullName: string
+  sex: string | null
+  dateOfBirth: string | null
+  healthIdLast4: string | null
+}
+
+export interface DentalVisitsList {
+  items: Array<{ patient: DentalPatientCard; visit: DentalVisit }>
+  /** Visits of patients this member may not read now: counted, never shown. */
+  hiddenCount: number
+  hasMore: boolean
+  limit: number
+}
+
+export interface DentalChartRead { chart: DentalChart | null; versions: DentalChartVersion[] }
+
+export interface DentalSummary {
+  patient: { fullName: string; sex: string | null; dateOfBirth: string | null; healthIdLast4: string | null }
+  facilityName: string
+  visit: DentalVisit
+  encounter: { startedAt: string; endedAt: string | null; status: string; chiefComplaint: string | null }
+  chart: DentalChart | null
+  doneThisVisit: DentalProcedure[]
+  plannedProcedures: DentalProcedure[]
+  diagnoses: Array<{ codeSystem: string | null; code: string | null; display: string; clinicalStatus: string | null }>
+  prescriptions: Array<{
+    medicationDisplay: string; doseQuantity: number | string | null; doseUnit: string | null; routeCode: string | null
+    frequency: string | null; instructions: string | null; startsOn: string | null; endsOn: string | null; status: string
+  }>
+  listStatus: DentalListStatus
+  printedAt: string
+}
+
+export interface DentalChartInput {
+  /** The newest version the screen started from, or null when the patient has no chart here. */
+  basedOnVersionId: string | null
+  dentition: DentalDentition
+  findings: DentalFinding[]
+  note: string | null
+}
+
+/** No local anaesthetic is `agentCode: 'none'` with no technique or amount (Q-DEN-6 A). */
+export interface DentalAnaestheticInput {
+  agentCode: string
+  agentOther: string | null
+  techniqueCode: string | null
+  cartridges: number | null
+}
+
+/** Route 9: exactly one of procedureCode (from the list) or procedureName (typed, with its site). */
+export interface DentalProcedureInput {
+  status: 'planned' | 'done'
+  procedureCode: string | null
+  procedureName: string | null
+  site: DentalSite | null
+  tooth: number | null
+  surfaces: string | null
+  quadrant: number | null
+  arch: DentalArch | null
+  doneAt?: string
+  anaesthetic?: DentalAnaestheticInput
+  notes: string | null
+}
+
+export interface DentalDoneInput {
+  expectedRowVersion: number
+  doneAt?: string
+  anaesthetic: DentalAnaestheticInput
+  surfaces?: string
+  notes?: string | null
+}
+
+function dentalVisitPath(patientId: string, encounterId: string) {
+  return `${encounterPath(patientId, encounterId)}/dental-visit`
+}
+function dentalProcedurePath(patientId: string, procedureId: string, action: string) {
+  return `/api/v1/ehr/patients/${encodeURIComponent(patientId)}/dental-procedures/${encodeURIComponent(procedureId)}/${action}`
+}
+const dentalRead = (facilityId: string) => ({ headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false })
+const dentalWrite = (facilityId: string, idempotencyKey: string) =>
+  ({ headers: { ...facilityHeaders(facilityId, 'direct-care'), ...keyHeaders(idempotencyKey) } })
+
+export const dentalApi = {
+  /** Route 1: the dental lists. No patient, no consent. */
+  lists: (facilityId: string) => client.get<DentalLists>('/api/v1/ehr/dental/lists', dentalRead(facilityId)),
+  /**
+   * EHR-C1's outpatient visit for the patient open in the chart, reusing the open visit today (`reuseOpenVisit`): the
+   * answer may be a visit of another type, which the page then names and does not use.
+   */
+  outpatientVisit: (facilityId: string, patientId: string, input: { startedAt: string; chiefComplaint: string }, idempotencyKey: string) =>
+    client.post<Encounter & { reusedOpenVisit?: boolean }>(patientPath(patientId),
+      { encounterType: 'ambulatory', status: 'in_progress', startedAt: input.startedAt, chiefComplaint: input.chiefComplaint, reuseOpenVisit: true },
+      dentalWrite(facilityId, idempotencyKey)),
+  /** Route 2: start the dental record on this outpatient visit (started or already_started). */
+  startVisit: (facilityId: string, patientId: string, encounterId: string, idempotencyKey: string) =>
+    client.post<{ outcome: 'started' | 'already_started'; visit: DentalVisit; replayed: boolean }>(
+      dentalVisitPath(patientId, encounterId), {}, dentalWrite(facilityId, idempotencyKey)),
+  /** Route 3: the visit's dental record (404 DENTAL_VISIT_NOT_FOUND when it was not started). */
+  visit: (facilityId: string, patientId: string, encounterId: string) =>
+    client.get<DentalVisitRecord>(dentalVisitPath(patientId, encounterId), dentalRead(facilityId)),
+  /** Route 4: set or clear the follow-up date and recall note, at the visit's row version. */
+  followUp: (facilityId: string, patientId: string, encounterId: string,
+    input: { expectedRowVersion: number; followUpOn: string | null; followUpNote: string | null }, idempotencyKey: string) =>
+    client.request<{ visit: DentalVisit; replayed: boolean }>({ method: 'PATCH', path: dentalVisitPath(patientId, encounterId),
+      body: input, ...dentalWrite(facilityId, idempotencyKey) }),
+  /** Route 5: this facility's dental visits of the last `days` Lagos days (1-30). */
+  visits: (facilityId: string, days: number) =>
+    client.get<DentalVisitsList>('/api/v1/ehr/dental-visits', { ...dentalRead(facilityId), query: { days } }),
+  /** Route 6: the newest chart at this facility (or one version) and the list of versions, newest first. */
+  chart: (facilityId: string, patientId: string, versionId?: string) =>
+    client.get<DentalChartRead>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/dental-chart`,
+      { ...dentalRead(facilityId), ...(versionId ? { query: { versionId } } : {}) }),
+  /** Route 7: a new chart version based on the newest one (409 DENTAL_CHART_CHANGED when another came first). */
+  saveChart: (facilityId: string, patientId: string, encounterId: string, input: DentalChartInput, idempotencyKey: string) =>
+    client.post<{ chart: DentalChart; replayed: boolean }>(`${encounterPath(patientId, encounterId)}/dental-chart`, input,
+      dentalWrite(facilityId, idempotencyKey)),
+  /** Route 8: the newest version marked entered in error; answers the newest chart after the change. */
+  chartEnteredInError: (facilityId: string, patientId: string, versionId: string, reason: string, idempotencyKey: string) =>
+    client.post<{ chart: DentalChart | null; replayed: boolean }>(
+      `/api/v1/ehr/patients/${encodeURIComponent(patientId)}/dental-chart/${encodeURIComponent(versionId)}/entered-in-error`,
+      { reason }, dentalWrite(facilityId, idempotencyKey)),
+  /** Route 9: plan a procedure, or record one done and signed. */
+  recordProcedure: (facilityId: string, patientId: string, encounterId: string, input: DentalProcedureInput, idempotencyKey: string) =>
+    client.post<{ procedure: DentalProcedure; replayed: boolean }>(`${encounterPath(patientId, encounterId)}/dental-procedures`, input,
+      dentalWrite(facilityId, idempotencyKey)),
+  /** Route 10: a planned procedure recorded as done in this visit, signed by the caller. */
+  procedureDone: (facilityId: string, patientId: string, encounterId: string, procedureId: string, input: DentalDoneInput, idempotencyKey: string) =>
+    client.post<{ procedure: DentalProcedure; replayed: boolean }>(
+      `${encounterPath(patientId, encounterId)}/dental-procedures/${encodeURIComponent(procedureId)}/done`, input,
+      dentalWrite(facilityId, idempotencyKey)),
+  /** Route 11: a planned procedure cancelled, with a reason. */
+  cancelProcedure: (facilityId: string, patientId: string, procedure: Pick<DentalProcedure, 'procedureId' | 'rowVersion'>,
+    reason: string, idempotencyKey: string) =>
+    client.post<{ procedure: DentalProcedure; replayed: boolean }>(dentalProcedurePath(patientId, procedure.procedureId, 'cancel'),
+      { expectedRowVersion: procedure.rowVersion, reason }, dentalWrite(facilityId, idempotencyKey)),
+  /** Route 12: a done procedure marked entered in error, by the dentist who signed it. */
+  procedureEnteredInError: (facilityId: string, patientId: string, procedure: Pick<DentalProcedure, 'procedureId' | 'rowVersion'>,
+    reason: string, idempotencyKey: string) =>
+    client.post<{ procedure: DentalProcedure; replayed: boolean }>(dentalProcedurePath(patientId, procedure.procedureId, 'entered-in-error'),
+      { expectedRowVersion: procedure.rowVersion, reason }, dentalWrite(facilityId, idempotencyKey)),
+  /** Route 13: the patient's dental procedures at this facility, newest first. */
+  procedures: (facilityId: string, patientId: string, status: 'planned' | 'done' | 'all' = 'all') =>
+    client.get<{ items: DentalProcedure[]; hasMore: boolean; limit: number }>(
+      `/api/v1/ehr/patients/${encodeURIComponent(patientId)}/dental-procedures`, { ...dentalRead(facilityId), query: { status } }),
+  /** Route 14: the printable visit summary (audited as a print). */
+  summary: (facilityId: string, patientId: string, encounterId: string) =>
+    client.get<DentalSummary>(`${encounterPath(patientId, encounterId)}/dental-summary`, dentalRead(facilityId)),
+}

@@ -2,6 +2,7 @@ import { createElement } from 'react'
 import { ConsentRefusal } from './consent/ConsentRefusal'
 import { ConsentWorkspace, consentStatus } from './consent/ConsentWorkspace'
 import { ConsultWorkspace, consultStatus } from './consult/ConsultWorkspace'
+import { dentalPage } from './dental/page'
 import { EmergencyWorkspace, emergencyStatus } from './emergency/EmergencyWorkspace'
 import { NursingWorkspace, nursingStatus } from './nursing/NursingWorkspace'
 import { ClinicalIcon, type ClinicalIconName } from './parts/icons'
@@ -32,7 +33,9 @@ export const pages: EhrBluePage[] = [
   { path: 'maternity/*', group: 'Clinical', label: 'Maternity', icon: icon('heart'), status: 'sample', element: sample('maternity') },
   { path: 'surgery/*', group: 'Clinical', label: 'Theatre & Procedures', icon: icon('scissors'), status: 'sample', element: sample('surgery') },
   { path: 'icu/*', group: 'Clinical', label: 'ICU', icon: icon('monitor'), status: 'sample', element: sample('icu') },
-  { path: 'dental/*', group: 'Clinical', label: 'Dental', icon: icon('tooth'), status: 'sample', element: sample('dental') },
+  // Dental is live for dentists, and today's sample at the demo facilities for everyone else: dental/page.tsx (hid-system
+  // DEN-1).
+  dentalPage,
   { path: 'requests/*', group: 'Clinical', label: 'Access requests', icon: icon('lock'), permission: 'identity.consent.write', status: consentStatus, element: createElement(ConsentWorkspace),
     refusal: createElement(ConsentRefusal) },
   // Emergency access is about opening a record without consent, so it sits beside Access requests (QA P1-3), not under wards.

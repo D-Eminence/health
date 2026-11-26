@@ -23,6 +23,7 @@ import {
 import { NOTE_TRANSITIONS, isObservation, noteStatus as observationStatus } from '../nursing/observations'
 import { NO_RECORD_ACCESS, recordKey } from '../triage/records'
 import { vitalStatus } from '../triage/vitals'
+import { DentalVisitCard } from '../dental/DentalVisitCard'
 import { DiagnosesCard } from './Diagnoses'
 import { DocumentsCard } from './Documents'
 import {
@@ -728,6 +729,8 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
           </EhrCard>
         </DetailGrid>
       </div>
+      {/* An outpatient visit's dental record, for dentists only (hid-system DEN-1, Q-DEN-1 A); nothing for anyone else. */}
+      <DentalVisitCard chart={chart} encounter={encounter} />
       {reads.notes ? (
         <NotesCard
           chart={chart} encounterId={encounterId} list={notes} canWrite={writes.notes} onSaved={setSuccess} onError={setPageError}

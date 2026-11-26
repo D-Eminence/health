@@ -80,6 +80,10 @@ const NOT_ON_MAIN = [
   'identity.patientSearch', 'identity.patientEmergencySearch', 'identity.ownFacilityAccess',
   // Release A (hid-system 0135 on staging-novu-ci-20261005): the waiting list.
   'ehr.visitQueue', 'ehr.visitQueueCheckIn', 'ehr.visitQueueEntry',
+  // Release D (hid-system DEN-1, 0194-0196, on claude/sprint-dental-backend): the dental clinic.
+  'ehr.dentalLists', 'ehr.dentalVisit', 'ehr.dentalVisits', 'ehr.dentalChart', 'ehr.dentalChartSave', 'ehr.dentalChartEnteredInError',
+  'ehr.dentalProcedureRecord', 'ehr.dentalProcedureDone', 'ehr.dentalProcedureCancel', 'ehr.dentalProcedureEnteredInError',
+  'ehr.dentalProcedures', 'ehr.dentalSummary',
 ] as const
 
 describe('routes hid-system main does not serve', () => {

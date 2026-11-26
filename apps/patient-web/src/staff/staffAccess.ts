@@ -20,6 +20,10 @@ const ROLE_LABELS: Readonly<Record<string, string>> = {
   records_officer: 'Records officer',
   billing: 'Billing officer',
   outreach_officer: 'Outreach officer',
+  // The dental clinic's role (hid-system DEN-1, 0194; Q155 A): a licensed role, MDCN as a doctor's. Identity offers it,
+  // and accepts it in an invitation or role change, only while the dental clinic is switched on (DENTAL_ENABLED);
+  // until then it is never among the roles an administrator is offered.
+  dentist: 'Dentist',
 }
 
 /*
@@ -122,7 +126,8 @@ export function isLicenceBody(value: unknown): value is LicenceBody {
 
 /** The licence a role needs: none for a receptionist (P4b SPEC 4.2). */
 export function licenceBodyForRole(role: string): LicenceBody | null {
-  return role === 'doctor' ? 'MDCN' : role === 'nurse' ? 'NMCN' : role === 'lab' ? 'MLSCN' : role === 'pharmacist' ? 'PCN' : null
+  // A dentist is on the Medical and Dental Council's dental register (hid-system DEN-1, 0194).
+  return role === 'doctor' || role === 'dentist' ? 'MDCN' : role === 'nurse' ? 'NMCN' : role === 'lab' ? 'MLSCN' : role === 'pharmacist' ? 'PCN' : null
 }
 
 /**
