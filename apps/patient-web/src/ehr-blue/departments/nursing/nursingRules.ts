@@ -65,6 +65,17 @@ export const NURSING_REFUSED = 'Only nurses, clinicians and doctors of this faci
 export const SHIFTS_REFUSED = 'Only the facility’s admins can set up clinical shifts, and nurses in charge assign them.'
 export const CHART_ACCESS = 'Open this patient’s record first, then try again.'
 export const NO_WARDS = 'This facility has no wards set up yet. An admin sets them up in Ward configuration.'
+/**
+ * The oxygen rule as 0174's vitals_oxygen_ck and the service's checkObservationRules hold it: a flow or FiO2 only with a
+ * device; on room air no flow, and FiO2 only 21. A device on its own is a reading ("Ventilated", Q202 A).
+ */
+export const OXYGEN_RULE = 'A flow or FiO2 needs an oxygen device. On room air, leave the flow blank, and FiO2 can only be 21%.'
+/**
+ * Triage & Vitals' words for one part of a blood pressure without the other (triage/vitals.ts BOTH_BP, word for word: a
+ * test holds them the same), for the service's 400 BLOOD_PRESSURE_INCOMPLETE. Written here, not imported, so these rules
+ * stay free of the Triage page's modules.
+ */
+export const BP_PAIR = 'Enter both systolic and diastolic blood pressure, or leave both blank.'
 
 export const NURSING_REFUSALS: Readonly<Record<string, string>> = {
   NURSING_NOT_AVAILABLE: NOT_AVAILABLE,
@@ -78,8 +89,10 @@ export const NURSING_REFUSALS: Readonly<Record<string, string>> = {
   CHART_ACCESS_REQUIRED: CHART_ACCESS,
   ADMISSION_CHART_ACCESS_REQUIRED: CHART_ACCESS,
   NURSING_VERSION_CONFLICT: 'Someone else changed this. Reload it and try again.',
-  OXYGEN_FIELDS_INVALID: 'Enter the flow or FiO2 with an oxygen device, or 21% on room air.',
+  OXYGEN_FIELDS_INVALID: OXYGEN_RULE,
   GCS_INCOMPLETE: 'Enter all three GCS parts, or mark the verbal part as not testable.',
+  BLOOD_PRESSURE_INCOMPLETE: BP_PAIR,
+  VITAL_MEASUREMENT_REQUIRED: 'Enter at least one value.',
   DOSE_REASON_REQUIRED: 'Choose a reason for a dose that was not given.',
   DOSE_DIFFERS_REASON_REQUIRED: 'Say why the dose differs from the order.',
   SUPPLY_SOURCE_REQUIRED: 'The pharmacy has not dispensed this medicine. Say where it came from.',
@@ -230,7 +243,7 @@ const SEX_WORDS: Readonly<Record<string, string>> = { female: 'Female', male: 'M
 
 /** "Female · 54 years · NIN Verified": sex, age (an estimate says so) and NIN status, never a Health ID in full. */
 export function patientFacts(card: WardPatientCard): string {
-  const age = card.ageYears === null || card.ageYears === undefined ? '' : `${card.ageEstimated ? 'about ' : ''}${card.ageYears} years`
+  const age = card.ageYears === null || card.ageYears === undefined ? '' : `${card.ageEstimated ? 'about ' : ''}${count(card.ageYears, 'year')}`
   const parts = [card.sex ? SEX_WORDS[card.sex] ?? card.sex : '', age, card.ninStatus === 'verified' ? 'NIN Verified' : 'NIN Not Verified']
   return parts.filter(Boolean).join(' · ')
 }
@@ -414,11 +427,27 @@ export const SUGGESTED_SHIFTS = [
   { name: 'Night', startsAt: '20:30', endsAt: '08:00' },
 ] as const
 
-/** Who a membership is: "You", their name, or "A staff member here" (never the id). */
+/** SX-9's words for a member whose login was deleted (its answer's `name: null`). */
+export const FORMER_STAFF = 'Former staff member'
+
+/**
+ * Who a membership is: "You", their name, "Former staff member" where SX-9 answered no name (a deleted login), or "A
+ * staff member here" while no name has been read (never the id).
+ */
 export function memberText(membershipId: string | null | undefined, me: string | undefined, names: ReadonlyMap<string, string | null>, none = 'Not assigned'): string {
   if (!membershipId) return none
   if (me && membershipId.toLowerCase() === me.toLowerCase()) return 'You'
-  return names.get(membershipId.toLowerCase()) ?? 'A staff member here'
+  const id = membershipId.toLowerCase()
+  return names.has(id) ? names.get(id) ?? FORMER_STAFF : 'A staff member here'
+}
+
+/**
+ * Free text the database keeps on one line (0175 ehr.mar_record's reason text and ehr.mar_entered_in_error, 0176's fluid
+ * note and ehr.fluid_balance_entered_in_error refuse any control character, a line break too): every run of spaces,
+ * line breaks or other control characters becomes one space, and the ends are trimmed. Checked and sent as it is.
+ */
+export function oneLine(text: string): string {
+  return text.replace(/[\s\p{Cc}]+/gu, ' ').trim()
 }
 
 /** "3 tasks", "1 task". */

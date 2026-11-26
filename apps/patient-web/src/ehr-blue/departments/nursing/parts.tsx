@@ -1,7 +1,8 @@
 import { useCallback } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { EhrBadge, EhrField, EhrSelect } from '@hid/ui/ehr'
 import { nursingApi, type WardPatientCard, type WardSummary } from '../../../staff/api'
+import { fromHere } from '../../clinical/parts/cameFrom'
 import { DeptNotice } from '../parts/DeptNotice'
 import { DeptPage } from '../parts/DeptPage'
 import { useFacilityRead } from '../parts/useFacilityRead'
@@ -45,7 +46,8 @@ export function PatientIdentity({ card, bedName }: { readonly card: WardPatientC
       </p>
       {card.nameHidden || card.chartBlocked || card.recordKind === 'unknown' ? (
         <div className="hid-ehr-dept-waiting-badges">
-          {card.nameHidden ? <EhrBadge tone="neutral">Name hidden</EhrBadge> : null}
+          {/* An unknown patient's label is their name: "Unknown patient" says it, as the Inpatient pages do. */}
+          {card.nameHidden && card.recordKind !== 'unknown' ? <EhrBadge tone="neutral">Name hidden</EhrBadge> : null}
           {card.recordKind === 'unknown' ? <EhrBadge tone="caution">Unknown patient</EhrBadge> : null}
           {card.chartBlocked ? <EhrBadge tone="critical">Chart cannot be opened</EhrBadge> : null}
         </div>
@@ -54,9 +56,18 @@ export function PatientIdentity({ card, bedName }: { readonly card: WardPatientC
   )
 }
 
-export function PatientLink({ card, to }: { readonly card: WardPatientCard; readonly to: string }) {
-  return <Link className="hid-ehr-dept-link" to={to}>{patientName(card)}</Link>
+/**
+ * A patient's ward chart, opened from a ward list: the list's address goes with it (router state, cameFrom.ts), so the
+ * chart's back arrow returns to that list, its ward, day and shift, named by `back` ("Back to Shift handover"). Only the
+ * list's address: never a patient detail.
+ */
+export function PatientLink({ card, to, back }: { readonly card: WardPatientCard; readonly to: string; readonly back: string }) {
+  const location = useLocation()
+  return <Link className="hid-ehr-dept-link" to={to} state={fromHere(`${location.pathname}${location.search}`, back)}>{patientName(card)}</Link>
 }
+
+/** A fact of a record entered in error that is not struck through with it: who recorded it, and why it is in error. */
+export const KEPT = 'hid-ehr-dept-nursing-kept'
 
 /** The ward a list is for, kept in the address (`?ward=<uuid>`: a ward's id, never a patient's), and the wards read. */
 export function useWardChoice(facilityId: string, purpose: 'direct-care' | 'healthcare-operations' = 'direct-care') {

@@ -11,6 +11,12 @@
 .hid-ehr-dept-nursing-doses li { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .hid-ehr-dept-nursing-patients { border: 0; margin: 0; padding: 0; display: grid; gap: 4px; }
 .hid-ehr-dept-nursing-patients legend { font-weight: 600; margin-bottom: 4px; }
-/* A record entered in error stays, struck through: its words say so too (the badge). */
+/* The fluid day's totals as count tiles: In, Out and Balance. */
+.hid-ehr .hid-ehr-dept-nursing-counts { display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 8px 0; }
+.hid-ehr .hid-ehr-dept-nursing-counts > div { display: flex; align-items: baseline; gap: 8px; }
+.hid-ehr .hid-ehr-dept-nursing-counts dt { color: var(--ehr-muted); font-size: 13px; }
+.hid-ehr .hid-ehr-dept-nursing-counts dd { margin: 0; color: var(--ehr-ink); font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+/* A record entered in error stays, struck through: its words say so too (the badge). Who recorded it and why it is in
+   error are current, and are not struck through. */
 .hid-ehr-dept-nursing-struck .hid-ehr-dept-waiting-name,
-.hid-ehr-dept-nursing-struck .hid-ehr-dept-waiting-facts dd { text-decoration: line-through; }
+.hid-ehr-dept-nursing-struck .hid-ehr-dept-waiting-facts > div:not(.hid-ehr-dept-nursing-kept) dd { text-decoration: line-through; }

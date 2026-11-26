@@ -9,9 +9,9 @@ import { useFacilityRead } from '../parts/useFacilityRead'
 import { useIdempotencyKeys, useStaffNames, type IdempotencyKeys } from './hooks'
 import {
   FLUID_KIND_WORDS, balanceText, canWriteVitals, isChartAccessRefusal, lagosDate, lagosDay, lagosInput, lagosInputToIso, lagosTime,
-  lagosWhen, learning, memberText, notServed, refusalWords,
+  lagosWhen, learning, memberText, notServed, oneLine, refusalWords,
 } from './nursingRules'
-import { ChartAccessNotice } from './parts'
+import { ChartAccessNotice, KEPT } from './parts'
 
 /**
  * Fluid balance (NUR-1 routes 11-13; Q-NUR-6 A, Q-NUR-15 A): one fluid day (07:00 to 07:00 Lagos time unless the
@@ -58,7 +58,7 @@ export function FluidBalance({ facilityId, admission }: { readonly facilityId: s
         {fluid.value && totals ? (
           <>
             <p className="hid-ehr-state-message">{`${lagosDate(fluid.value.day)}: ${lagosWhen(fluid.value.from)} to ${lagosWhen(fluid.value.to)}`}</p>
-            <dl className="hid-ehr-dept-emergency-counts" aria-label="Fluid totals">
+            <dl className="hid-ehr-dept-nursing-counts" aria-label="Fluid totals">
               <div><dt>In</dt><dd>{`${totals.intakeMl} mL`}</dd></div>
               <div><dt>Out</dt><dd>{`${totals.outputMl} mL`}</dd></div>
               <div><dt>Balance</dt><dd>{balanceText(totals.balanceMl)}</dd></div>
@@ -117,10 +117,12 @@ function EntryRow({ facilityId, entry, by, canRecord, keyFor, onChanged }: {
 
   async function mark(event: FormEvent) {
     event.preventDefault()
-    if (reason.trim().length < 8) { setProblem('Say why in at least 8 characters.'); return }
+    // On one line: the database refuses a line break in it (0176 ehr.fluid_balance_entered_in_error).
+    const why = oneLine(reason)
+    if (why.length < 8) { setProblem('Say why in at least 8 characters.'); return }
     try {
-      await keyFor.send('fluid-error', { id: entry.entryId, reason: reason.trim() },
-        key => nursingApi.fluidEnteredInError(facilityId, entry, reason.trim(), key))
+      await keyFor.send('fluid-error', { id: entry.entryId, reason: why },
+        key => nursingApi.fluidEnteredInError(facilityId, entry, why, key))
       setMarking(false)
       // The entry stays, struck through: focus on it, as the form and its button go.
       focus(headingId)
@@ -138,8 +140,8 @@ function EntryRow({ facilityId, entry, by, canRecord, keyFor, onChanged }: {
         <dl className="hid-ehr-dept-waiting-facts">
           <div><dt>Time</dt><dd>{lagosWhen(entry.recordedAt)}</dd></div>
           {entry.note ? <div><dt>Note</dt><dd>{entry.note}</dd></div> : null}
-          <div><dt>Recorded by</dt><dd>{by}</dd></div>
-          {inError && entry.enteredInErrorReason ? <div><dt>Why entered in error</dt><dd>{entry.enteredInErrorReason}</dd></div> : null}
+          <div className={KEPT}><dt>Recorded by</dt><dd>{by}</dd></div>
+          {inError && entry.enteredInErrorReason ? <div className={KEPT}><dt>Why entered in error</dt><dd>{entry.enteredInErrorReason}</dd></div> : null}
         </dl>
         {canRecord && !inError && !marking
           ? <EhrButton id={markId} size="sm" variant="secondary" onClick={() => { setMarking(true); focus(reasonId) }}>Mark entered in error</EhrButton> : null}
@@ -160,7 +162,10 @@ function EntryRow({ facilityId, entry, by, canRecord, keyFor, onChanged }: {
   )
 }
 
-/** What the form would send, or the problem to fix first (FLUID_ENTRY_INVALID's own rule, and the time's). */
+/**
+ * What the form would send, or the problem to fix first (FLUID_ENTRY_INVALID's own rule, and the time's). The note goes
+ * on one line: 0176 ehr.fluid_balance_record refuses a line break in it.
+ */
 export function fluidBody(draft: { direction: 'in' | 'out'; kind: string; volume: string; notMeasured: boolean; time: string; note: string },
   now: number = Date.now()): FluidInput | { problem: string } {
   const kinds: readonly string[] = draft.direction === 'in' ? FLUID_IN_KINDS : FLUID_OUT_KINDS
@@ -169,7 +174,7 @@ export function fluidBody(draft: { direction: 'in' | 'out'; kind: string; volume
   if (!recordedAt) return { problem: 'Enter the time.' }
   const at = Date.parse(recordedAt)
   if (at > now + 60_000 || at < now - 24 * 60 * 60 * 1000) return { problem: 'The time can be up to 24 hours ago, and not in the future.' }
-  const note = draft.note.trim()
+  const note = oneLine(draft.note)
   if (note.length > 200) return { problem: 'Keep the note to 200 characters.' }
   if (draft.notMeasured) return { direction: draft.direction, kind: draft.kind, notMeasured: true, recordedAt, ...(note ? { note } : {}) }
   const volume = Number(draft.volume)

@@ -1,7 +1,8 @@
 import { useCallback, useState, type FormEvent } from 'react'
 import { isHidApiError } from '@hid/http'
-import { EhrBadge, EhrButton, EhrEmptyState, EhrField, EhrInput, EhrSelect } from '@hid/ui/ehr'
-import { nursingApi, type ObservationReading, type ObservationValues, type WardPatientCard } from '../../../staff/api'
+import { EhrBadge, EhrButton, EhrDataTable, EhrEmptyState, EhrField, EhrInput, EhrSelect } from '@hid/ui/ehr'
+import { nursingApi, type ObservationReading, type ObservationValues, type VitalMeasurement, type WardPatientCard } from '../../../staff/api'
+import { BOTH_BP, VITAL_FIELDS } from '../../clinical/triage/vitals'
 import { useFocusById } from '../../../staff/focus'
 import { useDeptAccess } from '../parts/access'
 import { DeptNotice } from '../parts/DeptNotice'
@@ -9,10 +10,10 @@ import { DeptSection } from '../parts/DeptPage'
 import { useFacilityRead } from '../parts/useFacilityRead'
 import { useIdempotencyKeys, useStaffNames } from './hooks'
 import {
-  AVPU_WORDS, FLAG_PART_WORDS, FLAG_WORDS, OXYGEN_DEVICE_WORDS, balanceText, canWriteVitals, isChartAccessRefusal, lagosInput,
-  lagosInputToIso, lagosWhen, learning, memberText, notServed, observationLines, refusalWords,
+  AVPU_WORDS, FLAG_PART_WORDS, FLAG_WORDS, OXYGEN_DEVICE_WORDS, OXYGEN_RULE, balanceText, canWriteVitals, isChartAccessRefusal,
+  lagosInput, lagosInputToIso, lagosWhen, learning, memberText, notServed, observationLines, refusalWords,
 } from './nursingRules'
-import { ChartAccessNotice } from './parts'
+import { ChartAccessNotice, KEPT } from './parts'
 
 /**
  * The observation chart (NUR-1 routes 1 and 2; Q195 A, Q199 A, Q202 A): the stay's readings over the last 24 hours with
@@ -71,26 +72,18 @@ export function ObservationChart({ facilityId, admission }: { readonly facilityI
       </DeptSection>
       {chart.value?.hours && chart.value.hours.length > 0 ? (
         <DeptSection title="Hourly grid" headingId="obs-hours">
-          <div className="hid-ehr-table-scroll" role="region" aria-label="Hours" tabIndex={0}>
-            <table className="hid-ehr-table">
-              <thead><tr><th scope="col">Hour</th><th scope="col">Readings</th><th scope="col">In</th><th scope="col">Out</th><th scope="col">Running balance</th></tr></thead>
-              <tbody>
-                {chart.value.hours.map(hour => {
-                  const inHour = readings.filter(reading => hour.readingIds.includes(reading.vitalId))
-                  return (
-                    <tr key={hour.hourStart}>
-                      {/* The grid runs 24 hours back: an hour not on today's Lagos day carries its date. */}
-                      <th scope="row">{lagosWhen(hour.hourStart)}</th>
-                      <td>{inHour.length === 0 ? '—' : inHour.flatMap(reading => observationLines(reading.values).map(line => `${line.label} ${line.text}`)).join('; ')}</td>
-                      <td>{`${hour.fluidInMl} mL`}</td>
-                      <td>{`${hour.fluidOutMl} mL`}</td>
-                      <td>{balanceText(hour.runningBalanceMl)}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+          {/* The blue table: its cells styled, and read as cards on a phone (no sideways scrolling). */}
+          <EhrDataTable caption="Hourly grid" captionHidden rows={chart.value.hours} rowKey={hour => hour.hourStart} columns={[
+            // The grid runs 24 hours back: an hour not on today's Lagos day carries its date.
+            { id: 'hour', header: 'Hour', cell: hour => lagosWhen(hour.hourStart) },
+            { id: 'readings', header: 'Readings', cell: hour => {
+              const inHour = readings.filter(reading => hour.readingIds.includes(reading.vitalId))
+              return inHour.length === 0 ? '—' : inHour.flatMap(reading => observationLines(reading.values).map(line => `${line.label} ${line.text}`)).join('; ')
+            } },
+            { id: 'in', header: 'In', align: 'end', cell: hour => `${hour.fluidInMl} mL` },
+            { id: 'out', header: 'Out', align: 'end', cell: hour => `${hour.fluidOutMl} mL` },
+            { id: 'balance', header: 'Running balance', align: 'end', cell: hour => balanceText(hour.runningBalanceMl) },
+          ]} />
         </DeptSection>
       ) : null}
     </>
@@ -131,7 +124,7 @@ function ReadingRow({ reading, by }: { readonly reading: ObservationReading; rea
               </div>
             )
           })}
-          <div><dt>Recorded by</dt><dd>{by}</dd></div>
+          <div className={KEPT}><dt>Recorded by</dt><dd>{by}</dd></div>
         </dl>
       </div>
     </li>
@@ -147,46 +140,90 @@ interface Draft {
 const blank = (): Draft => ({ time: lagosInput(), systolic: '', diastolic: '', pulse: '', breathing: '', saturation: '', temperature: '',
   pain: '', avpu: '', glucose: '', device: '', flow: '', fio2: '', eye: '', verbal: '', motor: '', verbalNotTestable: false })
 
-const NUMBER_FIELDS: readonly [keyof Draft, keyof ObservationValues, string, number, number][] = [
-  ['systolic', 'systolicMmhg', 'Systolic (mmHg)', 40, 300], ['diastolic', 'diastolicMmhg', 'Diastolic (mmHg)', 20, 200],
-  ['pulse', 'pulseBpm', 'Pulse (a minute)', 20, 300], ['breathing', 'respiratoryRate', 'Breathing rate (a minute)', 1, 80],
-  ['saturation', 'oxygenSaturationPercent', 'Oxygen saturation (%)', 50, 100], ['temperature', 'temperatureC', 'Temperature (°C)', 30, 45],
-  ['pain', 'painScore', 'Pain (0 to 10)', 0, 10], ['glucose', 'bloodGlucoseMmolL', 'Blood glucose (mmol/L)', 0.5, 50],
+interface NumberField {
+  readonly field: keyof Draft
+  readonly key: keyof ObservationValues
+  readonly label: string
+  /** The measure in a sentence ("oxygen saturation"). */
+  readonly name: string
+  readonly min: number
+  readonly max: number
+  /** The decimal places the service takes (0: a whole number). */
+  readonly places: number
+}
+
+/** A Triage & Vitals measure's limits and decimals (triage/vitals.ts VITAL_FIELDS, as EHR's VitalMeasurementsDto takes it). */
+function triage(name: VitalMeasurement): Pick<NumberField, 'min' | 'max' | 'places'> {
+  const field = VITAL_FIELDS.find(candidate => candidate.name === name)
+  if (!field) throw new Error(`No vital field ${name}`)
+  return { min: Number(field.min), max: Number(field.max), places: field.step.includes('.') ? field.step.split('.')[1]!.length : 0 }
+}
+
+/**
+ * Each number the chart takes, with the backend's limits and decimals (VitalMeasurementsDto): those Triage & Vitals takes
+ * too from its table, so a reading Triage would save is never refused here; pain and glucose from the DTO. A value outside
+ * the usual range is saved with VIT-1's soft flag ("Check this entry"), never refused.
+ */
+const NUMBER_FIELDS: readonly NumberField[] = [
+  { field: 'systolic', key: 'systolicMmhg', label: 'Systolic (mmHg)', name: 'systolic', ...triage('systolicMmhg') },
+  { field: 'diastolic', key: 'diastolicMmhg', label: 'Diastolic (mmHg)', name: 'diastolic', ...triage('diastolicMmhg') },
+  { field: 'pulse', key: 'pulseBpm', label: 'Pulse (a minute)', name: 'pulse', ...triage('pulseBpm') },
+  { field: 'breathing', key: 'respiratoryRate', label: 'Breathing rate (a minute)', name: 'breathing rate', ...triage('respiratoryRate') },
+  { field: 'saturation', key: 'oxygenSaturationPercent', label: 'Oxygen saturation (%)', name: 'oxygen saturation', ...triage('oxygenSaturationPercent') },
+  { field: 'temperature', key: 'temperatureC', label: 'Temperature (°C)', name: 'temperature', ...triage('temperatureC') },
+  { field: 'pain', key: 'painScore', label: 'Pain (0 to 10)', name: 'pain', min: 0, max: 10, places: 0 },
+  { field: 'glucose', key: 'bloodGlucoseMmolL', label: 'Blood glucose (mmol/L)', name: 'blood glucose', min: 0.5, max: 50, places: 1 },
 ]
 
-/** What the form would send, or the problem to fix first (the backend's own rules: OXYGEN_FIELDS_INVALID, GCS_INCOMPLETE). */
+const PLACES_WORDS = ['as a whole number', 'to one decimal place', 'to two decimal places'] as const
+const stepOf = (places: number) => places === 0 ? '1' : (1 / 10 ** places).toFixed(places)
+
+/** Whether a number has no more than `places` decimal places. */
+function hasPlaces(value: number, places: number): boolean {
+  const scaled = value * 10 ** places
+  return Math.abs(scaled - Math.round(scaled)) < 1e-6
+}
+
+/**
+ * What the form would send, or the problem to fix first, each naming its field: the DTO's limits and decimals, both
+ * parts of a blood pressure or neither (BLOOD_PRESSURE_INCOMPLETE), and the oxygen and GCS rules (OXYGEN_FIELDS_INVALID,
+ * GCS_INCOMPLETE).
+ */
 export function observationBody(draft: Draft): { values: ObservationValues; recordedAt: string } | { problem: string } {
   const recordedAt = lagosInputToIso(draft.time)
   if (!recordedAt) return { problem: 'Enter the time of the reading.' }
   const values: ObservationValues = {}
-  for (const [field, key, label, min, max] of NUMBER_FIELDS) {
+  for (const { field, key, name, min, max, places } of NUMBER_FIELDS) {
     const text = String(draft[field]).trim()
     if (!text) continue
     const value = Number(text)
-    if (!Number.isFinite(value) || value < min || value > max) return { problem: `Check ${label.replace(/ \(.*\)$/, '').toLowerCase()}: ${min} to ${max}.` }
-    values[key] = key === 'bloodGlucoseMmolL' ? Math.round(value * 10) / 10 : value
+    if (!Number.isFinite(value) || value < min || value > max) return { problem: `Check ${name}: ${min} to ${max}.` }
+    if (!hasPlaces(value, places)) return { problem: `Enter ${name} ${PLACES_WORDS[places]}.` }
+    values[key] = value
   }
+  if ((values.systolicMmhg === undefined) !== (values.diastolicMmhg === undefined)) return { problem: BOTH_BP }
   if (draft.avpu) values.avpu = draft.avpu
-  if (draft.device) {
+  const flowText = draft.flow.trim()
+  const fio2Text = draft.fio2.trim()
+  if (!draft.device) {
+    if (flowText || fio2Text) return { problem: OXYGEN_RULE }
+  } else {
+    // A device on its own is a reading: "Ventilated" records only that the patient is ventilated (Q202 A).
     values.oxygenDevice = draft.device
-    const flow = draft.flow.trim() ? Number(draft.flow) : null
-    const fio2 = draft.fio2.trim() ? Number(draft.fio2) : null
-    if (draft.device === 'room_air') {
-      if (flow !== null || (fio2 !== null && fio2 !== 21)) return { problem: 'Enter the flow or FiO2 with an oxygen device, or 21% on room air.' }
-      if (fio2 !== null) values.fio2Percent = 21
-    } else {
-      if (flow === null && fio2 === null) return { problem: 'Enter the flow or FiO2 with an oxygen device, or 21% on room air.' }
-      if (flow !== null) {
-        if (!Number.isFinite(flow) || flow < 0.5 || flow > 70) return { problem: 'Oxygen flow is 0.5 to 70 L a minute.' }
-        values.oxygenFlowLPerMin = flow
-      }
-      if (fio2 !== null) {
-        if (!Number.isFinite(fio2) || fio2 < 21 || fio2 > 100) return { problem: 'FiO2 is 21% to 100%.' }
-        values.fio2Percent = fio2
-      }
+    if (flowText) {
+      if (draft.device === 'room_air') return { problem: OXYGEN_RULE }
+      const flow = Number(flowText)
+      if (!Number.isFinite(flow) || flow < 0.5 || flow > 70) return { problem: 'Oxygen flow is 0.5 to 70 L a minute.' }
+      if (!hasPlaces(flow, 1)) return { problem: 'Enter oxygen flow to one decimal place.' }
+      values.oxygenFlowLPerMin = flow
     }
-  } else if (draft.flow.trim() || draft.fio2.trim()) {
-    return { problem: 'Enter the flow or FiO2 with an oxygen device, or 21% on room air.' }
+    if (fio2Text) {
+      const fio2 = Number(fio2Text)
+      if (draft.device === 'room_air' && fio2 !== 21) return { problem: OXYGEN_RULE }
+      if (!Number.isFinite(fio2) || fio2 < 21 || fio2 > 100) return { problem: 'FiO2 is 21% to 100%.' }
+      if (!Number.isInteger(fio2)) return { problem: 'Enter FiO2 as a whole number.' }
+      values.fio2Percent = fio2
+    }
   }
   const gcsParts = [draft.eye, draft.verbal, draft.motor].filter(part => part !== '').length + (draft.verbalNotTestable ? 1 : 0)
   if (gcsParts > 0) {
@@ -230,11 +267,13 @@ function ObservationForm({ facilityId, admission, onDone }: {
 
   return (
     <DeptSection title="Record observations" headingId={FORM_ID}>
-      <form className="hid-ehr-dept-nursing-form hid-ehr-dept-nursing-grid" onSubmit={event => void submit(event)} aria-label="Record observations">
+      {/* The form's own checks name the field (observationBody), so the browser's are not used. */}
+      <form className="hid-ehr-dept-nursing-form hid-ehr-dept-nursing-grid" noValidate onSubmit={event => void submit(event)} aria-label="Record observations">
         <EhrField label="Time (Lagos time)"><EhrInput type="datetime-local" value={draft.time} onChange={set('time')} /></EhrField>
-        {NUMBER_FIELDS.map(([field, , label]) => (
+        {NUMBER_FIELDS.map(({ field, label, min, max, places }) => (
           <EhrField key={field} label={label}>
-            <EhrInput type="number" inputMode="decimal" step="any" value={String(draft[field])} onChange={set(field)} />
+            <EhrInput type="number" inputMode={places === 0 ? 'numeric' : 'decimal'} min={min} max={max} step={stepOf(places)}
+              value={String(draft[field])} onChange={set(field)} />
           </EhrField>
         ))}
         <EhrField label="AVPU">
@@ -249,8 +288,12 @@ function ObservationForm({ facilityId, admission, onDone }: {
             {Object.entries(OXYGEN_DEVICE_WORDS).map(([value, words]) => <option key={value} value={value}>{words}</option>)}
           </EhrSelect>
         </EhrField>
-        <EhrField label="Oxygen flow (L a minute)"><EhrInput type="number" inputMode="decimal" step="any" value={draft.flow} onChange={set('flow')} /></EhrField>
-        <EhrField label="FiO2 (%)"><EhrInput type="number" inputMode="numeric" value={draft.fio2} onChange={set('fio2')} /></EhrField>
+        <EhrField label="Oxygen flow (L a minute)" hint="With a device other than room air, if known.">
+          <EhrInput type="number" inputMode="decimal" min={0.5} max={70} step="0.1" value={draft.flow} onChange={set('flow')} />
+        </EhrField>
+        <EhrField label="FiO2 (%)" hint="With a device, if known. On room air, 21% only.">
+          <EhrInput type="number" inputMode="numeric" min={21} max={100} step="1" value={draft.fio2} onChange={set('fio2')} />
+        </EhrField>
         <EhrField label="GCS eye (1 to 4)">
           <EhrSelect value={draft.eye} onChange={set('eye')}>
             <option value="">Not recorded</option>

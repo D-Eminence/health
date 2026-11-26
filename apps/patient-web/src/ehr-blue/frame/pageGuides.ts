@@ -131,7 +131,8 @@ export const PAGE_GUIDES: Readonly<Record<string, PageGuide>> = {
     steps: [
       'Select a tab to see that part of the chart.',
       'Record observations, a dose, an intake or output, or a task from its tab.',
-      'Something recorded wrongly is marked entered in error. It stays on the chart, struck through.',
+      'A dose, or an intake or output, recorded wrongly is marked entered in error from its tab. It stays on the chart, struck through.',
+      'To correct an observation reading, open it in Triage & Vitals.',
     ],
     tips: ['No early-warning score is worked out: read each value and its flag.', BACK_TIP],
   },

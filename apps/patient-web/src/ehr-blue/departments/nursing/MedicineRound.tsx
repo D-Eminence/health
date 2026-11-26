@@ -14,9 +14,9 @@ import {
   DOSE_STATE_WORDS, EYEBROW, NURSING_REFUSED, OUTCOME_WORDS, PATIENT_BASE, PHARMACY_WORDS, REASONS_BY_OUTCOME, REASON_NEEDS_TEXT,
   REASON_WORDS, ROUND_TITLE, SCHEDULE_WORDS, SUPPLY_WORDS, WARNING_WORDS, asNeededReasons, canReadRound, canRecordDose, dispensed,
   doseDiffers as differsFromOrder, doseStateTone, isChartAccessRefusal, lagosInput, lagosInputToIso, lagosTime, lagosWhen, learning,
-  memberText, notServed, refusalWords,
+  memberText, notServed, oneLine, refusalWords,
 } from './nursingRules'
-import { ChartAccessNotice, PatientIdentity, PatientLink, ScreenWarning, WardPicker, WardsState, useWardChoice } from './parts'
+import { ChartAccessNotice, KEPT, PatientIdentity, PatientLink, ScreenWarning, WardPicker, WardsState, useWardChoice } from './parts'
 
 /**
  * The medicine round (NUR-1 route 5): each admitted patient on the ward with doses due or late (or, with "Next 4
@@ -72,7 +72,7 @@ function RoundList({ facilityId, wardId, range }: { readonly facilityId: string;
               <li key={item.admissionId} className="hid-ehr-dept-waiting-card" aria-labelledby={headingId}>
                 <div className="hid-ehr-dept-waiting-main">
                   <h3 id={headingId} className="hid-ehr-dept-waiting-name">
-                    <PatientLink card={item.patient} to={`${PATIENT_BASE}/${item.admissionId}/medicines`} />
+                    <PatientLink card={item.patient} to={`${PATIENT_BASE}/${item.admissionId}/medicines`} back={`Back to ${ROUND_TITLE}`} />
                   </h3>
                   <PatientIdentity card={item.patient} bedName={item.bedName} />
                   <div className="hid-ehr-dept-waiting-badges">
@@ -312,8 +312,10 @@ function DoseForm({ facilityId, admissionId, order, given: givenBefore, schedule
     } else {
       if (!reasonCode) { setProblem('Choose a reason for a dose that was not given.'); return }
       input.reasonCode = reasonCode
-      if (REASON_NEEDS_TEXT.has(reasonCode) && reasonText.trim().length < 8) { setProblem('Say more about the reason, in at least 8 characters.'); return }
-      if (reasonText.trim()) input.reasonText = reasonText.trim()
+      // On one line: the database refuses a line break in it (0175 ehr.mar_record).
+      const more = oneLine(reasonText)
+      if (REASON_NEEDS_TEXT.has(reasonCode) && more.length < 8) { setProblem('Say more about the reason, in at least 8 characters.'); return }
+      if (more) input.reasonText = more
     }
     try {
       const answer = await keyFor.send('dose', input, key => nursingApi.recordDose(facilityId, admissionId, input, key))
@@ -441,10 +443,12 @@ function DoseRow({ facilityId, dose, order, by, canRecord, keyFor, onChanged }: 
 
   async function mark(event: FormEvent) {
     event.preventDefault()
-    if (reason.trim().length < 8) { setProblem('Say why in at least 8 characters.'); return }
+    // On one line: the database refuses a line break in it (0175 ehr.mar_entered_in_error).
+    const why = oneLine(reason)
+    if (why.length < 8) { setProblem('Say why in at least 8 characters.'); return }
     try {
-      await keyFor.send('dose-error', { id: dose.administrationId, reason: reason.trim() },
-        key => nursingApi.doseEnteredInError(facilityId, dose, reason.trim(), key))
+      await keyFor.send('dose-error', { id: dose.administrationId, reason: why },
+        key => nursingApi.doseEnteredInError(facilityId, dose, why, key))
       setMarking(false)
       // The record stays, struck through: focus on it, as the form and its button go.
       focus(headingId)
@@ -474,8 +478,8 @@ function DoseRow({ facilityId, dose, order, by, canRecord, keyFor, onChanged }: 
           {dose.pharmacyStateAtRecord ? <div><dt>Pharmacy then</dt><dd>{PHARMACY_WORDS[dose.pharmacyStateAtRecord]}</dd></div> : null}
           {dose.overrideReason ? <div><dt>Why sooner or more often</dt><dd>{dose.overrideReason}</dd></div> : null}
           {dose.infusionAction ? <div><dt>Infusion</dt><dd>{dose.infusionAction === 'started' ? 'Started' : 'Stopped'}</dd></div> : null}
-          <div><dt>Recorded by</dt><dd>{by}</dd></div>
-          {inError && dose.enteredInErrorReason ? <div><dt>Why entered in error</dt><dd>{dose.enteredInErrorReason}</dd></div> : null}
+          <div className={KEPT}><dt>Recorded by</dt><dd>{by}</dd></div>
+          {inError && dose.enteredInErrorReason ? <div className={KEPT}><dt>Why entered in error</dt><dd>{dose.enteredInErrorReason}</dd></div> : null}
         </dl>
         {dose.warnings.length > 0 ? <p className="hid-ehr-state-message">{dose.warnings.map(code => WARNING_WORDS[code] ?? '').filter(Boolean).join(' ')}</p> : null}
         {canRecord && !inError && !marking ? (

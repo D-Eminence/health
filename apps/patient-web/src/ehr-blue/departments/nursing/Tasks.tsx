@@ -96,7 +96,8 @@ export function TaskList({ facilityId, where, showPatient, refreshKey = 0 }: {
       {tasks.value === null && tasks.loading ? <p className="hid-ehr-state-message" role="status">Loading the tasks…</p> : null}
       {said ? <p className="hid-ehr-state-message" role="status">{said}</p> : null}
       {tasks.value !== null && items.length === 0
-        ? <EhrEmptyState title={status === 'open' ? 'No open tasks' : 'No done tasks'} message="Tasks show here, the soonest due first." /> : null}
+        ? <EhrEmptyState title={status === 'open' ? 'No open tasks' : 'No done or cancelled tasks'}
+          message={status === 'open' ? 'Tasks show here, the soonest due first.' : 'Tasks that are done or cancelled show here.'} /> : null}
       {items.length > 0 ? (
         <ul className="hid-ehr-dept-waiting-list" aria-labelledby={headingId}>
           {items.map(task => (
@@ -181,7 +182,7 @@ function TaskRow({ facilityId, task, showPatient, me, names, canWrite, keyFor, o
         <h3 id={headingId} className="hid-ehr-dept-waiting-name" tabIndex={-1}>{task.name}</h3>
         {showPatient ? (
           <div className="hid-ehr-dept-nursing-patient">
-            <PatientLink card={task.patient} to={`${PATIENT_BASE}/${task.admissionId}/tasks`} />
+            <PatientLink card={task.patient} to={`${PATIENT_BASE}/${task.admissionId}/tasks`} back={`Back to ${TASKS_TITLE}`} />
             <PatientIdentity card={task.patient} bedName={task.bedName} />
           </div>
         ) : null}

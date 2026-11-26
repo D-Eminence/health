@@ -1,4 +1,5 @@
 import { useCallback, useState, type FormEvent } from 'react'
+import { isHidApiError } from '@hid/http'
 import { EhrBadge, EhrButton, EhrEmptyState, EhrField, EhrInput, EhrSelect } from '@hid/ui/ehr'
 import { nursingApi, type ClinicalShift, type ShiftAssignment, type ShiftAssignments, type ShiftDuty } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
@@ -8,8 +9,8 @@ import { DeptPage, DeptSection, DeptUnavailable } from '../parts/DeptPage'
 import { useFacilityRead } from '../parts/useFacilityRead'
 import { useIdempotencyKeys, useStaffNames, type IdempotencyKeys } from './hooks'
 import {
-  DUTY_WORDS, EYEBROW, SHIFTS_REFUSED, SHIFTS_TITLE, SUGGESTED_SHIFTS, canAssign, canListAdmissions, canSetUpShifts, lagosDayFrom,
-  learning, learningRefusal, memberText, notServed, patientName, refusalWords,
+  DUTY_WORDS, EYEBROW, SHIFTS_REFUSED, SHIFTS_TITLE, SUGGESTED_SHIFTS, canAssign, canListAdmissions, canSetUpShifts, count,
+  lagosDayFrom, learning, learningRefusal, memberText, notServed, patientName, refusalWords,
 } from './nursingRules'
 import { ScreenWarning, WardPicker, WardsState, useWardChoice } from './parts'
 
@@ -70,6 +71,12 @@ function ShiftRow({ facilityId, shift, manage, keyFor, onChanged }: {
         key => nursingApi.updateShift(facilityId, shift, { active: !shift.active }, key))
       onChanged()
     } catch (caught) {
+      // Changed by someone else since it was read: the shifts are read again, so a second press sends the new version.
+      if (changedSince(caught)) {
+        setProblem('Someone else changed this shift. The shifts have been read again: check it, then try again.')
+        onChanged()
+        return
+      }
       setProblem(refusalWords(caught, 'The shift could not be changed. Try again.'))
     }
   }
@@ -147,6 +154,8 @@ function NewShift({ facilityId, existing, keyFor, onAdded }: {
 }
 
 const NEW_SHIFT_ID = 'shift-new'
+/** A write sent against a version someone else has changed since it was read (412 NURSING_VERSION_CONFLICT). */
+const changedSince = (caught: unknown) => isHidApiError(caught) && caught.code === 'NURSING_VERSION_CONFLICT'
 const ADD_SOMEONE_ID = 'assign-add'
 const whoId = (index: number) => `assign-who-${index}`
 
@@ -186,6 +195,12 @@ function Assignments({ facilityId, shifts }: { readonly facilityId: string; read
  * Who is on one ward's shift on one day, and its editor. Keyed by the three, so while another day's or shift's list is
  * read (or after it is refused) nothing of the last one is shown or saved under it: Save sends the list read for these
  * three, with its own version.
+ *
+ * A patient allocated earlier who has since left the ward (discharged, or moved to another ward) is still on the list
+ * as read: nothing takes an allocation off at discharge or transfer, and 0176 ehr.shift_assignments_set refuses any
+ * patient not on this ward now. Once the ward's patients are read, such a patient is shown on their line as gone and
+ * left out of what is saved. A member who cannot read the ward's patients (an admin without ehr.ward.read) is told
+ * that only someone who can see them can save a list with a patient who has left.
  */
 function ShiftList({ facilityId, query, staffIds }: {
   readonly facilityId: string
@@ -196,8 +211,9 @@ function ShiftList({ facilityId, query, staffIds }: {
   const { wardId, date, shiftId } = query
   const loader = useCallback((id: string) => learning(nursingApi.assignments(id, { date, shiftId, wardId })), [date, shiftId, wardId])
   const list = useFacilityRead(facilityId, true, loader, 'Who is on this shift could not be loaded.')
+  const readsPatients = canListAdmissions(permissions)
   const patientsLoader = useCallback((id: string) => learningRefusal(nursingApi.admissions(id, wardId)), [wardId])
-  const patients = useFacilityRead(facilityId, canListAdmissions(permissions), patientsLoader, 'The ward’s patients could not be loaded.')
+  const patients = useFacilityRead(facilityId, readsPatients, patientsLoader, 'The ward’s patients could not be loaded.')
   const [rows, setRows] = useState<Row[] | null>(null)
   const listed = list.value
   const names = useStaffNames(facilityId, [...staffIds, ...(listed?.assignments.map(row => row.membershipId) ?? [])])
@@ -209,6 +225,11 @@ function ShiftList({ facilityId, query, staffIds }: {
   const shown: Row[] = rows ?? (listed ? listed.assignments.map(row => ({ ...row, admissionIds: [...row.admissionIds] })) : [])
   const people = [...new Set([...staffIds, ...shown.map(row => row.membershipId)])]
   const admitted = patients.value?.items ?? []
+  // The ward's patients now, once all of them are read; else null, and nothing is taken off a line.
+  const onWard = patients.value && !patients.value.hasMore ? new Set(admitted.map(card => card.admissionId.toLowerCase())) : null
+  const kept = (row: Row) => row.duty === 'on_call_doctor' ? [] : onWard ? row.admissionIds.filter(id => onWard.has(id.toLowerCase())) : row.admissionIds
+  const gone = (row: Row) => row.duty === 'on_call_doctor' || !onWard ? 0 : row.admissionIds.length - kept(row).length
+  const unseen = !onWard && shown.some(row => row.duty !== 'on_call_doctor' && row.admissionIds.length > 0)
 
   function change(index: number, next: Partial<Row>) {
     setRows(shown.map((row, at) => at === index ? { ...row, ...next } : row))
@@ -221,14 +242,41 @@ function ShiftList({ facilityId, query, staffIds }: {
       remove: `Remove ${who === 'You' ? 'yourself' : who === 'Someone new' ? 'this new line' : who} as ${DUTY_WORDS[row.duty].toLowerCase()}` }
   }
 
+  /** The list as read again, with any change not saved set aside. */
+  function readAgain() {
+    setRows(null)
+    void list.refresh()
+    if (readsPatients) void patients.refresh()
+  }
+
+  /** The first problem 0176 would refuse, in words that say what to change; null when there is none. */
+  function listProblem(assignments: readonly ShiftAssignment[]): string | null {
+    if (assignments.some(row => !row.membershipId)) return 'Choose who each line is for.'
+    const whose = assignments.map(row => row.membershipId.toLowerCase())
+    const twice = assignments.find((row, at) => whose.indexOf(row.membershipId.toLowerCase()) !== at)
+    if (twice) {
+      const who = memberText(twice.membershipId, membershipId, names)
+      return `${who === 'You' ? 'You are' : `${who} is`} on two lines. Keep one line for each person.`
+    }
+    if (assignments.filter(row => row.duty === 'nurse_in_charge').length > 1) return 'Choose one nurse in charge.'
+    if (assignments.filter(row => row.duty === 'on_call_doctor').length > 1) return 'Choose one on-call doctor.'
+    const given = assignments.flatMap(row => row.admissionIds.map(id => id.toLowerCase()))
+    const shared = given.find((id, at) => given.indexOf(id) !== at)
+    if (shared) {
+      const card = admitted.find(candidate => candidate.admissionId.toLowerCase() === shared)
+      const patient = card ? [card.bedName, patientName(card)].filter(Boolean).join(' · ') : 'A patient'
+      return `${patient} is ticked for two nurses. Give each patient to one nurse.`
+    }
+    if (assignments.some(row => row.admissionIds.length > 20)) return 'Give each nurse up to 20 patients.'
+    return null
+  }
+
   async function save(current: ShiftAssignments) {
     setProblem('')
     setDone('')
-    if (shown.some(row => !row.membershipId)) { setProblem('Choose who each line is for.'); return }
-    if (shown.filter(row => row.duty === 'nurse_in_charge').length > 1) { setProblem('Choose one nurse in charge.'); return }
-    if (shown.filter(row => row.duty === 'on_call_doctor').length > 1) { setProblem('Choose one on-call doctor.'); return }
-    const assignments: ShiftAssignment[] = shown.map(row => ({ membershipId: row.membershipId, duty: row.duty,
-      admissionIds: row.duty === 'on_call_doctor' ? [] : row.admissionIds }))
+    const assignments: ShiftAssignment[] = shown.map(row => ({ membershipId: row.membershipId, duty: row.duty, admissionIds: kept(row) }))
+    const wrong = listProblem(assignments)
+    if (wrong) { setProblem(wrong); return }
     const body = { date, shiftId, wardId, expectedVersion: current.version, assignments }
     try {
       const answer = await keyFor.send('assign', body, key => nursingApi.setAssignments(facilityId, body, key))
@@ -236,7 +284,14 @@ function ShiftList({ facilityId, query, staffIds }: {
       setDone(answer.warnings.includes('icu_nurse_over_two') ? 'Saved. An ICU nurse has more than two patients.' : 'Saved.')
       void list.refresh()
     } catch (caught) {
-      setProblem(refusalWords(caught, 'Who is on this shift could not be saved. Try again.'))
+      if (changedSince(caught)) {
+        // Saved by someone else since it was read: their list is read again, so the next Save sends its version.
+        readAgain()
+        setProblem('Someone else changed who is on this shift. Their list has been read again, and your changes were not saved: make them again, then save.')
+        return
+      }
+      setProblem(!readsPatients && unseen && isHidApiError(caught) && caught.code === 'VALIDATION_FAILED'
+        ? UNSEEN_REFUSED : refusalWords(caught, 'Who is on this shift could not be saved. Try again.'))
     }
   }
 
@@ -244,12 +299,14 @@ function ShiftList({ facilityId, query, staffIds }: {
     <>
       {list.caught ? <DeptNotice role="alert" tone={notServed(list.caught) ? 'info' : 'critical'}>{refusalWords(list.caught, 'Who is on this shift could not be loaded.')}</DeptNotice> : null}
       {listed === null && list.loading ? <p className="hid-ehr-state-message" role="status">Loading who is on…</p> : null}
+      {listed && unseen && !readsPatients ? <DeptNotice tone="info">{UNSEEN}</DeptNotice> : null}
       {listed ? (
         <>
           {shown.length === 0 ? <EhrEmptyState title="No one is on this shift yet" message="Add the nurses, the nurse in charge and the on-call doctor." /> : (
             <ul className="hid-ehr-dept-waiting-list" aria-label="On this shift">
               {shown.map((row, index) => {
                 const named = lineName(row)
+                const left = gone(row)
                 return (
                   <li key={index} className="hid-ehr-dept-waiting-card" aria-label={named.line}>
                     <div className="hid-ehr-dept-waiting-main hid-ehr-dept-nursing-form">
@@ -277,6 +334,7 @@ function ShiftList({ facilityId, query, staffIds }: {
                           ))}
                         </fieldset>
                       ) : null}
+                      {left > 0 ? <p className="hid-ehr-state-message">{goneText(left)}</p> : null}
                       <EhrButton size="sm" variant="quiet" aria-label={named.remove} onClick={() => {
                         setRows(shown.filter((_, at) => at !== index))
                         // The line goes with its button: focus on the next line, else the one before, else "Add someone".
@@ -294,11 +352,25 @@ function ShiftList({ facilityId, query, staffIds }: {
               focus(whoId(shown.length))
             }}>Add someone</EhrButton>
             <EhrButton onClick={() => save(listed)}>Save who is on</EhrButton>
+            {/* Read again, setting aside any change not saved. */}
+            <EhrButton size="sm" variant="quiet" onClick={() => { setProblem(''); setDone(''); readAgain() }}>Refresh</EhrButton>
           </div>
           {problem ? <DeptNotice role="alert" tone="critical">{problem}</DeptNotice> : null}
           {done ? <p className="hid-ehr-state-message" role="status">{done}</p> : null}
         </>
+      ) : list.caught && !list.loading ? (
+        <div className="hid-ehr-dept-nursing-actions">
+          <EhrButton size="sm" variant="secondary" onClick={() => void list.refresh()}>Refresh</EhrButton>
+        </div>
       ) : null}
     </>
   )
 }
+
+/** "1 patient on this line has left the ward, and comes off it when you save." */
+const goneText = (left: number) =>
+  `${count(left, 'patient')} on this line ${left === 1 ? 'has' : 'have'} left the ward, and ${left === 1 ? 'comes' : 'come'} off it when you save.`
+
+/** Said to a member who cannot read the ward's patients, of a list with patients on it. */
+const UNSEEN = 'Patients are given to nurses on this list. If one has left the ward, only someone who can see the ward’s patients, such as the nurse in charge, can save the list.'
+const UNSEEN_REFUSED = 'A patient on this list may have left the ward. Someone who can see the ward’s patients, such as the nurse in charge, must save it.'

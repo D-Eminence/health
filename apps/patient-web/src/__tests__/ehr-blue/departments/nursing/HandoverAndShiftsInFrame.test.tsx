@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { REAL_FACILITY, SESSION, facility, json, openStaffApp, problem, serve, sessionAt } from '../../frame/blueHarness'
 import {
-  ADMIN, ADMISSION, ADMISSION_HIDDEN, ADMISSIONS, ASSIGNMENTS, COLLEAGUE, HANDOVER, HANDOVERS, ME, NEW_SHIFT, NURSE, SET_ASSIGNMENTS, SHIFT,
-  SHIFTS, SHIFT_NEXT, WARD, WARDS, card, hiddenCard, many, noIdentityInAddresses, sentTo, shift, wardsOf, withNursingPages,
+  ADMIN, ADMISSION, ADMISSION_HIDDEN, ADMISSION_READ, ADMISSIONS, ASSIGNMENTS, CHART, COLLEAGUE, HANDOVER, HANDOVERS, ME, NEW_SHIFT, NURSE,
+  SET_ASSIGNMENTS, SHIFT, SHIFTS, SHIFT_NEXT, WARD, WARDS, card, hiddenCard, many, noIdentityInAddresses, sentTo, shift, wardsOf, withNursingPages,
 } from './nursingFixtures'
 
 /*
@@ -148,6 +148,40 @@ describe('Shift handover in the frame', () => {
     expect(sentTo(sent, route)[0]!.body).toEqual({ note: `${COLLEAGUES} Stable since.`, watch: false, expectedRowVersion: 2 })
     // A note changed again meanwhile: the server's 412 is said the same way.
     expect(await within(ada).findByText(/Someone else changed this note while you were writing/)).toBeDefined()
+  })
+
+  it('opens a patient’s chart from the sheet, whose back arrow comes back to the same ward, day and shift', async () => {
+    const member = nurse()
+    const sent = serve({
+      [SESSION]: [sessionAt(member, [member])],
+      [WARDS]: many(wardsOf()),
+      [SHIFTS]: many(shiftsOf(shift(), shift({ shiftId: SHIFT_NEXT, name: 'Afternoon', startsAt: '14:00', endsAt: '21:00' }))),
+      [HANDOVERS]: many(() => json(sheet()), 10),
+      [ADMISSION_READ]: many(() => json({ admission: card(), movements: [] })),
+      [CHART]: many(() => json({ admissionId: ADMISSION, encounterId: 'e1', wardType: 'general', from: '2026-12-02T08:00:00.000Z',
+        to: '2026-12-03T08:00:00.000Z', readings: [], rangesVersion: '2026-11-adult-1', score: null })),
+    })
+    await openStaffApp('/provider/handover')
+    await screen.findByRole('list', { name: 'Patients' })
+    // An earlier day's afternoon sheet, not the shift on now.
+    fireEvent.change(screen.getByLabelText('Day'), { target: { value: '2026-12-01' } })
+    fireEvent.change(screen.getByLabelText('Shift'), { target: { value: SHIFT_NEXT } })
+    const asked = () => sentTo(sent, HANDOVERS).length
+    const read = (at: number) => new URL(String(vi.mocked(fetch).mock.calls.filter(([address]) => String(address).includes('/handovers?'))[at]![0])).searchParams
+    await waitFor(() => expect(read(asked() - 1).get('shiftId')).toBe(SHIFT_NEXT))
+    expect(read(asked() - 1).get('date')).toBe('2026-12-01')
+    const patients = await screen.findByRole('list', { name: 'Patients' })
+    fireEvent.click(within(within(patients).getByRole('listitem', { name: 'Ada Wardone' })).getByRole('link', { name: 'Ada Wardone' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Ada Wardone' })).toBeDefined()
+    const before = asked()
+    fireEvent.click(screen.getByRole('button', { name: 'Back to Shift handover' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Shift handover' })).toBeDefined()
+    await waitFor(() => expect(asked()).toBeGreaterThan(before))
+    expect(read(asked() - 1).get('date')).toBe('2026-12-01')
+    expect(read(asked() - 1).get('shiftId')).toBe(SHIFT_NEXT)
+    expect((screen.getByLabelText('Day') as HTMLInputElement).value).toBe('2026-12-01')
+    expect((screen.getByLabelText('Shift') as HTMLSelectElement).value).toBe(SHIFT_NEXT)
+    noIdentityInAddresses()
   })
 
   it('says only a nurse on the next shift can accept, and that a given sheet takes no more notes', async () => {
@@ -309,6 +343,138 @@ describe('Clinical shifts in the frame', () => {
     await waitFor(() => expect(sentTo(sent, SET_ASSIGNMENTS)).toHaveLength(1))
     expect(sentTo(sent, SET_ASSIGNMENTS)[0]!.body).toEqual({ date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), shiftId: SHIFT_NEXT, wardId: WARD,
       expectedVersion: 3, assignments: [] })
+  })
+
+  const listOf = (version: number, assignments: unknown[]) => () => json({ date: '2026-12-03', shiftId: SHIFT, wardId: WARD,
+    from: '2026-12-03T06:30:00.000Z', to: '2026-12-03T13:30:00.000Z', version, assignments })
+  /** An admission allocated at 07:30 and discharged since: no longer on the ward, still on the list as read. */
+  const GONE = 'd0000000-0000-4000-8000-0000000000d9'
+
+  it('shows a patient who has left the ward as gone from their line, and leaves them out of what is saved', async () => {
+    const member = nurse()
+    const sent = serve({
+      [SESSION]: [sessionAt(member, [member])],
+      [SHIFTS]: many(shiftsOf()),
+      [WARDS]: many(wardsOf()),
+      [ADMISSIONS]: many(() => json({ items: [card()], hasMore: false, limit: 500 })),
+      [ASSIGNMENTS]: many(listOf(4, [{ membershipId: ME, duty: 'nurse_in_charge', admissionIds: [] },
+        { membershipId: COLLEAGUE, duty: 'nurse', admissionIds: [ADMISSION, GONE] }])),
+      [SET_ASSIGNMENTS]: [() => json({ list: { version: 5 }, warnings: [], replayed: false })],
+    })
+    await openStaffApp('/provider/clinical-shifts')
+    const onShift = await screen.findByRole('list', { name: 'On this shift' })
+    const line = await within(onShift).findByRole('listitem', { name: 'A staff member here, nurse' })
+    await waitFor(() => expect(within(line).getAllByRole('checkbox')).toHaveLength(1))
+    expect((within(line).getByRole('checkbox', { name: 'Bed 4 · Ada Wardone' }) as HTMLInputElement).checked).toBe(true)
+    expect(within(line).getByText('1 patient on this line has left the ward, and comes off it when you save.')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Save who is on' }))
+    expect(await screen.findByText('Saved.')).toBeDefined()
+    expect(sentTo(sent, SET_ASSIGNMENTS)[0]!.body).toEqual({ date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), shiftId: SHIFT, wardId: WARD,
+      expectedVersion: 4, assignments: [
+        { membershipId: ME, duty: 'nurse_in_charge', admissionIds: [] },
+        { membershipId: COLLEAGUE, duty: 'nurse', admissionIds: [ADMISSION] },
+      ] })
+  })
+
+  it('tells an admin who cannot see the ward’s patients that only someone who can may save a list with one who has left', async () => {
+    const admin = facility(REAL_FACILITY, 'Fictional Hospital', ADMIN, ['admin'])
+    const sent = serve({
+      [SESSION]: [sessionAt(admin, [admin])],
+      [SHIFTS]: many(shiftsOf()),
+      [WARDS]: many(wardsOf()),
+      [ASSIGNMENTS]: many(listOf(4, [{ membershipId: COLLEAGUE, duty: 'nurse', admissionIds: [ADMISSION, GONE] }])),
+      [SET_ASSIGNMENTS]: [() => new Response(JSON.stringify({ type: 'about:blank', title: 'Bad request', status: 400, code: 'VALIDATION_FAILED',
+        detail: 'Some details were not accepted', errors: [{ field: 'assignments', messages: ['each patient must be an open admission on this ward'] }] }),
+        { status: 400, headers: { 'Content-Type': 'application/problem+json' } })],
+    })
+    await openStaffApp('/provider/clinical-shifts')
+    await screen.findByRole('list', { name: 'On this shift' })
+    expect(screen.getByText(/If one has left the ward, only someone who can see the ward’s patients, such as the nurse in charge, can save the list\./)).toBeDefined()
+    expect(sent.some(call => call.route === ADMISSIONS)).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Save who is on' }))
+    expect(await screen.findByText('A patient on this list may have left the ward. Someone who can see the ward’s patients, such as the nurse in charge, must save it.')).toBeDefined()
+    // Nothing it cannot see is taken off.
+    expect((sentTo(sent, SET_ASSIGNMENTS)[0]!.body as { assignments: unknown[] }).assignments)
+      .toEqual([{ membershipId: COLLEAGUE, duty: 'nurse', admissionIds: [ADMISSION, GONE] }])
+  })
+
+  it('reads the list again after someone else saved it, so the next Save sends its version; and Refresh reads it on asking', async () => {
+    const member = nurse()
+    const sent = serve({
+      [SESSION]: [sessionAt(member, [member])],
+      [SHIFTS]: many(shiftsOf()),
+      [WARDS]: many(wardsOf()),
+      [ADMISSIONS]: many(() => json({ items: [card(), hiddenCard()], hasMore: false, limit: 500 }), 10),
+      [ASSIGNMENTS]: [listOf(4, [{ membershipId: ME, duty: 'nurse_in_charge', admissionIds: [] }]),
+        ...many(listOf(5, [{ membershipId: ME, duty: 'nurse_in_charge', admissionIds: [] }, { membershipId: COLLEAGUE, duty: 'nurse', admissionIds: [ADMISSION] }]))],
+      [SET_ASSIGNMENTS]: [() => problem(412, 'NURSING_VERSION_CONFLICT', 'Precondition failed'),
+        () => json({ list: { version: 6 }, warnings: [], replayed: false })],
+    })
+    await openStaffApp('/provider/clinical-shifts')
+    await screen.findByRole('list', { name: 'On this shift' })
+    fireEvent.click(screen.getByRole('button', { name: 'Add someone' }))
+    fireEvent.change(within(screen.getByRole('listitem', { name: 'Someone new, nurse' })).getByLabelText('Who'), { target: { value: COLLEAGUE } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save who is on' }))
+    expect(await screen.findByText('Someone else changed who is on this shift. Their list has been read again, and your changes were not saved: make them again, then save.')).toBeDefined()
+    // Their list, read again: a colleague with Bed 4.
+    const theirs = await screen.findByRole('listitem', { name: 'A staff member here, nurse' })
+    await waitFor(() => expect((within(theirs).getByRole('checkbox', { name: 'Bed 4 · Ada Wardone' }) as HTMLInputElement).checked).toBe(true))
+    fireEvent.click(screen.getByRole('button', { name: 'Save who is on' }))
+    expect(await screen.findByText('Saved.')).toBeDefined()
+    const [first, second] = sentTo(sent, SET_ASSIGNMENTS)
+    expect(first!.body).toMatchObject({ expectedVersion: 4 })
+    expect(second!.body).toMatchObject({ expectedVersion: 5 })
+
+    // Refresh reads the list again, setting aside a change not saved.
+    fireEvent.click(screen.getByRole('button', { name: 'Add someone' }))
+    expect(screen.getByRole('listitem', { name: 'Someone new, nurse' })).toBeDefined()
+    const reads = sentTo(sent, ASSIGNMENTS).length
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    await waitFor(() => expect(sentTo(sent, ASSIGNMENTS).length).toBeGreaterThan(reads))
+    expect(screen.queryByRole('listitem', { name: 'Someone new, nurse' })).toBeNull()
+  })
+
+  it('asks for one line for each person and one nurse for each patient before saving', async () => {
+    const member = nurse()
+    const sent = serve({
+      [SESSION]: [sessionAt(member, [member])],
+      [SHIFTS]: many(shiftsOf()),
+      [WARDS]: many(wardsOf()),
+      [ADMISSIONS]: many(() => json({ items: [card(), hiddenCard()], hasMore: false, limit: 500 })),
+      [ASSIGNMENTS]: many(listOf(4, [{ membershipId: ME, duty: 'nurse_in_charge', admissionIds: [ADMISSION] }])),
+    })
+    await openStaffApp('/provider/clinical-shifts')
+    const onShift = await screen.findByRole('list', { name: 'On this shift' })
+    await waitFor(() => expect(within(onShift).getAllByRole('checkbox')).toHaveLength(2))
+    fireEvent.click(screen.getByRole('button', { name: 'Add someone' }))
+    const added = () => within(screen.getByRole('list', { name: 'On this shift' })).getAllByRole('listitem')[1]!
+    fireEvent.change(within(added()).getByLabelText('Who'), { target: { value: ME } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save who is on' }))
+    expect(await screen.findByText('You are on two lines. Keep one line for each person.')).toBeDefined()
+    fireEvent.change(within(added()).getByLabelText('Who'), { target: { value: COLLEAGUE } })
+    fireEvent.click(within(added()).getByRole('checkbox', { name: 'Bed 4 · Ada Wardone' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save who is on' }))
+    expect(await screen.findByText('Bed 4 · Ada Wardone is ticked for two nurses. Give each patient to one nurse.')).toBeDefined()
+    expect(sentTo(sent, SET_ASSIGNMENTS)).toHaveLength(0)
+  })
+
+  it('reads the shifts again when a shift was changed by someone else, so a second press sends its new version', async () => {
+    const admin = facility(REAL_FACILITY, 'Fictional Hospital', ADMIN, ['admin'])
+    const UPDATE = `PATCH /api/v1/ehr/clinical-shifts/${SHIFT}`
+    const sent = serve({
+      [SESSION]: [sessionAt(admin, [admin])],
+      [SHIFTS]: [shiftsOf(shift()), ...many(shiftsOf(shift({ rowVersion: 2 })))],
+      [WARDS]: many(() => json({ items: [] })),
+      [UPDATE]: [() => problem(412, 'NURSING_VERSION_CONFLICT', 'Precondition failed'), () => json({ shift: shift({ active: false, rowVersion: 3 }), replayed: false })],
+    })
+    await openStaffApp('/provider/clinical-shifts')
+    const morning = await screen.findByRole('listitem', { name: 'Morning' })
+    fireEvent.click(within(morning).getByRole('button', { name: 'Stop this shift' }))
+    expect(await screen.findByText('Someone else changed this shift. The shifts have been read again: check it, then try again.')).toBeDefined()
+    await waitFor(() => expect(sentTo(sent, SHIFTS).length).toBeGreaterThan(1))
+    fireEvent.click(within(screen.getByRole('listitem', { name: 'Morning' })).getByRole('button', { name: 'Stop this shift' }))
+    await waitFor(() => expect(sentTo(sent, UPDATE)).toHaveLength(2))
+    expect(sentTo(sent, UPDATE).map(call => (call.body as { expectedRowVersion: number }).expectedRowVersion)).toEqual([1, 2])
   })
 
   it('is not open to a doctor, who neither sets shifts up nor assigns them', async () => {

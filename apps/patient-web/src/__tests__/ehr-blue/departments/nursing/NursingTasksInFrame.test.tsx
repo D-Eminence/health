@@ -235,6 +235,31 @@ describe('Nursing tasks in the frame', () => {
     expect(screen.queryByRole('button', { name: 'New task' })).toBeNull()
   })
 
+  it('says no done or cancelled tasks under its own heading, in words of its own', async () => {
+    const member = nurse()
+    serve({ [SESSION]: [sessionAt(member, [member])], [WARDS]: [wardsOf()], [TASKS]: many(() => json({ items: [] })) })
+    await openStaffApp('/provider/nursing-tasks')
+    expect(await screen.findByText('No open tasks')).toBeDefined()
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Show done and cancelled tasks' }))
+    expect(await screen.findByRole('heading', { level: 2, name: 'Done and cancelled' })).toBeDefined()
+    expect(await screen.findByText('No done or cancelled tasks')).toBeDefined()
+    expect(screen.getByText('Tasks that are done or cancelled show here.')).toBeDefined()
+    expect(screen.queryByText('No done tasks')).toBeNull()
+    expect(screen.queryByText('Tasks show here, the soonest due first.')).toBeNull()
+  })
+
+  it('opens a patient’s chart from the task list, whose back arrow comes back to the ward’s tasks', async () => {
+    const member = nurse()
+    serve({ [SESSION]: [sessionAt(member, [member])], [WARDS]: many(wardsOf()), [TASKS]: many(() => json({ items: [task()] }), 10),
+      [`GET /api/v1/ehr/admissions/${ADMISSION}`]: many(() => json({ admission: card(), movements: [] })) })
+    await openStaffApp('/provider/nursing-tasks')
+    const row = await screen.findByRole('listitem', { name: 'Turn the patient' })
+    fireEvent.click(within(row).getByRole('link', { name: 'Ada Wardone' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Ada Wardone' })).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Back to Nursing tasks' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Nursing tasks' })).toBeDefined()
+  })
+
   it('asks which ward when there are several, and says when there are none', async () => {
     const member = nurse()
     serve({

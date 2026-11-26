@@ -1,13 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import {
-  asNeededReasons, balanceText, doseDiffers, gcsText, lagosInput, lagosInputToIso, meanArterialPressure, notServed, observationLines,
-  patientFacts, patientName, refusalWords, isChartAccessRefusal,
+  BP_PAIR, OXYGEN_RULE, asNeededReasons, balanceText, doseDiffers, gcsText, lagosInput, lagosInputToIso, meanArterialPressure, memberText, notServed,
+  observationLines, oneLine, patientFacts, patientName, refusalWords, isChartAccessRefusal,
 } from '../../../../ehr-blue/departments/nursing/nursingRules'
+import { BOTH_BP } from '../../../../ehr-blue/clinical/triage/vitals'
 import { observationBody } from '../../../../ehr-blue/departments/nursing/Observations'
 import { fluidBody } from '../../../../ehr-blue/departments/nursing/FluidBalance'
 import { currentShift } from '../../../../ehr-blue/departments/nursing/Handover'
-import { card, hiddenCard, shift } from './nursingFixtures'
+import { COLLEAGUE, ME, card, hiddenCard, shift } from './nursingFixtures'
 
 vi.mock('../../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
 
@@ -35,6 +36,34 @@ describe('names on ward lists (Q190 A)', () => {
     expect(patientName(hiddenCard())).toBe('B T')
     expect(patientFacts(card() as never)).toBe('Female · 54 years · NIN Verified')
     expect(patientFacts({ ...hiddenCard(), ageEstimated: true } as never)).toBe('Female · about 61 years · NIN Not Verified')
+  })
+
+  it('says a one-year-old is 1 year old', () => {
+    expect(patientFacts(card({ sex: 'male', ageYears: 1 }) as never)).toBe('Male · 1 year · NIN Verified')
+    expect(patientFacts(card({ sex: 'male', ageYears: 1, ageEstimated: true }) as never)).toBe('Male · about 1 year · NIN Verified')
+    expect(patientFacts(card({ ageYears: 0 }) as never)).toBe('Female · 0 years · NIN Verified')
+  })
+})
+
+describe('who a member is (SX-9)', () => {
+  it('says "Former staff member" where SX-9 answered no name, and "A staff member here" only while no name is read', () => {
+    const names = new Map<string, string | null>([[COLLEAGUE, null], ['70000000-0000-4000-8000-000000000072', 'Ngozi Nurseone']])
+    expect(memberText(COLLEAGUE, ME, names)).toBe('Former staff member')
+    expect(memberText(COLLEAGUE.toUpperCase(), ME, names)).toBe('Former staff member')
+    expect(memberText('70000000-0000-4000-8000-000000000072', ME, names)).toBe('Ngozi Nurseone')
+    expect(memberText('70000000-0000-4000-8000-000000000073', ME, names)).toBe('A staff member here')
+    expect(memberText(ME, ME, names)).toBe('You')
+    expect(memberText(null, ME, names)).toBe('Not assigned')
+  })
+})
+
+describe('free text kept on one line (0175, 0176: no control character)', () => {
+  it('turns each run of line breaks, tabs, spaces and other control characters into one space', () => {
+    expect(oneLine('BP 85/50.\nRecheck at 10:00')).toBe('BP 85/50. Recheck at 10:00')
+    expect(oneLine('  Wrong bag\r\n\r\n charted\t here\u0007 ')).toBe('Wrong bag charted here')
+    expect(oneLine('\n\n')).toBe('')
+    // Nothing the database refuses is left: 0175 and 0176 test '[[:cntrl:]]'.
+    expect(oneLine('a\u0000b\u001fc\u007fd\u0085e')).not.toMatch(/\p{Cc}/u)
   })
 })
 
@@ -86,16 +115,62 @@ describe('observations (Q199 A: values only, no score)', () => {
   it('checks a reading as the backend does before it is sent', () => {
     expect(observationBody(draft())).toEqual({ problem: 'Enter at least one value.' })
     expect(observationBody(draft({ time: '' }))).toEqual({ problem: 'Enter the time of the reading.' })
-    expect(observationBody(draft({ device: 'room_air', flow: '2' }))).toEqual({ problem: 'Enter the flow or FiO2 with an oxygen device, or 21% on room air.' })
-    expect(observationBody(draft({ device: 'room_air', fio2: '40' }))).toEqual({ problem: 'Enter the flow or FiO2 with an oxygen device, or 21% on room air.' })
-    expect(observationBody(draft({ fio2: '40' }))).toEqual({ problem: 'Enter the flow or FiO2 with an oxygen device, or 21% on room air.' })
+    expect(observationBody(draft({ device: 'room_air', flow: '2' }))).toEqual({ problem: OXYGEN_RULE })
+    expect(observationBody(draft({ device: 'room_air', fio2: '40' }))).toEqual({ problem: OXYGEN_RULE })
+    expect(observationBody(draft({ fio2: '40' }))).toEqual({ problem: OXYGEN_RULE })
+    expect(observationBody(draft({ flow: '2' }))).toEqual({ problem: OXYGEN_RULE })
     expect(observationBody(draft({ device: 'venturi_mask', fio2: '18' }))).toEqual({ problem: 'FiO2 is 21% to 100%.' })
     expect(observationBody(draft({ eye: '3', motor: '5' }))).toEqual({ problem: 'Enter all three GCS parts, or mark the verbal part as not testable.' })
     expect(observationBody(draft({ pain: '11' }))).toEqual({ problem: 'Check pain: 0 to 10.' })
-    expect(observationBody(draft({ glucose: '6.25', device: 'room_air', fio2: '21', eye: '4', verbal: '5', motor: '6' }))).toEqual({
-      values: { bloodGlucoseMmolL: 6.3, oxygenDevice: 'room_air', fio2Percent: 21, gcsEye: 4, gcsMotor: 6, gcsVerbal: 5 },
+    expect(observationBody(draft({ glucose: '6.2', device: 'room_air', fio2: '21', eye: '4', verbal: '5', motor: '6' }))).toEqual({
+      values: { bloodGlucoseMmolL: 6.2, oxygenDevice: 'room_air', fio2Percent: 21, gcsEye: 4, gcsMotor: 6, gcsVerbal: 5 },
       recordedAt: '2026-12-03T09:15:00.000Z',
     })
+  })
+
+  it('asks for both parts of a blood pressure, or neither, in Triage & Vitals’ words (BLOOD_PRESSURE_INCOMPLETE)', () => {
+    expect(observationBody(draft({ systolic: '120' }))).toEqual({ problem: BOTH_BP })
+    expect(observationBody(draft({ diastolic: '80', pulse: '72' }))).toEqual({ problem: BOTH_BP })
+    expect(BOTH_BP).toBe('Enter both systolic and diastolic blood pressure, or leave both blank.')
+    // The refusal's words are Triage & Vitals' own.
+    expect(BP_PAIR).toBe(BOTH_BP)
+    expect(observationBody(draft({ systolic: '120', diastolic: '80' }))).toEqual({ values: { systolicMmhg: 120, diastolicMmhg: 80 },
+      recordedAt: '2026-12-03T09:15:00.000Z' })
+  })
+
+  it('takes every reading the backend and Triage & Vitals take: critical values, and an oxygen device on its own', () => {
+    const at = '2026-12-03T09:15:00.000Z'
+    expect(observationBody(draft({ saturation: '45' }))).toEqual({ values: { oxygenSaturationPercent: 45 }, recordedAt: at })
+    expect(observationBody(draft({ saturation: '0' }))).toEqual({ values: { oxygenSaturationPercent: 0 }, recordedAt: at })
+    expect(observationBody(draft({ temperature: '29' }))).toEqual({ values: { temperatureC: 29 }, recordedAt: at })
+    expect(observationBody(draft({ temperature: '20' }))).toEqual({ values: { temperatureC: 20 }, recordedAt: at })
+    expect(observationBody(draft({ pulse: '15', breathing: '95' }))).toEqual({ values: { pulseBpm: 15, respiratoryRate: 95 }, recordedAt: at })
+    expect(observationBody(draft({ systolic: '320', diastolic: '230' }))).toEqual({ values: { systolicMmhg: 320, diastolicMmhg: 230 }, recordedAt: at })
+    expect(observationBody(draft({ device: 'ventilator' }))).toEqual({ values: { oxygenDevice: 'ventilator' }, recordedAt: at })
+    expect(observationBody(draft({ device: 'nasal_cannula' }))).toEqual({ values: { oxygenDevice: 'nasal_cannula' }, recordedAt: at })
+    expect(observationBody(draft({ device: 'ventilator', fio2: '40' }))).toEqual({ values: { oxygenDevice: 'ventilator', fio2Percent: 40 }, recordedAt: at })
+    // Past the backend's limits (VitalMeasurementsDto), each named.
+    expect(observationBody(draft({ saturation: '101' }))).toEqual({ problem: 'Check oxygen saturation: 0 to 100.' })
+    expect(observationBody(draft({ temperature: '19.9' }))).toEqual({ problem: 'Check temperature: 20 to 50.' })
+    expect(observationBody(draft({ pulse: '351' }))).toEqual({ problem: 'Check pulse: 10 to 350.' })
+    expect(observationBody(draft({ breathing: '0' }))).toEqual({ problem: 'Check breathing rate: 1 to 100.' })
+    expect(observationBody(draft({ systolic: '29', diastolic: '20' }))).toEqual({ problem: 'Check systolic: 30 to 350.' })
+    expect(observationBody(draft({ systolic: '120', diastolic: '251' }))).toEqual({ problem: 'Check diastolic: 10 to 250.' })
+  })
+
+  it('checks the decimals the backend takes, naming the field, before it is sent', () => {
+    expect(observationBody(draft({ pulse: '72.5' }))).toEqual({ problem: 'Enter pulse as a whole number.' })
+    expect(observationBody(draft({ breathing: '18.5' }))).toEqual({ problem: 'Enter breathing rate as a whole number.' })
+    expect(observationBody(draft({ systolic: '120.5', diastolic: '80' }))).toEqual({ problem: 'Enter systolic as a whole number.' })
+    expect(observationBody(draft({ pain: '3.5' }))).toEqual({ problem: 'Enter pain as a whole number.' })
+    expect(observationBody(draft({ temperature: '36.65' }))).toEqual({ problem: 'Enter temperature to one decimal place.' })
+    expect(observationBody(draft({ glucose: '6.25' }))).toEqual({ problem: 'Enter blood glucose to one decimal place.' })
+    expect(observationBody(draft({ saturation: '93.555' }))).toEqual({ problem: 'Enter oxygen saturation to two decimal places.' })
+    expect(observationBody(draft({ device: 'nasal_cannula', flow: '2.25' }))).toEqual({ problem: 'Enter oxygen flow to one decimal place.' })
+    expect(observationBody(draft({ device: 'venturi_mask', fio2: '40.5' }))).toEqual({ problem: 'Enter FiO2 as a whole number.' })
+    expect(observationBody(draft({ temperature: '36.6', saturation: '93.25', device: 'nasal_cannula', flow: '1.5' }))).toEqual({
+      values: { temperatureC: 36.6, oxygenSaturationPercent: 93.25, oxygenDevice: 'nasal_cannula', oxygenFlowLPerMin: 1.5 },
+      recordedAt: '2026-12-03T09:15:00.000Z' })
   })
 })
 
@@ -107,6 +182,9 @@ describe('fluid entries (FLUID_ENTRY_INVALID)', () => {
     expect(fluidBody(entry(), now)).toEqual({ direction: 'in', kind: 'oral', volumeMl: 200, recordedAt: '2026-12-03T11:30:00.000Z' })
     expect(fluidBody(entry({ volume: '', notMeasured: true, note: ' Spilt ' }), now))
       .toEqual({ direction: 'in', kind: 'oral', notMeasured: true, recordedAt: '2026-12-03T11:30:00.000Z', note: 'Spilt' })
+    // A note over two lines goes on one: 0176 ehr.fluid_balance_record refuses a line break.
+    expect(fluidBody(entry({ note: 'Sipped slowly.\nTolerated well.' }), now))
+      .toEqual({ direction: 'in', kind: 'oral', volumeMl: 200, recordedAt: '2026-12-03T11:30:00.000Z', note: 'Sipped slowly. Tolerated well.' })
     expect(fluidBody(entry({ volume: '0' }), now)).toEqual({ problem: 'Enter the amount in mL, or mark it as not measured.' })
     expect(fluidBody(entry({ volume: '12.5' }), now)).toEqual({ problem: 'Enter the amount in mL, or mark it as not measured.' })
     expect(fluidBody(entry({ kind: 'urine' }), now)).toEqual({ problem: 'Choose what it was.' })
@@ -153,6 +231,8 @@ describe('refusals', () => {
     expect(refusalWords(fail(403, 'SOMETHING_NEW'), 'x')).toBe('Only nurses, clinicians and doctors of this facility can use the medicine round and nursing tasks.')
     expect(refusalWords(fail(409, 'ADMISSION_NOT_OPEN'), 'x')).toBe('This patient has been discharged. The record can still be read.')
     expect(refusalWords(fail(409, 'SHIFT_NAME_TAKEN'), 'x')).toBe('This name is already used. Choose another.')
+    expect(refusalWords(fail(400, 'BLOOD_PRESSURE_INCOMPLETE'), 'x')).toBe('Enter both systolic and diastolic blood pressure, or leave both blank.')
+    expect(refusalWords(fail(400, 'OXYGEN_FIELDS_INVALID'), 'x')).toBe(OXYGEN_RULE)
     expect(isChartAccessRefusal(fail(403, 'CHART_ACCESS_REQUIRED'))).toBe(true)
     expect(isChartAccessRefusal(fail(403, 'ADMISSION_CHART_ACCESS_REQUIRED'))).toBe(true)
     expect(isChartAccessRefusal(fail(403, 'NURSING_NOT_ALLOWED'))).toBe(false)

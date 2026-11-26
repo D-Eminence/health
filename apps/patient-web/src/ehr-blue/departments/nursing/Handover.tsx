@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { EhrBadge, EhrButton, EhrEmptyState, EhrField, EhrInput, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
 import { lagosClock } from '@hid/ui/display'
 import { isHidApiError } from '@hid/http'
@@ -12,11 +12,12 @@ import { useFacilityRead } from '../parts/useFacilityRead'
 import { useIdempotencyKeys, useStaffNames, type IdempotencyKeys } from './hooks'
 import {
   EYEBROW, HANDOVER_TITLE, NURSING_REFUSED, PATIENT_BASE, SHIFTS_BASE, balanceText, canAssign, canReadTasks, canWriteHandover,
-  count, isChartAccessRefusal, lagosDate, lagosDayFrom, lagosWhen, learning, memberText, notServed, refusalWords,
+  UUID, count, isChartAccessRefusal, lagosDate, lagosDayFrom, lagosWhen, learning, memberText, notServed, refusalWords,
 } from './nursingRules'
 import { PatientIdentity, PatientLink, ScreenWarning, WardPicker, WardsState, useWardChoice } from './parts'
 
 const STATUS_WORDS = { draft: 'Draft', given: 'Given, waiting to be accepted', accepted: 'Accepted' } as const
+const DAY = /^\d{4}-\d{2}-\d{2}$/
 
 const minutes = (clock: string) => {
   const [hour = 0, minute = 0] = clock.split(':').map(Number)
@@ -58,14 +59,27 @@ function HandoverPage({ facilityId }: { readonly facilityId: string }) {
   const shiftsLoader = useCallback((id: string) => learning(nursingApi.shifts(id)), [])
   const shifts = useFacilityRead(facilityId, true, shiftsLoader, 'The shifts could not be loaded.')
   const activeShifts = (shifts.value?.items ?? []).filter(shift => shift.active)
-  const [date, setDate] = useState(() => lagosDayFrom(0))
-  const [shiftId, setShiftId] = useState('')
+  // The day and shift are kept in the address beside the ward (`?day=2026-12-03&shift=<uuid>`: a date and a shift's id,
+  // never a patient's), so a patient's chart opened from the sheet comes back to this sheet.
+  const [params, setParams] = useSearchParams()
+  const [date, setDate] = useState(() => DAY.test(params.get('day') ?? '') ? params.get('day')! : lagosDayFrom(0))
+  const [shiftId, setShiftId] = useState(() => UUID.test(params.get('shift') ?? '') ? params.get('shift')!.toLowerCase() : '')
   useEffect(() => {
-    if (shiftId || activeShifts.length === 0) return
+    if (activeShifts.length === 0 || activeShifts.some(shift => shift.shiftId === shiftId)) return
     const now = currentShift(activeShifts)
     setShiftId(now?.shiftId ?? activeShifts[0]!.shiftId)
     if (now) setDate(now.date)
   }, [shiftId, activeShifts])
+  const kept = params.get('day') === date && params.get('shift') === shiftId
+  useEffect(() => {
+    if (!shiftId || !date || kept) return
+    setParams(previous => {
+      const copy = new URLSearchParams(previous)
+      copy.set('day', date)
+      copy.set('shift', shiftId)
+      return copy
+    }, { replace: true })
+  }, [date, shiftId, kept, setParams])
 
   return (
     <DeptPage eyebrow={EYEBROW} title={HANDOVER_TITLE} className="hid-ehr-dept-nursing"
@@ -251,7 +265,7 @@ function HandoverRow({ facilityId, sheet, patient, canWrite, keyFor, onRead }: {
     <li className="hid-ehr-dept-waiting-card" aria-labelledby={headingId}>
       <div className="hid-ehr-dept-waiting-main">
         <h3 id={headingId} className="hid-ehr-dept-waiting-name" tabIndex={-1}>
-          <PatientLink card={patient.patient} to={`${PATIENT_BASE}/${patient.admissionId}/observations`} />
+          <PatientLink card={patient.patient} to={`${PATIENT_BASE}/${patient.admissionId}/observations`} back={`Back to ${HANDOVER_TITLE}`} />
         </h3>
         <PatientIdentity card={patient.patient} bedName={patient.bedName} />
         {patient.watch ? <div className="hid-ehr-dept-waiting-badges"><EhrBadge tone="critical">Watch closely</EhrBadge></div> : null}

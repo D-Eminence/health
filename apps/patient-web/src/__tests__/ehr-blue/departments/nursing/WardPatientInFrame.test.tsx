@@ -1,11 +1,14 @@
+import { readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { formatDate, formatDateTime, formatTime } from '@hid/ui/display'
 import { REAL_FACILITY, SESSION, facility, json, openStaffApp, problem, serve, sessionAt, where } from '../../frame/blueHarness'
-import { lagosInput, lagosInputToIso } from '../../../../ehr-blue/departments/nursing/nursingRules'
+import { OXYGEN_RULE, lagosInput, lagosInputToIso } from '../../../../ehr-blue/departments/nursing/nursingRules'
 import {
-  ADMISSION, ADMISSION_READ, CHART, DOCTOR, DOSE, FLUIDS, MAR, NEW_FLUID, NURSE, ORDER, TASKS, VITALS, card, doseRecord, hiddenCard, many,
-  noIdentityInAddresses, order, sentTo, task, withNursingPages,
+  ADMISSION, ADMISSION_READ, CHART, DOCTOR, DOSE, FLUIDS, MAR, NEW_FLUID, NURSE, ORDER, ROUND, TASKS, VITALS, WARD, card, doseRecord, hiddenCard,
+  many, noIdentityInAddresses, order, sentTo, task, withNursingPages,
 } from './nursingFixtures'
 
 /*
@@ -24,6 +27,7 @@ const HOUR = 60 * 60 * 1000
 /** A press from the keyboard: focus on the control, then its click. */
 const press = (control: HTMLElement) => { control.focus(); fireEvent.click(control) }
 const key = (call: { headers: Headers }) => call.headers.get('Idempotency-Key')
+const NURSING_CSS = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../../../ehr-blue/departments/nursing/nursing.css'), 'utf8')
 
 function chartOf(overrides: Record<string, unknown> = {}) {
   return () => json({ admissionId: ADMISSION, encounterId: 'e1', wardType: 'general', from: '2026-12-02T08:00:00.000Z', to: '2026-12-03T08:00:00.000Z',
@@ -79,9 +83,14 @@ describe('the observation chart', () => {
       [CHART]: [chartOf(), ...many(chartOf({ hours: [hour(yesterday, -180), hour(today, -4500)] }))] })
     await openStaffApp(`${BASE}/observations`)
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Hourly grid' }))
-    const grid = await screen.findByRole('region', { name: 'Hours' })
-    expect(within(grid).getAllByRole('rowheader').map(cell => cell.textContent)).toEqual([formatDateTime(yesterday), formatTime(today)])
+    const grid = await screen.findByRole('table', { name: 'Hourly grid' })
+    expect([...grid.querySelectorAll('td[data-col="hour"]')].map(cell => cell.textContent)).toEqual([formatDateTime(yesterday), formatTime(today)])
     expect(within(grid).getByText('−180 mL')).toBeDefined()
+    // The blue table: its header and cells styled, and read as cards on a phone (no sideways scrolling).
+    expect(within(grid).getAllByRole('columnheader').map(cell => [cell.textContent, cell.className]))
+      .toEqual(['Hour', 'Readings', 'In', 'Out', 'Running balance'].map((name, at) => [name, at < 2 ? 'hid-ehr-table-header' : 'hid-ehr-table-header hid-ehr-align-end']))
+    expect(within(grid).getAllByRole('cell').every(cell => cell.classList.contains('hid-ehr-table-cell'))).toBe(true)
+    expect(grid.closest('.hid-ehr-table-scroll')!.classList.contains('hid-ehr-table-stack-sm')).toBe(true)
     expect(vi.mocked(fetch).mock.calls.some(([address]) => String(address).includes('view=hourly'))).toBe(true)
   })
 
@@ -132,10 +141,11 @@ describe('the observation chart', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Record observations' }))
     const form = screen.getByRole('form', { name: 'Record observations' })
     fireEvent.change(within(form).getByLabelText('Time (Lagos time)'), { target: { value: '2026-12-03T10:15' } })
-    fireEvent.change(within(form).getByLabelText('Oxygen'), { target: { value: 'simple_mask' } })
-    fireEvent.click(within(form).getByRole('button', { name: 'Save observations' }))
-    expect(await within(form).findByText('Enter the flow or FiO2 with an oxygen device, or 21% on room air.')).toBeDefined()
+    // A flow needs a device.
     fireEvent.change(within(form).getByLabelText('Oxygen flow (L a minute)'), { target: { value: '6' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Save observations' }))
+    expect(await within(form).findByText(OXYGEN_RULE)).toBeDefined()
+    fireEvent.change(within(form).getByLabelText('Oxygen'), { target: { value: 'simple_mask' } })
     fireEvent.change(within(form).getByLabelText('GCS eye (1 to 4)'), { target: { value: '4' } })
     fireEvent.click(within(form).getByRole('button', { name: 'Save observations' }))
     expect(await within(form).findByText('Enter all three GCS parts, or mark the verbal part as not testable.')).toBeDefined()
@@ -152,6 +162,51 @@ describe('the observation chart', () => {
       gcsVerbalNotTestable: true, recordedAt: '2026-12-03T09:15:00.000Z' })
     // The same body again after a refusal carries the same key: the server never records it twice.
     expect(second!.headers.get('Idempotency-Key')).toBe(first!.headers.get('Idempotency-Key'))
+  })
+
+  it('asks for both parts of a blood pressure before sending, and says the service’s refusal of one in the same words', async () => {
+    const member = nurse()
+    const sent = serve({ [SESSION]: [sessionAt(member, [member])], [ADMISSION_READ]: [() => json({ admission: card(), movements: [] })],
+      [CHART]: many(chartOf({ readings: [] })), [VITALS]: [() => problem(400, 'BLOOD_PRESSURE_INCOMPLETE', 'Bad request')] })
+    await openStaffApp(`${BASE}/observations`)
+    expect(await screen.findByText('No observations yet')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Record observations' }))
+    const form = screen.getByRole('form', { name: 'Record observations' })
+    fireEvent.change(within(form).getByLabelText('Systolic (mmHg)'), { target: { value: '88' } })
+    fireEvent.change(within(form).getByLabelText('Pulse (a minute)'), { target: { value: '118' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Save observations' }))
+    expect(await within(form).findByText('Enter both systolic and diastolic blood pressure, or leave both blank.')).toBeDefined()
+    expect(sentTo(sent, VITALS)).toHaveLength(0)
+    // Were it sent (another client's rule), the refusal says the same, never only "Try again".
+    fireEvent.change(within(form).getByLabelText('Diastolic (mmHg)'), { target: { value: '50' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Save observations' }))
+    await waitFor(() => expect(sentTo(sent, VITALS)).toHaveLength(1))
+    expect(await within(form).findByText('Enter both systolic and diastolic blood pressure, or leave both blank.')).toBeDefined()
+  })
+
+  it('charts a critical saturation and temperature, and a patient on a ventilator with no flow, and names a field with too many decimals', async () => {
+    const member = nurse()
+    const sent = serve({ [SESSION]: [sessionAt(member, [member])], [ADMISSION_READ]: [() => json({ admission: card(), movements: [] })],
+      [CHART]: many(chartOf({ readings: [] })), [VITALS]: [() => json({ id: 'v9', warnings: ['check_entry'] }, 201)] })
+    await openStaffApp(`${BASE}/observations`)
+    expect(await screen.findByText('No observations yet')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Record observations' }))
+    const form = screen.getByRole('form', { name: 'Record observations' })
+    expect(form.hasAttribute('novalidate')).toBe(true)
+    expect(within(form).getByLabelText('Pulse (a minute)').getAttribute('step')).toBe('1')
+    expect(within(form).getByLabelText('Temperature (°C)').getAttribute('step')).toBe('0.1')
+    fireEvent.change(within(form).getByLabelText('Time (Lagos time)'), { target: { value: '2026-12-03T10:15' } })
+    fireEvent.change(within(form).getByLabelText('Pulse (a minute)'), { target: { value: '88.5' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Save observations' }))
+    expect(await within(form).findByText('Enter pulse as a whole number.')).toBeDefined()
+    fireEvent.change(within(form).getByLabelText('Pulse (a minute)'), { target: { value: '132' } })
+    fireEvent.change(within(form).getByLabelText('Oxygen saturation (%)'), { target: { value: '45' } })
+    fireEvent.change(within(form).getByLabelText('Temperature (°C)'), { target: { value: '29' } })
+    fireEvent.change(within(form).getByLabelText('Oxygen'), { target: { value: 'ventilator' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Save observations' }))
+    expect(await screen.findByText('Observations saved. Some values are outside the usual range: check them on the chart.')).toBeDefined()
+    expect(sentTo(sent, VITALS)[0]!.body).toEqual({ pulseBpm: 132, oxygenSaturationPercent: 45, temperatureC: 29, oxygenDevice: 'ventilator',
+      recordedAt: '2026-12-03T09:15:00.000Z' })
   })
 
   it('says to open the record first when the chart is not open to this member', async () => {
@@ -239,7 +294,8 @@ describe('the medicine administration record', () => {
     fireEvent.change(within(form).getByLabelText('Reason'), { target: { value: 'clinical_decision' } })
     fireEvent.click(within(form).getByRole('button', { name: 'Save the dose' }))
     expect(await within(form).findByText('Say more about the reason, in at least 8 characters.')).toBeDefined()
-    fireEvent.change(within(form).getByLabelText('More about the reason'), { target: { value: 'Blood pressure too low this morning' } })
+    // Written over two lines: sent on one, as the database keeps it (0175 refuses a line break).
+    fireEvent.change(within(form).getByLabelText('More about the reason'), { target: { value: 'Blood pressure too low\nthis morning' } })
     fireEvent.change(within(form).getByLabelText('Time (Lagos time)'), { target: { value: '2026-12-03T14:10' } })
     fireEvent.click(within(form).getByRole('button', { name: 'Save the dose' }))
     expect(await within(form).findByText('This dose is already recorded. Mark it entered in error if it is wrong.')).toBeDefined()
@@ -401,11 +457,27 @@ describe('the medicine administration record', () => {
     await openStaffApp(`${BASE}/medicines`)
     const recorded = await screen.findByRole('list', { name: 'Doses recorded' })
     fireEvent.click(within(recorded).getByRole('button', { name: 'Mark entered in error' }))
-    fireEvent.change(within(recorded).getByLabelText('Why is this entered in error?'), { target: { value: 'Recorded on the wrong patient' } })
+    fireEvent.change(within(recorded).getByLabelText('Why is this entered in error?'), { target: { value: 'Recorded on the\nwrong patient' } })
     fireEvent.click(within(recorded).getAllByRole('button', { name: 'Mark entered in error' }).at(-1)!)
     await waitFor(() => expect(sentTo(sent, 'POST /api/v1/ehr/medicine-administrations/90000000-0000-4000-8000-000000000091/entered-in-error')).toHaveLength(1))
     expect(sentTo(sent, 'POST /api/v1/ehr/medicine-administrations/90000000-0000-4000-8000-000000000091/entered-in-error')[0]!.body)
       .toEqual({ expectedRowVersion: 1, reason: 'Recorded on the wrong patient' })
+  })
+
+  it('strikes through a dose entered in error, but not who recorded it or why it is in error', async () => {
+    const member = nurse()
+    serve({ [SESSION]: [sessionAt(member, [member])], [ADMISSION_READ]: [() => json({ admission: card(), movements: [] })],
+      [MAR]: many(marOf([order()], [doseRecord({ status: 'entered_in_error', enteredInErrorReason: 'Recorded on the wrong patient' })])) })
+    await openStaffApp(`${BASE}/medicines`)
+    const recorded = within(await screen.findByRole('list', { name: 'Doses recorded' })).getByRole('listitem', { name: 'Amoxicillin 500 mg capsule' })
+    expect(recorded.className).toContain('hid-ehr-dept-nursing-struck')
+    const row = (term: string) => within(recorded).getByText(term, { selector: 'dt' }).parentElement!
+    expect(row('Why entered in error').className).toBe('hid-ehr-dept-nursing-kept')
+    expect(row('Recorded by').className).toBe('hid-ehr-dept-nursing-kept')
+    expect(row('Dose').className).toBe('')
+    // The stylesheet strikes through every fact but those.
+    expect(NURSING_CSS).toContain('.hid-ehr-dept-nursing-struck .hid-ehr-dept-waiting-facts > div:not(.hid-ehr-dept-nursing-kept) dd { text-decoration: line-through; }')
+    expect(NURSING_CSS).not.toMatch(/\.hid-ehr-dept-nursing-struck \.hid-ehr-dept-waiting-facts dd/)
   })
 
   it('records nothing for a member without ehr.mar.record', async () => {
@@ -440,12 +512,17 @@ describe('fluid balance', () => {
     await openStaffApp(`${BASE}/fluids`)
     const totals = await screen.findByLabelText('Fluid totals')
     expect(totals.textContent).toBe('In1000 mLOut350 mLBalance+650 mL')
+    // Count tiles of the nursing pages' own, never another department's class.
+    expect(totals.className).toBe('hid-ehr-dept-nursing-counts')
+    expect(NURSING_CSS).toContain('.hid-ehr .hid-ehr-dept-nursing-counts {')
     expect(screen.getByText('Not measured, and not in the totals: 0 in, 1 out.')).toBeDefined()
     expect(screen.getByText('Morning (07:30 to 14:30)')).toBeDefined()
     expect(screen.getByRole('listitem', { name: 'Out: Urine, Not measured' })).toBeDefined()
     const wrong = screen.getByRole('listitem', { name: 'Out: Vomit, 200 mL' })
     expect(wrong.className).toContain('hid-ehr-dept-nursing-struck')
     expect(within(wrong).getByText('Entered in error')).toBeDefined()
+    expect(within(wrong).getByText('Why entered in error').parentElement!.className).toBe('hid-ehr-dept-nursing-kept')
+    expect(within(wrong).getByText('Time').parentElement!.className).toBe('')
 
     fireEvent.click(screen.getByRole('button', { name: 'Add intake or output' }))
     const form = screen.getByRole('form', { name: 'Add intake or output' })
@@ -492,6 +569,34 @@ describe('fluid balance', () => {
     expect(key(second!)).not.toBe(key(first!))
   })
 
+  it('sends a note or a reason written over two lines on one line, as the database keeps them', async () => {
+    const member = nurse()
+    const ERROR = 'POST /api/v1/ehr/fluid-balance/x1/entered-in-error'
+    const sent = serve({ [SESSION]: [sessionAt(member, [member])], [ADMISSION_READ]: [() => json({ admission: card(), movements: [] })],
+      [FLUIDS]: many(dayOf, 10), [NEW_FLUID]: [() => json({ entryId: 'x9', replayed: false }, 201)],
+      [ERROR]: [() => json({ entryId: 'x1', replayed: false })] })
+    await openStaffApp(`${BASE}/fluids`)
+    await screen.findByLabelText('Fluid totals')
+    const iv = screen.getByRole('listitem', { name: 'In: IV fluid, 1000 mL' })
+    fireEvent.click(within(iv).getByRole('button', { name: 'Mark entered in error' }))
+    fireEvent.change(within(iv).getByLabelText('Why is this entered in error?'), { target: { value: 'Charted against\nthe wrong bag' } })
+    fireEvent.click(within(iv).getAllByRole('button', { name: 'Mark entered in error' }).at(-1)!)
+    await waitFor(() => expect(sentTo(sent, ERROR)).toHaveLength(1))
+    expect(sentTo(sent, ERROR)[0]!.body).toEqual({ expectedRowVersion: 1, reason: 'Charted against the wrong bag' })
+
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-12-03T12:00:00.000Z'))
+    fireEvent.click(screen.getByRole('button', { name: 'Add intake or output' }))
+    const form = screen.getByRole('form', { name: 'Add intake or output' })
+    fireEvent.change(within(form).getByLabelText('What'), { target: { value: 'oral' } })
+    fireEvent.change(within(form).getByLabelText('Amount (mL)'), { target: { value: '200' } })
+    fireEvent.change(within(form).getByLabelText('Time (Lagos time)'), { target: { value: '2026-12-03T12:30' } })
+    fireEvent.change(within(form).getByLabelText('Note (optional)'), { target: { value: 'Sipped slowly.\r\nTolerated well.' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(sentTo(sent, NEW_FLUID)).toHaveLength(1))
+    expect(sentTo(sent, NEW_FLUID)[0]!.body).toEqual({ direction: 'in', kind: 'oral', volumeMl: 200, recordedAt: '2026-12-03T11:30:00.000Z',
+      note: 'Sipped slowly. Tolerated well.' })
+  })
+
   it('reads another fluid day by its date in the query, never a patient detail', async () => {
     const member = nurse()
     serve({ [SESSION]: [sessionAt(member, [member])], [ADMISSION_READ]: [() => json({ admission: card(), movements: [] })], [FLUIDS]: many(dayOf) })
@@ -532,12 +637,52 @@ describe('the ward chart’s tasks and its address', () => {
     await waitFor(() => expect(where()).toBe('/provider/nursing-tasks'))
   })
 
-  it('says a discharged stay can still be read', async () => {
+  it.each([
+    ['discharged', 'This patient has been discharged. The record can still be read.'],
+    ['cancelled', 'This admission was cancelled.'],
+    ['requested', 'This patient is waiting for a bed.'],
+  ])('says what a %s stay is, and records nothing on it', async (status, words) => {
     const member = nurse()
-    serve({ [SESSION]: [sessionAt(member, [member])], [ADMISSION_READ]: [() => json({ admission: card({ status: 'discharged' }), movements: [] })],
+    serve({ [SESSION]: [sessionAt(member, [member])], [ADMISSION_READ]: [() => json({ admission: card({ status }), movements: [] })],
       [CHART]: many(chartOf({ readings: [] })) })
     await openStaffApp(`${BASE}/observations`)
-    expect(await screen.findByText('This patient has been discharged. The record can still be read.')).toBeDefined()
+    expect(await screen.findByText(words)).toBeDefined()
+    if (status !== 'discharged') expect(screen.queryByText(/has been discharged/)).toBeNull()
     expect(screen.queryByRole('button', { name: 'Record observations' })).toBeNull()
+  })
+
+  it('shows an unknown patient as Unknown patient, without Name hidden beside it', async () => {
+    const member = nurse()
+    serve({ [SESSION]: [sessionAt(member, [member])], [ADMISSION_READ]: [() => json({ admission: card({ recordKind: 'unknown', nameHidden: true,
+      fullName: null, initials: 'U-0007', healthIdLast4: null }), movements: [] })], [CHART]: many(chartOf({ readings: [] })) })
+    await openStaffApp(`${BASE}/observations`)
+    expect(await screen.findByRole('heading', { level: 1, name: 'U-0007' })).toBeDefined()
+    expect(screen.getByText('Unknown patient')).toBeDefined()
+    expect(screen.queryByText('Name hidden')).toBeNull()
+  })
+
+  it('goes back to the list it was opened from, whichever tab is shown', async () => {
+    const member = nurse()
+    serve({ [SESSION]: [sessionAt(member, [member])], [ADMISSION_READ]: many(() => json({ admission: card(), movements: [] })),
+      [MAR]: many(() => json({ admissionId: ADMISSION, from: '2026-12-02T08:00:00.000Z', to: '2026-12-04T08:00:00.000Z', orders: [], administrations: [] })),
+      [CHART]: many(chartOf({ readings: [] })), [ROUND]: many(() => json({ items: [] })), 'GET /api/v1/ehr/wards': many(() => json({ items: [] })) })
+    // Opened from the medicine round on a ward (its address in router state, as its patient link leaves it).
+    await openStaffApp({ pathname: `${BASE}/medicines`, state: { from: { to: `/provider/medicine-round?ward=${WARD}`, label: 'Back to Medicine round' } } })
+    expect(await screen.findByRole('heading', { level: 1, name: 'Ada Wardone' })).toBeDefined()
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Ward chart' })).getByRole('link', { name: 'Observations' }))
+    expect(await screen.findByText('No observations yet')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Back to Medicine round' }))
+    await waitFor(() => expect(where()).toBe('/provider/medicine-round'))
+  })
+
+  it('goes back to the ward’s tasks when opened on its own address', async () => {
+    const member = nurse()
+    serve({ [SESSION]: [sessionAt(member, [member])], [ADMISSION_READ]: many(() => json({ admission: card(), movements: [] })),
+      [CHART]: many(chartOf({ readings: [] })), [TASKS]: many(() => json({ items: [] })), 'GET /api/v1/ehr/wards': many(() => json({ items: [] })) })
+    await openStaffApp(`${BASE}/observations`)
+    expect(await screen.findByRole('heading', { level: 1, name: 'Ada Wardone' })).toBeDefined()
+    expect(screen.queryByRole('button', { name: 'Back to the ward' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Back to Nursing tasks' }))
+    await waitFor(() => expect(where()).toBe('/provider/nursing-tasks'))
   })
 })
