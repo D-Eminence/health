@@ -3597,10 +3597,15 @@ export const nursingApi = {
   wards: (facilityId: string, purpose: 'direct-care' | 'healthcare-operations' = 'direct-care') =>
     client.get<{ items: WardSummary[] }>('/api/v1/ehr/wards', { headers: facilityHeaders(facilityId, purpose), dedupe: false,
       query: { includeBeds: true } }),
-  /** ADT-1 route 11: the ward's open admissions, for allocating patients to a nurse on a shift. */
+  /**
+   * ADT-1 route 11: the patients on the ward, for a new task and for allocating patients to a nurse on a shift. Read as
+   * the open stays (status=open) and kept to those in a bed, admitted or ready for discharge, as the round, the task list
+   * and the handover count them; a stay still waiting for a bed is not on the ward yet.
+   */
   admissions: (facilityId: string, wardId: string) =>
     client.get<{ items: WardPatientCard[]; hasMore: boolean; limit: number }>('/api/v1/ehr/admissions',
-      { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false, query: { status: 'admitted', wardId } }),
+      { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false, query: { status: 'open', wardId } })
+      .then(answer => ({ ...answer, items: answer.items.filter(card => card.status === 'admitted' || card.status === 'discharge_ready') })),
   /** ADT-1 route 12: one admission (its card heads the patient's ward chart). */
   admission: (facilityId: string, admissionId: string) =>
     client.get<{ admission: WardPatientCard }>(`/api/v1/ehr/admissions/${segment(admissionId)}`,
