@@ -1,3 +1,4 @@
+import { formatDateTime, formatPhone } from '@hid/ui/display'
 import { CircleCheck, Printer } from 'lucide-react'
 import { Badge, Button, cx } from '../../../kasuwa/ui'
 import { FormActions } from '../../../kasuwa/parts'
@@ -7,10 +8,7 @@ import { PrintHeader } from '../../frame/PrintHeader'
 import './commerce.css'
 import { printReceipt } from '../../../print/printPaper'
 
-const when = (iso: string) => {
-  const date = new Date(iso)
-  return Number.isNaN(date.getTime()) ? '' : new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date)
-}
+const when = (iso: string) => formatDateTime(iso)
 
 /** One payment in words: "POS · RRN 402911", "HMO · Hygeia · code AX-221", "Transfer · ref 0091 · Waiting for check". */
 export function paymentLine(payment: Payment, hmos: readonly Hmo[] = []): string {
@@ -57,7 +55,7 @@ export function Receipt({ bill, receipt, facilityName, hmos = [], footer, onDone
           <PrintHeader facility={facility} printOnly stacked />
           {facility ? <p className="m-0 text-title-3 text-ink print:hidden">{facility}</p> : null}
           {receipt?.facility.address ? <p className="m-0 text-caption text-ink-3">{receipt.facility.address}</p> : null}
-          {receipt?.facility.phone ? <p className="m-0 text-caption text-ink-3">{receipt.facility.phone}</p> : null}
+          {receipt?.facility.phone ? <p className="m-0 text-caption text-ink-3">{formatPhone(receipt.facility.phone)}</p> : null}
           <p className="m-0 mt-2 text-[13px] font-semibold tracking-[.06em] text-ink-2 uppercase">{number ? 'Receipt' : 'Bill'}</p>
           <p className="m-0 text-title-2 text-ink tabular">{number ?? shown.number}</p>
           <p className="m-0 text-caption text-ink-3">{when(issuedAt)}{number ? ` · Bill ${shown.number}` : ''} · {SOURCE_LABEL[shown.source]}</p>

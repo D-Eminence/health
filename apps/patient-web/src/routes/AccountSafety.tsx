@@ -1,3 +1,4 @@
+import { formatDateTime } from '@hid/ui/display'
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { isConnectionFailure, isHidApiError, plainErrorText } from '@hid/http'
@@ -35,9 +36,7 @@ const CONFIRMATION_PHRASE = 'DELETE MY ACCOUNT'
 
 function dateTime(value: string | null | undefined) {
   if (!value) return 'Not available'
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? value
-    : new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short' }).format(parsed)
+  return formatDateTime(value, value)
 }
 
 function days(seconds: number) {
@@ -63,9 +62,8 @@ function problemCode(cause: unknown): string | undefined {
 /** The deletion card's dates, in WAT as the deletion emails give them (contract b45-contract.md §3.3). */
 function watDateTime(value: string | null | undefined) {
   if (!value) return 'Not available'
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? value
-    : `${new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Africa/Lagos' }).format(parsed)} WAT`
+  const shown = formatDateTime(value)
+  return shown ? `${shown} WAT` : value
 }
 
 /**

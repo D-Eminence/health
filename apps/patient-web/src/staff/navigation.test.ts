@@ -186,6 +186,21 @@ describe('role names shown in the blue EHR', () => {
     expect(heldRoleNames(['records_officer', 'porter'])).toBe('Records officer and another role')
     expect(heldRoleNames([])).toBe('Staff')
   })
+
+  // Owner decision Q137 B (backend 0147): two narrow access roles beside an administrator's or a doctor's role.
+  it('names the access roles of Q137 B in a member\'s roles, never in a sentence or among the roles offered', () => {
+    expect(roleName('work_list_reader')).toBe('Lab and pharmacy work lists')
+    expect(roleName('reading_starter')).toBe('Start a paper reading')
+    expect(roleLabels(['doctor', 'work_list_reader', 'reading_starter']))
+      .toBe('Doctor, Lab and pharmacy work lists, Start a paper reading')
+    expect(roleNames(['doctor', 'reading_starter', 'work_list_reader']))
+      .toBe('Doctor, Start a paper reading, Lab and pharmacy work lists')
+    expect(heldRoleNames(['org_admin', 'work_list_reader'])).toBe('Facility administrator, Lab and pharmacy work lists')
+    expect(heldRoleNames(['admin', 'work_list_reader'])).toBe('Lab and pharmacy work lists and another role')
+    expect(['work_list_reader', 'reading_starter'].some(hasRoleName)).toBe(false)
+    expect(roleNameInSentence('work_list_reader')).toBe('a staff member')
+    expect(roleInSentence('reading_starter')).toBe('a staff member')
+  })
 })
 
 /**

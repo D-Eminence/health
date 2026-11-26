@@ -1,3 +1,4 @@
+import { lagosDay } from '@hid/ui/display'
 import { useEffect, useState, type FormEvent } from 'react'
 import { CircleCheck, Printer, UserPlus } from 'lucide-react'
 import { FormActions } from '../../../kasuwa/parts'
@@ -141,7 +142,7 @@ export function NewHealthIdForm({ idBase, facilityId, place, otcFallback, onMade
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (busy) return
-    const found = check(draft, ninNeeded, ninAsked, new Date().toISOString().slice(0, 10))
+    const found = check(draft, ninNeeded, ninAsked, lagosDay())
     setErrors(found)
     const first = ORDER.find(field => found[field])
     if (first) { focus(id(first)); return }
@@ -212,7 +213,7 @@ export function NewHealthIdForm({ idBase, facilityId, place, otcFallback, onMade
         <Input {...control('lastName')} value={draft.lastName} maxLength={100} autoComplete="off" className="h-11" readOnly={busy} onChange={event => set({ lastName: event.target.value })} />
       </Field>
       <Field label="Date of birth" htmlFor={id('dateOfBirth')} error={errors.dateOfBirth} errorId={`${id('dateOfBirth')}-error`}>
-        <Input {...control('dateOfBirth')} type="date" max={new Date().toISOString().slice(0, 10)} value={draft.dateOfBirth} className="h-11" readOnly={busy}
+        <Input {...control('dateOfBirth')} type="date" max={lagosDay()} value={draft.dateOfBirth} className="h-11" readOnly={busy}
           onChange={event => set({ dateOfBirth: event.target.value })} />
       </Field>
       <Field label="Sex" htmlFor={id('gender')} optional>

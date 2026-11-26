@@ -1,3 +1,4 @@
+import { formatDateTime } from '@hid/ui/display'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { HidApiError } from '@hid/http'
@@ -23,7 +24,7 @@ beforeEach(() => {
   mocks.useStaff.mockReturnValue(session(['audit.read']))
 })
 
-const time = (value: string) => new Date(value).toLocaleString()
+const time = (value: string) => formatDateTime(value)
 const events = () => screen.queryByRole('list', { name: /^Audit events, page / })
 /** Each event as it reads: what was done, then by whom, when and the outcome. */
 const sentences = () => (events() ? within(events()!).getAllByRole('listitem') : [])

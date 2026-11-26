@@ -10,6 +10,7 @@
  * - PatientBanner: name, Health ID, date of birth, age and sex on every clinical screen (wrong-patient prevention).
  * - Value / Flag: a measurement always with its unit, and an abnormal one said in words with an icon, not colour alone.
  */
+import { ageInYears, formatDate } from '@hid/ui/display'
 import type { ComponentProps, ReactNode, Ref } from 'react'
 import { ArrowDown, ArrowUp, CircleAlert, RotateCcw, TriangleAlert } from 'lucide-react'
 import { Alert, Badge, Button, Card, EmptyState, PageHeader, cx, type Icon, type Tone } from './ui'
@@ -118,14 +119,9 @@ export function ConfirmSheet({ open, onClose, title, subject, effect, undo, conf
 
 function ageOf(dateOfBirth: string | null | undefined): number | null {
   if (!dateOfBirth) return null
-  const born = new Date(dateOfBirth)
-  if (Number.isNaN(born.getTime())) return null
-  const now = new Date()
-  let age = now.getFullYear() - born.getFullYear()
-  if (now < new Date(now.getFullYear(), born.getMonth(), born.getDate())) age -= 1
-  return age
+  return ageInYears(dateOfBirth)
 }
-const day = (iso: string) => new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso))
+const day = (iso: string) => formatDate(iso)
 const words = (value: string | null | undefined) => value ? value.replace(/[_-]+/g, ' ').replace(/^./, c => c.toUpperCase()) : ''
 
 /**

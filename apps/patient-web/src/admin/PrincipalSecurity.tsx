@@ -1,3 +1,4 @@
+import { lagosDay } from '@hid/ui/display'
 import { useId, useState, type FormEvent } from 'react'
 import { Download, LogOut } from 'lucide-react'
 import { adminApi, type ApprovalRequested, type PlatformSessionInfo, type Principal, type PrincipalExport } from './api'
@@ -125,7 +126,7 @@ export function ExportPanel({ query }: { query: string }) {
       ...(searchApplies ? { query } : {}), ...(status ? { status } : {}) }), 'The export could not be completed.',
     { PERMISSION_DENIED: 'Only Super Admins with the export permission can export.' }, 'export users')
     if (!exported) return
-    saveFile(exported.blob, `hid-principals-${new Date().toISOString().slice(0, 10)}.csv`)
+    saveFile(exported.blob, `hid-principals-${lagosDay()}.csv`)
     setReason(''); setConfirmed(false)
     if (exported.truncated) { setResult(exported); return }
     toast.success(exported.rowCount === null ? 'Export downloaded.' : `Exported ${rows(exported.rowCount)} ${exported.rowCount === 1 ? 'user' : 'users'}.`)

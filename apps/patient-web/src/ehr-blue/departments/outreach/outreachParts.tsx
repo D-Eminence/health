@@ -1,3 +1,4 @@
+import { formatPhone } from '@hid/ui/display'
 import type { ReactNode } from 'react'
 import { isHidApiError } from '@hid/http'
 import type { OutreachCampaign, OutreachCampaignMember, OutreachCampaignRole, OutreachCase } from '../../../staff/api'
@@ -255,13 +256,13 @@ export function campaignSearchText(campaign: OutreachCampaign) {
 }
 
 /**
- * A case's phone number as the case's own view shows it: in full, as Outreach sent it, so the team can call the person
- * back (owner, 2026-11-02). Only the case's view shows it: the list card never carries it and the search never matches
- * it. A number Outreach sends already masked is shown as it was sent.
+ * A case's phone number as the case's own view shows it: in full, so the team can call the person back (owner,
+ * 2026-11-02), a Nigerian number as "0803 123 4567" and a foreign one international (Q183 B). Only the case's view
+ * shows it: the list card never carries it and the search never matches it. A number Outreach sends already masked is
+ * shown as it was sent.
  */
 export function phoneText(phone: string | null | undefined): string {
-  const given = phone?.trim()
-  return given ? given : 'Not recorded'
+  return formatPhone(phone, 'Not recorded')
 }
 
 /**

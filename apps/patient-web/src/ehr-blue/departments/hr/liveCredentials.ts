@@ -1,3 +1,4 @@
+import { formatDate, formatDateTime } from '@hid/ui/display'
 import { useCallback, useEffect, useState } from 'react'
 import { isHidApiError } from '@hid/http'
 import { facilityStaffApi, type Facility, type FacilityStaff, type FacilityStaffMember } from '../../../staff/api'
@@ -13,17 +14,12 @@ import type { DeptFact } from '../parts/DeptRecord'
 
 /** "12 Oct 2026, 14:05", in the browser's time zone (staff/routes/Staff.tsx `when`). */
 export function when(value: string | null | undefined): string {
-  if (!value) return 'Not available'
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? 'Not available'
-    : new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short' }).format(parsed)
+  return formatDateTime(value, 'Not available')
 }
 
 /** "12 Oct 2026" (staff/routes/Staff.tsx `dateOnly`). */
 export function dateOnly(value: string | null | undefined): string {
-  if (!value) return 'an unknown date'
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? 'an unknown date' : new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium' }).format(parsed)
+  return formatDate(value, 'an unknown date')
 }
 
 type Loaded =

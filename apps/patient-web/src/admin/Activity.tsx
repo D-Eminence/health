@@ -1,3 +1,4 @@
+import { formatDate } from '@hid/ui/display'
 import { useRef, type KeyboardEvent, type ReactNode } from 'react'
 import { CircleCheck, Clock3 } from 'lucide-react'
 import type { ActivityDays, OperationsErrors, OperationsHealth, PlatformActivity, UploadKind } from './api'
@@ -97,8 +98,7 @@ export function PeopleSection({ activity }: { activity: PlatformActivity }) {
 }
 
 const shortDate = (iso: string) => {
-  const parsed = new Date(`${iso}T00:00:00Z`)
-  return Number.isNaN(parsed.getTime()) ? iso : new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }).format(parsed)
+  return formatDate(iso, iso)
 }
 
 /** A plain bar per day. The bars are a picture; the same numbers are in a table for screen readers. */

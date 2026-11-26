@@ -1,3 +1,4 @@
+import { formatTimeOrDateTime } from '@hid/ui/display'
 import type { EhrBadgeTone } from '@hid/ui/ehr'
 import type { Tone } from '../../../kasuwa/ui'
 import { routeLabel } from '../../../plainLabels'
@@ -56,16 +57,11 @@ const STEP_WORD: Readonly<Record<PharmacyStep, string>> = {
   received: 'Received', accepted: 'Accepted', dispensed: 'Dispensed', dispensing_reversed: 'Dispensing reversed',
 }
 
-/** Lagos is where the pharmacy works, so a time is said on its clock whatever the device's own zone (staff/orderRoutes.ts). */
-const LAGOS_DAY = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Africa/Lagos' })
-const LAGOS_CLOCK = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'Africa/Lagos' })
+/* Lagos is where the pharmacy works, so a time is said on its clock whatever the device's own zone (Q181 A). */
 
 /** "10:52" today, else "12 Nov 2026, 10:52" (ORD-4 screen notes write the time alone); empty when it is not a time. */
 export function clockText(value: string, now = Date.now()): string {
-  const at = new Date(value)
-  if (Number.isNaN(at.getTime())) return ''
-  const clock = LAGOS_CLOCK.format(at)
-  return LAGOS_DAY.format(at) === LAGOS_DAY.format(new Date(now)) ? clock : `${LAGOS_DAY.format(at)}, ${clock}`
+  return formatTimeOrDateTime(value, now)
 }
 
 /**

@@ -1,3 +1,4 @@
+import { formatDateTime } from '@hid/ui/display'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import type { EmergencyContact } from '../api'
@@ -18,7 +19,7 @@ const LIST = '/identity/me/emergency-contacts'
 const ID = 'a0000000-0000-4000-8000-000000000001'
 const ID2 = 'a0000000-0000-4000-8000-000000000002'
 const OFF = { delivery: false, channels: ['email'] }
-const shown = (iso: string) => new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(iso))
+const shown = (iso: string) => formatDateTime(iso)
 const upstream = () => json({ type: 'about:blank', title: 'Service Unavailable', status: 503, code: 'UPSTREAM_UNAVAILABLE',
   detail: 'A required platform service is temporarily unavailable.', retryable: false }, 503)
 

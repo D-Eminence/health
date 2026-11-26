@@ -1,3 +1,4 @@
+import { formatDate } from '@hid/ui/display'
 import type { FacilityStaff, FacilityStaffInvitation, FacilityStaffMember, StaffDeliveryOutcome } from '../../../staff/api'
 import { isLicenceBody, LICENCE_BODIES, type LicenceBody } from '../../../staff/staffAccess'
 import { dateText } from '../parts/format'
@@ -63,9 +64,7 @@ export function licenceNumberText(licence: Licence): string {
 }
 
 function dateOnly(value: string | null | undefined): string {
-  if (!value) return 'an unknown date'
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? 'an unknown date' : parsed.toLocaleDateString()
+  return formatDate(value, 'an unknown date')
 }
 
 /** Who stands behind a member's licence: the facility's administrator, or Health ID support's check. */

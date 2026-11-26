@@ -1,3 +1,4 @@
+import { formatDateTime } from '@hid/ui/display'
 import { useCallback, useRef, useState } from 'react'
 import { Mail } from 'lucide-react'
 import { Badge, Button, Card, EmptyState, statusTone } from '../kasuwa/ui'
@@ -33,9 +34,7 @@ const STATUS_WORDS: Readonly<Record<ShareInvitationStatus, string>> = {
 }
 
 function sentAt(value: string) {
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? value
-    : new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Africa/Lagos' }).format(parsed)
+  return formatDateTime(value, value)
 }
 
 const invitee = (item: ShareInvitation) => item.inviteeName ? `${item.inviteeName} (${item.inviteeEmail})` : item.inviteeEmail
