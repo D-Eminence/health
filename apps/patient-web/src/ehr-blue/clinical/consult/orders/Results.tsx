@@ -1,36 +1,45 @@
+import { formatDateTime } from '@hid/ui/display'
 import { EhrBadge, EhrButton, EhrCard } from '@hid/ui/ehr'
 import { useEffect, useState } from 'react'
 import { staffApi, type LabOrderReleasedResults, type LabResultRevision } from '../../../../staff/api'
-import { revisionValue, skipsVersions } from '../../../../staff/labRevisions'
+import { revisionValue, sameScientistCheck, skipsVersions } from '../../../../staff/labRevisions'
 import { labPaperLines, type LabPaperLine } from '../../parts/clinicalPrint'
 import { codeText, MoreDetails } from '../../parts/MoreDetails'
 import { ErrorBox } from '../../parts/Notices'
 import { releasedResultsRefusal } from './words'
-import { Flag, type FlagLevel } from '../../../../kasuwa/parts'
-import { formatWhen } from '../../parts/format'
 
+/** A date as classic's released results print it (staff/labRevisions.tsx dateText, Clinical.tsx:931). */
 function dateText(value: string | null | undefined) {
-  return formatWhen(value) || 'Not available'
+  return formatDateTime(value, 'Not available')
 }
 
-/** Today's RevisionList (staff/labRevisions.tsx) in the design's list style, with its words. */
+/**
+ * Today's RevisionList (staff/labRevisions.tsx) in the design's list style, line for line: the value and Lab's flag
+ * in its words ("· critical candidate", "· high"), entry and release in classic's dates, the reference range and
+ * correction reason, and the self-check (owner decision 33.3): "Checked by the same scientist who entered it", with the
+ * scientist's reason where Lab sends one.
+ */
 function Revisions({ revisions }: { revisions: readonly LabResultRevision[] }) {
   return (
     <ul className="hid-ehr-clinical-orders-revisions">
-      {revisions.map(revision => (
-        <li key={revision.version} className="hid-ehr-clinical-orders-revision">
-          <div className="hid-ehr-clinical-orders-row">
-            <strong>Version {revision.version}</strong>
-            <EhrBadge tone={revision.releaseStatus === 'released' ? 'positive' : 'caution'}>{revision.releaseStatus.replaceAll('_', ' ')}</EhrBadge>
-            {revision.verificationStatus === 'entered_in_error' ? <EhrBadge tone="critical">Entered in error</EhrBadge> : null}
-          </div>
-          <p>{revisionValue(revision)}<FlagAfter flag={revision.abnormalFlag} /></p>
-          <p>Entered {dateText(revision.enteredAt)} · {revision.verificationStatus.replaceAll('_', ' ')}</p>
-          {revision.releasedAt ? <p>Released {dateText(revision.releasedAt)}</p> : null}
-          {revision.referenceRange ? <p>Reference range: {revision.referenceRange}</p> : null}
-          {revision.correctionReason ? <p>Reason: {revision.correctionReason}</p> : null}
-        </li>
-      ))}
+      {revisions.map(revision => {
+        const same = sameScientistCheck(revision)
+        return (
+          <li key={revision.version} className="hid-ehr-clinical-orders-revision">
+            <div className="hid-ehr-clinical-orders-row">
+              <strong>Version {revision.version}</strong>
+              <EhrBadge tone={revision.releaseStatus === 'released' ? 'positive' : 'caution'}>{revision.releaseStatus.replaceAll('_', ' ')}</EhrBadge>
+              {revision.verificationStatus === 'entered_in_error' ? <EhrBadge tone="critical">Entered in error</EhrBadge> : null}
+            </div>
+            <p>{revisionValue(revision)} · {revision.abnormalFlag.replaceAll('_', ' ')}</p>
+            <p>Entered {dateText(revision.enteredAt)} · {revision.verificationStatus.replaceAll('_', ' ')}</p>
+            {revision.releasedAt ? <p>Released {dateText(revision.releasedAt)}</p> : null}
+            {revision.referenceRange ? <p>Reference range: {revision.referenceRange}</p> : null}
+            {revision.correctionReason ? <p>Reason: {revision.correctionReason}</p> : null}
+            {same ? <p>{same.text}{same.reason ? `. Their reason: ${same.reason}` : ''}</p> : null}
+          </li>
+        )
+      })}
     </ul>
   )
 }
@@ -98,22 +107,4 @@ export function ReleasedResults({ facilityId, requestId, revision, onRefresh, on
       ) : null}
     </EhrCard>
   )
-}
-
-/*
- * Dates are in the app's own format ("11 Nov 2026, 02:31": formatWhen), never the browser's ("11/11/2026, 2:31:20 AM").
- * A flag worth calling out is drawn as the emergency view draws it: its word, an icon and its tone, never colour alone.
- */
-const FLAGS: Partial<Record<LabResultRevision['abnormalFlag'], FlagLevel>> = { high: 'high', low: 'low', abnormal: 'abnormal' }
-
-/**
- * After the value: the flag called out, "Normal" in words, and nothing for a flag the lab did not set. Lab's
- * critical_candidate is not confirmed, so it has the critical icon and tone but Lab's own words, "Possibly critical"
- * (labText FLAG_WORDS), as the printed result from this card says it.
- */
-function FlagAfter({ flag }: { flag: LabResultRevision['abnormalFlag'] }) {
-  if (flag === 'critical_candidate') return <> <Flag level="critical" text="Possibly critical" /></>
-  const level = FLAGS[flag]
-  if (level) return <> <Flag level={level} /></>
-  return flag === 'normal' ? <> · Normal</> : null
 }

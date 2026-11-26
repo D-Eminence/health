@@ -225,7 +225,7 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
     } finally { if (live.current) { setCapabilityLoading(false); setCapabilityAnswered(true) } }
   }
 
-  // Registration.tsx 110-127: a case by its ID, from "Find registration case" (which opens it, as the design opens a
+  // Registration.tsx 110-127: a case by its ID, from "Continue a registration" (which opens it, as the design opens a
   // saved record) or the case's own "Refresh current case" (which keeps focus where it is).
   async function loadCase(caseId: string, from: 'find' | 'refresh') {
     const normalized = caseId.trim()
@@ -293,7 +293,7 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
         if (!live.current) return
         pendingNames.current.set(result.caseId, `${firstName} ${lastName}`)
         setMessage(CASE_CREATED_RELOAD)
-        // Its ID is in "Find registration case", ready to load.
+        // Its ID is in "Continue a registration", ready to load.
         show({ kind: 'list' }, FIELD.caseId)
       }
     } catch (caught) {
@@ -535,6 +535,7 @@ function RegistrationAt({ facilityId, canApprove }: { readonly facilityId: strin
         verify={{ availability, added: shown.item.patient ? ninAdded.has(shown.item.patient.patientId) : false, problems: verifyProblems,
           held: verifyHold.held, stillChecking: verifyStillChecking, onInput: verifyInput, onSubmit: event => void verifyNin(event) }}
         onBack={() => go({ kind: 'list' }, `registration-visit-${shown.seq}-open`)}
+        onNew={() => go({ kind: 'new' })}
         onRefresh={() => { if (!caseLoading && !busy) void loadCase(shown.item.caseId, 'refresh') }}
         onReview={(event, action) => void review(event, action)} onEnroll={event => void enroll(event)} />
     )

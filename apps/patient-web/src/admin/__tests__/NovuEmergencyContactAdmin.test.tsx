@@ -29,7 +29,7 @@ const facility = (overrides: Partial<Facility> = {}): Facility => ({ id: FACILIT
   alertPhoneE164: null, alertPhoneUpdatedAt: null, ...overrides })
 const actor = (permissions: string[]): AdminActor => ({ accountId: 'admin-1', subject: 'staff:1', displayName: 'Ada',
   email: 'ada@example.test', platformRoles: [], platformPermissions: ['platform.admin.access', 'platform.facility.read', ...permissions] })
-const NOT_SET = 'Not set: alerts give Health ID support\'s number (+234 702 671 7252)'
+const NOT_SET = 'Not set: alerts give Health ID support\'s number (0702 671 7252)'
 
 function Location() {
   const location = useLocation()
@@ -75,11 +75,11 @@ describe('a facility\'s alert phone number', () => {
     fireEvent.change(section.getByLabelText('Facility phone number'), { target: { value: ' 0803 000 0000 ' } })
     fireEvent.change(section.getByLabelText('Reason for changing the alert phone number'), { target: { value: 'Front desk line confirmed' } })
     fireEvent.click(save)
-    expect(await section.findByText('Saved. Alerts about emergency access here now give +2348030000000.')).toBeTruthy()
+    expect(await section.findByText('Saved. Alerts about emergency access here now give 0803 000 0000.')).toBeTruthy()
     expect(mocks.api.setFacilityAlertPhone).toHaveBeenCalledWith(expect.objectContaining({ id: FACILITY_ID, version: 3 }),
       '0803 000 0000', 'Front desk line confirmed', 'key-1')
     // The command bumps the facility's version: the facility is read again.
-    await waitFor(() => expect(section.getByText('+2348030000000')).toBeTruthy())
+    await waitFor(() => expect(section.getByText('0803 000 0000')).toBeTruthy())
     expect(mocks.api.facility).toHaveBeenCalledTimes(2)
     expect((section.getByLabelText('Facility phone number') as HTMLInputElement).value).toBe('')
   })
@@ -129,7 +129,7 @@ describe('a facility\'s alert phone number', () => {
     expect(await screen.findByText('Changed by another admin')).toBeTruthy()
     expect(mocks.api.facility).toHaveBeenCalledTimes(2)
     fireEvent.click(section.getByRole('button', { name: 'Save alert phone number' }))
-    expect(await section.findByText('Saved. Alerts about emergency access here now give +2348030000000.')).toBeTruthy()
+    expect(await section.findByText('Saved. Alerts about emergency access here now give 0803 000 0000.')).toBeTruthy()
     expect(mocks.api.setFacilityAlertPhone.mock.calls.map(([sent]) => (sent as Facility).version)).toEqual([3, 4])
   })
 
@@ -150,7 +150,7 @@ describe('a facility\'s alert phone number', () => {
     expect(section.queryByRole('button', { name: 'Clear alert phone number' })).toBeNull()
     fireEvent.change(phone, { target: { value: '0803 111 1111' } })
     fireEvent.click(section.getByRole('button', { name: 'Save alert phone number' }))
-    expect(await section.findByText('Saved. Alerts about emergency access here now give +2348031111111.')).toBeTruthy()
+    expect(await section.findByText('Saved. Alerts about emergency access here now give 0803 111 1111.')).toBeTruthy()
     expect(mocks.api.setFacilityAlertPhone).toHaveBeenLastCalledWith(expect.objectContaining({ version: 4 }), '0803 111 1111',
       'Facility line disconnected', expect.any(String))
   })
@@ -161,12 +161,12 @@ describe('a facility\'s alert phone number', () => {
     mocks.api.setFacilityAlertPhone.mockResolvedValue({ facilityId: FACILITY_ID, alertPhoneE164: null, version: 4, replayed: false })
     open(<FacilityDetailPage actor={actor(['platform.facility.manage'])} />)
     const section = await alertPhone()
-    expect(section.getByText('+2348030000000')).toBeTruthy()
+    expect(section.getByText('0803 000 0000')).toBeTruthy()
     fireEvent.click(section.getByLabelText(/^Clear it/))
     expect((section.getByLabelText('Facility phone number') as HTMLInputElement).disabled).toBe(true)
     fireEvent.change(section.getByLabelText('Reason for changing the alert phone number'), { target: { value: 'Facility line disconnected' } })
     fireEvent.click(section.getByRole('button', { name: 'Clear alert phone number' }))
-    expect(await section.findByText('Cleared. Alerts about emergency access here now give Health ID support\'s number (+234 702 671 7252).')).toBeTruthy()
+    expect(await section.findByText('Cleared. Alerts about emergency access here now give Health ID support\'s number (0702 671 7252).')).toBeTruthy()
     expect(mocks.api.setFacilityAlertPhone).toHaveBeenCalledWith(expect.objectContaining({ version: 3 }), null, 'Facility line disconnected', 'key-1')
     expect(await section.findByText(NOT_SET)).toBeTruthy()
   })

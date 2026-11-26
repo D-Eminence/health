@@ -1,3 +1,4 @@
+import { formatDate } from '@hid/ui/display'
 import type { HidShareDurationPreset, HidSharePermissionTier } from '@hid/contracts'
 
 /**
@@ -178,9 +179,7 @@ export const PERSON_NAME = /^[\p{L}\p{M}][\p{L}\p{M}' .-]{0,119}$/u
 /** The day a share or invitation ends, in WAT. */
 export function shareDay(value: string | null | undefined): string {
   if (!value) return 'Not available'
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? value
-    : new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeZone: 'Africa/Lagos' }).format(parsed)
+  return formatDate(value, value)
 }
 
 /** "until 4 Nov 2026", or, for "until revoked", "until you end it, up to 1 year". */

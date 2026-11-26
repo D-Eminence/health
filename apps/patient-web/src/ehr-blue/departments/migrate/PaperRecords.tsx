@@ -1,3 +1,4 @@
+import { formatDate } from '@hid/ui/display'
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { EhrButton } from '@hid/ui/ehr'
 import { useFocusById } from '../../../staff/focus'
@@ -31,12 +32,7 @@ const FLAG_WORDS: Readonly<Record<string, string>> = {
 export function reportDayText(value: string | null | undefined): string {
   if (!value) return ''
   const day = /^(\d{4})-(\d{2})-(\d{2})(?:T00:00(?::00(?:\.0+)?)?(?:Z|[+-]00:?00)?)?$/.exec(value)
-  if (day) {
-    const at = new Date(Date.UTC(Number(day[1]), Number(day[2]) - 1, Number(day[3])))
-    return Number.isNaN(at.getTime()) ? '' : at.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
-  }
-  const at = new Date(value)
-  return Number.isNaN(at.getTime()) ? '' : at.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Africa/Lagos' })
+  return formatDate(day ? `${day[1]}-${day[2]}-${day[3]}` : value)
 }
 
 /** "Haemoglobin: 11.2 g/dL · Low · reference 12.0-16.0". */

@@ -1,3 +1,4 @@
+import { formatDateTime } from '@hid/ui/display'
 import { isHidApiError } from '@hid/http'
 import type { LabAbnormalFlag, LabResultRevision } from '../../../staff/api'
 import type { FlagLevel } from '../../../kasuwa/parts'
@@ -95,9 +96,7 @@ export function normalizePhone(text: string): string {
 
 /** A date and time for a label or slip: "31 Oct 2026, 14:05". */
 export function stampText(iso: string | null | undefined): string {
-  const date = iso ? new Date(iso) : new Date()
-  if (Number.isNaN(date.getTime())) return iso ?? ''
-  return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date)
+  return formatDateTime(iso || new Date(), iso ?? '')
 }
 
 /*
@@ -113,6 +112,8 @@ export const ACCESSION_WORDS = {
   reason: 'Reason',
   missing: 'Enter a specimen type and clinical reason.',
   button: 'Create accession',
+  /** Classic's busy words on Create accession (Operations.tsx AccessionForm, parity 12). */
+  creating: 'Creating…',
   failed: 'Accession could not be created.',
 } as const
 
@@ -126,6 +127,8 @@ export const SPECIMEN_WORDS = {
   collect: 'Mark collected',
   receive: 'Mark received',
   reject: 'Reject specimen',
+  /** Classic's busy words on its "Record step" (Operations.tsx SpecimenTransitionForm, parity 12), on each step's button. */
+  saving: 'Saving…',
   notes: 'Notes or condition',
   rejectReason: 'Rejection reason',
   rejectMissing: 'Enter a rejection reason.',
@@ -148,6 +151,9 @@ export const RESULT_WORDS = {
   entered: 'A result was recorded, not yet verified.',
   corrected: 'A new result revision was recorded, not yet verified.',
   failed: 'Result could not be recorded. Refresh before retrying.',
+  /** The save step's button and its confirm (classic's "Record unverified result" and "Record new revision", parity 3.3-68). */
+  record: 'Record result, not yet verified',
+  correct: 'Record new revision',
 } as const
 
 /** Verifying or releasing a result (classic ResultGovernance). */

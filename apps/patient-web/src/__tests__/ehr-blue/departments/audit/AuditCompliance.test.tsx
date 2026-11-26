@@ -1,3 +1,4 @@
+import { formatDateTime } from '@hid/ui/display'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
@@ -91,7 +92,7 @@ describe('Audit trail: the event list', () => {
     // What was done, in the spec's words; then by whom, when (as the browser writes it, as on the classic page), and the
     // outcome's badge, coloured by outcome as the classic page does.
     expect(within(first!).getByText('Looked up a patient by Health ID').tagName).toBe('STRONG')
-    expect(meta(first!)).toBe(`Staff member · ${new Date('2026-01-01T12:00:00.000Z').toLocaleString()} · Allowed`)
+    expect(meta(first!)).toBe(`Staff member · ${formatDateTime('2026-01-01T12:00:00.000Z')} · Allowed`)
     expect(within(first!).getByText('Allowed').getAttribute('data-tone')).toBe('positive')
     // A code the spec does not list is worded by its fallback rule; an actor it has no words for is "Someone".
     expect(within(second!).getByText('Patient access and registration activity (refused)').tagName).toBe('STRONG')
@@ -124,7 +125,10 @@ describe('Audit trail: the event list', () => {
     api.facilityAudit.mockReturnValueOnce(first.promise)
     renderDept(<AuditCompliance />)
 
-    expect(screen.getByRole('status').textContent).toBe('Loading audit events')
+    // Classic's words, on screen (staff/routes/Audit.tsx; parity 3.3-74): one status, not visually hidden.
+    expect(screen.getAllByRole('status')).toHaveLength(1)
+    expect(screen.getByRole('status').textContent).toBe('Loading audit events…')
+    expect(screen.getByRole('status').className).not.toContain('sr-only')
     await act(async () => { first.resolve(pageOf([])) })
 
     expect(screen.getByText('No audit events')).toBeTruthy()
@@ -200,7 +204,7 @@ describe('Audit trail: search, outcome and refresh', () => {
     const list = await screen.findByRole('list')
     const [first] = within(list).getAllByRole('listitem')
     expect(within(first!).getByText('Scanned document could not be added').tagName).toBe('STRONG')
-    expect(meta(first!)).toBe(`Staff member · ${new Date('2026-01-01T12:00:00.000Z').toLocaleString()} · Failed`)
+    expect(meta(first!)).toBe(`Staff member · ${formatDateTime('2026-01-01T12:00:00.000Z')} · Failed`)
     expect(within(first!).getByText('Failed').getAttribute('data-tone')).toBe('critical')
     expect(within(first!).queryByText(/Allowed/)).toBeNull()
 
@@ -226,7 +230,7 @@ describe('Audit trail: search, outcome and refresh', () => {
     expect(items).toHaveLength(2)
     const [first] = items
     expect(within(first!).getByText('Their role here does not allow this action').tagName).toBe('STRONG')
-    expect(meta(first!)).toBe(`Staff member · ${new Date('2026-01-01T12:00:00.000Z').toLocaleString()} · Refused`)
+    expect(meta(first!)).toBe(`Staff member · ${formatDateTime('2026-01-01T12:00:00.000Z')} · Refused`)
     for (const withheld of ['security', 'authorization', 'http-request', '/api/', 'encounters']) expect(document.body.innerHTML).not.toContain(withheld)
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Outcome on this page' }), { target: { value: 'denied' } })
@@ -261,10 +265,10 @@ describe('Audit trail: search, outcome and refresh', () => {
     expect(refresh.getAttribute('aria-busy')).toBe('true')
     expect(document.activeElement).toBe(refresh)
     expect(screen.getByRole('list', { name: 'Audit events, page 1' }).getAttribute('aria-busy')).toBe('true')
-    // The list stays on screen, and a visually hidden status says it is being read again.
+    // The list stays on screen, and a status on screen says it is being read again, in classic's words (parity 3.3-74).
     const status = screen.getByRole('status')
-    expect(status.textContent).toBe('Loading audit events')
-    expect(status.className).toBe('hid-ehr-sr-only')
+    expect(status.textContent).toBe('Loading audit events…')
+    expect(status.className).not.toContain('sr-only')
     expect(screen.getByText('Tried to start a new visit')).toBeTruthy()
     fireEvent.click(refresh)
     expect(api.facilityAudit).toHaveBeenCalledTimes(2)
@@ -301,14 +305,15 @@ describe('Audit trail: older and newer pages', () => {
     expect(button('Older page').getAttribute('aria-busy')).toBe('true')
     expect(button('Older page').getAttribute('aria-disabled')).toBe('true')
     expect(document.activeElement).toBe(button('Older page'))
-    expect(screen.getByRole('status').textContent).toBe('Loading audit events')
+    expect(screen.getByRole('status').textContent).toBe('Loading audit events…')
     fireEvent.click(button('Older page'))
     expect(api.facilityAudit).toHaveBeenCalledTimes(2)
 
     await act(async () => { older.resolve(pageOf([event('49', { action: 'ehr.encounter.read' })])) })
     expect(screen.getByRole('list', { name: 'Audit events, page 2' })).toBeTruthy()
     expect(screen.getByText('Opened a patient\'s visit')).toBeTruthy()
-    expect(screen.getByText('Page 2 · 1 event')).toBeTruthy()
+    // Classic always says "events" (staff/routes/Audit.tsx; parity 3.3-74).
+    expect(screen.getByText('Page 2 · 1 events')).toBeTruthy()
     // The last page offers no older one: focus moves to Newer events.
     expect(screen.queryByRole('button', { name: 'Older page' })).toBeNull()
     expect(document.activeElement).toBe(button('Newer page'))
@@ -320,7 +325,7 @@ describe('Audit trail: older and newer pages', () => {
     await act(async () => { newer.resolve(pageOf([event('52', { action: 'identity.consent-grant.close' })], '52')) })
 
     expect(screen.getByText('Access to a patient\'s record ended')).toBeTruthy()
-    expect(screen.getByText('Page 1 · 1 event')).toBeTruthy()
+    expect(screen.getByText('Page 1 · 1 events')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Newer page' })).toBeNull()
     expect(document.activeElement).toBe(button('Older page'))
     onlyAuditRead()

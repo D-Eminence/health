@@ -9,7 +9,7 @@ import { DEMO_HOSPITAL, SESSION, facility, openStaffApp, serve, sessionAt } from
  * here", and reads nothing but the session. Every account is fictional.
  */
 const LAB_REFUSAL = 'Your role at this facility doesn’t include the lab’s work list and results. Ask your facility administrator.'
-const OCR_REFUSAL = 'Scanning paper records is done by the front desk, nurses and clinicians here.'
+const OCR_REFUSAL = 'Scanning paper records is done by the front desk, doctors, nurses and clinicians here.'
 // Both roles register patients (owner's answer, 2 Nov 2026), so registration names them; the Laboratory names none.
 const REGISTRATION_REFUSAL = 'Your role at this facility doesn’t include registering patients. Ask your facility administrator for the Receptionist or Records officer role.'
 vi.mock('../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))

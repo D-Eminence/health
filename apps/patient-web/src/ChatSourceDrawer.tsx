@@ -1,3 +1,4 @@
+import { formatDate } from '@hid/ui/display'
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import type { NovuPatientChatSourceView, NovuPatientChatTypedSource } from '@hid/contracts'
 import { novuSourceFailure } from './chatErrors'
@@ -5,10 +6,7 @@ import { novuSourceFailure } from './chatErrors'
 /** A record's date as the patient reads it; a calendar date keeps its day in every timezone. */
 export function chatSourceDate(value: string | null | undefined): string | null {
   if (!value) return null
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return null
-  return parsed.toLocaleDateString('en-NG', { day: 'numeric', month: 'short', year: 'numeric',
-    ...(/^\d{4}-\d{2}-\d{2}$/.test(value) ? { timeZone: 'UTC' } : {}) })
+  return formatDate(value) || null
 }
 
 type Load =

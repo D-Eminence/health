@@ -1,19 +1,16 @@
+import { formatDate, formatDateTime } from '@hid/ui/display'
+
 /**
- * A server time as "26 Oct 2026, 12:41", or "Not available". Never all numbers ("3/4" is a different day in Lagos and
- * in an American template) and on the 24-hour clock, as the clinical pages write it (clinical/parts/format.ts).
+ * A server time as "26 Oct 2026, 12:41" in Lagos, or "Not available". Never all numbers ("3/4" is a different day in
+ * Lagos and in an American template) and on the 24-hour clock (owner decisions Q181 A and Q182 A, @hid/ui/display).
  */
 export function dateText(value: string | null | undefined) {
-  if (!value) return 'Not available'
-  const time = new Date(value)
-  return Number.isNaN(time.getTime()) ? 'Not available'
-    : time.toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+  return formatDateTime(value, 'Not available')
 }
 
 /** "4 Mar 1991", for a date of birth (a date-only value is read as that calendar day). */
 export function birthDateText(value: string | null | undefined) {
-  if (!value) return ''
-  const day = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T00:00:00`) : new Date(value)
-  return Number.isNaN(day.getTime()) ? '' : day.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+  return formatDate(value)
 }
 
 /** "24 Aug 2026", for a calendar day the server names ("2026-08-24"), as a date of birth is written. */

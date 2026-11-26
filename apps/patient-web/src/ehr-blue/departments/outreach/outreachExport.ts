@@ -1,3 +1,4 @@
+import { ageInYears, lagosDay } from '@hid/ui/display'
 import type { OutreachCampaign, OutreachCase, OutreachCasesPage, OutreachScreening } from '../../../staff/api'
 import { birthDateText, dateText } from '../parts/format'
 import { statusLabel } from './outreachParts'
@@ -90,12 +91,8 @@ function birthDate(item: ExportCase) {
 function age(item: ExportCase) {
   if (typeof item.ageYears === 'number' && Number.isFinite(item.ageYears)) return String(item.ageYears)
   const born = text(item.dateOfBirth)
-  const day = /^\d{4}-\d{2}-\d{2}$/.test(born) ? new Date(`${born}T00:00:00`) : new Date(born)
-  if (!born || Number.isNaN(day.getTime())) return ''
-  const now = new Date()
-  let years = now.getFullYear() - day.getFullYear()
-  if (now < new Date(now.getFullYear(), day.getMonth(), day.getDate())) years -= 1
-  return years >= 0 ? String(years) : ''
+  const years = ageInYears(lagosDay(born) || null)
+  return years === null ? '' : String(years)
 }
 
 function registeredBy(item: ExportCase) {
@@ -257,10 +254,9 @@ export function slug(name: string): string {
   return made || 'campaign'
 }
 
-/** Today's date on this device as YYYY-MM-DD. */
+/** Today's date in Lagos as YYYY-MM-DD, whatever the device's zone (owner decision Q181 A). */
 export function localDay(now: Date): string {
-  const pad = (value: number) => String(value).padStart(2, '0')
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+  return lagosDay(now)
 }
 
 /** "outreach-demo-screening-week-2026-11-14.csv"; "outreach-all-registrations-…" when no campaign is chosen. */

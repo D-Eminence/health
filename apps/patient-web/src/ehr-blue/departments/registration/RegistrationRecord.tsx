@@ -15,12 +15,12 @@ import { ErrorBox, UnavailableAction, type FormProblems } from './registrationPa
 import { VerifyNinForm, VerifyNinNotOffered } from './RegistrationVerifyNin'
 import { VERIFY_NIN, verifyNinOffer } from './verifyNinLater'
 import {
-  APPROVE, APPROVE_REASON_LABEL, BACK_TO_LIST, CANDIDATE_LABEL, candidateLine, candidateOption, CANDIDATES_UNAVAILABLE, candidatesText,
-  caseTitle, caseWhen, COMPLETED, CORRECT_DEMOGRAPHICS, EMAIL_LABEL, ENROLL, ENROLL_NEEDS_NIN, ENROLL_REASON_LABEL, ENROLL_TEXT, ENROLL_TITLE,
-  ENROLL_WITHOUT_NIN,
-  enrolledText, ENROLLING, GIVE_NEW_HID, LINK, LINK_REASON_LABEL, NEXT_STEPS, NO_ACTIONS, noCandidateNotice, NO_CORRECTION, REFRESH_CASE,
-  REFRESHING, REVIEW_NOTICE, MORE_DETAILS, NIN_FACT, ninStatusText, OPEN_IN_PATIENTS, REFERENCE_HINT, REFERENCE_LABEL, SAVED_RECORD, SAVING,
-  SELECT_CANDIDATE, SENT_FOR_REVIEW_NOTICE, statusLabel, WITHOUT_NIN_REVIEW_NOTICE, WITHOUT_NIN_UNLISTED_NOTICE,
+  APPROVE, APPROVE_REASON_LABEL, BACK_TO_LIST, CANDIDATE_LABEL, candidateLine, candidateOption, CANDIDATES_UNAVAILABLE,
+  CANDIDATES_UNAVAILABLE_TITLE, candidatesText, caseTitle, caseWhen, COMPLETED, CORRECT_DEMOGRAPHICS, EMAIL_LABEL, ENROLL, ENROLL_NEEDS_NIN,
+  ENROLL_REASON_LABEL, ENROLL_TEXT, ENROLL_TITLE, ENROLL_WITHOUT_NIN, enrolledText, ENROLLING, findPatientText, GIVE_NEW_HID, LINK, LINK_REASON_LABEL, NEXT_STEPS,
+  NO_ACTIONS, noCandidateNotice, NO_CORRECTION, REFRESH_CASE, REFRESHING, REGISTER_ANOTHER, REVIEW_NOTICE, MORE_DETAILS, NIN_FACT, ninStatusText,
+  REFERENCE_HINT, REFERENCE_LABEL, SAVED_RECORD, SAVING, SELECT_CANDIDATE, SENT_FOR_REVIEW_NOTICE, statusLabel, WITHOUT_NIN_REVIEW_NOTICE,
+  WITHOUT_NIN_UNLISTED_NOTICE,
 } from './registrationText'
 
 type OpenForm = ReviewAction | 'enroll' | 'verifyNin'
@@ -78,8 +78,8 @@ function usePatientsHref(): string | null {
  * today's case card shows (Registration.tsx 248-258), and "Available actions" with today's decisions and account
  * enrollment, each as the design's inline action form with today's fields and words.
  */
-export function RegistrationRecord({ visit, canApprove, busy, caseLoading, message, error, reviewProblems, enrollProblems, verify, onBack, onRefresh, onReview,
-  onEnroll }: {
+export function RegistrationRecord({ visit, canApprove, busy, caseLoading, message, error, reviewProblems, enrollProblems, verify, onBack, onNew,
+  onRefresh, onReview, onEnroll }: {
   readonly visit: VisitCase
   readonly canApprove: boolean
   readonly busy: boolean
@@ -92,6 +92,8 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
   readonly enrollProblems: FormProblems
   readonly verify: VerifyNinProps
   readonly onBack: () => void
+  /** Classic's "Register someone else" (Registration.tsx 291): a new registration, from a completed case. */
+  readonly onNew: () => void
   readonly onRefresh: () => void
   readonly onReview: (event: FormEvent<HTMLFormElement>, action: ReviewAction) => void
   readonly onEnroll: (event: FormEvent<HTMLFormElement>) => void
@@ -104,8 +106,10 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
   // The patient's Health ID once the case has one, or the account just made gives one.
   const hid = enrollment?.hid ?? registration.patient?.hid ?? null
   const completed = COMPLETED.has(registration.status)
-  // Registration.tsx 207-208, 265: only a completed case hands its patient on to Patients.
-  const findPatient = completed && hid && patientsHref ? hid : null
+  // Registration.tsx 289-291: only a completed case with a Health ID hands its patient on to Patients, and offers to
+  // register someone else.
+  const handOff = completed && hid ? hid : null
+  const findPatient = handOff && patientsHref ? handOff : null
   const nextHere = registration.patient ? next : []
   const candidates = registration.candidates ?? []
   // hid-system 0130: a registration without a NIN. Identity sets up a patient account only for a checked NIN
@@ -201,10 +205,13 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
                     </li>
                   ))}
                 </ul>
-              ) : reviewWithoutNin ? null : <p className="hid-ehr-dept-registration-error">{CANDIDATES_UNAVAILABLE}</p>
+              ) : reviewWithoutNin ? null : (
+                // Registration.tsx 279: classic's warning, its title and its line.
+                <DeptNotice tone="caution" title={CANDIDATES_UNAVAILABLE_TITLE}>{CANDIDATES_UNAVAILABLE}</DeptNotice>
+              )
             ) : null}
             {/* The case's reference, out of the way: Health ID keeps no list of registrations, so it is how this one is
-                reopened on a later visit ("Find registration case"). */}
+                reopened on a later visit ("Continue a registration"). */}
             <details className="hid-ehr-dept-registration-more">
               <summary>{MORE_DETAILS}</summary>
               <DeptFacts facts={[{ label: REFERENCE_LABEL, value: registration.caseId }]} />
@@ -270,12 +277,20 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
             ) : null}
             {offered.link || offered.approve || offered.enroll || offered.verifyNin || verifyNinLine || enrollNeedsNin
               ? null : <p className="hid-ehr-dept-muted">{NO_ACTIONS}</p>}
-            {findPatient || nextHere.length ? (
+            {handOff || nextHere.length ? (
               <div className="hid-ehr-dept-registration-next">
                 <h3>{NEXT_STEPS}</h3>
-                {/* Patients reads the handed Health ID from navigation state and puts it in Find a patient. */}
+                {/* Registration.tsx 290: Patients reads the handed Health ID from navigation state (never the address) and
+                    lands on the patient's page with the chart summary (owner decision Q139 B). */}
                 {findPatient && patientsHref ? (
-                  <p><Link className="hid-ehr-button" to={patientsHref} state={{ hid: findPatient }}>{OPEN_IN_PATIENTS}</Link></p>
+                  <p><Link className="hid-ehr-button" to={patientsHref} state={{ hid: findPatient }}>{findPatientText(findPatient)}</Link></p>
+                ) : null}
+                {/* Registration.tsx 291: a new registration straight from here, unavailable while a step runs. */}
+                {handOff ? (
+                  <p>
+                    <EhrButton variant="secondary" className="hid-ehr-dept-registration-unavailable" aria-disabled={unavailable || undefined}
+                      onClick={() => { if (!unavailable) onNew() }}>{REGISTER_ANOTHER}</EhrButton>
+                  </p>
                 ) : null}
                 {nextHere.map(step => (
                   <p key={step.module}><Link className="hid-ehr-button hid-ehr-button-secondary" to={step.href}>{step.label}</Link></p>

@@ -13,8 +13,9 @@ interface BluePageBoundaryProps {
  * so staff can go elsewhere. Its words are today's app's when a page fails (AppErrorBoundary: "Something went wrong",
  * "This page could not be shown. Reload it to try again.", Reload, "Go to your overview"; parity report 3.3-52), and,
  * like it, it shows nothing of the failure, whose message may hold anything the page held. Its way to the overview is
- * the provider overview, Home, where AppErrorBoundary's leads to the site's root. The frame gives it the page's address
- * as its key, so going to another page tries again.
+ * AppErrorBoundary's: a link to the site's root, "/" (AppErrorBoundary.tsx:35), which each site opens on its own page.
+ * Showing the message inside the frame, rather than as a page of its own, is the frame's design. The frame gives it the
+ * page's address as its key, so going to another page tries again.
  */
 export class BluePageBoundary extends Component<BluePageBoundaryProps, { failed: boolean }> {
   override state = { failed: false }
@@ -36,7 +37,7 @@ export class BluePageBoundary extends Component<BluePageBoundaryProps, { failed:
         <p className="hid-ehr-blue-flush">This page could not be shown. Reload it to try again.</p>
         <div className="hid-ehr-actions">
           <EhrButton onClick={() => { if (this.props.reload) this.props.reload(); else window.location.reload() }}>Reload</EhrButton>
-          <EhrButton variant="secondary" onClick={() => { window.location.assign('/provider') }}>Go to your overview</EhrButton>
+          <a className="hid-ehr-button hid-ehr-button-secondary" href="/">Go to your overview</a>
         </div>
       </div>
     )

@@ -325,7 +325,7 @@ describe('the phone number (PPS-11, owner: no "Not verified" until phone checks 
       : path === '/identity/me/contact-changes' && method === 'POST' ? json({ phone: (body as { phone: string }).phone, phoneVerified: false })
         : problem(404, 'NOT_FOUND', path), {}, { parityB3: true })
     const block = within(await openContactDetails())
-    expect(block.getByText('Phone').nextElementSibling?.textContent).toBe('+234 •••• 4567')
+    expect(block.getByText('Phone').nextElementSibling?.textContent).toBe('0••• ••• 4567')
     expect(block.queryByText('Not verified')).toBeNull()
     await press(block.getByRole('button', { name: 'Change phone number' }))
     const hint = described(screen.getByRole('textbox', { name: 'Phone number' }))
@@ -334,15 +334,15 @@ describe('the phone number (PPS-11, owner: no "Not verified" until phone checks 
     type('Phone number', '0805 555 1234')
     type('Current password', 'Secret-pass-1')
     await press(screen.getByRole('button', { name: 'Save phone number' }))
-    const notice = await screen.findByText(/Your phone number is now \+234 •••• 1234\./)
-    expect(notice.textContent).toBe('Your phone number is now +234 •••• 1234. We emailed you about the change.')
+    const notice = await screen.findByText(/Your phone number is now 0••• ••• 1234\./)
+    expect(notice.textContent).toBe('Your phone number is now 0••• ••• 1234. We emailed you about the change.')
     expect(sent.filter(request => request.path === '/identity/me/contact-changes')).toHaveLength(1)
   })
 
   it('still says Verified for a phone Identity says was checked', async () => {
     renderPortal(<ProfilePage />, path => path === '/identity/me' ? json(withContacts) : problem(404, 'NOT_FOUND', path), {}, { parityB3: true })
     const block = within(await openContactDetails())
-    expect(block.getByText('Phone').nextElementSibling?.textContent).toBe('+234 •••• 4567Verified')
+    expect(block.getByText('Phone').nextElementSibling?.textContent).toBe('0••• ••• 4567Verified')
   })
 })
 

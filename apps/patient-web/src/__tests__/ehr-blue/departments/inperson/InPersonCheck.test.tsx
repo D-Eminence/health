@@ -344,7 +344,7 @@ describe('the blue in-person check (hid-system #85, ADR-063)', () => {
     expect(api.assistedVerification).not.toHaveBeenCalled()
   })
 
-  it('says the patient continues on their phone after a match, as a record with no record value, and starts afresh', async () => {
+  it('says the patient continues on their phone after a match, as classic does, with no record value, and starts afresh', async () => {
     api.assistedVerification.mockResolvedValue({ outcome: 'verified' })
     renderPage()
     fill()
@@ -353,15 +353,16 @@ describe('the blue in-person check (hid-system #85, ADR-063)', () => {
     await waitFor(() => expect(document.activeElement).toBe(heading))
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(PAGE_TITLE)
     expect(screen.getByText(VERIFIED_NEXT)).toBeTruthy()
-    // The design's record view: the status, the outcome's facts beside "Available actions".
-    expect(document.querySelector('.hid-ehr-dept-context .hid-ehr-badge')?.textContent).toBe('verified')
+    // Parity 3.3-22: classic's "Checked" card (staff/routes/InPersonCheck.tsx:271-278), its heading, its line and
+    // "Check another patient" only. No status badge, no "ID checked" fact, no "Available actions", no "Next steps".
     const outcome = screen.getByRole('region', { name: VERIFIED })
-    expect([...outcome.querySelectorAll('dt')].map(term => `${term.textContent}: ${term.nextElementSibling?.textContent}`)).toEqual([
-      'ID checked: National ID card'])
-    const actions = screen.getByRole('region', { name: 'Available actions' })
-    expect(within(actions).getAllByRole('button').map(button => button.textContent)).toEqual(['Check another patient'])
-    // No live page to go on to here: no "Next steps".
+    expect([...outcome.querySelectorAll('p')].map(line => line.textContent)).toEqual([VERIFIED_NEXT])
+    expect(within(outcome).getAllByRole('button').map(button => button.textContent)).toEqual(['Check another patient'])
+    expect(screen.getAllByRole('button').map(button => button.textContent)).toEqual(['Check another patient'])
+    expect(document.querySelector('.hid-ehr-dept-context, .hid-ehr-badge, dt')).toBeNull()
+    expect(screen.queryByRole('region', { name: 'Available actions' })).toBeNull()
     expect(screen.queryByRole('heading', { name: 'Next steps' })).toBeNull()
+    expect(document.body.textContent).not.toMatch(/ID checked|National ID card|verified|Open patients/)
     expect(screen.queryByRole('textbox', { name: 'Code' })).toBeNull()
     expect(document.body.textContent).not.toMatch(new RegExp(`${FIRST}|${LAST}|${CODE_SENT}|1990-04-02`))
     fireEvent.click(screen.getByRole('button', { name: 'Check another patient' }))
@@ -379,24 +380,12 @@ describe('the blue in-person check (hid-system #85, ADR-063)', () => {
     expect(second).not.toBe(first)
   })
 
-  it('offers Patients as the next step only where it is a live page this member may open, carrying nothing there', async () => {
-    api.assistedVerification.mockResolvedValue({ outcome: 'verified' })
-    session.permissions = ['identity.patient.assisted_registration', 'identity.patient.read']
-    renderPage({ pages: [patientsPage()] })
-    fill()
-    submit()
-    await screen.findByRole('heading', { name: VERIFIED })
-    const actions = screen.getByRole('region', { name: 'Available actions' })
-    expect(within(actions).getByRole('heading', { level: 3 }).textContent).toBe('Next steps')
-    fireEvent.click(within(actions).getByRole('button', { name: 'Open patients' }))
-    await waitFor(() => expect(seen.at(-1)?.pathname).toBe('/provider/patients'))
-    expect(seen.at(-1)?.state).toBeNull()
-  })
-
   it.each([
+    ['where Patients is a live page this member may open', ['identity.patient.assisted_registration', 'identity.patient.read'], patientsPage()],
     ['without the permission to read patients', ['identity.patient.assisted_registration'], patientsPage()],
     ['where Patients is a sample', ['identity.patient.assisted_registration', 'identity.patient.read'], patientsPage({ status: 'sample' })],
-  ])('offers no next step %s', async (_label, permissions, page) => {
+  ])('offers no next step %s, as classic offers none', async (_label, permissions, page) => {
+    // Parity 3.3-22: classic's outcome (InPersonCheck.tsx:271-278) has no "Next steps" and no "Open patients".
     api.assistedVerification.mockResolvedValue({ outcome: 'verified' })
     session.permissions = permissions
     renderPage({ pages: [page] })
@@ -405,6 +394,7 @@ describe('the blue in-person check (hid-system #85, ADR-063)', () => {
     await screen.findByRole('heading', { name: VERIFIED })
     expect(screen.queryByRole('heading', { name: 'Next steps' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Open patients' })).toBeNull()
+    expect(screen.queryByRole('link')).toBeNull()
   })
 
   it('shows which field differed, never a record value, and checks a correction with a new key', async () => {
@@ -628,11 +618,16 @@ describe('the blue in-person check (hid-system #85, ADR-063)', () => {
     expect(screen.queryByText(detail)).toBeNull()
     expect(document.body.textContent).not.toContain('corr-original')
     expect(screen.getByText(REGISTERED_NEXT)).toBeTruthy()
-    expect(document.querySelector('.hid-ehr-dept-context .hid-ehr-badge')?.textContent).toBe('already registered')
+    // Parity 3.3-24: classic's card (staff/routes/InPersonCheck.tsx:280-287), its heading, its line and "Check another
+    // patient" only. No "already registered" badge, no "ID checked" fact, no "Available actions", no "Next steps".
     const outcome = screen.getByRole('region', { name: REGISTERED })
-    expect(within(outcome).getByText('International passport')).toBeTruthy()
     // Identity sends no detail for it, so no empty line stands for one: only the next step is said.
     expect([...outcome.querySelectorAll('p')].map(line => line.textContent)).toEqual([REGISTERED_NEXT])
+    expect(screen.getAllByRole('button').map(button => button.textContent)).toEqual(['Check another patient'])
+    expect(document.querySelector('.hid-ehr-dept-context, .hid-ehr-badge, dt')).toBeNull()
+    expect(screen.queryByRole('region', { name: 'Available actions' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Next steps' })).toBeNull()
+    expect(document.body.textContent).not.toMatch(/ID checked|International passport|already registered|Open patients/)
     expect(screen.queryByRole('textbox', { name: 'Code' })).toBeNull()
     expect(document.body.textContent).not.toMatch(new RegExp(`HID-|${FIRST}|${LAST}|${CODE_SENT}`))
     fireEvent.click(screen.getByRole('button', { name: 'Check another patient' }))

@@ -52,6 +52,8 @@ const LINKED = { patientId: PATIENT, outcome: 'nin_linked', ninStatus: 'verified
 
 const OFF_LINE = 'NIN checks are not available right now, so the NIN can be added later.'
 const Q117 = 'This NIN could not be verified. Check the number and try again.'
+/** Classic's title over every refusal on the page (Registration.tsx 301, parity 3.3-60 to 3.3-63). */
+const TITLE = 'That didn’t work'
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -163,7 +165,7 @@ describe('Verify NIN on a registration without a NIN', () => {
     api.linkPatientNin.mockRejectedValue(new HidApiError(422, 'x', { code: 'NIN_VERIFICATION_FAILED', detail: Q117 }))
     await openForm()
     await send(NIN)
-    await waitFor(() => expect(within(form()).getByRole('alert').textContent).toBe(Q117))
+    await waitFor(() => expect(within(form()).getByRole('alert').textContent).toBe(`${TITLE}${Q117}`))
     expect(ninField().value).toBe('')
     expect(described(ninField())).toContain('Check this number.')
     expect(ninFact()).toBe('NIN Not Verified')
@@ -174,7 +176,7 @@ describe('Verify NIN on a registration without a NIN', () => {
     await openForm()
     await send(NIN)
     await waitFor(() => expect(within(form()).getByRole('alert').textContent)
-      .toBe('The NIN check is taking longer than usual. Try again in a minute.'))
+      .toBe(`${TITLE}The NIN check is taking longer than usual. Try again in a minute.`))
     expect(ninField().value).toBe('')
     // The words say a minute: the same NIN is held for it, and nothing is sent.
     await send(NIN)
@@ -197,7 +199,7 @@ describe('Verify NIN on a registration without a NIN', () => {
     api.linkPatientNin.mockResolvedValueOnce(LINKED)
     await openForm()
     await send(NIN)
-    await waitFor(() => expect(within(form()).getByRole('alert').textContent).toBe('That didn’t go through. Try again.'))
+    await waitFor(() => expect(within(form()).getByRole('alert').textContent).toBe(`${TITLE}That didn’t go through. Try again.`))
     await send(NIN)
     const keys = api.linkPatientNin.mock.calls.map(call => call[3])
     expect(keys[1]).not.toBe(keys[0])
@@ -208,7 +210,7 @@ describe('Verify NIN on a registration without a NIN', () => {
     api.linkPatientNin.mockRejectedValue(new HidApiError(409, 'x', { code: 'NIN_CHECK_HELD', retryInSeconds: 1 }))
     await openForm()
     await send(NIN)
-    await waitFor(() => expect(within(form()).getByRole('alert').textContent).toMatch(/^This NIN check is on hold\. Try again after /))
+    await waitFor(() => expect(within(form()).getByRole('alert').textContent).toMatch(/^That didn’t workThis NIN check is on hold\. Try again after /))
     const button = within(form()).getByRole('button', { name: 'Verify NIN' }) as HTMLButtonElement
     expect(button.disabled).toBe(true)
     await waitFor(() => expect(button.disabled).toBe(false), { timeout: 3_000 })
@@ -220,7 +222,7 @@ describe('Verify NIN on a registration without a NIN', () => {
     api.linkPatientNin.mockReturnValueOnce(new Promise(() => {}))
     await openForm()
     await send(NIN)
-    const held = /^This NIN check is on hold\. Try again after /
+    const held = /^That didn’t workThis NIN check is on hold\. Try again after /
     await waitFor(() => expect(within(form()).getByRole('alert').textContent).toMatch(held))
     expect(verifyButton().disabled).toBe(true)
     // The same NIN typed again: still held, and the words say why.
@@ -258,7 +260,7 @@ describe('Verify NIN on a registration without a NIN', () => {
     expect(verifyButton().disabled).toBe(false)
     await send(NIN)
     expect(verifyButton().disabled).toBe(true)
-    expect(within(form()).getByRole('alert').textContent).toMatch(/^This NIN check is on hold\. Try again after /)
+    expect(within(form()).getByRole('alert').textContent).toMatch(/^That didn’t workThis NIN check is on hold\. Try again after /)
     expect(api.linkPatientNin).toHaveBeenCalledTimes(2)
     fireEvent.input(ninField(), { target: { value: '' } })
     expect(verifyButton().disabled).toBe(false)
@@ -268,7 +270,7 @@ describe('Verify NIN on a registration without a NIN', () => {
     api.linkPatientNin.mockRejectedValue(new HidApiError(409, 'x', { code: 'NIN_CHECK_IN_PROGRESS', retryInSeconds: 60 }))
     await openForm()
     await send(NIN)
-    await waitFor(() => expect(within(form()).getByRole('alert').textContent).toBe('We’re still checking this NIN. Wait a moment, then try again.'))
+    await waitFor(() => expect(within(form()).getByRole('alert').textContent).toBe(`${TITLE}We’re still checking this NIN. Wait a moment, then try again.`))
     expect((within(form()).getByRole('button', { name: 'Verify NIN' }) as HTMLButtonElement).disabled).toBe(true)
     expect(api.linkPatientNin).toHaveBeenCalledTimes(1)
   })
@@ -280,7 +282,7 @@ describe('Verify NIN on a registration without a NIN', () => {
     await send(NIN)
     await waitFor(() => expect(api.registrationCapabilities).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(within(actions()).getByText(OFF_LINE)).toBeTruthy())
-    expect(screen.getByRole('alert').textContent).toBe('NIN checks are not available right now. Try again in a minute.')
+    expect(screen.getByRole('alert').textContent).toBe(`${TITLE}NIN checks are not available right now. Try again in a minute.`)
     expect(screen.queryByRole('form', { name: 'Verify NIN' })).toBeNull()
   })
 
@@ -290,7 +292,7 @@ describe('Verify NIN on a registration without a NIN', () => {
     await openForm()
     await send(NIN)
     await waitFor(() => expect(within(form()).getByRole('alert').textContent)
-      .toBe('This patient’s records already hold a NIN, so it can’t be added here.'))
+      .toBe(`${TITLE}This patient’s records already hold a NIN, so it can’t be added here.`))
     expect(ninFact()).toBe('NIN Not Verified')
   })
 
@@ -300,7 +302,7 @@ describe('Verify NIN on a registration without a NIN', () => {
     await openForm()
     await send(NIN)
     await waitFor(() => expect(ninFact()).toBe('NIN Verified'))
-    expect(screen.getByRole('alert').textContent).toBe('This patient already has a verified NIN.')
+    expect(screen.getByRole('alert').textContent).toBe(`${TITLE}This patient already has a verified NIN.`)
   })
 
   it.each([
@@ -322,7 +324,7 @@ describe('Verify NIN on a registration without a NIN', () => {
     api.linkPatientNin.mockRejectedValue(new HidApiError(status, 'Identity’s own text', { code, detail }))
     await openForm()
     await send(NIN)
-    await waitFor(() => expect(within(form()).getAllByRole('alert').map(alert => alert.textContent)).toContain(words))
+    await waitFor(() => expect(within(form()).getAllByRole('alert').map(alert => alert.textContent)).toContain(`${TITLE}${words}`))
     expect(document.body.textContent).not.toContain('Identity’s own text')
     expect(ninFact()).toBe('NIN Not Verified')
     expect(ninField().value).toBe('')
@@ -392,7 +394,7 @@ describe('when Verify NIN is not offered', () => {
     await send(NIN)
     await waitFor(() => expect(ninFact()).toBe('NIN Verified'))
     expect(within(actions()).getByText(words)).toBeTruthy()
-    expect(within(actions()).queryByRole('button', { name: 'Create their account' })).toBeNull()
+    expect(within(actions()).queryByRole('button', { name: 'No phone or app? Create their account · optional' })).toBeNull()
   })
 })
 

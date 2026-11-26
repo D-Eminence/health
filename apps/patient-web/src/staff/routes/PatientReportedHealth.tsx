@@ -1,3 +1,4 @@
+import { formatDateTime } from '@hid/ui/display'
 import { useEffect, useRef, useState } from 'react'
 import { isHidApiError } from '@hid/http'
 import { Badge, Card } from '@hid/ui'
@@ -11,8 +12,7 @@ const LABELS: Readonly<Record<keyof HealthFields, string>> = {
 }
 
 function savedOn(value: string | null) {
-  const parsed = value ? new Date(value) : null
-  return parsed && !Number.isNaN(parsed.getTime()) ? parsed.toLocaleString() : null
+  return formatDateTime(value) || null
 }
 
 /**

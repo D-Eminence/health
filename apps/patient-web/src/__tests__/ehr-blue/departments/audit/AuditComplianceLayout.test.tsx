@@ -1,3 +1,4 @@
+import { formatDateTime } from '@hid/ui/display'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -115,7 +116,7 @@ describe('Audit trail: every event of the page loaded', () => {
     expect((screen.getByRole('searchbox', { name: 'Search this page' }) as HTMLInputElement).value).toBe('')
     expect((screen.getByRole('combobox', { name: 'Outcome on this page' }) as HTMLSelectElement).value).toBe('all')
     expect(shown()).toEqual(['Looked up a patient by Health ID', 'Patient access and registration activity (refused)', 'Tried to start a new visit'])
-    const when = new Date('2026-01-01T12:00:00.000Z').toLocaleString()
+    const when = formatDateTime('2026-01-01T12:00:00.000Z')
     expect([...document.querySelectorAll('.hid-ehr-dept-audit-meta')].map(line => line.textContent))
       .toEqual([`Staff member · ${when} · Allowed`, `Someone · ${when} · Refused`, `Staff member · ${when} · Failed`])
     for (const withheld of ['identity.patient.lookup', 'identity.access.denied', 'ehr.encounter.create', 'Corr-XYZ', 'encounter']) {
@@ -156,8 +157,8 @@ describe('Audit trail: every event of the page loaded', () => {
     expect(api.facilityAudit).toHaveBeenLastCalledWith(DEMO_HOSPITAL_ID, undefined)
     expect(screen.getByRole('list', { name: 'Audit events, page 1' }).getAttribute('aria-busy')).toBe('true')
     const status = screen.getByRole('status')
-    expect(status.textContent).toBe('Loading audit events')
-    expect(status.className).toBe('hid-ehr-sr-only')
+    expect(status.textContent).toBe('Loading audit events…')
+    expect(status.className).not.toContain('sr-only')
     expect(screen.getByText('Tried to start a new visit')).toBeTruthy()
     expect(button('Older page').getAttribute('aria-busy')).toBe('true')
 

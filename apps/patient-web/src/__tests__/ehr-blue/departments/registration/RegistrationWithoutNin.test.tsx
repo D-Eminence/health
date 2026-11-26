@@ -7,6 +7,8 @@ import {
   isChild, offersWithoutNin, withoutNinFirst, withoutNinInput, withoutNinProblems, type WithoutNinForm,
 } from '../../../../ehr-blue/departments/registration/withoutNin'
 import { emptyDeskForm } from '../../../../ehr-blue/collected/deskFields'
+import { registrationErrorText } from '../../../../staff/registrationFlow'
+import { SAID_CHANGED } from '../../../said'
 
 /*
  * Registration without a NIN in the blue Registration department (hid-system 0130, owner Q106 of 18 November 2026;
@@ -248,7 +250,8 @@ describe('Register without a NIN', () => {
     fill()
     await register()
     const drawer = within(screen.getByRole('dialog'))
-    await waitFor(() => expect(drawer.getAllByRole('alert').map(alert => alert.textContent)).toContain(words))
+    // Under classic's title (Registration.tsx 301), as every refusal on the page.
+    await waitFor(() => expect(drawer.getAllByRole('alert').map(alert => alert.textContent)).toContain(`That didn’t work${words}`))
     expect(document.body.textContent).not.toContain('Identity’s own text')
     expect((screen.getByLabelText(/^First name/) as HTMLInputElement).value).toBe('Patient')
     expect(api.registrationCase).not.toHaveBeenCalled()
@@ -393,7 +396,7 @@ describe('a registration without a NIN, as an approver reads it', () => {
     await findCase()
     await decide('Give a new Health ID', 'No existing patient is the same person')
     const form = screen.getByRole('form', { name: 'Give a new Health ID' })
-    await waitFor(() => expect(within(form).getByRole('alert').textContent).toBe(words))
+    await waitFor(() => expect(within(form).getByRole('alert').textContent).toBe(`That didn’t work${words}`))
     expect(document.body.textContent).not.toContain('Identity’s own text')
   })
 
@@ -431,7 +434,7 @@ describe('a registration without a NIN, as an approver reads it', () => {
     api.registrationCase.mockResolvedValue({ caseId: CASE, status: 'approved_new_identity', version: 1, candidateCount: 0,
       identityEvidence: 'none', ninStatus: 'not_verified', patient: { patientId: PATIENT, hid: 'HID-ZDEMAAB2' } })
     await findCase()
-    expect(within(actions()).queryByRole('button', { name: 'Create their account' })).toBeNull()
+    expect(within(actions()).queryByRole('button', { name: 'No phone or app? Create their account · optional' })).toBeNull()
     // 0032 sets up an account only for the NIN checked on the registration itself, so a NIN added later (ID-6) is not
     // promised to open one.
     expect(within(actions()).getByText('A patient account can’t be set up from a registration made without a NIN, '
@@ -449,19 +452,23 @@ describe('a registration without a NIN, as an approver reads it', () => {
     expect(within(actions()).queryByText(/made without a NIN/)).toBeNull()
   })
 
-  it('a NIN case’s enrollment refused as PATIENT_ENROLLMENT_CONFLICT is said in its own words, not as "changed somewhere else"', async () => {
+  it('a NIN case’s enrollment refused as PATIENT_ENROLLMENT_CONFLICT is said as classic says it (parity 3.3-63)', async () => {
     api.registrationCase.mockResolvedValue({ caseId: CASE, status: 'approved_new_identity', version: 2, candidateCount: 0,
       identityEvidence: 'nin', ninStatus: 'verified', patient: { patientId: PATIENT, hid: 'HID-ZDEMAAB2' } })
     api.enrollRegistration.mockRejectedValue(new HidApiError(409, 'Registration or account state changed', { code: 'PATIENT_ENROLLMENT_CONFLICT' }))
     await findCase()
     expect(within(actions()).queryByText(NEEDS_NIN)).toBeNull()
-    fireEvent.click(within(actions()).getByRole('button', { name: 'Create their account' }))
-    const form = screen.getByRole('form', { name: 'Create their account' })
+    fireEvent.click(within(actions()).getByRole('button', { name: 'No phone or app? Create their account · optional' }))
+    const form = screen.getByRole('form', { name: 'No phone or app? Create their account · optional' })
     fireEvent.change(within(form).getByRole('textbox', { name: 'Their email' }), { target: { value: 'patient.one@example.test' } })
     fireEvent.change(within(form).getByRole('textbox', { name: 'Why (for the record)' }), { target: { value: 'Patient asked for an account' } })
     await act(async () => { fireEvent.click(within(form).getByRole('button', { name: 'Create account' })) })
-    await waitFor(() => expect(within(form).getByRole('alert').textContent).toBe('A patient account could not be set up for this '
-      + 'registration. The patient may already have one, or their NIN has not been checked. Refresh this registration before trying again.'))
-    expect(document.body.textContent).not.toMatch(/changed somewhere else|account state changed/)
+    // Classic's own step (staff/routes/Registration.tsx 210): its refusal words for this answer, under its title. The
+    // sentence the blue page once added for it is gone.
+    const conflict = new HidApiError(409, 'Registration or account state changed', { code: 'PATIENT_ENROLLMENT_CONFLICT' })
+    const classic = registrationErrorText(conflict, 'We couldn’t create the account. They may already have one.')
+    expect(classic).toBe(SAID_CHANGED)
+    await waitFor(() => expect(within(form).getByRole('alert').textContent).toBe(`That didn’t work${classic}`))
+    expect(document.body.textContent).not.toMatch(/A patient account could not be set up|account state changed/)
   })
 })

@@ -1,3 +1,4 @@
+import { formatDate, formatDateTime } from '@hid/ui/display'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Send } from 'lucide-react'
 import { Button, Card, EmptyState } from '../kasuwa/ui'
@@ -25,29 +26,19 @@ import { useActionFocus, useRetryFocus } from './actionFocus'
  * then the card is not shown.
  */
 
-const DAY = new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeZone: 'Africa/Lagos' })
-const MOMENT = new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Africa/Lagos' })
-
 function day(value: string | null | undefined): string {
-  if (!value) return 'an unknown date'
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? 'an unknown date' : DAY.format(parsed)
+  return formatDate(value, 'an unknown date')
 }
 
 /** A deadline, which is a moment and not the whole day: its day and time in Lagos. */
 function moment(value: string | null | undefined): string {
-  if (!value) return 'an unknown time'
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? 'an unknown time' : MOMENT.format(parsed)
+  return formatDateTime(value, 'an unknown time')
 }
 
 /** A calendar day sent as YYYY-MM-DD, shown as that day wherever the browser is. */
 function calendarDay(value: string | number | null | undefined): string | null {
   if (typeof value !== 'string' || !value) return null
-  const plain = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
-  if (!plain) return day(value)
-  return new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeZone: 'UTC' })
-    .format(new Date(Date.UTC(Number(plain[1]), Number(plain[2]) - 1, Number(plain[3]))))
+  return day(value)
 }
 
 function named(value: string | null | undefined, fallback: string): string {

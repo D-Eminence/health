@@ -1,3 +1,4 @@
+import { formatDate } from '@hid/ui/display'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { RotateCcw } from 'lucide-react'
 import { isHidApiError } from '@hid/http'
@@ -44,9 +45,7 @@ const FLAG_WORDS: Readonly<Record<string, string>> = {
 export function writtenDay(value: string | null | undefined): string {
   if (!value) return ''
   const day = /^(\d{4})-(\d{2})-(\d{2})(?:T00:00(?::00(?:\.0+)?)?(?:Z|[+-]00:?00)?)?$/.exec(value)
-  const at = day ? new Date(Date.UTC(Number(day[1]), Number(day[2]) - 1, Number(day[3]))) : new Date(value)
-  if (Number.isNaN(at.getTime())) return ''
-  return at.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: day ? 'UTC' : 'Africa/Lagos' })
+  return formatDate(day ? `${day[1]}-${day[2]}-${day[3]}` : value)
 }
 
 type Failure = 'consent' | 'notServed' | 'notFound' | 'failed'

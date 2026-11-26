@@ -41,6 +41,13 @@ export function facilityRefusal(caught: unknown, facility: string): string {
  * continue." when none is chosen (parity report 3.3-47, 3.3-48). Opened from the facility menu to switch, the facility
  * worked at is checked, and choosing another asks in place, as classic's "Working at" did: "You are working at X.
  * Switch to Y?", with Switch facility and Cancel (3.3-49). Nothing switches until it is confirmed.
+ *
+ * It behaves as classic's FacilityChoice does (staff/App.tsx:853-924; parity report 3.3-47): a choice sent with Enter on
+ * an option moves focus to Continue; "Choose a facility to continue." is an alert only when focus stays on the options
+ * (Enter), since Continue moves focus into them and their description says it; and a refusal is a plain line with
+ * role="alert" at the options, which it describes, never a boxed alert. The eyebrow and each facility's role line are
+ * the design's "Choose workspace" (frame/tour/journeys.ts:52, :76: "Select one of your actual hospital memberships"), so
+ * they stay (3.3-47, 3.3-48 and 3.3-49 recorded as the design).
  */
 export function ChooseWorkspace({ reason, onChosen }: { readonly reason: WorkspaceQuestion; readonly onChosen?: () => void }) {
   const { state, selectFacility, signOut, activePatient, lock } = useStaff()
@@ -49,11 +56,23 @@ export function ChooseWorkspace({ reason, onChosen }: { readonly reason: Workspa
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [picked, setPicked] = useState('')
-  // Continue with nothing picked: counted, so each refusal is said afresh (classic's `missing`).
+  // Continue with nothing picked: counted, so each refusal is said afresh (classic's `missing`). Reported at the options,
+  // which take focus, and their description announces it; sent with Enter on an option, focus does not move into them,
+  // so it is an alert instead (`missingAlert`), as classic's: as both it would be spoken twice.
   const [missing, setMissing] = useState(0)
+  const [missingAlert, setMissingAlert] = useState(false)
   const [signOutError, setSignOutError] = useState('')
   const productName = PRODUCTS[productHere(state.status === 'ready' ? state.session : null)].name
-  useLayoutEffect(() => { heading.current?.focus() }, [])
+  // The question is the page: it takes focus when it appears, unless the person is already somewhere on it. One that
+  // appears while the workspace is locked takes it once the workspace opens, once. Asked because the facility was found
+  // gone, it takes focus wherever it was: the page and patient closed under the person (classic FacilityChoice).
+  const focused = useRef(false)
+  useLayoutEffect(() => {
+    if (focused.current || lock !== null) return
+    focused.current = true
+    const active = document.activeElement
+    if (reason === 'lost' || reason === 'switch' || !(active instanceof HTMLElement) || active === document.body || !active.isConnected) heading.current?.focus()
+  }, [lock, reason])
   // Today's ProviderTitle (staff/App.tsx) names this address "Page not found": today's portal has no such page. Switch
   // facility is the blue EHR's own page, so it names the tab as the frame names its pages, again after the lock screen.
   // The question asked before any page opens keeps today's "Where are you working?".
@@ -70,10 +89,23 @@ export function ChooseWorkspace({ reason, onChosen }: { readonly reason: Workspa
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (busy) return
-    if (!picked) {
-      setMissing(count => count + 1)
-      event.currentTarget.querySelector<HTMLInputElement>('input[name="hid-ehr-blue-facility-choice"]')?.focus()
+    const form = event.currentTarget
+    // A switch is asked in place first: Enter on an option leads to the question's Switch facility, and sends nothing.
+    if (switching) {
+      form.querySelector<HTMLButtonElement>('#hid-ehr-blue-chooser-question ~ div button')?.focus()
       return
+    }
+    if (!picked) {
+      const options = form.querySelector('fieldset')
+      setMissingAlert(options?.contains(document.activeElement) ?? false)
+      setMissing(count => count + 1)
+      options?.querySelector<HTMLInputElement>('input[name="hid-ehr-blue-facility-choice"]')?.focus()
+      return
+    }
+    // The options are disabled while the choice is saved, so the one checked is the one sent. A choice sent with Enter
+    // on an option moves focus to Continue, which stays enabled, rather than leave it on a disabled option.
+    if (document.activeElement instanceof HTMLInputElement && form.contains(document.activeElement)) {
+      form.querySelector<HTMLButtonElement>('button[type="submit"]')?.focus()
     }
     void choose(picked, actor.facilities.find(facility => facility.id === picked)?.name ?? 'this facility')
   }
@@ -110,7 +142,7 @@ export function ChooseWorkspace({ reason, onChosen }: { readonly reason: Workspa
       </div>
       <form noValidate onSubmit={submit} className="flex flex-col gap-4">
         <fieldset disabled={busy !== null} className="m-0 flex flex-col gap-1.5 rounded-2xl border-0 bg-tray p-1.5"
-          aria-describedby={['hid-ehr-blue-chooser-why', missing > 0 && 'hid-ehr-blue-chooser-missing'].filter(Boolean).join(' ')}>
+          aria-describedby={['hid-ehr-blue-chooser-why', missing > 0 && 'hid-ehr-blue-chooser-missing', error && 'hid-ehr-blue-chooser-error'].filter(Boolean).join(' ')}>
           <legend className="sr-only">Facility</legend>
           {actor.facilities.map(facility => (
             <label key={facility.id} className="flex cursor-pointer items-center gap-3 rounded-xl bg-surface p-4 ring-1 ring-line">
@@ -123,7 +155,9 @@ export function ChooseWorkspace({ reason, onChosen }: { readonly reason: Workspa
             </label>
           ))}
         </fieldset>
-        {missing > 0 ? <p key={missing} id="hid-ehr-blue-chooser-missing" role="alert" className="m-0 text-sm text-danger-ink">Choose a facility to continue.</p> : null}
+        {missing > 0 ? <p key={missing} id="hid-ehr-blue-chooser-missing" role={missingAlert ? 'alert' : undefined} className="m-0 text-sm text-danger-ink">Choose a facility to continue.</p> : null}
+        {/* Classic's plain refusal at the options (staff/App.tsx FacilityChoice), not a boxed alert. */}
+        {error ? <p id="hid-ehr-blue-chooser-error" role="alert" className="m-0 text-sm text-danger-ink">{error}</p> : null}
         {proposed ? <div role="group" aria-labelledby="hid-ehr-blue-chooser-question" className="flex flex-col gap-2 rounded-xl bg-subtle p-3">
           <p id="hid-ehr-blue-chooser-question" className="m-0 text-sm text-ink">{current ? `You are working at ${current.name}. Switch to ${proposed.name}?` : `Work at ${proposed.name}?`}{activePatient ? ' The open patient record will close.' : ''}</p>
           <div className="flex flex-wrap gap-2">
@@ -133,7 +167,6 @@ export function ChooseWorkspace({ reason, onChosen }: { readonly reason: Workspa
         </div> : null}
         {switching ? null : <div><Button type="submit" variant="primary" aria-disabled={busy !== null || undefined}>{busy ? 'Saving…' : 'Continue'}</Button></div>}
       </form>
-      {error ? <Alert intent="error" title="That facility couldn’t be opened">{error}</Alert> : null}
       {/* Owner decision 5 of 11 November 2026: the same login can also run its own outreach group. The group opens on
           Health ID Outreach only: another product site keeps only the facilities that fit it (Q88). Linked to Health ID Outreach only for a login that can open it (actor.products, Q97); a doctor's, clinician's,
           nurse's or receptionist's login, which Health ID Outreach refuses, starts it here on Health ID EHR instead

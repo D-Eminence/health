@@ -10,6 +10,7 @@
  * - PatientBanner: name, Health ID, date of birth, age and sex on every clinical screen (wrong-patient prevention).
  * - Value / Flag: a measurement always with its unit, and an abnormal one said in words with an icon, not colour alone.
  */
+import { ageInYears, formatDate } from '@hid/ui/display'
 import type { ComponentProps, ReactNode, Ref } from 'react'
 import { ArrowDown, ArrowUp, CircleAlert, RotateCcw, TriangleAlert } from 'lucide-react'
 import { Alert, Badge, Button, Card, EmptyState, PageHeader, cx, type Icon, type Tone } from './ui'
@@ -79,17 +80,19 @@ export function LoadingRows({ rows = 3, label = 'Loading' }: { rows?: number; la
 /** The Button, typed to take a ref (React 19 passes it as a prop, and Button spreads it onto its <button>). */
 const RefButton = Button as (props: ComponentProps<typeof Button> & { ref?: Ref<HTMLButtonElement> }) => ReactNode
 
-export function PageState({ loading, error, hasData, onRetry, retryLabel = 'Try again', retryRef, what, empty, children, rows }: {
+export function PageState({ loading, error, hasData, onRetry, retryLabel = 'Try again', retryRef, what, errorTitle, empty, children, rows }: {
   loading: boolean; error: string | null | undefined; hasData: boolean; onRetry?: () => void; retryLabel?: string
   /** The Retry button, for a page that moves focus to it when the read fails again (useRetryFocus's `button`). */
   retryRef?: Ref<HTMLButtonElement>
   /** What is being read, for the error title: "your records". */
   what: string
+  /** The error's title; by default "Couldn’t load {what}". Null: the error alone, as a page whose classic said no title. */
+  errorTitle?: string | null
   empty?: { icon?: Icon; illustration?: IllustrationName; title: string; description?: ReactNode; action?: ReactNode } | null
   children: ReactNode; rows?: number
 }) {
   if (loading && !hasData) return <LoadingRows rows={rows} label={`Loading ${what}`} />
-  if (error) return <Alert intent="error" title={`Couldn’t load ${what}`} action={onRetry ? <RefButton ref={retryRef} size="sm" icon={RotateCcw} onClick={onRetry}>{retryLabel}</RefButton> : undefined}>{error}</Alert>
+  if (error) return <Alert intent="error" title={errorTitle === null ? undefined : errorTitle ?? `Couldn’t load ${what}`} action={onRetry ? <RefButton ref={retryRef} size="sm" icon={RotateCcw} onClick={onRetry}>{retryLabel}</RefButton> : undefined}>{error}</Alert>
   if (empty) return <EmptyState compact icon={empty.icon} illustration={empty.illustration} title={empty.title} description={empty.description} action={empty.action} />
   return <>{children}</>
 }
@@ -116,14 +119,9 @@ export function ConfirmSheet({ open, onClose, title, subject, effect, undo, conf
 
 function ageOf(dateOfBirth: string | null | undefined): number | null {
   if (!dateOfBirth) return null
-  const born = new Date(dateOfBirth)
-  if (Number.isNaN(born.getTime())) return null
-  const now = new Date()
-  let age = now.getFullYear() - born.getFullYear()
-  if (now < new Date(now.getFullYear(), born.getMonth(), born.getDate())) age -= 1
-  return age
+  return ageInYears(dateOfBirth)
 }
-const day = (iso: string) => new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso))
+const day = (iso: string) => formatDate(iso)
 const words = (value: string | null | undefined) => value ? value.replace(/[_-]+/g, ' ').replace(/^./, c => c.toUpperCase()) : ''
 
 /**
