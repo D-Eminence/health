@@ -13,7 +13,7 @@ import { NIN_NUMBER_FIELD, NIN_REFUSED, safeError } from './registrationText'
  */
 
 export const VERIFY_NIN = 'Verify NIN'
-export const VERIFY_NIN_TEXT = 'Check the NIN on the patient’s NIN slip and add it to this record. Type it as it is on the slip. It isn’t kept here.'
+export const VERIFY_NIN_TEXT = 'Check the NIN on the patient’s NIN slip and add it to this record. Type it as it is on the slip. This page doesn’t keep the number.'
 export const VERIFY_NIN_LABEL = 'NIN (11 digits)'
 export const VERIFY_NIN_SENDING = 'Checking…'
 /** registration-capabilities answers nin.available false: no button, and this line in its place. */

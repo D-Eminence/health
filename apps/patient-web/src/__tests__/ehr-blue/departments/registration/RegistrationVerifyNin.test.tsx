@@ -106,7 +106,7 @@ describe('Verify NIN on a registration without a NIN', () => {
   it('is offered for the registered patient whose NIN is not verified, while NIN checks are available', async () => {
     await openForm()
     expect(ninFact()).toBe('NIN Not Verified')
-    expect(within(form()).getByText(/Type it as it is on the slip\. It isn’t kept here\./)).toBeTruthy()
+    expect(within(form()).getByText(/Type it as it is on the slip\. This page doesn’t keep the number\./)).toBeTruthy()
     expect(ninField().type).toBe('password')
     expect(within(actions()).queryByText('Nothing else to do here.')).toBeNull()
   })
@@ -264,6 +264,46 @@ describe('Verify NIN on a registration without a NIN', () => {
     expect(api.linkPatientNin).toHaveBeenCalledTimes(2)
     fireEvent.input(ninField(), { target: { value: '' } })
     expect(verifyButton().disabled).toBe(false)
+  })
+
+  it.each([
+    ['reopened from the cases list', 'list'],
+    ['found by its Registration ID', 'find'],
+  ] as const)('another case %s starts with the button on and no field error, after a hold and a refusal on this one', async (_how, how) => {
+    const otherCase = { ...REGISTERED, caseId: OTHER_CASE, patient: { patientId: OTHER_PATIENT, hid: 'HID-ZDEMAAA3' } }
+    api.registrationCase.mockImplementation((_facility: string, caseId: string) => Promise.resolve(caseId === OTHER_CASE ? otherCase : REGISTERED))
+    api.linkPatientNin.mockRejectedValueOnce(new HidApiError(409, 'x', { code: 'NIN_CHECK_HELD', retryInSeconds: 21_600 }))
+    api.linkPatientNin.mockRejectedValueOnce(new HidApiError(422, 'x', { code: 'NIN_VERIFICATION_FAILED', detail: Q117 }))
+    if (how === 'list') {
+      await findCase(OTHER_CASE)
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Back to list' })) })
+    }
+    await openForm(CASE, how === 'find')
+    // A held NIN, then a number Identity refused at its field, then the held NIN typed again: both show at once.
+    await send(NIN)
+    await waitFor(() => expect(verifyButton().disabled).toBe(true))
+    await send(OTHER_NIN)
+    await waitFor(() => expect(ninField().getAttribute('aria-invalid')).toBe('true'))
+    fireEvent.input(ninField(), { target: { value: NIN } })
+    expect(verifyButton().disabled).toBe(true)
+    expect(ninField().getAttribute('aria-invalid')).toBe('true')
+    expect(described(ninField())).toContain('Check this number.')
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Back to list' })) })
+    if (how === 'list') {
+      const row = screen.getByText('Health ID: HID-ZDEMAAA3').closest('tr') as HTMLElement
+      fireEvent.click(within(row).getByRole('button', { name: /^Open/ }))
+      await screen.findByRole('heading', { level: 1, name: 'Earlier registration' })
+    } else {
+      await findCase(OTHER_CASE, false)
+    }
+    await waitFor(() => expect(within(savedRecord()).getByText('Health ID').nextElementSibling?.textContent).toBe('HID-ZDEMAAA3'))
+    await waitFor(() => expect(within(actions()).getByRole('button', { name: 'Verify NIN' })).toBeTruthy())
+    fireEvent.click(within(actions()).getByRole('button', { name: 'Verify NIN' }))
+    expect(verifyButton().disabled).toBe(false)
+    expect(ninField().getAttribute('aria-invalid')).not.toBe('true')
+    expect(described(ninField())).not.toContain('Check this number.')
+    expect(within(form()).queryByRole('alert')).toBeNull()
+    expect(api.linkPatientNin).toHaveBeenCalledTimes(2)
   })
 
   it('a check still in progress keeps the button off for the minute Identity named', async () => {
