@@ -235,7 +235,14 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'ehr.consultations',
       // The waiting list: check-in by a search's matchRef, the list, and each row's stage, triage level and who will see
       // the patient (hid-system 0135, EHR-C7, Release A; a backend before it answers 404).
-      'ehr.visitQueue', 'ehr.visitQueueCheckIn', 'ehr.visitQueueEntry'],
+      'ehr.visitQueue', 'ehr.visitQueueCheckIn', 'ehr.visitQueueEntry',
+      // Inpatient admission, wards and beds: ward setup, the bed board and census, a bed's status, admissions and their
+      // admit, transfer, handover, discharge, cancel and prints (hid-system ADT-1, 0170-0173; 404 before it, 503 while
+      // INPATIENT_ENABLED is off).
+      'ehr.wards', 'ehr.ward', 'ehr.wardBeds', 'ehr.wardStaff', 'ehr.bed', 'ehr.bedStatus', 'ehr.bedBoard', 'ehr.census',
+      'ehr.admissions', 'ehr.admission', 'ehr.admissionAdmit', 'ehr.admissionTransfer', 'ehr.admissionHandover',
+      'ehr.admissionPrepareDischarge', 'ehr.admissionDischarge', 'ehr.admissionCancel', 'ehr.admissionDischargeSummary',
+      'ehr.admissionWristband', 'ehr.admissionNewbornBand'],
     // Facility billing (docs/BILLING_SPEC.md; proposed routes) and the price catalogue it shows. Not demo requests.
     commercial: ['commercial.pricing', 'commercial.subscription', 'commercial.subscriptionTrial',
       'commercial.subscriptionCheckout', 'commercial.invoices',

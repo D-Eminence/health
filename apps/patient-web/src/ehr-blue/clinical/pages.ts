@@ -26,12 +26,12 @@ export const pages: EhrBluePage[] = [
   { path: 'journey/*', group: 'Clinical', label: 'Patient visits', icon: icon('route'), status: 'sample', element: sample('journey') },
   { path: 'triage/*', group: 'Clinical', label: 'Triage & Vitals', icon: icon('activity'), permission: 'ehr.vital.read', status: triageStatus, element: createElement(TriageWorkspace) },
   { path: 'clinical/*', group: 'Clinical', label: 'Consultation', icon: icon('stethoscope'), permission: 'ehr.encounter.read', status: consultStatus, element: createElement(ConsultWorkspace) },
-  { path: 'inpatient/*', group: 'Clinical', label: 'Inpatient / Wards', icon: icon('bed'), status: 'sample', element: sample('inpatient') },
-  { path: 'wards/*', group: 'Clinical', label: 'Wards & Beds', icon: icon('ward'), status: 'sample', element: sample('wards') },
+  // Inpatient / Wards and Wards & Beds are live: departments/inpatient/page.tsx (hid-system ADT-1). Their samples' records
+  // stay in the sample store for the demo's Home and Nursing tasks.
   { path: 'nursing/*', group: 'Clinical', label: 'Nursing observations', icon: icon('notes'), permission: 'ehr.note.read', status: nursingStatus, element: createElement(NursingWorkspace) },
   { path: 'maternity/*', group: 'Clinical', label: 'Maternity', icon: icon('heart'), status: 'sample', element: sample('maternity') },
   { path: 'surgery/*', group: 'Clinical', label: 'Theatre & Procedures', icon: icon('scissors'), status: 'sample', element: sample('surgery') },
-  { path: 'icu/*', group: 'Clinical', label: 'ICU', icon: icon('monitor'), status: 'sample', element: sample('icu') },
+  // ICU is live as a ward type: departments/inpatient/page.tsx (hid-system ADT-1, Q201 A).
   { path: 'dental/*', group: 'Clinical', label: 'Dental', icon: icon('tooth'), status: 'sample', element: sample('dental') },
   { path: 'requests/*', group: 'Clinical', label: 'Access requests', icon: icon('lock'), permission: 'identity.consent.write', status: consentStatus, element: createElement(ConsentWorkspace),
     refusal: createElement(ConsentRefusal) },
@@ -42,5 +42,5 @@ export const pages: EhrBluePage[] = [
   { path: 'referrals/*', group: 'Network & Services', label: 'Referral Network', icon: icon('share'), status: 'sample', element: sample('referrals') },
   { path: 'telemedicine/*', group: 'Network & Services', label: 'Telemedicine', icon: icon('video'), status: 'sample', element: sample('telemedicine') },
   { path: 'bloodbank/*', group: 'Network & Services', label: 'Blood Bank', icon: icon('droplet'), status: 'sample', element: sample('bloodbank') },
-  { path: 'ward-config/*', group: 'Settings', label: 'Ward configuration', icon: icon('wardSettings'), status: 'sample', element: sample('ward-config') },
+  // Ward configuration is live: departments/inpatient/page.tsx (hid-system ADT-1, Q191 A).
 ]

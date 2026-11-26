@@ -34,8 +34,13 @@ const listOf = (name: string) => JSON.parse((new RegExp(`export const ${name} = 
 const STATUS_FILTERS = [...listOf('ACCESS_REQUEST_STATUSES'), ...listOf('ACCESS_OUTCOME_FILTERS')]
 
 describe('clinicalReturnPath: the pages a sign-in may come back to', () => {
-  it('reads twenty workspaces from pages.ts, six of them live (a guard on the readers below)', () => {
-    expect(pageSegments).toHaveLength(20)
+  // Inpatient / Wards, Wards & Beds, ICU and Ward configuration left this list for departments/inpatient (hid-system
+  // ADT-1); their list addresses still come back.
+  it('reads sixteen workspaces from pages.ts, six of them live (a guard on the readers below)', () => {
+    expect(pageSegments).toHaveLength(16)
+    for (const moved of ['inpatient', 'wards', 'icu', 'ward-config']) {
+      expect(clinicalReturnPath(`/provider/${moved}`)).toBe(`/provider/${moved}`)
+    }
     expect(livePages).toEqual(['patients', 'triage', 'clinical', 'nursing', 'requests', 'emergency'])
     expect(STATUS_FILTERS).toEqual(['pending', 'approved', 'denied', 'revoked', 'expired', 'active', 'closed'])
   })

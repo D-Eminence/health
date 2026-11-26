@@ -118,6 +118,18 @@ const RELEASE_A = 'Served by hid-system staging-novu-ci-20261005 from Release A 
   + 'main, which answers 404. '
 const ACCOUNT_DELETION_NOTE = 'Novu: hid-system 0096; 404 before'
 /**
+ * Inpatient admission, wards and beds, transfers and discharge (hid-system ADT-1, migrations 0170-0173, provisional;
+ * Release D). Built on hid-system claude/sprint-inpatient-backend (hid-system#343) and not live: an ehr-api before it
+ * answers 404, and while the service flag INPATIENT_ENABLED is off every route answers 503 INPATIENT_NOT_AVAILABLE. Ward
+ * setup (routes 2-6) is healthcare operations; every other route is direct care (the ward list and a bed's status take
+ * either). Every write an Idempotency-Key; wards, beds, admissions and movements by UUID, never a Health ID or NIN in an
+ * address. The death record (route 22), ward-team access (route 23) and the ward charges are switched off or BILL-1's,
+ * and the website calls none of them yet.
+ */
+const ADT_1 = 'hid-system ADT-1 (0170-0173, Release D; claude/sprint-inpatient-backend, hid-system#343, not live): 404 before it, 503 '
+  + 'INPATIENT_NOT_AVAILABLE while INPATIENT_ENABLED is off. X-Facility-ID; every write an Idempotency-Key and, on a ward, bed or '
+  + 'admission, expectedRowVersion (412 WARD_VERSION_CONFLICT or ADMISSION_VERSION_CONFLICT).'
+/**
  * "Notifications on this device" (B6, contract b6-contract.md §3): payload-free Web Push, the subscription stored by
  * Identity. Served by Novu from hid-system 0097, and only once the owner has configured the push keys: before that, and
  * on a backend before 0097, each route answers 404, which the portal takes as not offered (the section is hidden).
@@ -986,6 +998,74 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     one('PATCH','ehr.encounter.read','ehr.encounter.write'),
     `${RELEASE_A} X-Facility-ID, direct-care. Body { expectedRowVersion, stage?, triageLevel? (null clears), `
     + 'assignedMembershipId? (null clears) }. 200 the card; 409 VISIT_QUEUE_ENTRY_CHANGED or VISIT_QUEUE_ENTRY_CLOSED.')),
+  // Inpatient admission, wards and beds (hid-system ADT-1, 0170-0173, Release D; on the branch claude/sprint-inpatient-backend,
+  // hid-system#343, not live). The pages say "Inpatient care is not switched on yet." on a 404 or 503.
+  // Any one of ehr.ward.read or ehr.ward.manage opens the ward list, so neither is listed as required.
+  proposed(r('ehr.wards','ehr','/api/v1/ehr/wards',GP,false,one('POST','ehr.ward.manage'),
+    `${ADT_1} GET (direct-care or healthcare-operations; ehr.ward.read or ehr.ward.manage) query includeInactive?, `
+    + 'includeBeds? (true): 200 { items: [{ wardId, name, wardType, takes, active, bedCount, overflowCount, occupied, available, '
+    + 'cleaning, maintenance, overflowInUse, staffCount, rowVersion, beds?, staffMembershipIds? }] }, counts only. POST '
+    + '(healthcare-operations) { name (2-80), wardType, takes? } 201 { ward, replayed }; 409 WARD_NAME_TAKEN.')),
+  proposed(r('ehr.ward','ehr','/api/v1/ehr/wards/:wardId',['PATCH'],false,one('PATCH','ehr.ward.manage'),
+    `${ADT_1} healthcare-operations. Body { expectedRowVersion, name?, wardType?, takes?, active? }. 409 WARD_NOT_EMPTY.`)),
+  proposed(r('ehr.wardBeds','ehr','/api/v1/ehr/wards/:wardId/beds',P,false,one('POST','ehr.ward.manage'),
+    `${ADT_1} healthcare-operations. Body { name (1-40), kind? (bed, overflow) }. 201 { bedId, ward, replayed }; 409 `
+    + 'BED_NAME_TAKEN or BED_LIMIT_REACHED.')),
+  proposed(r('ehr.wardStaff','ehr','/api/v1/ehr/wards/:wardId/staff',['PUT'],false,one('PUT','ehr.ward.manage'),
+    `${ADT_1} healthcare-operations. Body { expectedRowVersion, membershipIds (0-200 nurses, clinicians, doctors here) }; `
+    + '400 WARD_STAFF_INVALID. The list never opens a chart.')),
+  proposed(r('ehr.bed','ehr','/api/v1/ehr/beds/:bedId',['PATCH'],false,one('PATCH','ehr.ward.manage'),
+    `${ADT_1} healthcare-operations. Body { expectedRowVersion, name?, active? }. A bed is never deleted; 409 BED_OCCUPIED.`)),
+  // ehr.ward.read with ehr.bed.allocate, or ehr.ward.manage: neither pair is listed as required.
+  proposed(r('ehr.bedStatus','ehr','/api/v1/ehr/beds/:bedId/status',P,false,undefined,
+    `${ADT_1} direct-care or healthcare-operations. Body { expectedRowVersion, status (available, cleaning, maintenance), note? `
+    + '(8-300 for maintenance) }. 200 { bed, replayed }; 409 BED_OCCUPIED.')),
+  proposed(r('ehr.bedBoard','ehr','/api/v1/ehr/bed-board',G,false,one('GET','ehr.ward.read'),
+    `${ADT_1} direct-care. Query exactly one of wardId or wardType (icu for the ICU page). 200 { wards: [{ wardId, name, `
+    + 'wardType, takes, active, beds: [{ bedId, name, kind, status, statusSince, rowVersion, patient: card | null }] }], '
+    + 'waitingForBed: card[] }. Names follow Q190 A (nameHidden until the DPO\'s switch, unless the chart can be read).')),
+  proposed(r('ehr.census','ehr','/api/v1/ehr/census',G,false,one('GET','ehr.ward.read'),
+    `${ADT_1} direct-care. Query date? (YYYY-MM-DD, a Lagos day up to 90 days back). 200 { date, facility: counts, wards: `
+    + '[{ wardId, name, wardType, …counts }] }. Counts only.')),
+  proposed(r('ehr.admissions','ehr','/api/v1/ehr/admissions',GP,false,{GET:['ehr.ward.read'],POST:['ehr.admission.read','ehr.admission.decide']},
+    `${ADT_1} direct-care. GET query status? (open, requested, admitted, discharge_ready, discharged, cancelled), wardId?, `
+    + 'wardType?: 200 { items: card[], hasMore, limit: 500 }. POST { patientId, source, fromEncounterId?, edAttendanceId?, '
+    + 'visitQueueEntryId?, reason (1-300), careTeam?, responsibleMembershipId, requestedWardId?, motherAdmissionId? } with '
+    + 'chart write access: 201 { admission, replayed }; 409 ADMISSION_ALREADY_OPEN.')),
+  proposed(r('ehr.admission','ehr','/api/v1/ehr/admissions/:admissionId',GPA,false,
+    {GET:['ehr.ward.read'],PATCH:['ehr.admission.read','ehr.admission.decide']},
+    `${ADT_1} direct-care. GET 200 { admission: card, movements } (never the handover text). PATCH { expectedRowVersion, `
+    + 'careTeam?, responsibleMembershipId?, expectedDischargeOn?, reason? } while open.')),
+  proposed(r('ehr.admissionAdmit','ehr','/api/v1/ehr/admissions/:admissionId/admit',P,false,one('POST','ehr.ward.read','ehr.bed.allocate'),
+    `${ADT_1} direct-care. Body { expectedRowVersion, bedId, confirmSexMismatch? }. 409 BED_NOT_AVAILABLE, WARD_SEX_MISMATCH, `
+    + 'ADMISSION_STATE_INVALID.')),
+  proposed(r('ehr.admissionTransfer','ehr','/api/v1/ehr/admissions/:admissionId/transfer',P,false,one('POST','ehr.ward.read','ehr.bed.allocate'),
+    `${ADT_1} direct-care. Body { expectedRowVersion, bedId, handover? (1-2000, chart write access), confirmSexMismatch? }.`)),
+  proposed(r('ehr.admissionHandover','ehr','/api/v1/ehr/admissions/:admissionId/movements/:movementId/handover',G,false,
+    one('GET','ehr.ward.read','ehr.admission.read'),
+    `${ADT_1} direct-care, with chart read access. 200 { movementId, handover, at, byMembershipId }.`)),
+  proposed(r('ehr.admissionPrepareDischarge','ehr','/api/v1/ehr/admissions/:admissionId/prepare-discharge',P,false,
+    one('POST','ehr.admission.read','ehr.admission.decide'),
+    `${ADT_1} direct-care, chart write. Body { expectedRowVersion, followUpPlan (1-2000), expectedDischargeOn?, `
+    + 'dischargeMedicineIds? (0-50 of the stay\'s prescriptions) }.')),
+  proposed(r('ehr.admissionDischarge','ehr','/api/v1/ehr/admissions/:admissionId/discharge',P,false,
+    one('POST','ehr.admission.read','ehr.admission.decide'),
+    `${ADT_1} direct-care, chart write. Body { expectedRowVersion, outcome (routine, dama, referred_out, absconded, died), `
+    + 'dischargedAt?, summary?, referredToFacilityName?, diedAt?, signature: SIGN }. 200 { admission, summaryNoteId, replayed }; '
+    + '409 DISCHARGE_NOT_PREPARED; 400 DISCHARGE_SUMMARY_REQUIRED, DIED_AT_REQUIRED. Never reads the bill.')),
+  proposed(r('ehr.admissionCancel','ehr','/api/v1/ehr/admissions/:admissionId/cancel',P,false,
+    one('POST','ehr.admission.read','ehr.admission.decide'),
+    `${ADT_1} direct-care. Body { expectedRowVersion, reason (8-500) }, only while waiting for a bed.`)),
+  proposed(r('ehr.admissionDischargeSummary','ehr','/api/v1/ehr/admissions/:admissionId/discharge-summary',G,false,
+    one('GET','ehr.ward.read','ehr.admission.read'),
+    `${ADT_1} direct-care, chart read. 200 the print (the Health ID’s last 4 characters only); each print audited.`)),
+  proposed(r('ehr.admissionWristband','ehr','/api/v1/ehr/admissions/:admissionId/wristband',P,false,
+    one('POST','ehr.ward.read','ehr.wristband.print'),
+    `${ADT_1} direct-care. Body { reprintReason? (lost, damaged, details_changed, moved_ward; required for a reprint) }. 200 the `
+    + 'band with the Health ID, for printing only: never kept, never in an address.')),
+  proposed(r('ehr.admissionNewbornBand','ehr','/api/v1/ehr/admissions/:admissionId/newborn-band',P,false,
+    one('POST','ehr.ward.read','ehr.wristband.print'),
+    `${ADT_1} direct-care. As the wristband, plus motherName, motherAdmissionNumber, pairCode and bornAt.`)),
   r('ehr.vitals','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals',GP,false,{GET:['ehr.vital.read'],POST:['ehr.vital.write']}),
   r('ehr.vital','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals/:vitalId',G,false,one('GET','ehr.vital.read')),
   r('ehr.vitalCorrections','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals/:vitalId/corrections',GP,false,{GET:['ehr.vital.read'],POST:['ehr.vital.write']}),

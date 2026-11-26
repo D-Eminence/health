@@ -99,6 +99,47 @@ export const PAGE_GUIDES: Readonly<Record<string, PageGuide>> = {
     purpose: 'Nursing observations for the open patient.',
     steps: ['Open the patient first (Find a patient).', 'Select Create record to add an observation, or open one from the list to read it.'],
   },
+  inpatient: {
+    purpose: 'Admit patients, give them a bed, move them and discharge them, with a signed discharge summary that prints.',
+    steps: [
+      'Doctors and clinicians: open the patient’s record on Patients and select Request admission. Give the reason, the care team and the ward wanted.',
+      'Nurses, clinicians and doctors: open a patient waiting for a bed and select Admit and allocate bed. Then print the wristband.',
+      'To move a patient, open them and select Transfer bed. Any free bed will do, ICU included; the old bed goes to cleaning.',
+      'When they are nearly ready to go, select Prepare discharge. Then Discharge patient, choose the outcome, write the summary and type SIGN.',
+      'After discharge, select Print discharge summary for the patient’s copy.',
+    ],
+    tips: [
+      'Do not show this list on a screen patients or visitors can see.',
+      'A discharge never waits for the bill.',
+      'Names show only for patients whose record you can open now; others show their initials.',
+    ],
+  },
+  wards: {
+    purpose: 'Every bed on a ward, who is in it, beds to turn over, and the census for the whole facility.',
+    steps: [
+      'Choose the ward. Each bed says whether it is available, occupied, cleaning or under maintenance.',
+      'Select Complete bed turnover when a bed is clean, or Place in maintenance (with the reason) when it cannot be used.',
+      'Select Census for the counts of the day: beds, occupied, free, admitted, moved, discharged and died.',
+    ],
+    tips: ['Do not show this list on a screen patients or visitors can see.', 'The board reads itself again every minute.'],
+  },
+  icu: {
+    purpose: 'The ICU wards’ beds and patients. ICU is a ward type: admit, move and discharge as on any ward.',
+    steps: [
+      'Open a patient to give a bed, move them (a step-down is a move to a general ward) or discharge them.',
+      'An admin sets up an ICU ward in Ward configuration, with the ward type ICU.',
+    ],
+    tips: ['Do not show this list on a screen patients or visitors can see.'],
+  },
+  'ward-config': {
+    purpose: 'Set up the facility’s wards: their type, who they take, their beds and overflow spaces, and their team.',
+    steps: [
+      'Select New ward. Give it a name, a type (ICU is a type) and who it takes.',
+      'Select Add bed on the ward for each bed, and for any overflow space such as an extra mattress.',
+      'Select Ward team to choose the nurses, clinicians and doctors who work there.',
+      'A bed is never deleted: select Take out of use. A ward closes with Close ward once no patient is in it.',
+    ],
+  },
   emergency: {
     purpose: 'Open a patient’s emergency summary when they can’t consent and care can’t wait.',
     steps: [

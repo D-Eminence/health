@@ -4,7 +4,7 @@ import { keyLabel } from '../parts/format'
 import type { KeyValue } from '../parts/KeyValueList'
 import { useClinical } from '../parts/Workspace'
 import {
-  CONFIRMED_ACTIONS, HISTORY_ORDER, REF_WORKSPACES, SAMPLE_CLINICIANS, SAMPLE_DEFINITIONS, TYPED_WORD_ACTIONS,
+  CONFIRMED_ACTIONS, HISTORY_ORDER, REF_WORKSPACES, SAMPLE_CLINICIANS, SAMPLE_DEFINITIONS, TYPED_WORD_ACTIONS, opensAsSample,
   type SampleDefinition, type SampleHandoff, type SampleRefKind,
 } from './definitions'
 import {
@@ -215,7 +215,10 @@ export interface HistoryEntry {
   readonly title: string
   readonly name: string
   readonly status: string
-  /** The sample record the row opens; none on a fictional connected row, which opens its workspace's list. */
+  /**
+   * The sample record the row opens; none on a fictional connected row, nor on a record of a sample whose address a live
+   * page now serves (Inpatient / Wards, ICU): those open their workspace's list.
+   */
   readonly recordId?: string
 }
 
@@ -236,8 +239,11 @@ export function historyFor(current: SampleState, definition: SampleDefinition, r
     if (id === definition.id || !canOpen(id)) continue
     const other = sampleDefinition(id)
     if (other) {
+      // A sample whose address a live page now serves (LIVE_AT_ADDRESS) lists its rows, each opening the live list.
+      const linked = opensAsSample(other.id)
       for (const item of listedRecords(current, other).filter(included)) {
-        entries.push({ key: `${other.id}-${item.id}`, workspace: other.id, title: other.title, name: recordName(item), status: item.status, recordId: item.id })
+        entries.push({ key: `${other.id}-${item.id}`, workspace: other.id, title: other.title, name: recordName(item), status: item.status,
+          ...(linked ? { recordId: item.id } : {}) })
       }
       continue
     }
