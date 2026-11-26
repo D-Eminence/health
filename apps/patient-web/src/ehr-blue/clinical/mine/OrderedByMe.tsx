@@ -15,9 +15,9 @@ import { routeStatus } from '../consult/orders/Routing'
 import { readOrderRoute } from '../consult/orders/words'
 import { statusWords } from '../parts/format'
 import {
-  DESCRIPTION, EYEBROW, KIND_TABS, LOAD_FAILED, MORE_FAILED, PAGE_SIZE, RESTARTED, TITLE, UNAVAILABLE_MESSAGE, canReadLab, canReadPrescriptions,
-  canUseOrderedByMe, coverageText, earliestSince, emptyText, hiddenText, isSinceRefusal, kindWord, orderName, orderWord, orderedWhen,
-  patientName, priorityWords, progressWords, refusalWords, sinceProblem, sinceRefusalWords,
+  DESCRIPTION, EYEBROW, KIND_TABS, LOAD_FAILED, MORE_FAILED, PAGE_SIZE, RESTARTED, TITLE, UNAVAILABLE_MESSAGE, canUseOrderedByMe, coverageText,
+  earliestSince, emptyText, firstKind, hiddenText, isSinceRefusal, kindWord, orderName, orderWord, orderedWhen, patientName, priorityWords,
+  progressWords, refusalWords, showsLab, showsPrescriptions, sinceProblem, sinceRefusalWords,
 } from './myOrders'
 import './mine.css'
 
@@ -31,11 +31,16 @@ import './mine.css'
  * A row opens its order only while its patient is the record open now for direct care, as Home's wrong-person card
  * does (home/liveCards.tsx): a chart opens only by a Health ID lookup, and a row has no Health ID. Any other row says
  * to open the patient from Patients first. Nothing read here goes to storage or the address; the cursor stays in state.
+ *
+ * Only the kinds the member orders are shown (the overseer, hid-system#258, 26 Nov 2026, following Ola's clinical view):
+ * lab requests with lab-request write and read, prescriptions with prescription write and read, and the tabs (All, Lab,
+ * Prescriptions) only to a member shown both. A member shown one kind asks for that kind alone, so a kind they only read
+ * never comes back. Without either, the address gives the page's own words (OrderedByMeUnavailable) and reads nothing.
  */
 export function OrderedByMe() {
   const { facility, permissions } = useDeptAccess()
   if (!facility || !canUseOrderedByMe(permissions)) return <OrderedByMeUnavailable />
-  return <MyOrdersDesk key={facility.id} facilityId={facility.id} lab={canReadLab(permissions)} prescriptions={canReadPrescriptions(permissions)} />
+  return <MyOrdersDesk key={facility.id} facilityId={facility.id} lab={showsLab(permissions)} prescriptions={showsPrescriptions(permissions)} />
 }
 
 export function OrderedByMeUnavailable() {
@@ -49,15 +54,13 @@ interface Filters {
   readonly since: string | null
 }
 
-const FIRST: Filters = { kind: 'all', openOnly: false, since: null }
-
 type Problem = { readonly text: string; readonly retry: boolean }
 
 const cancelled = (caught: unknown) => isHidApiError(caught) && caught.code === 'REQUEST_CANCELLED'
 const isCursorRefusal = (caught: unknown) => isHidApiError(caught) && caught.code === 'INVALID_CURSOR'
 
 function MyOrdersDesk({ facilityId, lab, prescriptions }: { readonly facilityId: string; readonly lab: boolean; readonly prescriptions: boolean }) {
-  const [filters, setFilters] = useState<Filters>(FIRST)
+  const [filters, setFilters] = useState<Filters>(() => ({ kind: firstKind(lab, prescriptions), openOnly: false, since: null }))
   const [list, setList] = useState<MyOrdersPage | null>(null)
   const [loading, setLoading] = useState<'first' | 'more' | null>('first')
   const [problem, setProblem] = useState<Problem | null>(null)
@@ -155,7 +158,7 @@ function MyOrdersDesk({ facilityId, lab, prescriptions }: { readonly facilityId:
   const items = list?.items ?? []
   const hidden = list ? hiddenText(list.hiddenCount, list.hiddenCountComplete) : ''
   const empty = emptyText(filters.openOnly)
-  const what = filters.kind === 'lab' || (!prescriptions && lab) ? 'Lab requests' : filters.kind === 'prescription' || !lab ? 'Prescriptions' : 'Orders'
+  const what = filters.kind === 'lab' ? 'Lab requests' : filters.kind === 'prescription' ? 'Prescriptions' : 'Orders'
 
   return (
     <DeptPage eyebrow={EYEBROW} title={TITLE} description={DESCRIPTION} className="hid-ehr-mine"

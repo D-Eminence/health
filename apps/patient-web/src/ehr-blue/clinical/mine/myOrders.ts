@@ -3,7 +3,7 @@ import { formatDate, formatDateTime } from '@hid/ui/display'
 import type { MyOrder, MyOrdersKindFilter } from '../../../staff/api'
 import { errorText } from '../../departments/parts/errors'
 import { lagosToday } from '../../departments/waiting/waitingRules'
-import { priorityText } from '../consult/orders/orders'
+import { KINDS, priorityText } from '../consult/orders/orders'
 import { ownProgressWords } from '../consult/orders/progress'
 
 /*
@@ -17,19 +17,40 @@ export const TITLE = 'Ordered by me'
 export const EYEBROW = 'Care'
 export const DESCRIPTION = 'The tests and medicines you ordered here, and how far each one has got in this facility’s laboratory or pharmacy.'
 
-/** Each kind of row needs its own read permission; either one opens the page (my-orders.service.ts kinds()). */
-export const LAB_READ = 'ehr.lab-request.read'
-export const PRESCRIPTION_READ = 'ehr.prescription.read'
+/**
+ * Who the page is for (the overseer, hid-system#258, 26 Nov 2026, following Ola's clinical view): staff who order lab
+ * tests or medicines here, not everyone who can read them. The page is offered (sidebar, search, Home's shortcuts, its
+ * address) to a member who writes either kind, by the same permissions the blue EHR orders with (consult/orders/orders.ts
+ * KINDS). The backend's own rule stays wider (contracts registry ehr.myOrders, my-orders.service.ts kinds(): either
+ * read); only the website narrows it. The owner can overrule.
+ */
+export const LAB_WRITE = KINDS.laboratory.write
+export const PRESCRIPTION_WRITE = KINDS.pharmacy.write
+/** The backend lists each kind by its read permission, so a kind is shown only with its read as well as its write. */
+export const LAB_READ = KINDS.laboratory.read
+export const PRESCRIPTION_READ = KINDS.pharmacy.read
 
 export const UNAVAILABLE_MESSAGE = 'Ordered by me shows the tests and medicines you ordered here. It is for staff who order them.'
 
-export function canReadLab(permissions: readonly string[]): boolean { return permissions.includes(LAB_READ) }
-export function canReadPrescriptions(permissions: readonly string[]): boolean { return permissions.includes(PRESCRIPTION_READ) }
+/** Lab requests are shown to a member who orders them and can read them. */
+export function showsLab(permissions: readonly string[]): boolean {
+  return permissions.includes(LAB_WRITE) && permissions.includes(LAB_READ)
+}
+/** Prescriptions are shown to a member who writes them and can read them. */
+export function showsPrescriptions(permissions: readonly string[]): boolean {
+  return permissions.includes(PRESCRIPTION_WRITE) && permissions.includes(PRESCRIPTION_READ)
+}
+/** The page opens with at least one kind to show; a member who only reads orders, or writes without reading, is refused. */
 export function canUseOrderedByMe(permissions: readonly string[]): boolean {
-  return canReadLab(permissions) || canReadPrescriptions(permissions)
+  return showsLab(permissions) || showsPrescriptions(permissions)
 }
 
-/** The tabs, shown only to a member who holds both kinds: one kind alone needs no choosing. */
+/** The kind the list asks for: 'all' only to a member shown both, else the one kind, so nothing else comes back. */
+export function firstKind(lab: boolean, prescriptions: boolean): MyOrdersKindFilter {
+  return lab && prescriptions ? 'all' : lab ? 'lab' : 'prescription'
+}
+
+/** The tabs, shown only to a member shown both kinds: one kind alone needs no choosing. */
 export const KIND_TABS: readonly { readonly value: MyOrdersKindFilter; readonly label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'lab', label: 'Lab' },

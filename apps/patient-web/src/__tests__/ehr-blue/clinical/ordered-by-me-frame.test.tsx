@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, screen, within } from '@testing-library/react'
+import { act, fireEvent, screen, within } from '@testing-library/react'
 import type * as BlueRoutes from '../../../ehr-blue/routes'
 import { REAL_FACILITY, SESSION, facility, json, openStaffApp, serve, sessionAt } from '../frame/blueHarness'
 
 /*
  * "Ordered by me" (hid-system 0143, MY-1) inside the blue EHR's real frame, joined as clinical/pages.ts joins it: listed
- * under Care for a member holding either read permission, reading the list with the contract's headers, and never a
- * patient or a Health ID in an address. Every account, facility and patient is fictional.
+ * under Care, and found in search, only for a member who orders lab tests or medicines (the overseer, hid-system#258,
+ * 26 Nov 2026, following Ola's clinical view), reading the list with the contract's headers, and never a patient or a
+ * Health ID in an address. Every account, facility and patient is fictional.
  */
 vi.mock('../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
 beforeEach(() => {
@@ -28,6 +29,17 @@ const LIST = 'GET /api/v1/ehr/my-orders'
 const DOCTOR = ['ehr.encounter.read', 'ehr.encounter.write', 'ehr.lab-request.read', 'ehr.lab-request.write', 'ehr.prescription.read',
   'ehr.prescription.write', 'identity.patient.read']
 const nav = () => screen.getByRole('navigation', { name: 'Main navigation' })
+const REFUSED = 'Ordered by me shows the tests and medicines you ordered here. It is for staff who order them.'
+
+/** The pages search finds for "ordered". */
+function searchFinds(): string[] {
+  fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
+  const drawer = screen.getByRole('dialog', { name: 'Search' })
+  fireEvent.change(within(drawer).getByRole('searchbox', { name: 'Health ID or page' }), { target: { value: 'ordered' } })
+  const found = within(drawer).queryAllByRole('link').map(link => link.textContent ?? '')
+  fireEvent.click(within(drawer).getByRole('button', { name: 'Close' }))
+  return found
+}
 const settle = () => act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
 
 const ORDER = {
@@ -70,20 +82,41 @@ describe('Ordered by me in the frame', () => {
     const desk = facility(REAL_FACILITY, 'Demo Hospital', ['ehr.encounter.read', 'ehr.encounter.write', 'identity.patient.read'], ['receptionist'])
     const sent = serve({ [SESSION]: [sessionAt(desk, [desk])] })
     await openStaffApp('/provider/ordered-by-me')
-    expect(await screen.findByText('Ordered by me shows the tests and medicines you ordered here. It is for staff who order them.')).toBeDefined()
+    expect(await screen.findByText(REFUSED)).toBeDefined()
     expect(within(nav()).queryByRole('link', { name: 'Ordered by me' })).toBeNull()
     await settle()
     expect(sent.filter(call => call.route === LIST)).toEqual([])
   })
 
-  it('is listed for a role that reads prescriptions only', async () => {
-    const nurse = facility(REAL_FACILITY, 'Demo Hospital', ['ehr.encounter.read', 'ehr.prescription.read', 'identity.patient.read'], ['nurse'])
+  it.each([
+    ['laboratory staff, who read lab requests only', ['ehr.lab-request.read', 'lab.work-item.read'], 'lab_scientist'],
+    ['pharmacy staff, who read prescriptions only', ['ehr.prescription.read', 'pharmacy.work-item.read'], 'pharmacist'],
+    ['a nurse who reads both kinds but orders neither', ['ehr.encounter.read', 'ehr.lab-request.read', 'ehr.prescription.read'], 'nurse'],
+  ])('is not listed or found for %s, and its address says who it is for without reading', async (_who, permissions, role) => {
+    const member = facility(REAL_FACILITY, 'Demo Hospital', [...permissions, 'identity.patient.read'], [role])
+    const sent = serve({ [SESSION]: [sessionAt(member, [member])] })
+    await openStaffApp('/provider/ordered-by-me')
+    expect(await screen.findByText(REFUSED)).toBeDefined()
+    expect(within(nav()).queryByRole('link', { name: 'Ordered by me' })).toBeNull()
+    expect(searchFinds()).toEqual([])
+    await settle()
+    expect(sent.filter(call => call.route === LIST)).toEqual([])
+    expect(document.body.textContent).not.toMatch(/unverified|permission|HID-|[–—]/i)
+  })
+
+  it('is listed and found for a member who orders medicines only, and asks for prescriptions only', async () => {
+    const prescriber = facility(REAL_FACILITY, 'Demo Hospital',
+      ['ehr.encounter.read', 'ehr.lab-request.read', 'ehr.prescription.read', 'ehr.prescription.write', 'identity.patient.read'], ['nurse'])
     serve({
-      [SESSION]: [sessionAt(nurse, [nurse])],
+      [SESSION]: [sessionAt(prescriber, [prescriber])],
       [LIST]: [() => json({ items: [], hiddenCount: 0, hiddenCountComplete: true, since: '2026-08-27', nextCursor: null })],
     })
     await openStaffApp('/provider/ordered-by-me')
     expect(await screen.findByText('No orders')).toBeDefined()
     expect(within(nav()).getByRole('link', { name: 'Ordered by me' })).toBeDefined()
+    expect(searchFinds()).toHaveLength(1)
+    expect(screen.queryByRole('navigation', { name: 'Show' })).toBeNull()
+    const read = vi.mocked(fetch).mock.calls.map(([url]) => String(url)).find(url => url.includes('/my-orders'))!
+    expect(Object.fromEntries(new URL(read).searchParams)).toEqual({ kind: 'prescription', limit: '25' })
   })
 })

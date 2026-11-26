@@ -74,7 +74,7 @@ export const PAGE_GUIDES: Readonly<Record<string, PageGuide>> = {
   'ordered-by-me': {
     purpose: 'See the tests and medicines you ordered here, and how far each one has got in this facility’s laboratory or pharmacy.',
     steps: [
-      'Choose All, Lab or Prescriptions, and tick Open only to see just the orders still open.',
+      'If you order both tests and medicines, choose All, Lab or Prescriptions. Tick Open only to see just the orders still open.',
       'The list shows the last 90 days and everything still open. Select Look further back to choose an earlier day, up to 2 years back.',
       'Select Load more while it is shown: some orders may still be to come.',
       'To open an order, open the patient’s record from Patients first, then select Open the lab request or Open the prescription here.',

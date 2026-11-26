@@ -24,7 +24,9 @@ vi.mock('../../../staff/App', async () => {
   return { useStaff: () => harness.staffValue(staff as never) }
 })
 
-const BOTH = ['ehr.lab-request.read', 'ehr.prescription.read', 'ehr.encounter.read', 'identity.patient.read']
+/** A doctor: writes and reads both kinds of order. */
+const BOTH = ['ehr.lab-request.read', 'ehr.lab-request.write', 'ehr.prescription.read', 'ehr.prescription.write', 'ehr.encounter.read',
+  'identity.patient.read']
 const ENCOUNTER = 'e0000000-0000-4000-8000-000000000001'
 const LAB_ORDER = 'c0000000-0000-4000-8000-000000000001'
 const RX_ORDER = 'b0000000-0000-4000-8000-000000000001'
@@ -114,16 +116,35 @@ describe('Ordered by me', () => {
     expect(screen.getByText('Showing every order that is still open.')).toBeDefined()
   })
 
-  it('shows no tabs to a member who reads one kind only', async () => {
-    staff.permissions = ['ehr.prescription.read']
-    orders.list.mockResolvedValue(page([prescription()]))
+  // The overseer (hid-system#258, 26 Nov 2026), following Ola's clinical view: the page and its tabs follow what the
+  // member can order (write), each kind with its read too, as the backend lists by read.
+  it.each([
+    ['prescriptions', ['ehr.lab-request.read', 'ehr.prescription.read', 'ehr.prescription.write'], 'prescription', 'Prescriptions'],
+    ['lab tests', ['ehr.lab-request.read', 'ehr.lab-request.write', 'ehr.prescription.read'], 'lab', 'Lab requests'],
+    ['prescriptions, with lab write but no lab read', ['ehr.lab-request.write', 'ehr.prescription.read', 'ehr.prescription.write'], 'prescription', 'Prescriptions'],
+  ])('shows a member who orders %s only that kind, with no tabs, and asks for that kind only', async (_who, permissions, kind, name) => {
+    staff.permissions = [...permissions, 'ehr.encounter.read', 'identity.patient.read']
+    orders.list.mockResolvedValue(page(kind === 'lab' ? [order()] : [prescription()]))
     open()
-    expect(await screen.findByRole('list', { name: 'Prescriptions' })).toBeDefined()
+    expect(await screen.findByRole('list', { name })).toBeDefined()
     expect(screen.queryByRole('navigation', { name: 'Show' })).toBeNull()
+    expect(screen.getByRole('heading', { level: 2, name })).toBeDefined()
+    expect(call(0)).toEqual({ kind, openOnly: false, limit: 25 })
+    orders.list.mockResolvedValueOnce(page([]))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Open only' }))
+    await waitFor(() => expect(orders.list).toHaveBeenCalledTimes(2))
+    expect(call(1)).toEqual({ kind, openOnly: true, limit: 25 })
+    plainWords()
   })
 
-  it('says who the page is for, and reads nothing, without either read', async () => {
-    staff.permissions = ['ehr.encounter.read', 'identity.patient.read']
+  it.each([
+    ['neither kind', ['ehr.encounter.read', 'identity.patient.read']],
+    ['lab requests only (laboratory staff)', ['ehr.lab-request.read']],
+    ['prescriptions only (pharmacy staff)', ['ehr.prescription.read']],
+    ['both kinds without ordering either', ['ehr.lab-request.read', 'ehr.prescription.read']],
+    ['nothing, though they may order', ['ehr.lab-request.write', 'ehr.prescription.write']],
+  ])('says who the page is for, and reads nothing, for a member who reads %s', async (_who, permissions) => {
+    staff.permissions = [...permissions]
     open()
     expect(screen.getByText('Ordered by me shows the tests and medicines you ordered here. It is for staff who order them.')).toBeDefined()
     await act(async () => {})
