@@ -1021,6 +1021,29 @@ export interface PharmacyWorkItem {
    * A code a page branches on, never shown as sent; pharmacy-api leaves it out (or null) for any other value.
    */
   withdrawnReason?: string | null
+  /**
+   * Present only on a dispensed item (reversed or not) whose prescription the prescribing team changed after its first
+   * dispensing (hid-system Q132 A, migration 0148, live since Release B): the latest change, when it was made, and how
+   * many changes there have been. Absent when nothing changed, and also when pharmacy-api could not read the changes,
+   * so no notice does not prove no change. Never next to `withdrawn`, which exists only before a dispensing. Read
+   * through changedAfterDispensingOf; said only through pharmacyText.ts changedAfterDispensingText, never as the code.
+   */
+  changedAfterDispensing?: PharmacyChangedAfterDispensing
+}
+
+/**
+ * hid-system Q132 A: what the prescribing team did to a prescription after it was dispensed. A stop wins over an edit
+ * sent with it; `edited` is also a resume from hold with new instructions, `resumed` a resume exactly as dispensed.
+ */
+export type PharmacyChangeAfterDispensing = 'on_hold' | 'cancelled' | 'entered_in_error' | 'edited' | 'resumed'
+/** hid-system Q132 A: a dispensed item's notice that its prescription changed afterwards. */
+export interface PharmacyChangedAfterDispensing {
+  /** The latest change; left out for a code this page does not know (a newer backend), and the notice is still shown. */
+  change?: PharmacyChangeAfterDispensing
+  /** When the latest change was made: an ISO time in UTC. */
+  changedAt: string
+  /** How many changes since the dispensing: a whole number, 1 or more. */
+  changeCount: number
 }
 
 /** hid-system ORD-4: a pharmacy work item's step. */
@@ -1043,7 +1066,9 @@ export interface PharmacyAcceptance {
 const PHARMACY_STEPS: ReadonlySet<string> = new Set<PharmacyStep>(['received', 'accepted', 'dispensed', 'dispensing_reversed'])
 const ACCEPTED_WITH: ReadonlySet<string> = new Set<PharmacistAcceptedWith>(['accept', 'dispensing', 'order_route', 'hand_off'])
 
-const stepsNotRead = () => new HidApiError(502, 'Prescriptions could not be read. Please try again.', { code: 'INVALID_RESPONSE', retryable: false })
+const CHANGES_AFTER_DISPENSING: ReadonlySet<string> = new Set<PharmacyChangeAfterDispensing>(['on_hold', 'cancelled', 'entered_in_error', 'edited', 'resumed'])
+
+const prescriptionsNotRead = () => new HidApiError(502, 'Prescriptions could not be read. Please try again.', { code: 'INVALID_RESPONSE', retryable: false })
 const filled = (value: unknown): value is string => typeof value === 'string' && value.length > 0
 
 /**
@@ -1058,16 +1083,41 @@ export function pharmacyStepsOf<T extends object>(answer: T): T {
   const { pharmacyStep: step, pharmacistAcceptance: acceptance, ...rest } = answer as T & { pharmacyStep?: unknown; pharmacistAcceptance?: unknown }
   const bare = rest as T
   if (step === undefined) return bare
-  if (typeof step !== 'string') throw stepsNotRead()
+  if (typeof step !== 'string') throw prescriptionsNotRead()
   if (!PHARMACY_STEPS.has(step)) return bare
   if (acceptance === null) return { ...bare, pharmacyStep: step as PharmacyStep, pharmacistAcceptance: null }
-  if (typeof acceptance !== 'object' || Array.isArray(acceptance)) throw stepsNotRead()
+  if (typeof acceptance !== 'object' || Array.isArray(acceptance)) throw prescriptionsNotRead()
   const { acceptedWith, acceptedAt, acceptedByMembershipId } = acceptance as Record<string, unknown>
-  if (typeof acceptedWith !== 'string') throw stepsNotRead()
+  if (typeof acceptedWith !== 'string') throw prescriptionsNotRead()
   if (!ACCEPTED_WITH.has(acceptedWith)) return bare
-  if (!filled(acceptedAt) || !filled(acceptedByMembershipId)) throw stepsNotRead()
+  if (!filled(acceptedAt) || !filled(acceptedByMembershipId)) throw prescriptionsNotRead()
   return { ...bare, pharmacyStep: step as PharmacyStep,
     pharmacistAcceptance: { acceptedAt, acceptedByMembershipId, acceptedWith: acceptedWith as PharmacistAcceptedWith } }
+}
+
+/**
+ * An answer's `changedAfterDispensing` by INTERFACE_CONTRACT Q132 A, as `@hid/api-client` reads it. Left out when absent
+ * (nothing changed, or an older backend). A `change` this page does not know (a newer backend) keeps the notice without
+ * it, unlike ORD-4's steps, which are left out: the notice tells the pharmacist to contact the patient, so it is better
+ * shown without its reason than not at all. Keys other than the three are dropped. A broken notice is refused as an
+ * unreadable answer, so the whole list fails rather than show a dispensed item without it: one that is not an object
+ * (null and arrays included), a `changedAt` that is not a non-empty string, a `changeCount` that is not a whole number
+ * of 1 or more, or a `change` that is present and not a string.
+ */
+export function changedAfterDispensingOf<T extends object>(answer: T): T {
+  const { changedAfterDispensing: notice, ...rest } = answer as T & { changedAfterDispensing?: unknown }
+  if (notice === undefined) return rest as T
+  if (!notice || typeof notice !== 'object' || Array.isArray(notice)) throw prescriptionsNotRead()
+  const { change, changedAt, changeCount } = notice as Record<string, unknown>
+  if (!filled(changedAt) || typeof changeCount !== 'number' || !Number.isSafeInteger(changeCount) || changeCount < 1) throw prescriptionsNotRead()
+  if (change !== undefined && typeof change !== 'string') throw prescriptionsNotRead()
+  const known = typeof change === 'string' && CHANGES_AFTER_DISPENSING.has(change) ? { change: change as PharmacyChangeAfterDispensing } : {}
+  return { ...rest, changedAfterDispensing: { ...known, changedAt, changeCount } } as T
+}
+
+/** One Pharmacy work item as the page reads it: its steps (pharmacyStepsOf) and its change after dispensing. */
+function pharmacyItemOf<T extends object>(item: T): T {
+  return changedAfterDispensingOf(pharmacyStepsOf(item))
 }
 
 /**
@@ -1098,9 +1148,12 @@ export function facilityStaffNamesOf(answer: unknown): FacilityStaffNames {
   return { facilityId: record.facilityId, staff, complete: record.complete }
 }
 
-/** A Pharmacy work list with each item's steps read (pharmacyStepsOf); a list in another shape is left as it came. */
+/**
+ * A Pharmacy work list with each item read (pharmacyItemOf): its steps and its change after dispensing. A list in
+ * another shape is left as it came.
+ */
 function pharmacyListOf(list: WorkList<PharmacyWorkItem>): WorkList<PharmacyWorkItem> {
-  return Array.isArray(list?.items) ? { ...list, items: list.items.map(item => item && typeof item === 'object' ? pharmacyStepsOf(item) : item) } : list
+  return Array.isArray(list?.items) ? { ...list, items: list.items.map(item => item && typeof item === 'object' ? pharmacyItemOf(item) : item) } : list
 }
 
 /**

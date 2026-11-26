@@ -88,6 +88,63 @@ describe('the work list’s steps', () => {
   })
 })
 
+/**
+ * hid-system Q132 A (INTERFACE_CONTRACT "Q132 A", its "Work item answers" and `@hid/api-client`'s rules): a dispensed
+ * item's `changedAfterDispensing` is kept with a known `change`, kept without an unknown one, left out when absent, and a
+ * broken one fails the whole list, never a dispensed item shown without its notice.
+ */
+describe('the work list’s change after dispensing', () => {
+  const DISPENSED = { ...ITEM, dispensing: { id: 'd0000000-0000-4000-8000-0000000000d1', reversed: false } }
+  const CHANGED_AT = '2026-11-20T08:15:00.000Z'
+  const notice = (change: unknown, changeCount: unknown = 1) => ({ change, changedAt: CHANGED_AT, changeCount })
+
+  async function listedDispensed(fields: Record<string, unknown>) {
+    const { staffApi } = await staffClient({ items: [{ ...DISPENSED, ...fields }] })
+    return staffApi.pharmacyWorkItems(FACILITY)
+  }
+
+  it('today’s answer, with no notice, reads exactly as it came', async () => {
+    const list = await listedDispensed({})
+    expect(list.items[0]).toEqual(DISPENSED)
+    expect(list.items[0]).not.toHaveProperty('changedAfterDispensing')
+  })
+
+  it('keeps each change the page knows, with its time and count, and drops any other key', async () => {
+    for (const [index, change] of ['on_hold', 'cancelled', 'entered_in_error', 'edited', 'resumed'].entries()) {
+      expect((await listedDispensed({ changedAfterDispensing: notice(change, index + 1) })).items[0])
+        .toEqual({ ...DISPENSED, changedAfterDispensing: { change, changedAt: CHANGED_AT, changeCount: index + 1 } })
+    }
+    expect((await listedDispensed({ changedAfterDispensing: { ...notice('on_hold', 2), prescriptionVersion: 7, prescriptionId: 'x' } }))
+      .items[0]?.changedAfterDispensing).toStrictEqual({ change: 'on_hold', changedAt: CHANGED_AT, changeCount: 2 })
+  })
+
+  it('keeps the notice without its change for a change it does not know, or none', async () => {
+    for (const changedAfterDispensing of [notice('stopped_at_the_counter', 3), notice('ON_HOLD'), notice(''),
+      { changedAt: CHANGED_AT, changeCount: 1 }]) {
+      const item = (await listedDispensed({ changedAfterDispensing })).items[0]
+      expect(item?.changedAfterDispensing).toStrictEqual({ changedAt: CHANGED_AT, changeCount: changedAfterDispensing.changeCount })
+    }
+  })
+
+  it('keeps it beside the item’s steps', async () => {
+    const fields = { pharmacyStep: 'dispensing_reversed', pharmacistAcceptance: { ...ACCEPTANCE, acceptedWith: 'dispensing' },
+      changedAfterDispensing: notice('cancelled', 2) }
+    expect((await listedDispensed(fields)).items[0]).toEqual({ ...DISPENSED, ...fields })
+  })
+
+  it('fails the whole list for a broken notice, as an unreadable answer', async () => {
+    for (const changedAfterDispensing of [
+      null, [notice('cancelled')], 'cancelled', 1, true, {},
+      { change: 'cancelled', changeCount: 1 }, notice('cancelled', 0), notice('cancelled', -1), notice('cancelled', 1.5),
+      notice('cancelled', '2'), notice('cancelled', null), { change: 'cancelled', changedAt: CHANGED_AT },
+      notice('cancelled', Number.MAX_SAFE_INTEGER + 1), { ...notice('cancelled'), changedAt: '' }, { ...notice('cancelled'), changedAt: 5 },
+      { ...notice('cancelled'), changedAt: null }, notice(null), notice(3), notice(['cancelled']),
+    ]) await expect(listedDispensed({ changedAfterDispensing })).rejects.toMatchObject({ name: 'HidApiError', status: 502, code: 'INVALID_RESPONSE' })
+    const { staffApi } = await staffClient({ items: [DISPENSED, { ...DISPENSED, id: 'a0000000-0000-4000-8000-0000000000a2', changedAfterDispensing: null }] })
+    await expect(staffApi.pharmacyWorkItems(FACILITY)).rejects.toMatchObject({ status: 502, code: 'INVALID_RESPONSE' })
+  })
+})
+
 describe('Accept on the wire', () => {
   it('sends exactly the item’s version, with the facility, direct care and the caller’s key', async () => {
     const { sent, staffApi } = await staffClient({ workItemId: ITEM.id, pharmacyStep: 'accepted', pharmacistAcceptance: ACCEPTANCE, alreadyAccepted: false }, 201)
