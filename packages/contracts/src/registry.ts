@@ -114,6 +114,18 @@ const PRESCRIPTION_ALLERGY_ACKNOWLEDGEMENTS = 'From hid-system#218 at 7fbb04aa (
   + 'a member that is there but can\'t be read means whether a warning was overridden can\'t be shown, never "none".'
 /** A patient's records imported from paper, listed by Lab and Pharmacy: proposed, 404 until served. */
 const PAPER_RECORD_LISTS = 'Not served by hid-system yet (404 until it is). Direct care at the working facility.'
+/**
+ * Duty roster, leave and licence renewals (hid-system ROS-1, migrations 0199-0202, provisional; Release D). Built on
+ * claude/sprint-hr-backend and not live: an identity-api before it answers 404; while HR_CREDENTIALS_ENABLED is off the
+ * licence routes answer 503 HR_CREDENTIALS_NOT_AVAILABLE, and while DUTY_ROSTER_ENABLED is off the roster and leave routes
+ * answer 503 DUTY_ROSTER_NOT_AVAILABLE. X-Facility-ID, healthcare-operations whatever is sent. No Health ID or NIN in any
+ * path, query, body or answer; writes carry an Idempotency-Key, and writes on a record expectedRowVersion.
+ */
+const ROS_1 = 'hid-system ROS-1 (0199-0202, Release D; claude/sprint-hr-backend, not live): 404 before it. X-Facility-ID, '
+  + 'healthcare-operations.'
+const ROS_LICENCES = `${ROS_1} 503 HR_CREDENTIALS_NOT_AVAILABLE while HR_CREDENTIALS_ENABLED is off. workforce.manage at a `
+  + 'self-signed-up facility (403 HR_CREDENTIALS_NOT_ALLOWED; 403 STAFF_MANAGEMENT_NOT_AVAILABLE at governed facilities).'
+const ROS_ROSTER = `${ROS_1} 503 DUTY_ROSTER_NOT_AVAILABLE while DUTY_ROSTER_ENABLED is off.`
 const RELEASE_A = 'Served by hid-system staging-novu-ci-20261005 from Release A (migrations 0128-0137); not served by hid-system '
   + 'main, which answers 404. '
 const ACCOUNT_DELETION_NOTE = 'Novu: hid-system 0096; 404 before'
@@ -668,6 +680,76 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + '403 PATIENT_SCOPE_DENIED), read as healthcare-operations whatever X-Purpose-Of-Use says. Query membershipIds: up to 100 '
     + 'comma-separated UUIDs (400 VALIDATION_FAILED). 200 { facilityId, staff [{ membershipId, name (null for a deleted '
     + 'login: "Former staff member"), current }], complete }.')),
+  // Licence renewals and expiry on HR & Credentials (hid-system ROS-1 routes 1-5, 0199): a warning only (Q243 A).
+  proposed(r('identity.staffLicences','identity','/api/v1/identity/staff-licences',G,false,one('GET','workforce.manage'),
+    `${ROS_LICENCES} 200 { facilityId, asOf, counts { valid, expiring60, expiring30, expired, notRecorded, noLicence }, `
+    + 'members [{ membershipId, name, roles, isSelf, licences [{ role, body, numberHint (last 4), status (valid, expiring_60, '
+    + 'expiring_30, expired, not_recorded, no_licence), validUntil, daysLeft, renewal }] }] }, most urgent first.')),
+  { ...proposed(r('identity.staffLicencesExport','identity','/api/v1/identity/staff-licences/export',G,false,one('GET','workforce.manage'),
+    `${ROS_LICENCES} 200 text/csv with a byte-order mark, attachment licence-check-YYYY-MM-DD.csv (Lagos), no-store; one row `
+    + 'per licence, the number\'s last 4 characters only, cells starting =, +, -, @, a tab or a carriage return made safe.')),
+  responseKind: 'download' },
+  proposed(r('identity.staffLicenceMember','identity','/api/v1/identity/staff-licences/:membershipId',G,false,one('GET','workforce.manage'),
+    `${ROS_LICENCES} One member, each licence with renewals (newest first; withdrawn { reasonCode, withdrawnAt, `
+    + 'withdrawnByMembershipId } or null). 404 FACILITY_STAFF_NOT_FOUND.')),
+  proposed(r('identity.staffLicenceRenewals','identity','/api/v1/identity/staff-licences/renewals',P,false,one('POST','workforce.manage'),
+    `${ROS_LICENCES} Body { membershipId, role, period (licence_year | expiry_date), licenceYear | validUntil (the other null), `
+    + 'checkedHow (regulator_register, certificate_seen, in_person), checkedOn, attested: true }; 201 { renewal, licence, '
+    + 'replayed }. 409 FACILITY_REVIEW_PENDING, LICENCE_NOT_ON_RECORD; 400 LICENCE_RENEWAL_DATES_INVALID.')),
+  proposed(r('identity.staffLicenceRenewalWithdraw','identity','/api/v1/identity/staff-licences/renewals/:renewalId/withdraw',P,false,
+    one('POST','workforce.manage'),
+    `${ROS_LICENCES} Body { reasonCode (wrong_member, wrong_dates, wrong_licence, other) }; 200 { licence, replayed }. 404 `
+    + 'LICENCE_RENEWAL_NOT_FOUND; 409 LICENCE_RENEWAL_ALREADY_WITHDRAWN.')),
+  // The duty roster and leave (hid-system ROS-1 routes 6-22, 0200-0202). Editors of a department's roster are holders of
+  // workforce.roster.manage and that department's in-charges; the backend decides each request.
+  proposed(r('identity.dutyRosterInCharges','identity','/api/v1/identity/duty-roster/in-charges',GP,false,
+    { GET: ['workforce.roster.read'], POST: ['workforce.roster.manage'] },
+    `${ROS_ROSTER} GET { departments [{ departmentCode, inCharges [{ inChargeId, departmentCode, membershipId, since, `
+    + 'setByMembershipId, rowVersion }] }] }. POST { departmentCode, membershipId }: 201 { inCharge, replayed }; 409 '
+    + 'IN_CHARGE_ALREADY, IN_CHARGE_LIMIT_REACHED (5).')),
+  proposed(r('identity.dutyRosterInChargeEnd','identity','/api/v1/identity/duty-roster/in-charges/:inChargeId/end',P,false,
+    one('POST','workforce.roster.manage'), `${ROS_ROSTER} Body { expectedRowVersion }; 200 { inCharge (endedAt), replayed }.`)),
+  proposed(r('identity.dutyRosterOnDuty','identity','/api/v1/identity/duty-roster/on-duty',G,false,one('GET','workforce.roster.read'),
+    `${ROS_ROSTER} [?departmentCode] { at, items [{ departmentCode, membershipId, shiftId, shiftName, startsAt, endsAt, `
+    + 'attendance, coveringForMembershipId }] }: duties on published rosters running now, absent left out.')),
+  proposed(r('identity.myLeaveRequests','identity','/api/v1/identity/me/leave-requests',GP,false,
+    { GET: ['workforce.leave.request'], POST: ['workforce.leave.request'] },
+    `${ROS_ROSTER} GET { items [leave card] } (own, newest first). POST { leaveType (annual, sick, maternity, study, other), `
+    + 'startsOn, endsOn, departmentCode? }: 201 { leaveRequest, replayed }; 400 LEAVE_DATES_INVALID, 409 LEAVE_OVERLAPS. No '
+    + 'reason or note field (Q244 A).')),
+  proposed(r('identity.myLeaveRequestCancel','identity','/api/v1/identity/me/leave-requests/:leaveRequestId/cancel',P,false,undefined,
+    `${ROS_ROSTER} The requester only. Body { expectedRowVersion }; 409 LEAVE_CANCEL_NOT_ALLOWED.`)),
+  proposed(r('identity.leaveRequests','identity','/api/v1/identity/leave-requests',G,false,undefined,
+    `${ROS_ROSTER} [?status=requested|decided][&departmentCode]: administrators every request, in-charges those sent to their `
+    + 'departments (403 LEAVE_DECISION_NOT_ALLOWED). { items, hasMore, limit }.')),
+  proposed(r('identity.leaveRequestApprove','identity','/api/v1/identity/leave-requests/:leaveRequestId/approve',P,false,undefined,
+    `${ROS_ROSTER} Body { expectedRowVersion }. Never one's own (409 LEAVE_OWN_DECISION_NOT_ALLOWED); 409 `
+    + 'LEAVE_CLASHES_WITH_ROSTER with details { dates }.')),
+  proposed(r('identity.leaveRequestDecline','identity','/api/v1/identity/leave-requests/:leaveRequestId/decline',P,false,undefined,
+    `${ROS_ROSTER} Body { expectedRowVersion }. Never one's own (409 LEAVE_OWN_DECISION_NOT_ALLOWED).`)),
+  { ...proposed(r('identity.dutyRosters','identity','/api/v1/identity/duty-rosters',GP,false,one('GET','workforce.roster.read'),
+    `${ROS_ROSTER} GET ?weekStart=YYYY-MM-DD (a Monday, 8 weeks back to 26 ahead) { weekStart, items [{ rosterId, departmentCode, `
+    + 'status, assignmentCount, publishedAt, changedSincePublished, canEdit }], inChargeOf }. POST { departmentCode, weekStart } '
+    + '(editors): 201 { outcome: created | already_exists, roster, replayed }.')),
+  requiredQuery: { GET: ['weekStart'] } },
+  proposed(r('identity.dutyRoster','identity','/api/v1/identity/duty-rosters/:rosterId',G,false,one('GET','workforce.roster.read'),
+    `${ROS_ROSTER} The roster card { rosterId, departmentCode, weekStart, weekEnd, status, publishedAt, publishedByMembershipId, `
+    + 'publishCount, changedSincePublished, rowVersion, canEdit, rules { minRestHours, status }, shifts, assignments, '
+    + 'unavailable (editors only, never the leave type) }. Drafts for editors only (404 ROSTER_NOT_FOUND).')),
+  proposed(r('identity.dutyRosterAssignments','identity','/api/v1/identity/duty-rosters/:rosterId/assignments',['PUT'],false,undefined,
+    `${ROS_ROSTER} Editors. Body { expectedRowVersion, assignments [{ membershipId, shiftId, dutyDate }] (0-500) }: the week's `
+    + 'duties become exactly these, all or nothing. 409 ROSTER_OVERLAP, ROSTER_REST_TOO_SHORT, ROSTER_MEMBER_ON_LEAVE, '
+    + 'ROSTER_SHIFT_STARTED with details { membershipId, dutyDate, shiftId }. 200 { roster, changes { added, removed, kept }, replayed }.')),
+  proposed(r('identity.dutyRosterPublish','identity','/api/v1/identity/duty-rosters/:rosterId/publish',P,false,undefined,
+    `${ROS_ROSTER} Editors. Body { expectedRowVersion }; 200 { outcome: published | unchanged, roster, replayed }; 409 ROSTER_EMPTY.`)),
+  proposed(r('identity.dutyRosterAttendance','identity','/api/v1/identity/duty-rosters/:rosterId/assignments/:assignmentId/attendance',P,
+    false,undefined,
+    `${ROS_ROSTER} Editors, never their own duty. Body { expectedRowVersion, attendance (present, absent, swapped), `
+    + 'coveredByMembershipId (swapped only) }; 200 { assignment, replayed }. 409 ROSTER_NOT_PUBLISHED, ATTENDANCE_NOT_OPEN, '
+    + 'ATTENDANCE_OWN_NOT_ALLOWED.')),
+  proposed(r('identity.myDuties','identity','/api/v1/identity/me/duties',G,false,undefined,
+    `${ROS_ROSTER} Any active member. { items [{ assignmentId, departmentCode, shiftName, dutyDate, startsAt, endsAt, `
+    + 'attendance }] }: own published duties, 7 days back to 28 ahead.')),
   // One-person lab (owner decision 33.3, hid-system 0111): the facility administrator's switch.
   proposed(r('identity.facilitySettings','identity','/api/v1/identity/facility-settings',G,false,one('GET','organization.manage'),
     `${FACILITY_SETTINGS_ROUTE} 200 { onePersonLab { enabled, changedAt, changedByName, reason } } (null until first `

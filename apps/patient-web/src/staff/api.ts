@@ -7,7 +7,7 @@ import {
   parseShareInvitationAccepted, parseSharedWithMe, parseStaffShareInvitations,
   type ShareInvitationAccepted, type SharedPatient, type StaffShareInvitationList,
 } from '../shareRecords'
-import { createApiClient, HidApiError, isConnectionFailure, isHidApiError, NO_RETRY, PLAIN, PlainError, uploadPresignedObject, type ApiClient, type RequestSpec } from '@hid/http'
+import { createApiClient, HidApiError, isConnectionFailure, isHidApiError, NO_RETRY, PLAIN, PlainError, uploadPresignedObject, type ApiClient, type DownloadResult, type RequestSpec } from '@hid/http'
 import { createRegisteredBrowserClient } from '@hid/api'
 import { getEnvironment } from './env'
 import {
@@ -3316,4 +3316,308 @@ export const visitQueueApi = {
   update: (facilityId: string, entry: Pick<VisitQueueCard, 'entryId' | 'rowVersion'>, change: VisitQueueChange) =>
     client.request<VisitQueueCard>({ method: 'PATCH', path: `/api/v1/ehr/visit-queue/${encodeURIComponent(entry.entryId)}`,
       body: { expectedRowVersion: entry.rowVersion, ...change }, headers: facilityHeaders(facilityId, 'direct-care') }),
+}
+
+/**
+ * Duty roster, leave and licence renewals (hid-system ROS-1, migrations 0199-0202, Release D, provisional;
+ * INTERFACE_CONTRACT.md "ROS-1"), all in identity-api under /api/v1/identity/. Healthcare operations at the X-Facility-ID
+ * facility. Every write carries an Idempotency-Key, made once per form and sent again with the same body; writes on a
+ * record already there send its rowVersion as expectedRowVersion. No Health ID or NIN in any address, query, body or
+ * answer: people are named by membership id, and their names come from SX-9 (except on the licence list, which carries
+ * the member's name as the Staff page does).
+ *
+ * Two service flags, off by default: HR_CREDENTIALS_ENABLED (licences, routes 1-5) answers 503
+ * HR_CREDENTIALS_NOT_AVAILABLE while off, and DUTY_ROSTER_ENABLED (routes 6-22) 503 DUTY_ROSTER_NOT_AVAILABLE. An
+ * identity-api before ROS-1 answers 404. The pages then show what they showed before.
+ */
+export type LicenceStatus = 'valid' | 'expiring_60' | 'expiring_30' | 'expired' | 'not_recorded' | 'no_licence'
+export type LicenceCheckedHow = 'regulator_register' | 'certificate_seen' | 'in_person'
+export type LicenceWithdrawReason = 'wrong_member' | 'wrong_dates' | 'wrong_licence' | 'other'
+export type LicencePeriod = 'licence_year' | 'expiry_date'
+
+/** A recorded renewal of one licence (body and number); `checkedByName` is the administrator who recorded it. */
+export interface LicenceRenewal {
+  renewalId: string
+  period: LicencePeriod
+  licenceYear: number | null
+  /** The last Lagos day the licence is valid (31 December of a licence year). */
+  validUntil: string
+  checkedHow: LicenceCheckedHow
+  checkedOn: string
+  checkedByMembershipId: string | null
+  checkedByName: string | null
+  /** The administrator recorded their own renewal (Q-ROS-13 A). */
+  selfRecorded: boolean
+  recordedAt: string
+}
+
+/** A renewal in a member's history: withdrawn ones stay, marked. */
+export interface LicenceRenewalEntry extends LicenceRenewal {
+  withdrawn: { reasonCode: LicenceWithdrawReason | string; withdrawnAt: string; withdrawnByMembershipId: string | null } | null
+}
+
+/** One licensed role's licence, as SX-4 shows it, with its status today (Lagos). Never the whole number. */
+export interface StaffLicence {
+  role: string
+  body: string
+  numberHint: string | null
+  status: LicenceStatus | string
+  validUntil: string | null
+  daysLeft: number | null
+  renewal: LicenceRenewal | null
+}
+
+export interface StaffLicenceWithRenewals extends StaffLicence {
+  /** Every renewal of this licence, newest first. */
+  renewals: LicenceRenewalEntry[]
+}
+
+export interface StaffLicenceMember {
+  membershipId: string
+  name: string
+  roles: string[]
+  isSelf: boolean
+  licences: StaffLicence[]
+}
+
+export interface StaffLicenceCounts {
+  valid: number
+  expiring60: number
+  expiring30: number
+  expired: number
+  notRecorded: number
+  noLicence: number
+}
+
+/** Route 1: every active member, most urgent first. */
+export interface StaffLicenceList {
+  facilityId: string
+  asOf: string
+  counts: StaffLicenceCounts
+  members: StaffLicenceMember[]
+}
+
+/** Route 2: one member, each licence with every renewal. */
+export interface StaffLicenceMemberRead extends Omit<StaffLicenceMember, 'licences'> {
+  licences: StaffLicenceWithRenewals[]
+}
+
+/** Route 4's body, less the attestation: a licence year, or an exact expiry date. */
+export type LicenceRenewalInput = {
+  membershipId: string
+  role: string
+  checkedHow: LicenceCheckedHow
+  checkedOn: string
+} & ({ period: 'licence_year'; licenceYear: number } | { period: 'expiry_date'; validUntil: string })
+
+export interface LicenceRenewalRecorded { renewal: LicenceRenewal; licence: StaffLicence; replayed: boolean }
+export interface LicenceRenewalWithdrawn { licence: StaffLicence; replayed: boolean }
+
+/** A department's in-charge (route 7): an editor of its rosters, and a decider of leave sent to it. */
+export interface DepartmentInCharge {
+  inChargeId: string
+  departmentCode: string
+  membershipId: string
+  since: string
+  setByMembershipId: string | null
+  rowVersion: number
+  endedAt?: string | null
+}
+
+export interface DepartmentInCharges { departments: Array<{ departmentCode: string; inCharges: DepartmentInCharge[] }> }
+
+export type LeaveType = 'annual' | 'sick' | 'maternity' | 'study' | 'other'
+export type LeaveStatus = 'requested' | 'approved' | 'declined' | 'cancelled'
+
+/**
+ * A leave request: a type and dates, never a reason (Q244 A). `leaveType` is answered only to the requester and to the
+ * deciders of the request.
+ */
+export interface LeaveRequest {
+  leaveRequestId: string
+  membershipId: string
+  leaveType: LeaveType | null
+  startsOn: string
+  endsOn: string
+  days: number
+  departmentCode: string | null
+  status: LeaveStatus | string
+  requestedAt: string
+  decidedAt: string | null
+  decidedByMembershipId: string | null
+  cancelledAt: string | null
+  rowVersion: number
+}
+
+export interface LeaveRequestInput { leaveType: LeaveType; startsOn: string; endsOn: string; departmentCode?: string }
+export interface LeaveToDecide { items: LeaveRequest[]; hasMore: boolean; limit: number }
+
+export type RosterStatus = 'draft' | 'published'
+export type Attendance = 'not_marked' | 'present' | 'absent' | 'swapped'
+
+/** One of the facility's clinical shifts (NUR-1), as the roster uses it: Lagos "HH:MM"; a shift may end the next day. */
+export interface RosterShift { shiftId: string; name: string; startsAt: string; endsAt: string; active: boolean }
+
+export interface RosterAssignment {
+  assignmentId: string
+  membershipId: string
+  shiftId: string
+  dutyDate: string
+  startsAt: string
+  endsAt: string
+  attendance: Attendance | string
+  coveredByMembershipId: string | null
+  attendanceMarkedAt: string | null
+  attendanceMarkedByMembershipId: string | null
+  rowVersion: number
+}
+
+/** Leave in the roster's week, for editors only; never the type. */
+export interface RosterUnavailable { membershipId: string; from: string; to: string; kind: 'leave_approved' | 'leave_requested' | string }
+
+/** Route 16: one department's roster for one week (Monday to Sunday, Lagos). */
+export interface DutyRoster {
+  rosterId: string
+  departmentCode: string
+  weekStart: string
+  weekEnd: string
+  status: RosterStatus | string
+  publishedAt: string | null
+  publishedByMembershipId: string | null
+  publishCount: number
+  changedSincePublished: boolean
+  rowVersion: number
+  canEdit: boolean
+  rules: { minRestHours: number; status: string }
+  shifts: RosterShift[]
+  assignments: RosterAssignment[]
+  unavailable: RosterUnavailable[]
+}
+
+export interface DutyRosterListItem {
+  rosterId: string | null
+  departmentCode: string
+  status: RosterStatus | 'none' | string
+  assignmentCount: number
+  publishedAt: string | null
+  changedSincePublished: boolean
+  canEdit: boolean
+}
+
+export interface DutyRosterWeek { weekStart: string; items: DutyRosterListItem[]; inChargeOf: string[] }
+export interface DutyEntry { membershipId: string; shiftId: string; dutyDate: string }
+export interface DutyRosterSaved { roster: DutyRoster; changes: { added: number; removed: number; kept: number }; replayed: boolean }
+export interface DutyRosterPublished { outcome: 'published' | 'unchanged'; roster: DutyRoster; replayed: boolean }
+export type AttendanceMark = { attendance: 'present' | 'absent' } | { attendance: 'swapped'; coveredByMembershipId: string }
+
+export interface OnDutyItem {
+  departmentCode: string
+  membershipId: string
+  shiftId: string
+  shiftName: string
+  startsAt: string
+  endsAt: string
+  attendance: Attendance | string
+  coveringForMembershipId: string | null
+}
+
+export interface MyDuty {
+  assignmentId: string
+  departmentCode: string
+  shiftName: string
+  dutyDate: string
+  startsAt: string
+  endsAt: string
+  attendance: Attendance | string
+}
+
+const operations = (facilityId: string) => facilityHeaders(facilityId, 'healthcare-operations')
+const operationsWrite = (facilityId: string, idempotencyKey: string) => ({ ...operations(facilityId), ...keyHeaders(idempotencyKey) })
+const segment = (id: string) => encodeURIComponent(id)
+
+export const workforceApi = {
+  // ---- Licence renewals (routes 1-5, workforce.manage at a self-signed-up facility) ----
+  licences: (facilityId: string) =>
+    client.get<StaffLicenceList>('/api/v1/identity/staff-licences', { headers: operations(facilityId), dedupe: false }),
+  /** Route 2. Read as the member itself, or `{ member }` around it. */
+  memberLicences: (facilityId: string, membershipId: string) =>
+    client.get<StaffLicenceMemberRead | { member: StaffLicenceMemberRead }>(`/api/v1/identity/staff-licences/${segment(membershipId)}`,
+      { headers: operations(facilityId), dedupe: false })
+      .then(answer => ('member' in answer && answer.member && typeof answer.member === 'object' ? answer.member : answer) as StaffLicenceMemberRead),
+  /** Route 3: the CSV, with a byte-order mark and a Lagos-dated file name. Audited, so never repeated on its own. */
+  exportLicences: (facilityId: string) =>
+    client.request<DownloadResult>({ method: 'GET', path: '/api/v1/identity/staff-licences/export', headers: operations(facilityId),
+      responseType: 'download', retry: NO_RETRY, dedupe: false }),
+  recordRenewal: (facilityId: string, input: LicenceRenewalInput, idempotencyKey: string) =>
+    client.post<LicenceRenewalRecorded>('/api/v1/identity/staff-licences/renewals', {
+      membershipId: input.membershipId, role: input.role, period: input.period,
+      licenceYear: input.period === 'licence_year' ? input.licenceYear : null,
+      validUntil: input.period === 'expiry_date' ? input.validUntil : null,
+      checkedHow: input.checkedHow, checkedOn: input.checkedOn, attested: true,
+    }, { headers: operationsWrite(facilityId, idempotencyKey) }),
+  withdrawRenewal: (facilityId: string, renewalId: string, reasonCode: LicenceWithdrawReason, idempotencyKey: string) =>
+    client.post<LicenceRenewalWithdrawn>(`/api/v1/identity/staff-licences/renewals/${segment(renewalId)}/withdraw`, { reasonCode },
+      { headers: operationsWrite(facilityId, idempotencyKey) }),
+
+  // ---- Department in-charges (routes 6-8) ----
+  inCharges: (facilityId: string) =>
+    client.get<DepartmentInCharges>('/api/v1/identity/duty-roster/in-charges', { headers: operations(facilityId), dedupe: false }),
+  addInCharge: (facilityId: string, input: { departmentCode: string; membershipId: string }, idempotencyKey: string) =>
+    client.post<{ inCharge: DepartmentInCharge; replayed: boolean }>('/api/v1/identity/duty-roster/in-charges', input,
+      { headers: operationsWrite(facilityId, idempotencyKey) }),
+  endInCharge: (facilityId: string, inCharge: Pick<DepartmentInCharge, 'inChargeId' | 'rowVersion'>, idempotencyKey: string) =>
+    client.post<{ inCharge: DepartmentInCharge; replayed: boolean }>(`/api/v1/identity/duty-roster/in-charges/${segment(inCharge.inChargeId)}/end`,
+      { expectedRowVersion: inCharge.rowVersion }, { headers: operationsWrite(facilityId, idempotencyKey) }),
+
+  // ---- Leave (routes 9-14) ----
+  myLeave: (facilityId: string) =>
+    client.get<{ items: LeaveRequest[] }>('/api/v1/identity/me/leave-requests', { headers: operations(facilityId), dedupe: false }),
+  askForLeave: (facilityId: string, input: LeaveRequestInput, idempotencyKey: string) =>
+    client.post<{ leaveRequest: LeaveRequest; replayed: boolean }>('/api/v1/identity/me/leave-requests', {
+      leaveType: input.leaveType, startsOn: input.startsOn, endsOn: input.endsOn,
+      ...(input.departmentCode ? { departmentCode: input.departmentCode } : {}),
+    }, { headers: operationsWrite(facilityId, idempotencyKey) }),
+  cancelLeave: (facilityId: string, request: Pick<LeaveRequest, 'leaveRequestId' | 'rowVersion'>, idempotencyKey: string) =>
+    client.post<{ leaveRequest: LeaveRequest; replayed: boolean }>(`/api/v1/identity/me/leave-requests/${segment(request.leaveRequestId)}/cancel`,
+      { expectedRowVersion: request.rowVersion }, { headers: operationsWrite(facilityId, idempotencyKey) }),
+  leaveToDecide: (facilityId: string, query: { status: 'requested' | 'decided'; departmentCode?: string }) =>
+    client.get<LeaveToDecide>('/api/v1/identity/leave-requests', { headers: operations(facilityId), dedupe: false,
+      query: { status: query.status, ...(query.departmentCode ? { departmentCode: query.departmentCode } : {}) } }),
+  decideLeave: (facilityId: string, request: Pick<LeaveRequest, 'leaveRequestId' | 'rowVersion'>, decision: 'approve' | 'decline',
+    idempotencyKey: string) =>
+    client.post<{ leaveRequest: LeaveRequest; replayed: boolean }>(`/api/v1/identity/leave-requests/${segment(request.leaveRequestId)}/${decision}`,
+      { expectedRowVersion: request.rowVersion }, { headers: operationsWrite(facilityId, idempotencyKey) }),
+
+  // ---- Duty roster (routes 15-22) ----
+  rosters: (facilityId: string, weekStart: string) =>
+    client.get<DutyRosterWeek>('/api/v1/identity/duty-rosters', { headers: operations(facilityId), dedupe: false, query: { weekStart } }),
+  roster: (facilityId: string, rosterId: string) =>
+    client.get<DutyRoster>(`/api/v1/identity/duty-rosters/${segment(rosterId)}`, { headers: operations(facilityId), dedupe: false }),
+  createRoster: (facilityId: string, input: { departmentCode: string; weekStart: string }, idempotencyKey: string) =>
+    client.post<{ outcome: 'created' | 'already_exists'; roster: DutyRoster; replayed: boolean }>('/api/v1/identity/duty-rosters', input,
+      { headers: operationsWrite(facilityId, idempotencyKey) }),
+  /** Route 18: the week's duties become exactly `assignments`, or nothing is saved. */
+  saveDuties: (facilityId: string, roster: Pick<DutyRoster, 'rosterId' | 'rowVersion'>, assignments: readonly DutyEntry[], idempotencyKey: string) =>
+    client.request<DutyRosterSaved>({ method: 'PUT', path: `/api/v1/identity/duty-rosters/${segment(roster.rosterId)}/assignments`,
+      body: { expectedRowVersion: roster.rowVersion, assignments }, headers: operationsWrite(facilityId, idempotencyKey) }),
+  publishRoster: (facilityId: string, roster: Pick<DutyRoster, 'rosterId' | 'rowVersion'>, idempotencyKey: string) =>
+    client.post<DutyRosterPublished>(`/api/v1/identity/duty-rosters/${segment(roster.rosterId)}/publish`,
+      { expectedRowVersion: roster.rowVersion }, { headers: operationsWrite(facilityId, idempotencyKey) }),
+  markAttendance: (facilityId: string, rosterId: string, assignment: Pick<RosterAssignment, 'assignmentId' | 'rowVersion'>, mark: AttendanceMark,
+    idempotencyKey: string) =>
+    client.post<{ assignment: RosterAssignment; replayed: boolean }>(
+      `/api/v1/identity/duty-rosters/${segment(rosterId)}/assignments/${segment(assignment.assignmentId)}/attendance`,
+      { expectedRowVersion: assignment.rowVersion, ...mark }, { headers: operationsWrite(facilityId, idempotencyKey) }),
+  onDuty: (facilityId: string, departmentCode?: string) =>
+    client.get<{ at: string; items: OnDutyItem[] }>('/api/v1/identity/duty-roster/on-duty', { headers: operations(facilityId), dedupe: false,
+      ...(departmentCode ? { query: { departmentCode } } : {}) }),
+  myDuties: (facilityId: string) =>
+    client.get<{ items: MyDuty[] }>('/api/v1/identity/me/duties', { headers: operations(facilityId), dedupe: false }),
+  /**
+   * SX-9 without ids: the facility's members past and present (current first), up to 500, for choosing who goes on a
+   * roster or is put in charge. Names only. `complete` is false when more were left out.
+   */
+  members: (facilityId: string) =>
+    client.get<unknown>('/api/v1/identity/facility-staff-names', { headers: operations(facilityId), dedupe: false, retry: NO_RETRY })
+      .then(facilityStaffNamesOf),
 }

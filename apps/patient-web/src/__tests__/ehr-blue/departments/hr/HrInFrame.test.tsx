@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import type * as BlueRoutes from '../../../../ehr-blue/routes'
-import { DEMO_HOSPITAL, SESSION, facility, json, openStaffApp, serve, sessionAt, where } from '../../frame/blueHarness'
+import { DEMO_HOSPITAL, SESSION, facility, json, openStaffApp, problem, serve, sessionAt, where } from '../../frame/blueHarness'
 
 /*
  * HR & Credentials inside the blue EHR's frame, in place of its stand-in: a record link from Home's dashboards or the
@@ -28,6 +28,8 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules() })
 
 const STAFF = 'GET /api/v1/identity/facility-staff'
+/** Licence renewals (hid-system ROS-1), switched off here: an identity-api before them answers 404, and the page is today's. */
+const LICENCES = 'GET /api/v1/identity/staff-licences'
 
 const staff = {
   facility: { id: DEMO_HOSPITAL, name: 'Demo Hospital', organizationType: 'hospital', reviewState: 'reviewed', firstThirtyDaysEndAt: null,
@@ -44,7 +46,8 @@ describe('a record link from Home or the Notifications drawer', () => {
   it('opens HR & Credentials’ list at /provider/hr, not "Page not found", reading the staff once', async () => {
     const demo = { ...facility(DEMO_HOSPITAL, 'Demo Hospital', ['workforce.manage'], ['org_admin']),
       selfService: { review: 'reviewed', organizationType: 'hospital' } }
-    const sent = serve({ [SESSION]: [sessionAt(demo, [demo])], [STAFF]: [() => json(staff), () => json(staff)] })
+    const sent = serve({ [SESSION]: [sessionAt(demo, [demo])], [STAFF]: [() => json(staff), () => json(staff)],
+      [LICENCES]: [() => problem(404, 'NOT_FOUND', 'Cannot GET /api/v1/identity/staff-licences')] })
     await openStaffApp('/provider/hr/5a000001')
     const nav = await screen.findByRole('navigation', { name: 'Main navigation' })
     await waitFor(() => expect(where()).toBe('/provider/hr'))
@@ -74,5 +77,6 @@ describe('at a governed facility', () => {
       .toBeDefined()
     expect(screen.queryByText(/is not open to you here/)).toBeNull()
     expect(sent.filter(request => request.route === STAFF)).toHaveLength(0)
+    expect(sent.filter(request => request.route === LICENCES)).toHaveLength(0)
   })
 })

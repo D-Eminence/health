@@ -1,0 +1,165 @@
+/*
+ * Duty roster (departments/roster): the few looks departments.css does not have. The week's grid scrolls sideways
+ * inside its own box on a narrow screen, so the page itself never does; lists are one card per line, wrapping on a
+ * phone. Every rule sits under .hid-ehr and names hid-ehr-dept-roster-* classes; values come from the --ehr-* tokens.
+ * The roster prints alone, in black on white, on A4 landscape.
+ */
+
+.hid-ehr .hid-ehr-dept-roster-tabs { margin-bottom: 12px; }
+
+.hid-ehr .hid-ehr-dept-roster-week {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 16px;
+}
+
+.hid-ehr .hid-ehr-dept-roster-week-steps,
+.hid-ehr .hid-ehr-dept-roster-edit-actions,
+.hid-ehr .hid-ehr-dept-roster-list-actions,
+.hid-ehr .hid-ehr-dept-roster-request-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.hid-ehr .hid-ehr-dept-roster-list,
+.hid-ehr .hid-ehr-dept-roster-requests,
+.hid-ehr .hid-ehr-dept-roster-attendance,
+.hid-ehr .hid-ehr-dept-roster-on-duty,
+.hid-ehr .hid-ehr-dept-roster-duties,
+.hid-ehr .hid-ehr-dept-roster-in-charges,
+.hid-ehr .hid-ehr-dept-roster-leave {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hid-ehr .hid-ehr-dept-roster-list > li,
+.hid-ehr .hid-ehr-dept-roster-requests > li,
+.hid-ehr .hid-ehr-dept-roster-attendance > li,
+.hid-ehr .hid-ehr-dept-roster-on-duty > li,
+.hid-ehr .hid-ehr-dept-roster-duties > li,
+.hid-ehr .hid-ehr-dept-roster-in-charges > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--ehr-line);
+  border-radius: var(--ehr-radius-lg);
+  background: var(--ehr-surface);
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-dept-roster-on-duty > li,
+.hid-ehr .hid-ehr-dept-roster-duties > li { justify-content: flex-start; align-items: center; }
+
+.hid-ehr .hid-ehr-dept-roster-list h3,
+.hid-ehr .hid-ehr-dept-roster-requests h3,
+.hid-ehr .hid-ehr-dept-roster-attendance h3 {
+  margin: 0;
+  color: var(--ehr-ink);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-dept-roster-requests p,
+.hid-ehr .hid-ehr-dept-roster-attendance p,
+.hid-ehr .hid-ehr-dept-roster-list p { margin: 4px 0 0; }
+
+.hid-ehr .hid-ehr-dept-roster-grid-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--ehr-line);
+  border-radius: var(--ehr-radius-md);
+}
+
+.hid-ehr .hid-ehr-dept-roster-grid {
+  width: 100%;
+  min-width: 56rem;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.hid-ehr .hid-ehr-dept-roster-grid th,
+.hid-ehr .hid-ehr-dept-roster-grid td {
+  padding: 8px;
+  border: 1px solid var(--ehr-line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.hid-ehr .hid-ehr-dept-roster-grid th > span,
+.hid-ehr .hid-ehr-dept-roster-grid th > small { display: block; }
+.hid-ehr .hid-ehr-dept-roster-grid th > small { color: var(--ehr-muted); font-weight: 400; font-variant-numeric: tabular-nums; }
+.hid-ehr .hid-ehr-dept-roster-grid thead th { background: var(--ehr-surface-sunk); }
+
+.hid-ehr .hid-ehr-dept-roster-grid td ul {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 6px;
+  padding: 0;
+  list-style: none;
+}
+
+.hid-ehr .hid-ehr-dept-roster-grid td li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.hid-ehr .hid-ehr-dept-roster-add { min-width: 9rem; font-size: 13px; }
+
+.hid-ehr .hid-ehr-dept-roster-choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+}
+
+.hid-ehr .hid-ehr-dept-roster-in-charge-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 12px;
+  margin-top: 12px;
+}
+
+/* HR & Credentials' licence renewals reuse the list cards above; a withdrawn renewal is struck through, its words kept. */
+.hid-ehr .hid-ehr-dept-roster-subheading { margin: 16px 0 8px; color: var(--ehr-ink); font-size: 14px; font-weight: 600; }
+.hid-ehr .hid-ehr-dept-roster-requests h4 { margin: 0; color: var(--ehr-ink); font-size: 14px; font-weight: 600; }
+.hid-ehr .hid-ehr-dept-roster-withdrawn { text-decoration: line-through; }
+
+/* The roster on paper: under <body> only while it prints, never on screen. */
+[data-roster-print] { display: none; }
+
+@page roster-a4-landscape { size: A4 landscape; margin: 0; }
+
+@media print {
+  html:has(> body > [data-roster-print]), body:has(> [data-roster-print]) {
+    height: auto !important; min-height: 0 !important; max-height: none !important; overflow: visible !important;
+    margin: 0 !important; padding: 0 !important; background: #fff !important;
+  }
+  body:has(> [data-roster-print]) > :not([data-roster-print]) { display: none !important; }
+  body > [data-roster-print] {
+    display: block !important;
+    page: roster-a4-landscape;
+    padding: 10mm !important;
+    background: #fff !important;
+    color: #000 !important;
+    font: 10pt/1.35 system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif !important;
+  }
+}
+
+.hid-ehr-dept-roster-paper { display: flex; flex-direction: column; gap: 2mm; color: #000; background: #fff; }
+.hid-ehr-dept-roster-paper h1 { margin: 0; font-size: 14pt; }
+.hid-ehr-dept-roster-paper p { margin: 0; }
+.hid-ehr-dept-roster-paper table { width: 100%; margin-top: 3mm; border-collapse: collapse; table-layout: fixed; }
+.hid-ehr-dept-roster-paper th,
+.hid-ehr-dept-roster-paper td { padding: 1.5mm; border: .5pt solid #666; text-align: left; vertical-align: top; }
+.hid-ehr-dept-roster-paper tr { break-inside: avoid; }

@@ -26,4 +26,6 @@ export const BLUE_RETURN_PATHS: readonly string[] = [
   '/provider/waiting-list',
   // Open sign-up on outreach. (owner decision 5): "Start an outreach group" for a signed-in login.
   '/provider/start-outreach-group',
+  // The duty roster and leave (hid-system ROS-1) under People.
+  '/provider/duty-roster',
 ]

@@ -212,7 +212,13 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       // "Start an outreach group" with the same login, an outreach group's team invitations, and accepting one signed in
       // (open sign-up on outreach.; proposed, 404 until served).
       'identity.outreachGroupAvailability', 'identity.outreachGroupStart', 'identity.outreachInvitations',
-      'identity.outreachInvitationSignedInAccept'],
+      'identity.outreachInvitationSignedInAccept',
+      // Duty roster, leave and licence renewals (hid-system ROS-1, 0199-0202; 404 before it, 503 while each flag is off).
+      'identity.staffLicences', 'identity.staffLicencesExport', 'identity.staffLicenceMember', 'identity.staffLicenceRenewals',
+      'identity.staffLicenceRenewalWithdraw', 'identity.dutyRosterInCharges', 'identity.dutyRosterInChargeEnd',
+      'identity.dutyRosterOnDuty', 'identity.myLeaveRequests', 'identity.myLeaveRequestCancel', 'identity.leaveRequests',
+      'identity.leaveRequestApprove', 'identity.leaveRequestDecline', 'identity.dutyRosters', 'identity.dutyRoster',
+      'identity.dutyRosterAssignments', 'identity.dutyRosterPublish', 'identity.dutyRosterAttendance', 'identity.myDuties'],
     access: ['access.staffRequests', 'access.breakGlass', 'access.verifyPin', 'access.closeOwnGrant'],
     ehr: ['ehr.importedHistory', 'ehr.staffPatientChatAvailability', 'ehr.staffPatientChat', 'ehr.staffPatientChatHistory', 'ehr.staffPatientChatSource',
       'ehr.importedRecords', 'ehr.importedAttachment', 'ehr.emergencyRecords', 'ehr.encounters', 'ehr.encounter', 'ehr.vitals', 'ehr.vital',

@@ -194,6 +194,19 @@ export const PAGE_GUIDES: Readonly<Record<string, PageGuide>> = {
     purpose: 'Who did what at this facility, and when.',
     steps: ['Select Refresh for the latest. Use the filters to narrow it down.'],
   },
+  'duty-roster': {
+    purpose: 'Who works which shift in each department, week by week, and leave.',
+    steps: [
+      'Under Rosters, choose the week. Open a department’s roster to see who is on each shift, day by day.',
+      'If you are in charge of a department, or an administrator, select Change duties, add or take people off, then select Save duties. Select Publish when it is ready.',
+      'Once it is published, mark each duty present, absent or swapped under Attendance.',
+      'Under My leave, choose the type of leave and the dates, then select Ask for leave. Under My duties, see your own shifts.',
+    ],
+    tips: [
+      'Nobody can be on two duties at once, and the roster keeps the rest between duties that the rule says.',
+      'Leave has a type and dates only. Only you and whoever decides it see the type.',
+    ],
+  },
   staff: {
     purpose: 'The people who work here and what each one can do.',
     steps: ['See who works here and their roles. An administrator changes roles and access.'],

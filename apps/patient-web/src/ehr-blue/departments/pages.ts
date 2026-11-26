@@ -7,6 +7,7 @@ import { staffAccessPage } from './staff/page'
 import { auditPage } from './audit/page'
 import { facilityPage } from './facility/page'
 import { hrPage } from './hr/page'
+import { dutyRosterPage } from './roster/page'
 import { commercePages } from './commerce/page'
 import { registrationPage } from './registration/page'
 import { inPersonCheckPage } from './inperson/page'
@@ -32,6 +33,7 @@ export const pages: EhrBluePage[] = [
   auditPage,
   facilityPage,
   hrPage,
+  dutyRosterPage,
   ...commercePages,
   ...samplePages,
 ]

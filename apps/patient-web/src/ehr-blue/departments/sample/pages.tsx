@@ -5,6 +5,7 @@ import type { SampleDefinition } from '../parts/sample/model'
 import { ambulanceSample, qualitySample, servicesSample, shiftsSample, vehiclesSample } from './admin'
 import { billingSample, insuranceSample, policiesSample } from './finance'
 import { inventorySample, procurementSample } from './supply'
+import { dutyRosterServed, subscribeDutyRosterServed } from '../roster/rosterRules'
 
 /**
  * A sample page at `base` and every address below it ('insurance/*'): the frame's Home dashboards and Notifications
@@ -33,7 +34,10 @@ export const samplePages: EhrBluePage[] = [
   sample('supply', { group: 'Supply', label: 'Supply', tabLabel: 'Stock', icon: <BoxIcon /> }, inventorySample),
   sample('procurement', { group: 'Supply', label: 'Procurement', tabOf: 'supply', icon: <BoxIcon /> }, procurementSample),
   sample('quality', { group: 'Administration', label: 'Quality & Safety', icon: <FlagIcon /> }, qualitySample),
-  sample('shifts', { group: 'People', label: 'Shifts & Roster', icon: <ClockIcon /> }, shiftsSample),
+  // Once the live Duty roster (departments/roster) answers at this facility, the sample leaves the sidebar; its address
+  // still opens. Until then, and wherever the roster is switched off, it stays as it is.
+  sample('shifts', { group: 'People', label: 'Shifts & Roster', icon: <ClockIcon />,
+    listed: session => dutyRosterServed(session.actor.facility?.id) !== true, listedChanges: subscribeDutyRosterServed }, shiftsSample),
   sample('ambulance', { group: 'Network & Services', label: 'Dispatch', icon: <TruckIcon /> }, ambulanceSample),
   sample('vehicles', { group: 'Settings', label: 'Vehicle configuration', icon: <VehicleIcon /> }, vehiclesSample),
 ]
