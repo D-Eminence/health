@@ -389,17 +389,17 @@ export function refusalWords(caught: unknown, fallback: string, invalid?: string
 
 /**
  * EHR-C1's refusals of the emergency visit the visit link starts (before route 6), which are about the patient's chart,
- * never the board: 403 CONSENT_REQUIRED (the access the chart was opened under no longer lets this facility change the
- * record: a consent ended or was denied since, or it allows reading only) and the identity check's own refusals say to
- * open the chart again; so does a 404, the patient not found at this facility. Never the board's "not available yet".
+ * never the board (ClinicalRepository.run at hid-system#337): 403 CONSENT_REQUIRED (the access the chart was opened
+ * under has ended since, was denied, or allows reading only) and 403 ACCESS_DENIED (the database refused the write) say
+ * to open the chart again; so does a 404 (CLINICAL_RESOURCE_NOT_FOUND), the patient not found at this facility. Never
+ * the board's "only the front desk, nurses, clinicians and doctors" or "not available yet".
  */
-export const VISIT_CHART_CLOSED = 'The emergency visit was not started. The patient’s record can no longer be changed from this chart. '
+export const VISIT_CHART_CLOSED = 'The emergency visit was not started. Your access to this patient’s record has ended or does not allow changes. '
   + 'Open their chart again on Patients, then come back here.'
 export const VISIT_NOT_FOUND = 'The emergency visit was not started. The patient was not found at this facility. '
   + 'Open their chart again on Patients, then come back here.'
 export const VISIT_FAILED = 'The emergency visit could not be started. Try again.'
-const VISIT_ACCESS_ENDED: ReadonlySet<string> = new Set(['CONSENT_REQUIRED', 'ACCESS_DENIED', 'PATIENT_ACCESS_DENIED',
-  'IDENTITY_AUTHORIZATION_DENIED'])
+const VISIT_ACCESS_ENDED: ReadonlySet<string> = new Set(['CONSENT_REQUIRED', 'ACCESS_DENIED'])
 
 export function visitRefusal(caught: unknown): string {
   if (!isHidApiError(caught)) return VISIT_FAILED

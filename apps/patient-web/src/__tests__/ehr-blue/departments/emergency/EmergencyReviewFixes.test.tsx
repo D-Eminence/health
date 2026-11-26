@@ -284,7 +284,7 @@ describe('Emergency department board review fixes', () => {
         () => problem(404, 'CLINICAL_RESOURCE_NOT_FOUND', 'Clinical resource was not found')],
     })
     fireEvent.click(await openChartThenRecord())
-    expect(await screen.findByText('The emergency visit was not started. The patient’s record can no longer be changed from this chart. '
+    expect(await screen.findByText('The emergency visit was not started. Your access to this patient’s record has ended or does not allow changes. '
       + 'Open their chart again on Patients, then come back here.')).toBeDefined()
     expect(screen.queryByText(BOARD_REFUSED)).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Link today’s emergency visit' }))
