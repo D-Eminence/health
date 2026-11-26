@@ -67,8 +67,12 @@ export interface PaymentSettingsInput extends Omit<PaymentSettings, 'hmos' | 'ti
 
 export type CatalogueKind = 'drug' | 'lab_test' | 'other'
 export type CatalogueForm = 'tablet' | 'capsule' | 'liquid' | 'injection' | 'cream' | 'inhaler' | 'drops' | 'other'
-/** The national list an item is linked to by its fixed code (ORD-7): HID-MED for a drug, LOINC or HID-LAB for a test. */
-export type NationalCodeSystem = 'HID-MED' | 'LOINC' | 'HID-LAB'
+/**
+ * The list an item is linked to by a fixed code, so a prescription or lab request finds its price: ORD-7's national lists
+ * (HID-MED for a drug, LOINC or HID-LAB for a test), or for either one of this facility's own items (HID-FACILITY, with the
+ * item's id in lower case: hid-system #336, 0163).
+ */
+export type NationalCodeSystem = 'HID-MED' | 'LOINC' | 'HID-LAB' | 'HID-FACILITY'
 export interface CatalogueItem {
   id: string; kind: CatalogueKind; name: string
   strength?: string | null; form?: CatalogueForm | null
@@ -85,7 +89,10 @@ export interface CatalogueItem {
 export type CatalogueItemInput = Omit<CatalogueItem, 'id' | 'version' | 'imageUrl' | 'stockKept' | 'active'>
 /** PATCH /catalogue-items/:itemId: only the fields that change, with the version read. `kind` never changes. */
 export type CatalogueItemPatch = Partial<Omit<CatalogueItemInput, 'kind'>> & { active?: boolean; expectedVersion: number }
-/** A national code that reached this facility's pharmacy or lab with no priced item, in the last 30 days (a count only). */
+/**
+ * A national code, or one of this facility's own items, that reached its pharmacy or lab with no priced item in the last
+ * 30 days (a count only). The answer has no kind: a HID-FACILITY code may be a medicine or a test.
+ */
 export interface UnpricedCode { codeSystem: NationalCodeSystem; code: string; display: string; count: number }
 
 export type BillStatus = 'unpaid' | 'part_paid' | 'paid' | 'deferred' | 'void'

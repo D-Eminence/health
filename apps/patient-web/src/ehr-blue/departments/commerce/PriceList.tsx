@@ -25,11 +25,31 @@ const FORM_LABEL: Readonly<Record<CatalogueForm, string>> = {
   tablet: 'Tablet', capsule: 'Capsule', liquid: 'Liquid (syrup, suspension)', injection: 'Injection', cream: 'Cream or ointment',
   inhaler: 'Inhaler', drops: 'Drops', other: 'Other',
 }
-/** The national lists an item of each kind can be linked to (ORD-7), by its fixed code. */
-const CODE_SYSTEMS: Readonly<Record<CatalogueKind, readonly NationalCodeSystem[]>> = { drug: ['HID-MED'], lab_test: ['LOINC', 'HID-LAB'], other: [] }
+/**
+ * The lists an item of each kind can be linked to by a fixed code: ORD-7's national lists, or for a drug or a test one of
+ * this facility's own items (HID-FACILITY, by its id: hid-system #336, 0163).
+ */
+const CODE_SYSTEMS: Readonly<Record<CatalogueKind, readonly NationalCodeSystem[]>> = {
+  drug: ['HID-MED', 'HID-FACILITY'], lab_test: ['LOINC', 'HID-LAB', 'HID-FACILITY'], other: [],
+}
 const CODE_HINT: Readonly<Record<NationalCodeSystem, string>> = {
   'HID-MED': 'The national medicine code, like MED-00042.', LOINC: 'The test’s LOINC code, like 718-7.', 'HID-LAB': 'The national lab code.',
+  'HID-FACILITY': 'One of this facility’s own medicines or tests, by its id.',
 }
+/** A list's name where it is chosen: the national lists by their own names, a facility item in words. */
+const SYSTEM_LABEL: Readonly<Record<NationalCodeSystem, string>> = {
+  'HID-MED': 'HID-MED', LOINC: 'LOINC', 'HID-LAB': 'HID-LAB', 'HID-FACILITY': 'This facility’s item',
+}
+/** A facility item's id as the backend takes it (lower case). */
+const FACILITY_ITEM_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+/** A linked code in words: "HID-MED MED-00042", or "This facility’s item" (its id means nothing to staff). */
+const codeText = (system: string, code: string) => system === 'HID-FACILITY' ? SYSTEM_LABEL['HID-FACILITY'] : `${system} ${code}`
+/**
+ * The kinds an unpriced code can be priced as: a national medicine code a drug, a national test code a test, and one of
+ * this facility's own items either, as the answer does not say which (the backend refuses the wrong one).
+ */
+const kindsOfCode = (system: string): readonly CatalogueKind[] =>
+  system === 'HID-MED' ? ['drug'] : system === 'HID-FACILITY' ? ['drug', 'lab_test'] : ['lab_test']
 /** The price list's form as the pharmacy's line drawing (DrugTile): a liquid is drawn as a syrup bottle. */
 const drawn = (form: CatalogueForm | null | undefined): DrugForm => !form ? 'other' : form === 'liquid' ? 'syrup' : form
 const kindOf = (value: string | null): Kind => value === 'drug' || value === 'lab_test' || value === 'other' ? value : 'all'
@@ -137,7 +157,7 @@ function Unpriced({ facilityId, kinds, open, onToggle, onPrice }: {
   readonly onToggle: () => void; readonly onPrice: (prefill: Prefill) => void
 }) {
   const read = useCommerceRead<{ items: UnpricedCode[] }>(facilityId && open ? `unpriced:${facilityId}` : null, signal => commerce.unpricedCodes(facilityId!, signal))
-  const codes = (read.data?.items ?? []).filter(code => kinds.includes(code.codeSystem === 'HID-MED' ? 'drug' : 'lab_test'))
+  const codes = (read.data?.items ?? []).filter(code => kindsOfCode(code.codeSystem).some(kind => kinds.includes(kind)))
   return <Card>
     <CardHeader as="h2" title="Not on the price list" description="Medicines and tests prescribed or requested here in the last 30 days that have no price. Their bills show “Not billed” until they do."
       actions={<Button size="sm" onClick={onToggle} aria-expanded={open}>{open ? 'Hide' : 'Show'}</Button>} />
@@ -149,10 +169,10 @@ function Unpriced({ facilityId, kinds, open, onToggle, onPrice }: {
               {codes.map(code => <li key={`${code.codeSystem}:${code.code}`} className="flex flex-wrap items-center justify-between gap-3 py-2.5">
                 <span className="min-w-0 text-sm">
                   <span className="block font-medium text-ink">{code.display}</span>
-                  <span className="block text-caption text-ink-3">{code.codeSystem} {code.code} · {code.count} {code.count === 1 ? 'time' : 'times'}</span>
+                  <span className="block text-caption text-ink-3">{codeText(code.codeSystem, code.code)} · {code.count} {code.count === 1 ? 'time' : 'times'}</span>
                 </span>
-                <Button size="sm" variant="soft" onClick={() => onPrice({ kind: code.codeSystem === 'HID-MED' ? 'drug' : 'lab_test', name: code.display,
-                  system: code.codeSystem, code: code.code })}>Add a price</Button>
+                <Button size="sm" variant="soft" onClick={() => onPrice({ kind: kindsOfCode(code.codeSystem).find(kind => kinds.includes(kind))!,
+                  name: code.display, system: code.codeSystem, code: code.code })}>Add a price</Button>
               </li>)}
             </ul>}
     </div> : null}
@@ -169,7 +189,7 @@ function ItemCard({ item, hmos, onEdit }: { readonly item: CatalogueItem; readon
           <div className="min-w-0 flex-1">
             <p className="m-0 text-title-3 text-ink break-words">{item.name}{item.strength ? <span className="font-normal text-ink-2"> {item.strength}</span> : null}</p>
             <p className="m-0 text-caption text-ink-3">{KIND_LABEL[item.kind]}{item.packSize ? ` · ${item.packSize}` : ''}
-              {item.nationalCode ? ` · ${item.nationalCodeSystem} ${item.nationalCode}` : ''}</p>
+              {item.nationalCodeSystem && item.nationalCode ? ` · ${codeText(item.nationalCodeSystem, item.nationalCode)}` : ''}</p>
           </div>
           {onEdit ? <Button variant="ghost" size="sm" icon={Pencil} onClick={onEdit} aria-label={`Edit ${item.name}`} className="max-sm:size-11 max-sm:px-0" /> : null}
         </div>
@@ -221,6 +241,8 @@ function ItemDrawer({ item, prefill, hmos, allHmos, kinds = ALL_KINDS, onClose, 
 
   const systems = CODE_SYSTEMS[kind]
   const chosenSystem = system && systems.includes(system) ? system : ''
+  // A facility item's id is sent in lower case, as the backend keeps it.
+  const codeSent = chosenSystem === 'HID-FACILITY' ? code.trim().toLowerCase() : code.trim()
   const cashKobo = parseNaira(cash)
   const hmoPrices = hmos.flatMap(hmo => {
     const text = hmoText[hmo.id]?.trim() ?? ''
@@ -231,8 +253,9 @@ function ItemDrawer({ item, prefill, hmos, allHmos, kinds = ALL_KINDS, onClose, 
     cash: cash.trim() === '' ? 'Type the cash price.' : cashKobo === null ? 'Type an amount like 1,500 or 1500.00.'
       : cashKobo > MAX_PRICE ? 'The most a price can be is ₦1,000,000.00.' : null,
     hmo: hmoPrices.some(price => price.amountKobo === null || price.amountKobo > MAX_PRICE) ? 'Each HMO price must be an amount like 1,200, or left empty.' : null,
-    code: chosenSystem === '' ? null : chosenSystem === 'HID-MED' ? /^MED-\d{5}$/.test(code.trim()) ? null : 'Type the code like MED-00042.'
-      : code.trim().length < 1 || code.trim().length > 100 ? 'Type the test’s code.' : null,
+    code: chosenSystem === '' ? null : chosenSystem === 'HID-MED' ? /^MED-\d{5}$/.test(codeSent) ? null : 'Type the code like MED-00042.'
+      : chosenSystem === 'HID-FACILITY' ? FACILITY_ITEM_ID.test(codeSent) ? null : 'Type the item’s id as the facility’s list gives it (36 characters).'
+        : codeSent.length < 1 || codeSent.length > 100 ? 'Type the test’s code.' : null,
     text: kind === 'drug' && (strength.trim().length > 80 || packSize.trim().length > 80) ? 'Keep the strength and pack size to 80 characters each.' : null,
   }
   const blocked = Object.values(errors).some(Boolean)
@@ -248,7 +271,7 @@ function ItemDrawer({ item, prefill, hmos, allHmos, kinds = ALL_KINDS, onClose, 
       form: kind === 'drug' && form ? form : null,
       packSize: kind === 'drug' ? packSize.trim() || null : null,
       prescriptionOnly: kind === 'drug' ? prescriptionOnly : false,
-      nationalCodeSystem: chosenSystem || null, nationalCode: chosenSystem ? code.trim() : null,
+      nationalCodeSystem: chosenSystem || null, nationalCode: chosenSystem ? codeSent : null,
       prices: { cashKobo, hmo: hmoPrices.map(price => ({ hmoId: price.hmoId, amountKobo: price.amountKobo! })) },
     }
     let result
@@ -269,7 +292,10 @@ function ItemDrawer({ item, prefill, hmos, allHmos, kinds = ALL_KINDS, onClose, 
     setBusy(false)
     if (result.ok) { toast.success({ title: item ? 'Price saved' : 'Item added', message: result.data.name }); onSaved(result.data); return }
     if (result.notAvailable) { setOff(true); return }
-    setProblem(result.error)
+    // Not one of this facility's own items of this kind, in use: in words for a facility item, not "the national list".
+    setProblem(result.code === 'NATIONAL_CODE_NOT_FOUND' && chosenSystem === 'HID-FACILITY'
+      ? `This is not one of this facility’s ${kind === 'drug' ? 'medicines' : 'lab tests'} in use. Check whether it is a drug or a lab test.`
+      : result.error)
   }
 
   return (
@@ -325,7 +351,7 @@ function ItemDrawer({ item, prefill, hmos, allHmos, kinds = ALL_KINDS, onClose, 
               <div className="grid gap-3 @md:grid-cols-[10rem_minmax(0,1fr)]">
                 <Select aria-label="National list" value={chosenSystem} onChange={event => setSystem(event.target.value as NationalCodeSystem | '')}>
                   <option value="">None</option>
-                  {systems.map(value => <option key={value} value={value}>{value}</option>)}
+                  {systems.map(value => <option key={value} value={value}>{SYSTEM_LABEL[value]}</option>)}
                 </Select>
                 {chosenSystem ? <Input aria-label="Code" autoComplete="off" spellCheck={false} maxLength={100} value={code} onChange={event => setCode(event.target.value)}
                   placeholder={chosenSystem === 'HID-MED' ? 'MED-00042' : ''} aria-invalid={Boolean(tried && errors.code)}

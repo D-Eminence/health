@@ -116,6 +116,60 @@ describe('the price list', () => {
     expect((within(drawer).getByRole('textbox', { name: 'Code' }) as HTMLInputElement).value).toBe('MED-00113')
   })
 
+  it('prices one of this facility’s own items (HID-FACILITY) as the kind chosen, by its id in lower case', async () => {
+    const facilityItem = '3F2A9C1E-5B7D-4E8F-9A0B-1C2D3E4F5A6B'
+    commerceApi.catalogueItems = async () => ok({ items: [], nextPage: null })
+    commerceApi.unpricedCodes = async () => ok({ items: [{ codeSystem: 'HID-FACILITY', code: facilityItem.toLowerCase(), display: 'Malaria rapid test (own)', count: 3 }] })
+    const create = vi.fn()
+      .mockResolvedValueOnce(refused('NATIONAL_CODE_NOT_FOUND', 'This code is not on the national list.'))
+      .mockResolvedValueOnce(ok({ id: 'item-mrdt', kind: 'lab_test', name: 'Malaria rapid test (own)', prescriptionOnly: false, nationalCodeSystem: 'HID-FACILITY',
+        nationalCode: facilityItem.toLowerCase(), prices: { cashKobo: 150000, hmo: [] }, active: true, version: 1 }))
+    commerceApi.createCatalogueItem = create
+    renderDept(<PriceList />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Show' }))
+    // A facility item may be a medicine or a test: listed, in words rather than by its id.
+    expect(await screen.findByText('This facility’s item · 3 times')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Add a price' }))
+    const drawer = await screen.findByRole('dialog', { name: 'Add item' })
+    expect((within(drawer).getByRole('combobox', { name: 'National list' }) as HTMLSelectElement).value).toBe('HID-FACILITY')
+    fireEvent.change(within(drawer).getByRole('textbox', { name: 'Code' }), { target: { value: facilityItem } })
+    fireEvent.change(within(drawer).getByLabelText('Cash price'), { target: { value: '1,500' } })
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Add item' }))
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
+    expect(create.mock.calls[0]![1]).toMatchObject({ kind: 'drug', nationalCodeSystem: 'HID-FACILITY', nationalCode: facilityItem.toLowerCase() })
+    // Refused as a drug: the words say to check the kind, never "the national list".
+    expect(await within(drawer).findByText('This is not one of this facility’s medicines in use. Check whether it is a drug or a lab test.')).toBeTruthy()
+    fireEvent.click(within(drawer).getByRole('radio', { name: 'Lab test' }))
+    expect((within(drawer).getByRole('combobox', { name: 'National list' }) as HTMLSelectElement).value).toBe('HID-FACILITY')
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Add item' }))
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(2))
+    expect(create.mock.calls[1]![1]).toMatchObject({ kind: 'lab_test', nationalCodeSystem: 'HID-FACILITY', nationalCode: facilityItem.toLowerCase() })
+  })
+
+  it('checks a facility item’s id before sending it, and keeps an item’s facility code when only its price changes', async () => {
+    const linked: CatalogueItem = { id: 'item-own', kind: 'drug', name: 'House cough syrup', prescriptionOnly: false, nationalCodeSystem: 'HID-FACILITY',
+      nationalCode: '3f2a9c1e-5b7d-4e8f-9a0b-1c2d3e4f5a6b', prices: { cashKobo: 80000, hmo: [] }, active: true, version: 3 }
+    commerceApi.catalogueItems = async () => ok({ items: [linked], nextPage: null })
+    const update = vi.fn(async (..._args: unknown[]) => ok({ ...linked, prices: { cashKobo: 90000, hmo: [] }, version: 4 }))
+    commerceApi.updateCatalogueItem = update
+    renderDept(<PriceList />)
+    expect(await screen.findByText(/House cough syrup/)).toBeTruthy()
+    expect(screen.getByText(/This facility’s item/)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/3f2a9c1e/)
+    fireEvent.click(screen.getByRole('button', { name: 'Edit House cough syrup' }))
+    const drawer = await screen.findByRole('dialog', { name: 'Edit House cough syrup' })
+    const code = within(drawer).getByRole('textbox', { name: 'Code' })
+    fireEvent.change(code, { target: { value: 'MED-00042' } })
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Save' }))
+    expect(await within(drawer).findByText('Type the item’s id as the facility’s list gives it (36 characters).')).toBeTruthy()
+    expect(update).not.toHaveBeenCalled()
+    fireEvent.change(code, { target: { value: '3f2a9c1e-5b7d-4e8f-9a0b-1c2d3e4f5a6b' } })
+    fireEvent.change(within(drawer).getByLabelText('Cash price'), { target: { value: '900' } })
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(update).toHaveBeenCalled())
+    expect(update.mock.calls[0]![2]).toEqual({ expectedVersion: 3, prices: { cashKobo: 90000, hmo: [] } })
+  })
+
   it('refuses a Health ID typed without its "HID-" in the search, in the price list’s own words, and sends nothing', async () => {
     const calls: unknown[] = []
     commerceApi.catalogueItems = async (...args: never[]) => { calls.push(args[1]); return ok({ items: [consultation], nextPage: null }) }

@@ -1355,11 +1355,12 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   proposed(r('commercial.catalogueItems','commercial','/api/v1/commercial/catalogue-items',GP,false,
     {GET:['billing.catalogue.read'],POST:['billing.catalogue.manage']}, `${BILL_1} GET ?kind&q (2+, never a Health ID or NIN)`
     + '&active&page: { items, page, pageSize: 50, more }. POST an item (kind drug | lab_test | other, the screen\'s "Service"), '
-    + 'with an optional national code (HID-MED, LOINC or HID-LAB); 409 NATIONAL_CODE_NOT_FOUND, NATIONAL_CODE_ALREADY_PRICED, '
+    + 'with an optional national code (HID-MED, LOINC or HID-LAB), or for a drug or lab test one of this facility\'s own items '
+    + '(HID-FACILITY, its id in lower case); 409 NATIONAL_CODE_NOT_FOUND, NATIONAL_CODE_ALREADY_PRICED, '
     + 'CATALOGUE_ITEM_EXISTS, CATALOGUE_LIMIT. No picture yet (imageFileId refused).')),
   proposed(r('commercial.catalogueUnpricedCodes','commercial','/api/v1/commercial/catalogue-items/unpriced-codes',G,false,
-    one('GET','billing.catalogue.manage'), `${BILL_1} The last 30 days' national codes with no priced item: { items: [{ codeSystem, `
-    + 'code, display, count }] }. No patient.')),
+    one('GET','billing.catalogue.manage'), `${BILL_1} The last 30 days' national codes, and this facility's own items (HID-FACILITY), `
+    + 'with no priced item: { items: [{ codeSystem, code, display, count }] }. No patient.')),
   proposed(r('commercial.catalogueItem','commercial','/api/v1/commercial/catalogue-items/:itemId',['PATCH'],false,
     one('PATCH','billing.catalogue.manage'), `${BILL_1} Only the changed fields with expectedVersion; kind never changes; `
     + 'withdrawn with active false, never deleted.')),
