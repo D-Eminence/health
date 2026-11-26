@@ -1,3 +1,4 @@
+import { lagosDay } from '@hid/ui/display'
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Camera, FileText, FlaskConical, HeartPulse, ImagePlus, Lock, NotebookPen, Pill, Stethoscope, Syringe, Trash2, Upload } from 'lucide-react'
 import { isHidApiError } from '@hid/http'
@@ -98,7 +99,7 @@ type Sending = 'sending' | 'sent' | 'failed' | 'limited' | 'refused'
 /** The entry this drawer saved: its photos and files go up under it, and Try again uses it. */
 interface Saved { id: string; title: string }
 
-const today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Lagos' })
+const today = () => lagosDay()
 const size = (bytes: number) => bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`
 const notUploadedWords = (count: number) => `${count} of your photos or files didn’t upload.`
 const DAILY_LIMIT_WORDS = `You can add up to ${DAILY_FILES} photos or files a day. Your record is saved; add the rest tomorrow.`

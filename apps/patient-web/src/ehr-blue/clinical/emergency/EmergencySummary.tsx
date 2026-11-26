@@ -1,3 +1,4 @@
+import { formatDate, formatTime } from '@hid/ui/display'
 import { AlertTriangle, RotateCcw, Siren, UserSearch } from 'lucide-react'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { FormPage, LoadingRows, PatientBanner, Value } from '../../../kasuwa/parts'
@@ -82,13 +83,12 @@ function currentFirst<T>(items: readonly T[], rank: (item: T) => number): T[] {
 }
 
 const DAY_MS = 86_400_000
-const CALENDAR_DAY = new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeZone: 'UTC' })
 
 /** A prescription's start or end day: the day whose UTC midnight is nearest (Clinical.tsx calendarDay). */
 function calendarDay(value: string) {
   const plain = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
   const instant = plain ? Date.UTC(Number(plain[1]), Number(plain[2]) - 1, Number(plain[3])) : Date.parse(value)
-  return Number.isNaN(instant) ? value : CALENDAR_DAY.format(new Date(Math.round(instant / DAY_MS) * DAY_MS))
+  return Number.isNaN(instant) ? value : formatDate(new Date(Math.round(instant / DAY_MS) * DAY_MS).toISOString().slice(0, 10), value)
 }
 
 /** A file size in KB or MB. */
@@ -349,7 +349,7 @@ function Summary({ chart, onClosed }: { chart: Chart; onClosed: () => void }) {
   const closeUnavailable = actionUnavailable(CLOSE_GRANT, permissions, administrator)
   const closeUnavailableId = `${id}-close-unavailable`
   const expiresAt = chart.patient.lookup.authorization.expiresAt
-  const expires = expiresAt && !Number.isNaN(new Date(expiresAt).getTime()) ? new Date(expiresAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : ''
+  const expires = formatTime(expiresAt)
 
   async function closeGrant() {
     if (!grantId || closeUnavailable || closing.current) return

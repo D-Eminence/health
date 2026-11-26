@@ -1,3 +1,4 @@
+import { formatDate, formatDateTime } from '@hid/ui/display'
 import { StaffPatientChat } from './StaffPatientChat'
 import { usesNovuBackend } from '../../backendContract'
 import { ImportedPatientHistory } from './ImportedPatientHistory'
@@ -781,7 +782,7 @@ function VitalPanel({ facilityId, patientId, encounterId, vital, canCorrect, dis
     {corrected && !latest && !loadError && <p role="status">Loading the correction…</p>}
     {latest && <><Detail label={`Corrected (correction ${latest.correctionNo})`} value={vitalSummary(latest.replacementValues)} />
       <Detail label="Reason" value={latest.reason} />
-      <Detail label="Corrected at" value={latest.createdAt ? new Date(latest.createdAt).toLocaleString() : ''} /></>}
+      <Detail label="Corrected at" value={formatDateTime(latest.createdAt)} /></>}
     {loadError && <p className="staff-error" role="alert">These vitals were corrected, but the correction could not be loaded, so the values below are as first recorded and may not be current. {loadError}</p>}
     {corrected && <Detail label="Originally recorded" value={vitalSummary(vital)} />}
     {canCorrect && current && !retracted && <>
@@ -861,7 +862,7 @@ function NotePanel({ facilityId, patientId, encounterId, note, canWrite, verify,
       {!loading && !loadError && revisions?.length === 0 && <p>No note content is available.</p>}
       {!loading && !loadError && revisions?.map(item => <div className="staff-list-item" key={item.id}>
         <strong>Revision {item.revisionNo}</strong><p className="staff-note-content">{item.content}</p>
-        <p>Recorded {new Date(item.createdAt).toLocaleString()} · {item.changeReason}</p>
+        <p>Recorded {formatDateTime(item.createdAt)} · {item.changeReason}</p>
       </div>)}
       {/* The forms stay while the revisions are read again, so the one just used keeps focus;
           the content is hidden then, so the status form, which signs it, is unavailable. */}
@@ -928,7 +929,7 @@ function ReleasedResults({ facilityId, requestId, purpose = 'direct-care' }: { f
       <div role="status">{loading && <p>Loading released results…</p>}</div>
       {error && <p className="staff-error" role="alert">{error}</p>}
       {released && (released.results.length === 0 ? <p>No result released yet.</p> : <>
-        <p>{released.test.name} · {released.test.codeSystem} {released.test.code} · accepted by Lab {new Date(released.acceptedAt).toLocaleString()}</p>
+        <p>{released.test.name} · {released.test.codeSystem} {released.test.code} · accepted by Lab {formatDateTime(released.acceptedAt)}</p>
         {released.results.map((result, index) => <div className="staff-stack" key={result.id}>
           <div className="staff-row"><strong>Result {index + 1}</strong>
             <Badge tone={result.status === 'entered_in_error' ? 'danger' : 'success'}>{result.status === 'entered_in_error' ? 'Entered in error' : 'Released'}</Badge></div>
@@ -1059,7 +1060,6 @@ function diagnosisRank(item: EmergencyRecords['diagnoses'][number]) {
 }
 
 const DAY_MS = 86_400_000
-const CALENDAR_DAY = new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeZone: 'UTC' })
 
 /**
  * A prescription's start or end day. EHR keeps it as a date (ehr.prescriptions
@@ -1072,7 +1072,7 @@ const CALENDAR_DAY = new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', tim
 function calendarDay(value: string) {
   const plain = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
   const instant = plain ? Date.UTC(Number(plain[1]), Number(plain[2]) - 1, Number(plain[3])) : Date.parse(value)
-  return Number.isNaN(instant) ? value : CALENDAR_DAY.format(new Date(Math.round(instant / DAY_MS) * DAY_MS))
+  return Number.isNaN(instant) ? value : formatDate(new Date(Math.round(instant / DAY_MS) * DAY_MS).toISOString().slice(0, 10), value)
 }
 
 /** The entries in `rank` order; EHR's own order, newest first, within a rank. */
@@ -1133,7 +1133,7 @@ function EmergencySummary({ facilityId, patientId, patientName, permissions, ver
   // section is shown only to a role that may read that record: display, kept as
   // defence in depth, not access control, which is EHR's.
   const may = (permission: string) => permissions.includes(permission)
-  const date = (value: string | null) => value ? new Date(value).toLocaleString() : ''
+  const date = (value: string | null) => formatDateTime(value)
   // Each section's own limit and whether EHR cut it short, where EHR reports them.
   const sectionProps = (key: keyof typeof EMERGENCY_CAPS) => ({
     cap: summary?.limits?.[key] ?? EMERGENCY_CAPS[key],
@@ -1834,10 +1834,10 @@ export function Clinical() {
     <div className="staff-two-col staff-encounter-grid"><Card className="staff-card"><h2>Encounters</h2>{loading && <p role="status">Loading encounters…</p>}
       <Notice notice={encounterNotice} scope={encounterScope} />
       <Pager label="Encounter pages" position={encounterPosition} busy={loading} onShow={cursors => void loadEncounters({ cursors, paging: true })} />
-      {selected && !scopedEncounters.some(item => item.id === selected.id) && <p className="staff-muted">The encounter being documented, {selected.encounterType.replace('_', ' ')} started {new Date(selected.startedAt).toLocaleString()}, is on another page.</p>}
-      {!loading && scopedEncounters.length === 0 && <p>No encounters are available for this patient and facility.</p>}<div className="staff-list">{scopedEncounters.map(item => <button type="button" key={item.id} className={`staff-list-item staff-select-row${item.id === encounterId ? ' selected' : ''}`} aria-current={item.id === encounterId ? 'true' : undefined} onClick={() => setSelection(item)}><strong>{item.encounterType.replace('_', ' ')} · {item.status.replace('_', ' ')}</strong><p>{new Date(item.startedAt).toLocaleString()}</p><p>{item.chiefComplaint || 'No chief complaint provided'}</p></button>)}</div>
+      {selected && !scopedEncounters.some(item => item.id === selected.id) && <p className="staff-muted">The encounter being documented, {selected.encounterType.replace('_', ' ')} started {formatDateTime(selected.startedAt)}, is on another page.</p>}
+      {!loading && scopedEncounters.length === 0 && <p>No encounters are available for this patient and facility.</p>}<div className="staff-list">{scopedEncounters.map(item => <button type="button" key={item.id} className={`staff-list-item staff-select-row${item.id === encounterId ? ' selected' : ''}`} aria-current={item.id === encounterId ? 'true' : undefined} onClick={() => setSelection(item)}><strong>{item.encounterType.replace('_', ' ')} · {item.status.replace('_', ' ')}</strong><p>{formatDateTime(item.startedAt)}</p><p>{item.chiefComplaint || 'No chief complaint provided'}</p></button>)}</div>
 </Card>{permissions.includes('ehr.encounter.write') && canMutate && <EncounterForm onCreated={createEncounter} disabled={!facility} />}</div>
-    {selected && <section className="staff-section" aria-labelledby="clinical-documentation-title"><div className="staff-page-head"><p className="staff-eyebrow">Selected encounter</p><h2 id="clinical-documentation-title" tabIndex={-1}>Care documentation</h2><p>{new Date(selected.startedAt).toLocaleString()} · {selected.status.replace('_', ' ')}</p></div>
+    {selected && <section className="staff-section" aria-labelledby="clinical-documentation-title"><div className="staff-page-head"><p className="staff-eyebrow">Selected encounter</p><h2 id="clinical-documentation-title" tabIndex={-1}>Care documentation</h2><p>{formatDateTime(selected.startedAt)} · {selected.status.replace('_', ' ')}</p></div>
       {canMutate && permissions.includes('ehr.encounter.write') && (encounterTransitions[selected.status]?.length ?? 0) > 0 &&
         <Card className="staff-card"><StatusActionForm key={`${selected.id}-${selected.rowVersion}`} id={`encounter-${selected.id}`} title="Encounter status"
           choices={encounterTransitions[selected.status]!} warning={encounterClosesRecords()} disabled={loading} onChange={changeEncounterStatus} /></Card>}
@@ -1852,7 +1852,7 @@ export function Clinical() {
         {activeTab === 'vitals' ? <VitalPanel key={`${record.id}-${String(record.rowVersion)}`} facilityId={facility.id} patientId={patientId!} encounterId={selected.id}
           vital={record} canCorrect={canMutate && permissions.includes('ehr.vital.write')} disabled={recordsLoading}
           onCorrect={(values, reason, key) => correctVital(record, values, reason, key)} /> : <p>{recordDetail(activeTab, record)}</p>}
-        <Detail label="Recorded" value={record.createdAt ? new Date(record.createdAt).toLocaleString() : ''} />
+        <Detail label="Recorded" value={formatDateTime(record.createdAt)} />
         {activeTab === 'clinical-notes' && <NotePanel facilityId={facility.id} patientId={patientId!} encounterId={selected.id}
           note={record} canWrite={canMutate && permissions.includes('ehr.note.write')} verify={verify}
           onStatus={(status, reason) => changeRecordStatus(record, 'clinical-notes', status, reason)}

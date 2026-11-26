@@ -1,3 +1,4 @@
+import { formatDateTime } from '@hid/ui/display'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { HidApiError } from '@hid/http'
 import { Route, Routes, useParams } from 'react-router-dom'
@@ -1198,7 +1199,7 @@ describe('A lab request’s page', () => {
     expect(screen.getByText('Result 1')).toBeTruthy()
     // The test leads with its name; its code waits under a closed "More details" (owner decision 33.4).
     const named = screen.getByText(/^Haemoglobin · accepted by Lab /)
-    expect(named.textContent).toBe(`Haemoglobin · accepted by Lab ${new Date('2026-10-30T10:00:00.000Z').toLocaleString()}`)
+    expect(named.textContent).toBe(`Haemoglobin · accepted by Lab ${formatDateTime('2026-10-30T10:00:00.000Z')}`)
     expect(named.textContent).not.toContain('718-7')
     const details = named.parentElement!.querySelector(':scope > details') as HTMLDetailsElement
     expect(details.open).toBe(false)
@@ -1222,7 +1223,7 @@ describe('A lab request’s page', () => {
     fireEvent.click(screen.getByRole('button', { name: 'View released results' }))
     const named = await screen.findByText(/^LOINC 718-7 · accepted by Lab /)
     // In classic's date format (toLocaleString), as every released-results date is (Clinical.tsx:931).
-    expect(named.textContent).toBe(`LOINC 718-7 · accepted by Lab ${new Date('2026-10-30T10:00:00.000Z').toLocaleString()}`)
+    expect(named.textContent).toBe(`LOINC 718-7 · accepted by Lab ${formatDateTime('2026-10-30T10:00:00.000Z')}`)
     expect(named.parentElement!.querySelector(':scope > details')).toBeNull()
     // The printed result names the test the same way.
     let printed = ''
@@ -4330,13 +4331,13 @@ describe('Live, View released results: a released result as classic’s Revision
     return screen.findByRole('heading', { name: 'Released results' }).then(() => waitFor(() => expect(screen.getAllByText(/^Result \d$/).length).toBeGreaterThan(0)))
   }
 
-  it('says when it was entered, released and accepted in classic’s date format (toLocaleString, labRevisions.tsx:5, Clinical.tsx:931)', async () => {
+  it('says when it was entered, released and accepted in the one date format, in Lagos time (Q181 A, Q182 A)', async () => {
     await view(released(revision('abnormal')))
     const text = document.body.textContent ?? ''
-    expect(text).toContain(`Entered ${new Date('2026-11-11T12:31:20.000Z').toLocaleString()} · verified`)
-    expect(text).toContain(`Released ${new Date('2026-11-11T12:45:05.000Z').toLocaleString()}`)
-    expect(text).toContain(`accepted by Lab ${new Date('2026-11-11T12:20:00.000Z').toLocaleString()}`)
-    expect(text).not.toContain(`Entered ${formatWhen('2026-11-11T12:31:20.000Z')}`)
+    expect(text).toContain(`Entered ${formatDateTime('2026-11-11T12:31:20.000Z')} · verified`)
+    expect(text).toContain(`Released ${formatDateTime('2026-11-11T12:45:05.000Z')}`)
+    expect(text).toContain(`accepted by Lab ${formatDateTime('2026-11-11T12:20:00.000Z')}`)
+    expect(text).toContain('Entered 11 Nov 2026, 13:31 · verified')
   })
 
   it.each([['abnormal', 'abnormal'], ['high', 'high'], ['low', 'low'], ['critical_candidate', 'critical candidate'], ['normal', 'normal'], ['unknown', 'unknown']])(

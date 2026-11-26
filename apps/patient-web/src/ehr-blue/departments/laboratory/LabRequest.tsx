@@ -1,3 +1,4 @@
+import { formatPhone } from '@hid/ui/display'
 import { useLayoutEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowRight, Check, Pencil, Printer, RotateCcw } from 'lucide-react'
@@ -221,7 +222,7 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
         ['Priority', isUrgent(item.priority) ? <Badge size="sm" tone="warn">Urgent</Badge> : 'Routine'],
         requestOf(item) ? ['Request', requestOf(item)!.number] : null,
         accession ? ['Sample number', accession.accessionNumber] : item.accessionNumber ? ['Sample number', item.accessionNumber] : null,
-        person.phone ? ['Phone', person.phone] : null,
+        person.phone ? ['Phone', formatPhone(person.phone)] : null,
         walkIn?.clinicalNote ? ['Clinical note', walkIn.clinicalNote] : null,
         outside ? ['Referred by', [outside.prescriberName, outside.facilityName].filter(Boolean).join(', ')] : null,
         route?.ordererName ? ['Ordered by', route.ordererName + (route.ordererLicence ? ` · ${licenceLine(route.ordererLicence.body, route.ordererLicence.number)}` : '')] : null,

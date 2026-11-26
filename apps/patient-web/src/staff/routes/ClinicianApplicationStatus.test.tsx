@@ -368,13 +368,13 @@ describe('the applications', () => {
 
   it.each([
     [view({ state: 'awaiting_authenticator' }), 'Waiting for your authenticator',
-      "Set up your authenticator app to send this application for review. We can't review it until you do. We keep applications open for 30 days (until 14 November 2026)."],
+      "Set up your authenticator app to send this application for review. We can't review it until you do. We keep applications open for 30 days (until 14 Nov 2026)."],
     [view(), 'Received', "Application received. Health ID will check your licence with MDCN, call you to confirm it's you, and check with Lagos General Hospital that you work there. You can sign in once it's approved."],
     [view({ state: 'under_review' }), 'Licence checked', 'Your licence has been checked. One more check, then you can sign in.'],
-    [approved('active'), 'Approved', 'Approved on 20 October 2026. You can sign in to the provider portal as a doctor at Lagos General Hospital with your password and authenticator app.'],
-    [approved('lapsed'), 'Approved', 'Approved on 20 October 2026. Your access at Lagos General Hospital is paused because its licence check has expired. Contact HID support to renew it.'],
-    [approved('ended'), 'Approved', 'Approved on 20 October 2026. Your access at Lagos General Hospital has ended.'],
-    [approved('account_unavailable'), 'Approved', "Approved on 20 October 2026. Your account can't sign in at the moment. Contact HID support."],
+    [approved('active'), 'Approved', 'Approved on 20 Oct 2026. You can sign in to the provider portal as a doctor at Lagos General Hospital with your password and authenticator app.'],
+    [approved('lapsed'), 'Approved', 'Approved on 20 Oct 2026. Your access at Lagos General Hospital is paused because its licence check has expired. Contact HID support to renew it.'],
+    [approved('ended'), 'Approved', 'Approved on 20 Oct 2026. Your access at Lagos General Hospital has ended.'],
+    [approved('account_unavailable'), 'Approved', "Approved on 20 Oct 2026. Your account can't sign in at the moment. Contact HID support."],
     [rejected('licence_not_verified'), 'Not approved', 'We could not confirm your licence on the MDCN register.'],
     [rejected('licence_not_current'), 'Not approved', 'Your licence is not current on the MDCN register.'],
     [rejected('details_mismatch'), 'Not approved', "The licence details you gave don't match the MDCN register. Apply again with the details exactly as on your licence."],

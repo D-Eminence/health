@@ -1,3 +1,4 @@
+import { formatDateTime } from '@hid/ui/display'
 import { actionVariant } from '../actionVariant'
 import {
   useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type FormEvent, type MouseEvent, type ReactNode,
@@ -43,7 +44,7 @@ function useSamples(moduleId: string): readonly SampleRecord[] {
   return sampleRecords(moduleId)
 }
 
-const when = (value: string) => new Date(value).toLocaleString('en-US')
+const when = (value: string) => formatDateTime(value, value)
 
 /** The values a new record starts with, as the design's create form sets them. */
 const STARTING_VALUES: Readonly<Record<string, string>> = { quantity: '1', packSize: '1', duration: '30', priority: 'Routine', urgency: 'Routine' }

@@ -1,3 +1,4 @@
+import { formatDateTime, lagosDay } from '@hid/ui/display'
 import { useId, useState } from 'react'
 import { Banknote, BadgeCheck, CreditCard, Landmark, ShieldCheck, Store } from 'lucide-react'
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, Field, Input, PageHeader, SectionHeader, StatCard, StatGroup, Textarea, cx, type Icon } from '../../../kasuwa/ui'
@@ -12,7 +13,7 @@ import { useCommerceRead } from './useCommerceRead'
 const METHOD_ICON: Readonly<Record<PaymentMethod, Icon>> = {
   cash: Banknote, pos: CreditCard, transfer: Landmark, hmo: ShieldCheck, waiver: BadgeCheck,
 }
-const clock = (iso: string) => new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(iso))
+const clock = (iso: string) => formatDateTime(iso)
 
 /** "₦500.00 over", "₦200.00 short", "Matches". */
 export function differenceText(kobo: number): string {
@@ -24,7 +25,7 @@ export function differenceText(kobo: number): string {
 function takenOf(shift: Shift): number {
   return shift.totals.filter(total => total.method !== 'waiver').reduce((sum, total) => sum + total.amountKobo, 0)
 }
-const today = () => new Date().toISOString().slice(0, 10)
+const today = () => lagosDay()
 
 /** Whose day a panel shows: the facility's, the signed-in cashier's, or one till's. */
 type DayOf = { kind: 'facility' } | { kind: 'cashier' } | { kind: 'till'; till: Till }

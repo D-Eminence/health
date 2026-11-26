@@ -3,6 +3,7 @@
  * Health ID rebuild. Same structure, classes and tokens; React Router links instead of Next's. Interactive pieces
  * (Modal, Segmented, Switch, ThemeToggle) live in ./interactive.tsx.
  */
+import { formatDate, lagosClock } from '@hid/ui/display'
 import type { ComponentType, HTMLAttributes, ReactNode, SVGProps } from 'react'
 import { Link, useInRouterContext, useLocation } from 'react-router-dom'
 import { ArrowLeft, CircleAlert, CircleCheck, Info, TriangleAlert } from 'lucide-react'
@@ -414,7 +415,7 @@ export function Timeline({ items, empty, emptyIcon, emptyAction }: {
 
 /** "Good evening" in Lagos time, as paytrail greets. */
 export function greeting(now = new Date()) {
-  const h = Number(now.toLocaleString('en-GB', { hour: 'numeric', hour12: false, timeZone: 'Africa/Lagos' }))
+  const h = lagosClock(now)?.hour ?? 12
   return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'
 }
 
@@ -429,5 +430,5 @@ export function timeAgo(value: string | null | undefined, now = Date.now()) {
   if (s < 86400) return `${Math.round(s / 3600)} h ago`
   if (s < 172800) return 'yesterday'
   if (s < 604800) return `${Math.round(s / 86400)} days ago`
-  return new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: new Date(t).getFullYear() === new Date(now).getFullYear() ? undefined : 'numeric' })
+  return formatDate(t)
 }

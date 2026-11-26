@@ -1,3 +1,4 @@
+import { formatPhone } from '@hid/ui/display'
 import { useCallback, useState, type FormEvent } from 'react'
 import { FilterTabs } from '../kasuwa/ui'
 import { adminApi, type AdminActor, type OutreachOrganiser, type OutreachRegistrationFound } from './api'
@@ -90,7 +91,7 @@ function OrganiserRow({ organiser, canManage, onDone }: {
       <small>{KIND_WORDS[organiser.kind] ?? 'Kind not given'}</small>
       <small>{organiser.registrationNumber ? `CAC or IT number ${organiser.registrationNumber} (not checked)` : 'No CAC or IT number given'}</small></td>
     <td>{organiser.organiserName ?? 'Name not given'}<small>{organiser.organiserEmail ?? 'No email'}</small>
-      <small>{organiser.phone ?? 'Phone not available'}</small></td>
+      <small>{formatPhone(organiser.phone, 'Phone not available')}</small></td>
     <td>{date(organiser.createdAt)}<small>Terms {organiser.termsVersion ?? 'not recorded'}</small></td>
     <td>{count(organiser.campaigns, 'campaign')}<small>{organiser.activeCampaigns} open now</small>
       <small>{count(organiser.members, 'team member')}</small><small>{count(organiser.pendingInvitations, 'invitation')} waiting</small></td>

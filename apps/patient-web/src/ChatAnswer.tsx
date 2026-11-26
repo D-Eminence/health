@@ -1,3 +1,4 @@
+import { formatDate } from '@hid/ui/display'
 import { RecordAnswer, cleanAssistantText } from './RecordAnswer'
 import type { PatientChatCoverage, PatientChatSource, PatientChatSourceKind, PatientChatStoredReply } from '@hid/contracts'
 
@@ -9,10 +10,8 @@ const KIND_LABELS: Record<PatientChatSourceKind, string> = {
 function sourceDate(source: PatientChatSource): string {
   const value = source.effectiveOn ?? source.recordedOn
   if (!value) return 'Date not recorded'
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return 'Date not recorded'
-  // A calendar date keeps its day in every timezone.
-  return parsed.toLocaleDateString('en-NG', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
+  // A calendar date keeps its day in every timezone; a time is read on the Lagos calendar.
+  return formatDate(value, 'Date not recorded')
 }
 
 /** The anchor a reference marker points at, one per answer. */
