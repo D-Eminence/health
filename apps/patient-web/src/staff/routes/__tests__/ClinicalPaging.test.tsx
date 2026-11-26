@@ -1,3 +1,4 @@
+import { formatDateTime } from '@hid/ui/display'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -161,7 +162,7 @@ describe('paging the encounter list', () => {
 
     expect(api.records.mock.calls.length).toBe(reads)
     expect(screen.getByRole('button', { name: /Cough/ }).className).toContain('selected')
-    expect(screen.getByText(new Date(E2.startedAt).toLocaleString() + ' · in progress')).toBeTruthy()
+    expect(screen.getByText(formatDateTime(E2.startedAt) + ' · in progress')).toBeTruthy()
   })
 
   it('never carries an unsaved record draft to another encounter', async () => {
@@ -217,7 +218,7 @@ describe('paging the encounter list', () => {
 
     await screen.findByText('Encounter created.')
     await waitFor(() => expect(lastRecordList()).toEqual(['facility-1', PATIENT, created.id, 'vitals']))
-    expect(screen.getByText(new Date(created.startedAt).toLocaleString() + ' · in progress')).toBeTruthy()
+    expect(screen.getByText(formatDateTime(created.startedAt) + ' · in progress')).toBeTruthy()
   })
 
   it('stays on the page after a status change there, with the encounter it changed', async () => {
@@ -237,7 +238,7 @@ describe('paging the encounter list', () => {
     expect(api.encounters.mock.calls.at(-1)?.[2]).toEqual({ cursor: ENCOUNTER_NEXT, fresh: true })
     expect(pageShown('Encounter pages')).toBe('Page 2')
     expect(screen.queryByText(/Fever/)).toBeNull()
-    expect(screen.getByText(new Date(E3.startedAt).toLocaleString() + ' · on hold')).toBeTruthy()
+    expect(screen.getByText(formatDateTime(E3.startedAt) + ' · on hold')).toBeTruthy()
   })
 
   it('does not undo a page move made while a status change was saving', async () => {
@@ -257,7 +258,7 @@ describe('paging the encounter list', () => {
     await screen.findByText('Encounter status updated.')
     expect(pageShown('Encounter pages')).toBe('Page 2')
     expect(screen.getByText(/Headache/)).toBeTruthy()
-    expect(screen.getByText(new Date(E1.startedAt).toLocaleString() + ' · on hold')).toBeTruthy()
+    expect(screen.getByText(formatDateTime(E1.startedAt) + ' · on hold')).toBeTruthy()
   })
 
   it('marks the encounter being documented, and says when it is on another page', async () => {
@@ -268,7 +269,7 @@ describe('paging the encounter list', () => {
 
     fireEvent.click(pageButton('Encounter pages', 'Next page'))
     await screen.findByText(/Headache/)
-    expect(screen.getByText(/being documented, .* is on another page/).textContent).toContain(new Date(E1.startedAt).toLocaleString())
+    expect(screen.getByText(/being documented, .* is on another page/).textContent).toContain(formatDateTime(E1.startedAt))
   })
 
   it('brings the encounter being documented up to date on a refresh, even from another page', async () => {
@@ -281,7 +282,7 @@ describe('paging the encounter list', () => {
     await screen.findByText(/Headache/)
 
     fireEvent.click(screen.getByRole('button', { name: 'Refresh encounters' }))
-    expect(await screen.findByText(new Date(E1.startedAt).toLocaleString() + ' · on hold')).toBeTruthy()
+    expect(await screen.findByText(formatDateTime(E1.startedAt) + ' · on hold')).toBeTruthy()
     expect(api.encounter).toHaveBeenCalledWith('facility-1', PATIENT, E1.id)
 
     const form = screen.getByText('Encounter status').closest('form')!
@@ -303,7 +304,7 @@ describe('paging the encounter list', () => {
     fireEvent.change(within(form).getByLabelText(label('Reason for change')), { target: { value: 'Awaiting results' } })
     fireEvent.click(within(form).getByRole('button', { name: 'Update status' }))
 
-    expect(await screen.findByText(new Date(E1.startedAt).toLocaleString() + ' · on hold')).toBeTruthy()
+    expect(await screen.findByText(formatDateTime(E1.startedAt) + ' · on hold')).toBeTruthy()
     expect((await screen.findByRole('alert')).textContent).toContain('changed since it was loaded')
   })
 
@@ -316,11 +317,11 @@ describe('paging the encounter list', () => {
     let form = screen.getByText('Encounter status').closest('form')!
     fireEvent.change(within(form).getByLabelText(label('Reason for change')), { target: { value: 'Awaiting results' } })
     fireEvent.click(within(form).getByRole('button', { name: 'Update status' }))
-    await screen.findByText(new Date(E1.startedAt).toLocaleString() + ' · on hold')
+    await screen.findByText(formatDateTime(E1.startedAt) + ' · on hold')
 
     expect(screen.getByRole('button', { name: /Fever/ }).textContent).toContain('on hold')
     fireEvent.click(screen.getByRole('button', { name: /Fever/ }))
-    expect(screen.getByText(new Date(E1.startedAt).toLocaleString() + ' · on hold')).toBeTruthy()
+    expect(screen.getByText(formatDateTime(E1.startedAt) + ' · on hold')).toBeTruthy()
     form = screen.getByText('Encounter status').closest('form')!
     fireEvent.change(within(form).getByLabelText(label('Reason for change')), { target: { value: 'Results are back' } })
     fireEvent.click(within(form).getByRole('button', { name: 'Update status' }))
@@ -365,7 +366,7 @@ describe('paging the encounter list', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Start encounter' }))
 
     await waitFor(() => expect(lastRecordList()).toEqual(['facility-1', PATIENT, created.id, 'vitals']))
-    expect(screen.getByText(new Date(created.startedAt).toLocaleString() + ' · in progress')).toBeTruthy()
+    expect(screen.getByText(formatDateTime(created.startedAt) + ' · in progress')).toBeTruthy()
   })
 
   it('goes back to the first page, and says so, when the backend no longer accepts the cursor', async () => {

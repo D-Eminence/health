@@ -1,3 +1,4 @@
+import { lagosDay } from '@hid/ui/display'
 import { useRef, useState, type FormEvent } from 'react'
 import { isHidApiError, plainErrorText } from '@hid/http'
 import type { PatientNinVerification, PatientProfile } from '../api'
@@ -128,7 +129,7 @@ export function NinVerificationCard({ profile, onVerified }: {
       </Field>
       <Field label="Date of birth, as on your NIN" htmlFor="nin-verify-dob">
         <Input id="nin-verify-dob" type="date" required autoComplete="bday" value={dateOfBirth}
-          max={new Date().toISOString().slice(0, 10)} onChange={event => setDateOfBirth(event.target.value)} />
+          max={lagosDay()} onChange={event => setDateOfBirth(event.target.value)} />
       </Field>
       {error && !fieldError && <Problem id="nin-verify-error" alert={errorAlert}>{error}</Problem>}
       {/* Kept mounted, so the line is a change of a live region, not a new one. */}

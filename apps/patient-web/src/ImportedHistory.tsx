@@ -1,3 +1,4 @@
+import { formatDate } from '@hid/ui/display'
 import { useEffect, useRef, useState } from 'react'
 import { Download } from 'lucide-react'
 import { Alert, Button } from './kasuwa/ui'
@@ -8,8 +9,7 @@ import { useActionFocus } from './routes/actionFocus'
 import { PlainError, plainErrorText } from '@hid/http'
 
 function date(value: string) {
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? 'No date' : parsed.toLocaleDateString('en-NG', { dateStyle: 'medium' })
+  return formatDate(value, 'No date')
 }
 function label(value: string) {
   const labels: Record<string, string> = {
@@ -35,8 +35,7 @@ function InformationValue({ value }: { value: unknown }) {
   </dl>
   const text = typeof value === 'boolean' ? value ? 'Yes' : 'No' : String(value ?? '').trim()
   // Date-only source fields retain their calendar day in every browser timezone.
-  const display = /^\d{4}-\d{2}-\d{2}$/.test(text) && Number.isFinite(Date.parse(text)) && new Date(text).toISOString().slice(0, 10) === text
-    ? new Date(text).toLocaleDateString('en-NG', { dateStyle: 'medium', timeZone: 'UTC' }) : text
+  const display = /^\d{4}-\d{2}-\d{2}$/.test(text) ? formatDate(text, text) : text
   return <span className="imported-history-value">{display}</span>
 }
 /** Each Download button's id, for focus to come back to it once the file has opened or failed to. */

@@ -1,3 +1,4 @@
+import { formatDateTime } from '@hid/ui/display'
 import type { AccessHistory, AccessRequest } from '../api'
 import { roleName } from '../staff/staffAccess'
 
@@ -65,12 +66,10 @@ export function holder(item: AccessItem): string {
   return staffName(item) ?? 'A staff member'
 }
 
-const AT = new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short' })
 /** "11 Nov 2026, 15:45": a day and a time, so two accesses given the same day are told apart. */
 export function dayAndTime(value: string | null | undefined): string {
   if (!value) return 'an unknown time'
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? value : AT.format(parsed)
+  return formatDateTime(value, value)
 }
 
 /**

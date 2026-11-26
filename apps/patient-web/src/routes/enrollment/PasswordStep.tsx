@@ -1,3 +1,4 @@
+import { lagosDay } from '@hid/ui/display'
 import type { FormEvent } from 'react'
 import { PasswordInput } from '@hid/ui'
 import { describedBy } from '../../authSteps'
@@ -17,10 +18,9 @@ const FIELD_NAMES: Record<EnrollmentProfileField, string> = { dateOfBirth: 'date
 /** The field a refusal at this step is about. */
 export type PasswordStepField = 'password' | EnrollmentProfileField
 
-/** Today as YYYY-MM-DD in the browser's time zone, the latest date of birth offered. */
+/** Today as YYYY-MM-DD in Lagos, whatever the device's zone (Q181 A), the latest date of birth offered. */
 export function localToday() {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  return lagosDay()
 }
 
 /**

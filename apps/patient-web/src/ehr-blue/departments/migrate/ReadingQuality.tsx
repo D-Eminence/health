@@ -1,3 +1,4 @@
+import { formatDate } from '@hid/ui/display'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { EhrButton } from '@hid/ui/ehr'
 import { DeptNotice } from '../parts/DeptNotice'
@@ -99,8 +100,7 @@ export function parseReadingQuality(answer: unknown): ReadingQuality {
 }
 
 const NUMBER = new Intl.NumberFormat('en-NG')
-const DATE = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })
-const dayText = (day: string) => DATE.format(new Date(`${day}T00:00:00Z`))
+const dayText = (day: string) => formatDate(day)
 /**
  * A reason count. The server stores no zero, so an absent reason is none at all, unless it held back small reason counts in
  * the weeks shown: then it may be a few, and the words say both.
