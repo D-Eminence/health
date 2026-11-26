@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { EhrBadge, EhrButton, EhrEmptyState } from '@hid/ui/ehr'
-import { edBoardApi, type EdBoard, type EdCard, type EdColumn } from '../../../staff/api'
+import { edBoardApi, type EdBoard, type EdCard, type EdColumn, type EdHistoryEvent } from '../../../staff/api'
 import { useBluePage } from '../../frame/pageContext'
 import { useDeptAccess } from '../parts/access'
 import { DeptNotice } from '../parts/DeptNotice'
@@ -12,9 +12,9 @@ import { useFacilityRead } from '../parts/useFacilityRead'
 import { healthIdEnding, sexText } from '../waiting/waitingRules'
 import { EdRecordPage } from './EdRecord'
 import {
-  ATTENDANCE_ID, BASE, BOARD_REFUSED, COLUMNS, COLUMN_EMPTY, COLUMN_WORDS, DESCRIPTION, EYEBROW, POLL_MS, SCREEN_WARNING, TITLE,
-  arrivalModeText, canArrive, canRead, cardName, complaintText, lagosTime, learnFrom, memberText, minutesText, notServed,
-  refusalWords, stageText, statusWords,
+  ATTENDANCE_ID, BASE, BOARD_REFUSED, COLUMNS, COLUMN_EMPTY, COLUMN_WORDS, DESCRIPTION, EYEBROW, NOT_AVAILABLE, POLL_MS, SCREEN_WARNING,
+  TITLE, arrivalModeText, awaitsBoardCodes, canArrive, canRead, cardName, closedWords, complaintText, lagosWhen, learnFrom, memberText,
+  minutesText, notServed, refusalWords, stageText,
 } from './edRules'
 import { usePolling, useStaffNames } from './hooks'
 import { NewArrival } from './NewArrival'
@@ -35,8 +35,13 @@ export function EmergencyDepartment() {
   return <EmergencyDesk key={facility.id} facilityId={facility.id} />
 }
 
+/**
+ * The board refused before it is read: who can use it, or, for a member it is for on a backend that has not given them
+ * its codes yet (before 0169), that it is not available yet.
+ */
 export function EmergencyDepartmentUnavailable() {
-  return <DeptUnavailable title={TITLE} message={BOARD_REFUSED} />
+  const { permissions } = useDeptAccess()
+  return <DeptUnavailable title={TITLE} message={awaitsBoardCodes(permissions) ? NOT_AVAILABLE : BOARD_REFUSED} />
 }
 
 function EmergencyDesk({ facilityId }: { readonly facilityId: string }) {
@@ -112,7 +117,7 @@ function Board({ facilityId, includeClosed, onIncludeClosed }: {
       {!unavailable ? (
         <label className="hid-ehr-dept-waiting-toggle hid-ehr-dept-emergency-toggle">
           <input type="checkbox" checked={includeClosed} onChange={event => onIncludeClosed(event.target.checked)} />
-          <span>Show patients who left the department today</span>
+          <span>Show patients who left the board today</span>
         </label>
       ) : null}
       {includeClosed && board.value?.withClosed ? (
@@ -131,7 +136,7 @@ function BoardColumn({ column, cards, membershipId, names }: {
   const headingId = `ed-column-${column}`
   return (
     <DeptSection title={`${COLUMN_WORDS[column]} (${cards.length})`} headingId={headingId} className="hid-ehr-dept-emergency-column">
-      {cards.length === 0 ? <EhrEmptyState title={COLUMN_EMPTY[column]} message={column === 'closed' ? 'Patients who leave today show here.' : 'Patients show here, the most urgent first.'} /> : (
+      {cards.length === 0 ? <EhrEmptyState title={COLUMN_EMPTY[column]} message={column === 'closed' ? 'Patients who leave the board today show here.' : 'Patients show here, the most urgent first.'} /> : (
         <ul className="hid-ehr-dept-waiting-list" aria-labelledby={headingId}>
           {cards.map(card => <BoardCard key={card.attendanceId} card={card} membershipId={membershipId} names={names} />)}
         </ul>
@@ -156,13 +161,16 @@ export function EdIdentity({ card }: { readonly card: EdCard }) {
   )
 }
 
-/** The card's badges: the triage level (1 and 2 in the critical tone, as the waiting list), the stage and the decision. */
-export function EdBadges({ card }: { readonly card: EdCard }) {
+/**
+ * The card's badges: the triage level (1 and 2 in the critical tone, as the waiting list), the stage and the decision.
+ * The record page passes its history, so a closed record with no decision says how it closed (closedWords).
+ */
+export function EdBadges({ card, history = [] }: { readonly card: EdCard; readonly history?: readonly EdHistoryEvent[] }) {
   return (
     <div className="hid-ehr-dept-waiting-badges">
       <EhrBadge tone={triageTone(card.triageLevel)}>{triageText(card.triageLevel)}</EhrBadge>
       {card.status === 'open' ? <EhrBadge tone="brand">{stageText(card.stage)}</EhrBadge>
-        : <EhrBadge tone={card.status === 'decided' ? 'caution' : 'neutral'}>{statusWords(card)}</EhrBadge>}
+        : <EhrBadge tone={card.status === 'decided' ? 'caution' : 'neutral'}>{closedWords(card, history)}</EhrBadge>}
       {card.recordKind === 'unknown' ? <EhrBadge tone="caution">Unknown patient</EhrBadge> : null}
       {card.chartBlocked ? <EhrBadge tone="critical">Chart cannot be opened</EhrBadge> : null}
     </div>
@@ -186,7 +194,7 @@ function BoardCard({ card, membershipId, names }: {
         <EdIdentity card={card} />
         <EdBadges card={card} />
         <dl className="hid-ehr-dept-waiting-facts">
-          <div><dt>Arrived</dt><dd>{lagosTime(card.arrivedAt)}</dd></div>
+          <div><dt>Arrived</dt><dd>{lagosWhen(card.arrivedAt)}</dd></div>
           <div><dt>In the department</dt><dd>{minutesText(card.minutesInDepartment)}</dd></div>
           <div><dt>How they came</dt><dd>{arrivalModeText(card.arrivalMode)}</dd></div>
           <div><dt>Seen by</dt><dd>{memberText(card.assignedMembershipId, membershipId, names)}</dd></div>

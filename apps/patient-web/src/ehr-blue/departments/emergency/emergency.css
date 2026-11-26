@@ -125,9 +125,3 @@
   font-size: 16px;
   overflow-wrap: anywhere;
 }
-
-@media print {
-  .hid-ehr .hid-ehr-dept-emergency-wristband {
-    break-inside: avoid;
-  }
-}

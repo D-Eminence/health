@@ -8,8 +8,9 @@ import { formatWhen, statusWords } from '../parts/format'
 import { KeyValueList } from '../parts/KeyValueList'
 import { ErrorBox, Loading, RecordHeading } from '../parts/Notices'
 import type { SubmitOutcome } from '../parts/RecordForm'
-import { useWorkspaceHref } from '../parts/Workspace'
+import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 import { TRIAGE_LEVELS, triageText } from '../../departments/parts/triageLevels'
+import { canRead as canReadEdBoard, useEdBoardServed } from '../../departments/emergency/edRules'
 import { AllergyLines, useAllergies } from '../patients/AllergiesCard'
 import { VisitPages } from './ListCard'
 import {
@@ -112,16 +113,27 @@ function NewTriageForm({ chart }: { chart: Chart }) {
 /**
  * The triage level, in place of the design's sample priority (Routine, Urgent, Emergency), which is gone: the live
  * five-level scale (hid-system 0135, the same words as the waiting list and the emergency department board) is set on the
- * patient's place on the Emergency department board or the Waiting list, not with the vitals. Nothing here is sent.
+ * patient's place on the Waiting list, or on the Emergency department board, not with the vitals. Nothing here is sent.
+ *
+ * The board is named only to a member it is open to (its code, 0169, and 0135's encounter pair) once it has answered in
+ * this page's life (useEdBoardServed): before 0169 no one holds its code, and production keeps it switched off
+ * (ED_BOARD_ENABLED) until go-live, so until it answers the note points to the Waiting list alone. A patient on the
+ * board shows there too, with a link to their record on the board.
  */
 function TriageLevelNote() {
+  const { permissions } = useClinical()
+  const board = useEdBoardServed() === true && canReadEdBoard(permissions)
+  const levels = `${triageText(TRIAGE_LEVELS[0])} to ${triageText(TRIAGE_LEVELS[4])}`
+  const waitingList = <Link className="hid-ehr-clinical-link" to="/provider/waiting-list">Waiting list</Link>
   return (
     <div className="hid-ehr-clinical-triage-sample" role="group" aria-label="Triage level">
-      <p>
-        Set the triage level ({triageText(TRIAGE_LEVELS[0])} to {triageText(TRIAGE_LEVELS[4])}) on the patient’s place
-        on the <Link className="hid-ehr-clinical-link" to="/provider/emergency-department">Emergency department</Link> board
-        or the <Link className="hid-ehr-clinical-link" to="/provider/waiting-list">Waiting list</Link>.
-      </p>
+      {board ? (
+        <p>
+          Set the triage level ({levels}) on the patient’s place
+          on the <Link className="hid-ehr-clinical-link" to="/provider/emergency-department">Emergency department</Link> board
+          or the {waitingList}.
+        </p>
+      ) : <p>Set the triage level ({levels}) on the patient’s place on the {waitingList}.</p>}
     </div>
   )
 }

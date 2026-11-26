@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { EhrButton, EhrField, EhrSelect } from '@hid/ui/ehr'
 import { edBoardApi, type EdArrivalMode, type EdArrived } from '../../../staff/api'
+import { useFocusById } from '../../../staff/focus'
 import { DeptNotice } from '../parts/DeptNotice'
 import { ARRIVAL_MODES, ARRIVAL_MODE_WORDS, BASE, canArrive, cardName, learnFrom, refusalWords } from './edRules'
 import { emergencyCardFor } from './emergencyArrival'
@@ -19,6 +20,7 @@ export function EmergencyBoardArrival({ facilityId, patientId, permissions }: {
   readonly permissions: readonly string[]
 }) {
   const keyFor = useIdempotencyKeys()
+  const focus = useFocusById()
   const [mode, setMode] = useState<EdArrivalMode | ''>('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -35,6 +37,8 @@ export function EmergencyBoardArrival({ facilityId, patientId, permissions }: {
     try {
       setDone(await edBoardApi.arrive(facilityId, patient, input, keyFor('arrive', { matchRef, input })))
       learnFrom()
+      // The button pressed goes with the form: focus moves to the result, which is read out from there.
+      focus('ed-emergency-arrival-done')
     } catch (caught) {
       if (isHidApiError(caught) && caught.code === 'REQUEST_CANCELLED') return
       learnFrom(caught)
@@ -46,7 +50,7 @@ export function EmergencyBoardArrival({ facilityId, patientId, permissions }: {
     <section className="flex flex-col gap-3 rounded-xl bg-surface p-4 ring-1 ring-line" aria-labelledby="ed-emergency-arrival">
       <h2 id="ed-emergency-arrival" className="m-0 text-base font-semibold text-ink">Emergency department board</h2>
       {done ? (
-        <DeptNotice tone="positive" role="status">
+        <DeptNotice id="ed-emergency-arrival-done" tabIndex={-1} tone="positive" role="status">
           {done.outcome === 'already_on_board' ? `${cardName(done.attendance)} is already on the board.` : `${cardName(done.attendance)} is on the board.`}{' '}
           <Link className="hid-ehr-dept-link" to={`${BASE}/${done.attendance.attendanceId}`}>Open their record on the board</Link>
         </DeptNotice>

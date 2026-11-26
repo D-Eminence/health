@@ -9,6 +9,7 @@ import { vitalName } from '../../../ehr-blue/clinical/triage/vitals'
 import { ALLERGIES_NOT_SHOWN, ALLERGIES_UNREAD, NOTHING_REPORTED } from '../../../ehr-blue/clinical/patients/AllergiesCard'
 import { parseAllergyList } from '../../../staff/allergies'
 import { SAID_FIELDS_REFUSED, SAID_REFUSED, SAID_UNAVAILABLE } from '../../said'
+import { forgetEdBoardServed, learnEdBoardServed } from '../../../ehr-blue/departments/emergency/edRules'
 
 /**
  * Triage & Vitals: the open patient's vitals (today's records of kind "vitals", per encounter) in the design's list,
@@ -407,19 +408,49 @@ describe('New triage & vitals', () => {
     expect(within(form).queryByText('Sample only: not connected to Health ID yet. Nothing you do here is saved.')).toBeNull()
   })
 
-  it('replaces the sample priority with the live five triage levels, set on the board or the waiting list (ED-1), at every facility', async () => {
+  it('replaces the sample priority with the live five triage levels, set on the waiting list (ED-1), at every facility', async () => {
+    forgetEdBoardServed()
     for (const facilityId of [FACILITY_ID, DEMO_HOSPITAL_ID]) {
       staff.facilityId = facilityId
       api.encounters.mockResolvedValue({ items: [{ ...ENCOUNTER, facilityId }], nextCursor: null })
       const form = await openNew()
       const note = within(form).getByRole('group', { name: 'Triage level' })
-      expect(note.textContent).toContain('Level 1: most urgent to Level 5: not urgent')
-      expect(within(note).getByRole('link', { name: 'Emergency department' }).getAttribute('href')).toBe('/provider/emergency-department')
+      expect(note.textContent).toBe('Set the triage level (Level 1: most urgent to Level 5: not urgent) on the patient’s place on the Waiting list.')
       expect(within(note).getByRole('link', { name: 'Waiting list' }).getAttribute('href')).toBe('/provider/waiting-list')
+      // No ED code (production before 0169): the board is not named, so no one is sent to a page that turns them away.
+      expect(within(note).queryByRole('link', { name: 'Emergency department' })).toBeNull()
       // The design's sample priority (Routine, Urgent, Emergency) is gone: nothing to type that is not saved.
       expect(within(form).queryByRole('group', { name: 'Priority and observations (sample)' })).toBeNull()
       expect(within(form).queryByText(/Routine/)).toBeNull()
       cleanup()
+    }
+  })
+
+  it('names the Emergency department board only to a member it is open to, once the board has answered that it is served', async () => {
+    const ED_CODES = ['ehr.ed.read', 'ehr.encounter.read', 'ehr.encounter.write']
+    const boardLink = async () => {
+      const form = await openNew()
+      const link = within(within(form).getByRole('group', { name: 'Triage level' })).queryByRole('link', { name: 'Emergency department' })
+      cleanup()
+      return link?.getAttribute('href') ?? null
+    }
+    try {
+      staff.permissions = [...ALL, ...ED_CODES]
+      // Not known yet in this page's life (the board not read): the waiting list alone, as the board may be switched off.
+      forgetEdBoardServed()
+      expect(await boardLink()).toBeNull()
+      // The board answered 503 ED_BOARD_NOT_AVAILABLE (ED_BOARD_ENABLED off) or 404 (an ehr-api before 0168).
+      learnEdBoardServed(false)
+      expect(await boardLink()).toBeNull()
+      // The board answered: served.
+      forgetEdBoardServed()
+      learnEdBoardServed(true)
+      expect(await boardLink()).toBe('/provider/emergency-department')
+      // Served, but this member holds no ED code (a role the board is not for, or before 0169).
+      staff.permissions = [...ALL]
+      expect(await boardLink()).toBeNull()
+    } finally {
+      forgetEdBoardServed()
     }
   })
 

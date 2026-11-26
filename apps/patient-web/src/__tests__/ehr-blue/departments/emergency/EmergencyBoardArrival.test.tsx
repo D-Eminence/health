@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import type * as StaffApi from '../../../../staff/api'
 
@@ -10,6 +10,8 @@ import type * as StaffApi from '../../../../staff/api'
  */
 const { arrive } = vi.hoisted(() => ({ arrive: vi.fn() }))
 vi.mock('../../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
+// The workspace is open (no session check holds focus): useFocusById moves focus at once.
+vi.mock('../../../../staff/App', () => ({ useStaff: () => ({ lock: null }) }))
 vi.mock('../../../../staff/api', async importOriginal => ({
   ...await importOriginal<typeof StaffApi>(),
   edBoardApi: { arrive: (...args: unknown[]) => arrive(...args) },
@@ -40,8 +42,13 @@ describe('Add to the emergency board from the emergency summary', () => {
     expect(screen.getByText('Choose how the patient came.')).toBeDefined()
     expect(arrive).not.toHaveBeenCalled()
     fireEvent.change(screen.getByRole('combobox', { name: 'How they came' }), { target: { value: 'police' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Add to the emergency board' }))
+    const add = screen.getByRole('button', { name: 'Add to the emergency board' })
+    add.focus()
+    fireEvent.click(add)
     expect(await screen.findByText(/Tunde Boardone is on the board\./)).toBeDefined()
+    // The pressed button went with the form: focus is on the result, not lost to the page.
+    await waitFor(() => expect(document.activeElement?.id).toBe('ed-emergency-arrival-done'))
+    expect(document.activeElement?.getAttribute('role')).toBe('status')
     expect(arrive).toHaveBeenCalledWith(FACILITY, { matchRef: MATCH_REF, emergency: true }, { arrivalMode: 'police' }, expect.any(String))
     expect(screen.getByRole('link', { name: 'Open their record on the board' }).getAttribute('href')).toBe(`/provider/emergency-department/${ATTENDANCE}`)
     expect(document.body.innerHTML).not.toContain(MATCH_REF)

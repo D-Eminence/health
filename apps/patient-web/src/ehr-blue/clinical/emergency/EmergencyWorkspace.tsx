@@ -9,6 +9,7 @@ import { Workspace, useClinical, useWorkspaceHref } from '../parts/Workspace'
 import { useSampleAccess } from '../sample/access'
 import { SampleCreate, SampleDetail, SampleList } from '../sample/SampleWorkspace'
 import { BreakGlassCard, CurrentEmergency } from './BreakGlass'
+import { canRead as canReadEdBoard, useEdBoardServed } from '../../departments/emergency/edRules'
 import { EmergencySummaryPage } from './EmergencySummary'
 
 /**
@@ -33,8 +34,10 @@ function EmergencyHome() {
   const demo = useDemoFacility()
   const can = useSampleAccess()
   const clinical = useClinical()
-  // The live board is its own page (hid-system ED-1): offered here to the members it is open to.
-  const board = clinical.can('ehr.ed.read') && clinical.can('ehr.encounter.read') && clinical.can('ehr.encounter.write')
+  // The live board is its own page (hid-system ED-1): offered here to the members it is open to, as long as the board has
+  // not answered that it is not served (a backend before 0168, or ED_BOARD_ENABLED off), as the sidebar lists it.
+  const served = useEdBoardServed()
+  const board = served !== false && canReadEdBoard(clinical.permissions)
   return (
     <div className="flex flex-col gap-8">
       {/* The form and the board share one column width, so neither sticks out past the other (owner, 18 Nov 2026). */}

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import type * as BlueRoutes from '../../../../ehr-blue/routes'
+import type * as PrintPaper from '../../../../print/printPaper'
 import { REAL_FACILITY, SESSION, facility, json, openStaffApp, problem, serve, sessionAt, where, type Sent } from '../../frame/blueHarness'
 
 /*
@@ -24,7 +25,9 @@ beforeEach(async () => {
     }
   })
 })
-afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules() })
+afterEach(() => {
+  vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.doUnmock('../../../../print/printPaper'); vi.resetModules()
+})
 
 const BOARD = 'GET /api/v1/ehr/ed-board'
 const ARRIVE = 'POST /api/v1/ehr/ed-attendances'
@@ -69,6 +72,9 @@ function checkHeaders(call: Sent, purpose = 'direct-care') {
 
 describe('Emergency department board in the frame', () => {
   it('is listed under Care and shows the three columns, counts, the live triage words and the staff-only warning', async () => {
+    // The morning of the cards' day in Lagos: their times are today's, so shown without a date (P2-4).
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-12-03T10:00:00.000Z'))
     const nurse = facility(REAL_FACILITY, 'Fictional Hospital', NURSE, ['nurse'])
     const sent = serve({
       [SESSION]: [sessionAt(nurse, [nurse])],
@@ -232,6 +238,12 @@ describe('Emergency department board in the frame', () => {
   })
 
   it('makes an unknown patient’s record, puts it on the board by its patientId and shows the wristband Health ID once', async () => {
+    // The wristband prints as a paper (printPaper: a PDF in Safari and on an iPad, with no web address), never the page.
+    const printed = vi.fn()
+    vi.doMock('../../../../print/printPaper', async importOriginal => ({
+      ...await importOriginal<typeof PrintPaper>(), printPaper: printed,
+    }))
+    const pagePrint = vi.spyOn(window, 'print').mockImplementation(() => {})
     const desk = facility(REAL_FACILITY, 'Fictional Hospital', FRONT_DESK, ['receptionist'])
     const unknownCard = card({ fullName: 'Unknown patient U-0007', recordKind: 'unknown', unknownLabel: 'U-0007', triageLevel: null,
       presentingComplaint: null, complaintHidden: true, arrivalBasis: 'own-facility', arrivalMode: 'brought_by_public' })
@@ -263,9 +275,19 @@ describe('Emergency department board in the frame', () => {
     expect(arrivals.map(call => call.body)).toEqual([{ patientId: PATIENT, arrivalMode: 'brought_by_public' }, { patientId: PATIENT, arrivalMode: 'brought_by_public' }])
     expect(arrivals[1]!.headers.get('Idempotency-Key')).toBe(arrivals[0]!.headers.get('Idempotency-Key'))
     const wristband = screen.getByRole('region', { name: 'Wristband' })
-    expect(within(wristband).getByText('HID-ZZZZ77')).toBeDefined()
+    expect(within(wristband).getByText('HID-ZZZZ77', { selector: 'strong' })).toBeDefined()
     expect(within(wristband).getByText('It is shown only once.', { exact: false })).toBeDefined()
-    expect(within(wristband).getByRole('button', { name: 'Print wristband' })).toBeDefined()
+    fireEvent.click(within(wristband).getByRole('button', { name: 'Print wristband' }))
+    expect(pagePrint).not.toHaveBeenCalled()
+    expect(printed).toHaveBeenCalledOnce()
+    const [paper, kind] = printed.mock.calls[0]! as [HTMLElement, unknown]
+    expect(kind).toEqual({ size: 'slip', kind: 'Wristband' })
+    // The slip alone: the facility's print header, the label and the Health ID, hidden on screen and from screen readers.
+    expect(paper.getAttribute('data-receipt-print')).toBe('health-id')
+    expect(paper.getAttribute('aria-hidden')).toBe('true')
+    expect(paper.querySelector('[data-print-header]')?.textContent).toContain('Fictional Hospital')
+    expect(paper.textContent).toContain('Unknown patient U-0007')
+    expect(paper.textContent).toContain('HID-ZZZZ77')
     noIdentityInAddresses()
   })
 

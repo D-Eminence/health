@@ -7,6 +7,7 @@ import { EmergencyWorkspace, emergencyStatus } from '../../../ehr-blue/clinical/
 import { SAMPLE_NOTICE } from '../../../ehr-blue/clinical/parts/SampleBanner'
 import { SampleCreate, SampleDetail, SampleList } from '../../../ehr-blue/clinical/sample/SampleWorkspace'
 import { SAID_REFUSED } from '../../said'
+import { forgetEdBoardServed, learnEdBoardServed } from '../../../ehr-blue/departments/emergency/edRules'
 import { DEMO_HOSPITAL_ID, FACILITY_ID, FACILITY_NAME, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, deniedLookup, labelled, renderPage } from './harness'
 
 /**
@@ -188,6 +189,31 @@ describe('the Emergency page', () => {
     expect(screen.queryByTestId('sample-list')).toBeNull()
     expect(document.body.textContent).not.toContain(SAMPLE_NOTICE)
     for (const part of [SampleList, SampleCreate, SampleDetail]) expect(vi.mocked(part)).not.toHaveBeenCalled()
+  })
+
+  it('offers the live Emergency department board to the members it is open to, unless it answered that it is not served', () => {
+    const boardLink = () => {
+      const view = open()
+      const link = screen.queryByRole('link', { name: 'Emergency department board' })?.getAttribute('href') ?? null
+      view.unmount()
+      return link
+    }
+    try {
+      forgetEdBoardServed()
+      // No ED code (production before 0169): not offered.
+      expect(boardLink()).toBeNull()
+      staff.permissions = [...EMERGENCY_PERMISSIONS, 'ehr.ed.read', 'ehr.encounter.write']
+      // Not known yet in this page's life: offered, as the sidebar lists the board.
+      expect(boardLink()).toBe('/provider/emergency-department')
+      // The board answered 503 ED_BOARD_NOT_AVAILABLE (switched off) or 404 (an ehr-api before 0168): not offered.
+      learnEdBoardServed(false)
+      expect(boardLink()).toBeNull()
+      forgetEdBoardServed()
+      learnEdBoardServed(true)
+      expect(boardLink()).toBe('/provider/emergency-department')
+    } finally {
+      forgetEdBoardServed()
+    }
   })
 
   it('at a real facility, answers new and a record id with Record not found, and still opens the live summary', () => {

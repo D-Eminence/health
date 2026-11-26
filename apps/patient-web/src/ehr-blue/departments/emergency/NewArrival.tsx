@@ -20,6 +20,10 @@ import {
   arrivalMoment, canArrive, canSearch, canTriage, cardName, complaintProblem, learnFrom, refusalWords, unknownRefusal,
 } from './edRules'
 import { useIdempotencyKeys } from './hooks'
+import { PrintHeader } from '../../frame/PrintHeader'
+import { printPaper, receiptFor, type PaperPrint } from '../../../print/printPaper'
+// Prints a [data-receipt-print] paper alone, black on white, on a slip (as the new Health ID slip in Pharmacy).
+import '../commerce/commerce.css'
 
 type Who = 'search' | 'unknown'
 interface Details { readonly mode: EdArrivalMode | ''; readonly time: string; readonly level: string; readonly complaint: string }
@@ -28,6 +32,8 @@ interface Unknown { readonly gender: UnknownPatientInput['gender'] | ''; readonl
 const EMPTY_UNKNOWN: Unknown = { gender: '', age: '', reason: '', note: '' }
 
 const ARRIVAL_INVALID = 'Check how the patient came, the arrival time, the triage level and the complaint.'
+/** An unknown patient's wristband slip: its PDF's title names the facility and "Wristband", never the patient. */
+const WRISTBAND_PAPER: PaperPrint = { size: 'slip', kind: 'Wristband' }
 
 /**
  * New arrival (ED-1 route 1, in place of the sample's "New board entry"): the patient from a staff search card (its
@@ -61,7 +67,13 @@ export function NewArrival({ facilityId }: { readonly facilityId: string }) {
     )
   }
 
-  if (done) return <Arrived done={done} onAnother={() => { setDone(null); setChosen(null); setMade(null); setUnknown(EMPTY_UNKNOWN); setDetails(EMPTY_DETAILS) }} />
+  if (done) {
+    return <Arrived done={done} onAnother={() => {
+      setDone(null); setChosen(null); setMade(null); setUnknown(EMPTY_UNKNOWN); setDetails(EMPTY_DETAILS)
+      // The button pressed goes with the result: focus starts the new arrival at its first question.
+      focus('ed-arrival-who')
+    }} />
+  }
 
   function setDetail(next: Partial<Details>) { setDetails(previous => ({ ...previous, ...next })) }
 
@@ -91,6 +103,9 @@ export function NewArrival({ facilityId }: { readonly facilityId: string }) {
     if (typeof input === 'string') { setError(input); focus('ed-arrival-error'); return }
     let patient: EdArrivalPatient
     let wristband: UnknownPatientMade | null = made
+    // Where focus goes once the request is over: the result on success, the problem on any refusal (those returned early
+    // too), nowhere for a request stopped on purpose. One request: a later one would replace it (useFocusById).
+    let focusOn: string | null = 'ed-arrival-error'
     setBusy(true)
     try {
       if (who === 'search') {
@@ -110,7 +125,7 @@ export function NewArrival({ facilityId }: { readonly facilityId: string }) {
             wristband = await unknownPatientApi.create(facilityId, body, keyFor('unknown', body))
             setMade(wristband)
           } catch (caught) {
-            if (isHidApiError(caught) && caught.code === 'REQUEST_CANCELLED') return
+            if (isHidApiError(caught) && caught.code === 'REQUEST_CANCELLED') { focusOn = null; return }
             setError(unknownRefusal(caught))
             return
           }
@@ -120,18 +135,18 @@ export function NewArrival({ facilityId }: { readonly facilityId: string }) {
       const arrived = await edBoardApi.arrive(facilityId, patient, input, keyFor('arrive', { patient, input }))
       learnFrom()
       // Whether a triage level or complaint went with the arrival: an answer of already_on_board saves neither.
-      setDone({ arrived, wristband, triageSent: input.triageLevel !== undefined || input.presentingComplaint !== undefined })
-      focus('ed-arrived-title')
+      setDone({ arrived, wristband, levelSent: input.triageLevel !== undefined, complaintSent: input.presentingComplaint !== undefined })
+      focusOn = 'ed-arrived-title'
     } catch (caught) {
-      if (isHidApiError(caught) && caught.code === 'REQUEST_CANCELLED') return
+      if (isHidApiError(caught) && caught.code === 'REQUEST_CANCELLED') { focusOn = null; return }
       learnFrom(caught)
       // A search card no longer usable: back to the search, as the waiting list does.
       if (isHidApiError(caught) && caught.code === 'ED_ARRIVAL_NEEDS_SEARCH') setChosen(null)
       setError(refusalWords(caught, 'The patient could not be added to the board. Try again.', ARRIVAL_INVALID))
     } finally {
       setBusy(false)
+      if (focusOn) focus(focusOn)
     }
-    focus('ed-arrival-error')
   }
 
   return (
@@ -172,7 +187,7 @@ export function NewArrival({ facilityId }: { readonly facilityId: string }) {
                 {ARRIVAL_MODES.map(mode => <option key={mode} value={mode}>{ARRIVAL_MODE_WORDS[mode]}</option>)}
               </EhrSelect>
             </EhrField>
-            <EhrField label="Arrival time (optional)" controlId="ed-arrival-time" hint="Lagos time, up to 6 hours ago. Leave it empty for now.">
+            <EhrField label="Arrival time (optional)" controlId="ed-arrival-time" hint="Lagos time, up to 6 hours ago. Leave it empty if they arrived just now.">
               <EhrInput type="time" value={details.time} onChange={event => setDetail({ time: event.target.value })} />
             </EhrField>
             {triages ? (
@@ -203,8 +218,18 @@ export function NewArrival({ facilityId }: { readonly facilityId: string }) {
 interface Done {
   readonly arrived: EdArrived
   readonly wristband: UnknownPatientMade | null
-  /** A triage level or complaint was sent with the arrival. */
-  readonly triageSent: boolean
+  /** A triage level was sent with the arrival. */
+  readonly levelSent: boolean
+  /** A presenting complaint was sent with the arrival. */
+  readonly complaintSent: boolean
+}
+
+/** What an answer of already_on_board did not save, naming only what was entered. */
+function notSavedTitle(levelSent: boolean, complaintSent: boolean): string | null {
+  if (levelSent && complaintSent) return 'The triage level and complaint you entered were not saved'
+  if (levelSent) return 'The triage level you entered was not saved'
+  if (complaintSent) return 'The complaint you entered was not saved'
+  return null
 }
 
 /**
@@ -217,9 +242,11 @@ function Arrived({ done, onAnother }: {
   readonly onAnother: () => void
 }) {
   const navigate = useNavigate()
+  const { facility } = useDeptAccess()
   const card = done.arrived.attendance
   const name = cardName(card)
   const already = done.arrived.outcome === 'already_on_board'
+  const notSaved = already ? notSavedTitle(done.levelSent, done.complaintSent) : null
   const said = already ? `${name} is already on the board.`
     : done.arrived.outcome === 'moved_from_waiting_list' ? `${name} was moved from the waiting list to the board.`
       : `${name} is on the board.`
@@ -228,8 +255,8 @@ function Arrived({ done, onAnother }: {
       <DeptNotice tone={already ? 'info' : 'positive'} variant="box" role="status">
         <span id="ed-arrived-title" tabIndex={-1}>{said}</span>
       </DeptNotice>
-      {already && done.triageSent ? (
-        <DeptNotice tone="caution" variant="box" role="alert" title="The triage level and complaint you entered were not saved">
+      {notSaved ? (
+        <DeptNotice tone="caution" variant="box" role="alert" title={notSaved}>
           The board still shows {name} as: {triageText(card.triageLevel)}. To change it, open their record and select Triage.
         </DeptNotice>
       ) : null}
@@ -239,8 +266,20 @@ function Arrived({ done, onAnother }: {
           <p className="hid-ehr-dept-emergency-wristband-line"><strong>Unknown patient {done.wristband.label}</strong></p>
           <p className="hid-ehr-dept-emergency-wristband-line">Health ID <strong>{done.wristband.hid}</strong></p>
           <div className="hid-ehr-dept-form-actions">
-            <EhrButton variant="secondary" onClick={() => window.print()}>Print wristband</EhrButton>
+            {/* The wristband slip alone, as a paper (printPaper: a PDF in Safari and on an iPhone or iPad, so no browser
+                prints its web address on it, owner 23 Nov 2026), never the page as it is. */}
+            <EhrButton variant="secondary" onClick={event => printPaper(receiptFor(event.currentTarget, 'health-id'), WRISTBAND_PAPER)}>
+              Print wristband
+            </EhrButton>
           </div>
+          <section data-receipt-print="health-id" aria-hidden="true" className="hidden print:block">
+            <div className="flex flex-col gap-2 p-4 text-black">
+              <PrintHeader facility={facility?.name} stacked />
+              <p className="m-0 text-[18px] font-semibold">Unknown patient {done.wristband.label}</p>
+              <p className="m-0 text-[14px]">Health ID</p>
+              <p className="m-0 text-[26px] font-semibold tracking-[.06em]">{done.wristband.hid}</p>
+            </div>
+          </section>
         </DeptSection>
       ) : null}
       <div className="hid-ehr-dept-form-actions">

@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import {
-  ADMIT_DEPARTMENTS, ED_REFUSALS, NOT_AVAILABLE, arrivalMoment, canArrive, canDecide, canRead, canTriage, cardName, complaintProblem,
-  complaintText, historyText, lagosTime, leaveLabel, minutesText, notServed, reasonProblem, refusalWords, statusWords, unknownRefusal,
-  startEmergencyVisit, visitAttempt, type VisitKeyBody,
+  ADMIT_DEPARTMENTS, BOARD_REFUSED, COLUMN_WORDS, ED_REFUSALS, NOT_AVAILABLE, VISIT_CHART_CLOSED, VISIT_FAILED, VISIT_NOT_FOUND,
+  arrivalMoment, awaitsBoardCodes, canArrive, canDecide, canRead, canTriage, cardName, closedWords, complaintProblem, complaintText,
+  historyText, lagosTime, lagosWhen, leaveLabel, minutesText, notServed, reasonProblem, refusalWords, statusWords, unknownRefusal,
+  startEmergencyVisit, visitAttempt, visitRefusal, type VisitKeyBody,
 } from '../../../../ehr-blue/departments/emergency/edRules'
 import { lagosDay } from '@hid/ui/display'
 import { TRIAGE_LEVELS, triageText, triageTone } from '../../../../ehr-blue/departments/parts/triageLevels'
@@ -26,6 +27,15 @@ describe('emergency board rules', () => {
     expect(canRead(['ehr.encounter.read', 'ehr.encounter.write'])).toBe(false)
   })
 
+  it('tells a member the board is for that it is not available yet on a backend before 0169, not that it is not for them', () => {
+    // Before 0169 no role holds an ED code: the front desk, nurses, clinicians and doctors hold only 0135's pair.
+    expect(awaitsBoardCodes(['ehr.encounter.read', 'ehr.encounter.write'])).toBe(true)
+    expect(awaitsBoardCodes(ED)).toBe(false)
+    // Lab staff (read only) and pharmacists hold no pair: the board is not for them.
+    expect(awaitsBoardCodes(['ehr.encounter.read', 'lab.work-item.read'])).toBe(false)
+    expect(awaitsBoardCodes([])).toBe(false)
+  })
+
   it('shares the waiting list’s five triage levels and tones: there is no second scale', () => {
     expect(TRIAGE_LEVELS).toEqual([1, 2, 3, 4, 5])
     expect(TRIAGE_LEVELS.map(level => triageText(level))).toEqual(['Level 1: most urgent', 'Level 2: very urgent', 'Level 3: urgent',
@@ -38,6 +48,13 @@ describe('emergency board rules', () => {
   it('shows times in Lagos and the time in the department without colours', () => {
     expect(lagosTime('2026-12-03T08:10:00.000Z')).toBe('09:10')
     expect(lagosTime('not a time')).toBe('')
+    // P2-4: a moment on an earlier Lagos day carries its date (a patient waiting for a ward stays for days).
+    const now = new Date('2026-12-03T10:00:00.000Z')
+    expect(lagosWhen('2026-12-03T08:10:00.000Z', now)).toBe('09:10')
+    expect(lagosWhen('2026-12-01T13:05:00.000Z', now)).toBe('1 Dec 2026, 14:05')
+    // 23:40 in Lagos the day before is not today's 23:40, though it is under a day ago.
+    expect(lagosWhen('2026-12-02T22:40:00.000Z', now)).toBe('2 Dec 2026, 23:40')
+    expect(lagosWhen(null, now)).toBe('')
     expect(minutesText(0)).toBe('0 min')
     expect(minutesText(59)).toBe('59 min')
     expect(minutesText(60)).toBe('1 h')
@@ -62,9 +79,23 @@ describe('emergency board rules', () => {
     expect(leaveLabel({ disposition: admit })).toBe('Handed over to the ward')
     expect(leaveLabel({ disposition: { ...admit, outcome: 'discharged' } })).toBe('Left the department')
     expect(statusWords({ status: 'open', disposition: null })).toBe('In the department')
+    expect(statusWords({ status: 'closed', disposition: { ...admit, outcome: 'discharged' } })).toBe('Discharged home')
     expect(complaintText({ presentingComplaint: null, complaintHidden: true })).toBe('Shown to nurses, clinicians and doctors only')
     expect(complaintText({ presentingComplaint: null, complaintHidden: false })).toBe('None recorded')
     expect(ADMIT_DEPARTMENTS.map(([code]) => code)).not.toContain('emergency')
+  })
+
+  it('never says a closed record with no decision left the department: its history tells a cancelled arrival apart', () => {
+    const closed = { status: 'closed' as const, disposition: null }
+    const event = (kind: 'arrived' | 'cancelled' | 'closed_on_waiting_list' | 'triaged') => ({ kind })
+    // The board card has no history: an arrival cancelled as made in error and one closed on the waiting list look alike.
+    expect(statusWords(closed)).toBe('Closed')
+    expect(COLUMN_WORDS.closed).toBe('Off the board today')
+    expect(closedWords(closed, [event('arrived'), event('triaged'), event('cancelled')])).toBe('Arrival cancelled')
+    expect(closedWords(closed, [event('arrived'), event('closed_on_waiting_list')])).toBe('Closed on the waiting list')
+    expect(closedWords(closed, [])).toBe('Closed')
+    expect(closedWords({ status: 'decided', disposition: null }, [event('cancelled')])).toBe(statusWords({ status: 'decided', disposition: null }))
+    for (const words of [statusWords(closed), closedWords(closed, [event('cancelled')]), COLUMN_WORDS.closed]) expect(words).not.toMatch(/left the department/i)
   })
 
   it('writes the history without the complaint’s text', () => {
@@ -171,6 +202,26 @@ describe('emergency board rules', () => {
       expect(send).toHaveBeenCalledTimes(2)
       expect(refusalWords(caught, 'The emergency visit could not be started. Try again.'))
         .toBe('The emergency visit was not started. The date or time on this device looks wrong. Check it, then try again.')
+    })
+
+    it('says EHR-C1’s refusals of the visit as the chart’s, never as the board’s (review fix)', () => {
+      // The approval the chart was opened under ended, was denied since, or allows reading only.
+      expect(visitRefusal(refused(403, 'CONSENT_REQUIRED'))).toBe(VISIT_CHART_CLOSED)
+      expect(visitRefusal(refused(403, 'ACCESS_DENIED'))).toBe(VISIT_CHART_CLOSED)
+      expect(VISIT_CHART_CLOSED).toContain('Open their chart again on Patients')
+      // EHR-C1's 404 is the patient, never "the board is not available yet".
+      expect(visitRefusal(refused(404, 'CLINICAL_RESOURCE_NOT_FOUND'))).toBe(VISIT_NOT_FOUND)
+      expect(visitRefusal(refused(404, 'NOT_FOUND'))).toBe(VISIT_NOT_FOUND)
+      for (const code of ['CONSENT_REQUIRED', 'ACCESS_DENIED', 'PERMISSION_DENIED']) {
+        expect(visitRefusal(refused(403, code))).not.toBe(BOARD_REFUSED)
+        expect(visitRefusal(refused(403, code))).not.toMatch(/permission/i)
+      }
+      expect(visitRefusal(refused(404, 'CLINICAL_RESOURCE_NOT_FOUND'))).not.toBe(NOT_AVAILABLE)
+      // Kept as before: the device's clock, and a key reused with another body.
+      expect(visitRefusal(refused(400, 'REUSE_OPEN_VISIT_STARTED_AT_NOT_TODAY'))).toBe(ED_REFUSALS.REUSE_OPEN_VISIT_STARTED_AT_NOT_TODAY)
+      expect(visitRefusal(refused(409, 'IDEMPOTENCY_KEY_REUSED'))).toBe(ED_REFUSALS.IDEMPOTENCY_KEY_REUSED)
+      expect(visitRefusal(refused(400, 'VALIDATION_FAILED'))).toBe(VISIT_FAILED)
+      expect(visitRefusal(new Error('boom'))).toBe(VISIT_FAILED)
     })
 
     it('passes any other refusal on without a second try', async () => {

@@ -15,8 +15,8 @@ import { EdBadges, EdIdentity } from './EmergencyDepartment'
 import {
   ADMIT_DEPARTMENTS, ARRIVAL_BASIS_WORDS, BASE, COMPLAINT_MAX, EYEBROW, FACILITY_NAME_MAX, FACILITY_NAME_MIN, KEEPS_ON_BOARD,
   MOVE_STAGES, OUTCOMES, OUTCOME_HINTS, OUTCOME_WORDS, REASON_MAX, RELOAD_AFTER, arrivalModeText, canArrive, canDecide,
-  canTriage, cardName, complaintProblem, complaintText, departmentText, historyText, lagosDateTime, lagosTime, leaveLabel,
-  learnFrom, memberText, minutesText, notServed, reasonProblem, refusalWords, stageText, startEmergencyVisit, statusWords,
+  canTriage, cardName, closedWords, complaintProblem, complaintText, departmentText, historyText, lagosDateTime, lagosWhen, leaveLabel,
+  learnFrom, memberText, minutesText, notServed, reasonProblem, refusalWords, stageText, startEmergencyVisit, statusWords, visitRefusal,
 } from './edRules'
 import { useIdempotencyKeys, useStaffNames } from './hooks'
 
@@ -113,19 +113,20 @@ export function EdRecordPage({ facilityId, attendanceId }: { readonly facilityId
 
       <DeptSection title="Patient" headingId="ed-record-patient">
         <EdIdentity card={card} />
-        <EdBadges card={card} />
+        <EdBadges card={card} history={record?.history} />
         <dl className="hid-ehr-dept-waiting-facts hid-ehr-dept-emergency-facts">
           <div><dt>Arrived</dt><dd>{lagosDateTime(card.arrivedAt)}</dd></div>
           <div><dt>In the department</dt><dd>{minutesText(card.minutesInDepartment)}</dd></div>
           <div><dt>How they came</dt><dd>{arrivalModeText(card.arrivalMode)}</dd></div>
           <div><dt>Added</dt><dd>{ARRIVAL_BASIS_WORDS[card.arrivalBasis] ?? ''}</dd></div>
-          <div><dt>Stage</dt><dd>{card.status === 'open' ? stageText(card.stage) : statusWords(card)}</dd></div>
-          <div><dt>Triage</dt><dd>{triageText(card.triageLevel)}{card.triagedAt ? `, ${lagosTime(card.triagedAt)} by ${memberText(card.triagedByMembershipId, membershipId, names, 'a staff member')}` : ''}</dd></div>
+          <div><dt>Stage</dt><dd>{card.status === 'open' ? stageText(card.stage) : closedWords(card, record?.history ?? [])}</dd></div>
+          <div><dt>Triage</dt><dd>{triageText(card.triageLevel)}{card.triagedAt ? `, ${lagosWhen(card.triagedAt)} by ${memberText(card.triagedByMembershipId, membershipId, names, 'a staff member')}` : ''}</dd></div>
           <div><dt>Complaint</dt><dd>{complaintText(card)}</dd></div>
           <div><dt>Seen by</dt><dd>{memberText(card.assignedMembershipId, membershipId, names)}</dd></div>
           <div><dt>Visit</dt><dd>{card.encounterId ? 'Linked' : 'Not linked yet'}</dd></div>
           {card.disposition ? <div><dt>Decision</dt><dd>{dispositionText(card, membershipId, names)}</dd></div> : null}
-          {card.leftAt ? <div><dt>Left</dt><dd>{lagosDateTime(card.leftAt)}</dd></div> : null}
+          {/* A record closed with no decision (an arrival cancelled, or closed on the waiting list) did not leave. */}
+          {card.leftAt ? <div><dt>{card.disposition ? 'Left' : 'Closed'}</dt><dd>{lagosDateTime(card.leftAt)}</dd></div> : null}
         </dl>
         <ChartLink card={card} />
       </DeptSection>
@@ -211,7 +212,8 @@ function dispositionText(card: EdCard, membershipId: string | undefined, names: 
   if (decision.admitToDepartmentCode) parts.push(`to ${departmentText(decision.admitToDepartmentCode)}`)
   if (decision.admittingMembershipId) parts.push(`under ${memberText(decision.admittingMembershipId, membershipId, names)}`)
   if (decision.referredToFacilityName) parts.push(`to ${decision.referredToFacilityName}`)
-  const when = lagosTime(decision.decidedAt)
+  // A decision days old (an admission request waits for a ward, Q-ED-6 A) carries its date.
+  const when = lagosWhen(decision.decidedAt)
   return `${parts.join(' ')}${when ? `, ${when}` : ''}`
 }
 
@@ -266,7 +268,9 @@ function VisitLink({ card, facilityId, busy, write }: {
         keyBody => keyFor.forget('visit', keyBody))
       encounterId = visit.id
     } catch (caught) {
-      setProblem(refusalWords(caught, 'The emergency visit could not be started. Try again.'))
+      if (isHidApiError(caught) && caught.code === 'REQUEST_CANCELLED') return
+      // EHR-C1's own refusals are about the chart, not the board (visitRefusal).
+      setProblem(visitRefusal(caught))
       return
     }
     await write('visit', { encounterId }, key => edBoardApi.linkVisit(facilityId, card, encounterId, key), 'Today’s emergency visit is linked.',

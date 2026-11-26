@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react'
-import { isHidApiError } from '@hid/http'
-import { formatDateTime, formatTime, lagosDay } from '@hid/ui/display'
+import { isHidApiError, plainErrorText } from '@hid/http'
+import { formatDateTime, formatTime, formatTimeOrDateTime, lagosDay, type Moment } from '@hid/ui/display'
 import type { EhrBadgeTone } from '@hid/ui/ehr'
 import type {
   EdArrivalMode, EdCard, EdColumn, EdHistoryEvent, EdOutcome, UnknownPatientReason, VisitQueueStage,
@@ -32,6 +32,12 @@ export const ENCOUNTER_WRITE = 'ehr.encounter.write'
 export const PATIENT_SEARCH = 'identity.registration.write'
 
 const encounters = (permissions: readonly string[]) => permissions.includes(ENCOUNTER_READ) && permissions.includes(ENCOUNTER_WRITE)
+/**
+ * Whether the member is one the board is for (0135's encounter pair: the front desk, nurses, clinicians and doctors)
+ * on a backend that has not given them its codes yet (before 0169 no role holds an ED code): told the board is not
+ * available yet, never that it is not for them.
+ */
+export const awaitsBoardCodes = (permissions: readonly string[]) => encounters(permissions) && !permissions.includes(ED_READ)
 export const canRead = (permissions: readonly string[]) => permissions.includes(ED_READ) && encounters(permissions)
 export const canArrive = (permissions: readonly string[]) => canRead(permissions) && permissions.includes(ED_ARRIVE)
 export const canTriage = (permissions: readonly string[]) => canRead(permissions) && permissions.includes(ED_TRIAGE)
@@ -53,13 +59,15 @@ export const COLUMN_WORDS: Readonly<Record<EdColumn, string>> = {
   waiting: 'Waiting',
   being_seen: 'Being seen',
   disposition: 'Disposition',
-  closed: 'Left the department today',
+  // A closed record left the department, or was an arrival cancelled as made in error, or was closed on the waiting
+  // list: the card does not say which, so the column says only that it is off the board.
+  closed: 'Off the board today',
 }
 export const COLUMN_EMPTY: Readonly<Record<EdColumn, string>> = {
   waiting: 'No one is waiting.',
   being_seen: 'No one is being seen.',
   disposition: 'No one is waiting to leave.',
-  closed: 'No one has left today.',
+  closed: 'No one has left the board today.',
 }
 
 export const ARRIVAL_MODES: readonly EdArrivalMode[] = ['walk_in', 'ambulance', 'brought_by_public', 'police', 'referred', 'other']
@@ -213,6 +221,14 @@ export function lagosTime(iso: string | null | undefined): string {
   return formatTime(iso)
 }
 
+/**
+ * "09:05" for a moment today in Lagos, else "3 Dec 2026, 09:05" (@hid/ui/display, P2-4): a patient waiting for a ward
+ * stays on the board for days (Q-ED-6 A), and a time read days later is never taken for today's.
+ */
+export function lagosWhen(iso: string | null | undefined, now: Moment = Date.now()): string {
+  return formatTimeOrDateTime(iso, now)
+}
+
 /** "3 Dec 2026, 09:05": the Lagos day and time, for the history (@hid/ui/display, P2-4). */
 export function lagosDateTime(iso: string | null | undefined): string {
   return formatDateTime(iso)
@@ -249,10 +265,23 @@ export function cardName(card: Pick<EdCard, 'fullName' | 'recordKind' | 'unknown
   return card.fullName
 }
 
+/**
+ * The card's status in words. A closed record with no decision was not seen to leave: it is an arrival cancelled as made
+ * in error (route 9) or one closed on the waiting list, which only its history tells apart (closedWords), so the card
+ * says "Closed".
+ */
 export function statusWords(card: Pick<EdCard, 'status' | 'disposition'>): string {
-  if (card.status === 'closed') return card.disposition ? outcomeText(card.disposition.outcome) : 'Left the department'
+  if (card.status === 'closed') return card.disposition ? outcomeText(card.disposition.outcome) : 'Closed'
   if (card.status === 'decided') return card.disposition?.outcome === 'admit_requested' ? 'Waiting for admission' : outcomeText(card.disposition?.outcome)
   return 'In the department'
+}
+/** The record page's status, which has the history: a closed record with no decision says how it closed. */
+export function closedWords(card: Pick<EdCard, 'status' | 'disposition'>, history: readonly Pick<EdHistoryEvent, 'kind'>[]): string {
+  if (card.status !== 'closed' || card.disposition) return statusWords(card)
+  const close = [...history].reverse().find(event => event.kind === 'cancelled' || event.kind === 'closed_on_waiting_list')
+  if (close?.kind === 'cancelled') return 'Arrival cancelled'
+  if (close?.kind === 'closed_on_waiting_list') return 'Closed on the waiting list'
+  return statusWords(card)
 }
 export function statusTone(card: Pick<EdCard, 'status'>): EhrBadgeTone {
   return card.status === 'open' ? 'brand' : card.status === 'decided' ? 'caution' : 'neutral'
@@ -356,6 +385,29 @@ export function refusalWords(caught: unknown, fallback: string, invalid?: string
   if (caught.status === 403) return BOARD_REFUSED
   if (caught.status === 0 || caught.code === 'NETWORK_ERROR' || caught.code === 'REQUEST_TIMEOUT') return 'No connection. Check your internet and try again.'
   return fallback
+}
+
+/**
+ * EHR-C1's refusals of the emergency visit the visit link starts (before route 6), which are about the patient's chart,
+ * never the board: 403 CONSENT_REQUIRED (the access the chart was opened under no longer lets this facility change the
+ * record: a consent ended or was denied since, or it allows reading only) and the identity check's own refusals say to
+ * open the chart again; so does a 404, the patient not found at this facility. Never the board's "not available yet".
+ */
+export const VISIT_CHART_CLOSED = 'The emergency visit was not started. The patient’s record can no longer be changed from this chart. '
+  + 'Open their chart again on Patients, then come back here.'
+export const VISIT_NOT_FOUND = 'The emergency visit was not started. The patient was not found at this facility. '
+  + 'Open their chart again on Patients, then come back here.'
+export const VISIT_FAILED = 'The emergency visit could not be started. Try again.'
+const VISIT_ACCESS_ENDED: ReadonlySet<string> = new Set(['CONSENT_REQUIRED', 'ACCESS_DENIED', 'PATIENT_ACCESS_DENIED',
+  'IDENTITY_AUTHORIZATION_DENIED'])
+
+export function visitRefusal(caught: unknown): string {
+  if (!isHidApiError(caught)) return VISIT_FAILED
+  if (caught.code === VISIT_NOT_TODAY || caught.code.startsWith('IDEMPOTENCY_KEY_')) return ED_REFUSALS[caught.code] ?? VISIT_FAILED
+  if (caught.status === 403 && VISIT_ACCESS_ENDED.has(caught.code)) return VISIT_CHART_CLOSED
+  if (caught.status === 404) return VISIT_NOT_FOUND
+  if (caught.code === 'VALIDATION_FAILED') return VISIT_FAILED
+  return plainErrorText(caught, VISIT_FAILED, { audience: 'facility' })
 }
 
 /** The ID-7 make-one refusals, in plain words. */
