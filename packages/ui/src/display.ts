@@ -208,14 +208,16 @@ function grouped(digits: string): string {
 /**
  * The national number (after +234, without the trunk 0) of a Nigerian number, however it was written, or null. It is
  * written "0..." at home, or "234..." or "+234..." with or without the trunk 0 after the country code
- * ("2340 1 234 5678", "+234 (0)1 234 5678"). A national number never starts with 0, so a doubled trunk ("+2340(0)12345678") is not one.
- * Eight digits that begin with a mobile prefix are a mobile missing two digits, not a landline (see `MOBILE_PREFIX`).
+ * ("2340 1 234 5678", "+234 (0)1 234 5678"). A national number never starts with 0, so a doubled trunk
+ * ("+2340(0)12345678") is not one. Only a mobile has ten digits, so ten that do not begin with a mobile prefix are not
+ * one ("01 234 567 890" is a landline with two digits too many); eight that do are a mobile missing two digits, not a
+ * landline (see `MOBILE_PREFIX`).
  */
 function nigerianDigits(compact: string): string | null {
   const match = /^(?:\+?2340?|0)([1-9]\d{9}|[1-9]\d{7})$/.exec(compact)
   if (!match) return null
   const national = match[1]!
-  return national.length === 8 && MOBILE_PREFIX.test(national) ? null : national
+  return (national.length === 8) === MOBILE_PREFIX.test(national) ? null : national
 }
 
 /**
@@ -241,12 +243,12 @@ function nigerianAtHome(national: string): string {
 
 /**
  * The stored text with spaces, dots, dashes and brackets taken out. A "(0)" written straight after the country code is
- * the trunk 0, which is not dialled from abroad, so it goes too: "+44 (0) 20 7946 0000" and "+(44) (0) 20 7946 0000"
- * are both "+442079460000". A 0 written there without brackets is kept as written.
+ * the trunk 0, which is not dialled from abroad, so it goes too: "+44 (0) 20 7946 0000", "+(44) (0) 20 7946 0000" and
+ * "(+44) (0) 20 7946 0000" are all "+442079460000". A 0 written there without brackets is kept as written.
  */
 function compactPhone(written: string): string {
   const spaced = written.replace(/[\s.-]/g, '')
-  const trunk = /^\+\(?(\d{1,3})\)?\(0\)(.*)$/.exec(spaced)
+  const trunk = /^(?:\+\(?|\(\+)(\d{1,3})\)?\(0\)(.*)$/.exec(spaced)
   const dialled = trunk && countryCodeLength(trunk[1]!) === trunk[1]!.length ? `+${trunk[1]}${trunk[2]}` : spaced
   return dialled.replace(/[()]/g, '')
 }

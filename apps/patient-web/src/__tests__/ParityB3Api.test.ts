@@ -174,4 +174,9 @@ describe('what is typed and shown', () => {
     expect(maskPhone('+23442123456')).toBe('0•• ••3 456')
     expect(maskPhone('+23412345678')).not.toContain('+234')
   })
+
+  it('keeps the country code of a foreign number written with the "+" inside its brackets', () => {
+    expect(maskPhone('(+44) (0) 20 7946 0000')).toBe('+44 •••• 0000')
+    expect(maskPhone('+44 (0) 20 7946 0000')).toBe('+44 •••• 0000')
+  })
 })

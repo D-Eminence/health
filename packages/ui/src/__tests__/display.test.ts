@@ -163,7 +163,7 @@ describe('phone numbers (Q183 B)', () => {
 
   it('still shows a Nigerian mobile as "0803 123 4567" beside the landline rule', () => {
     expect(formatPhone('+2349031234567')).toBe('0903 123 4567')
-    expect(formatPhone('+2341031234567')).toBe('0103 123 4567')
+    expect(formatPhone('+2348131234567')).toBe('0813 123 4567')
     expect(formatPhone('+234 (0) 903 123 4567')).toBe('0903 123 4567')
   })
 
@@ -180,6 +180,15 @@ describe('phone numbers (Q183 B)', () => {
     expect(formatPhone('+23496123456')).toBe('09 612 3456')
     expect(formatPhone('+23471123456')).toBe('071 123 456')
     expect(formatPhone('+23482123456')).toBe('082 123 456')
+  })
+
+  it('never shows ten digits as a mobile unless they begin with a mobile prefix', () => {
+    // Only a mobile has ten digits, and every mobile begins 70, 80, 81, 90 or 91: this is a landline with two too many.
+    expect(formatPhone('01 234 567 890')).toBe('01 234 567 890')
+    expect(formatPhone('+234 1 234 567 890')).toBe('+234 1 234 567 890')
+    expect(formatPhone('+234 42 123 456 78')).toBe('+234 42 123 456 78')
+    expect(formatPhone('+2347031234567')).toBe('0703 123 4567')
+    expect(formatPhone('+2349121234567')).toBe('0912 123 4567')
   })
 
   it('never reads a national number that starts with 0, and shows a doubled trunk as written', () => {
@@ -218,6 +227,9 @@ describe('phone numbers (Q183 B)', () => {
     expect(formatPhone('+(44) (0) 20 7946 0000')).toBe('+44 207 946 0000')
     expect(formatPhone('+(44)(0)2079460000')).toBe('+44 207 946 0000')
     expect(formatPhone('+(234) (0) 1 234 5678')).toBe('01 234 5678')
+    expect(formatPhone('(+44) (0) 20 7946 0000')).toBe('+44 207 946 0000')
+    expect(formatPhone('(+44)(0)2079460000')).toBe('+44 207 946 0000')
+    expect(formatPhone('(+44) 20 7946 0000')).toBe('+44 207 946 0000')
   })
 
   it('leaves anything that is not a number as it came, and gives the fallback for none', () => {

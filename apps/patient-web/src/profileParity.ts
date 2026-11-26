@@ -198,7 +198,7 @@ export function maskPhone(phone: string): string {
     })
     return `0${masked.reverse().join('')}`
   }
-  const code = phone.trim().startsWith('+')
+  const code = /^\(?\+/.test(phone.trim())
     ? PHONE_COUNTRIES.map(country => country.code).filter(candidate => digits.startsWith(candidate) && digits.length - candidate.length > 4)
       .sort((a, b) => b.length - a.length)[0]
     : undefined
