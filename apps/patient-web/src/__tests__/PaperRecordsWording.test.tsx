@@ -94,4 +94,14 @@ describe('the paper records rule, as the patient reads it', () => {
     expect(isAdult(null, now)).toBe(false)
     expect(isAdult('not a date', now)).toBe(false)
   })
+
+  it('counts the 18th birthday from the Lagos day, which starts an hour before the UTC day', () => {
+    // 23:30 UTC on 26 Nov is 00:30 on 27 Nov in Lagos: the birthday has come.
+    expect(isAdult('2008-11-27', new Date('2026-11-26T23:30:00Z'))).toBe(true)
+    // 22:30 UTC is 23:30 in Lagos, still the eve of the birthday.
+    expect(isAdult('2008-11-27', new Date('2026-11-26T22:30:00Z'))).toBe(false)
+    // A date of birth sent as midnight in Lagos counts from that Lagos day, not the UTC day before it.
+    expect(isAdult('2008-11-26T23:00:00Z', new Date('2026-11-26T23:30:00Z'))).toBe(true)
+    expect(isAdult('2008-11-26T23:00:00Z', new Date('2026-11-26T12:00:00Z'))).toBe(false)
+  })
 })

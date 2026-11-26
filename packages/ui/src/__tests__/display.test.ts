@@ -143,6 +143,51 @@ describe('phone numbers (Q183 B)', () => {
     expect(formatPhone('+27821234567')).toBe('+27 821 234 567')
   })
 
+  it('shows a Nigerian landline as it is written at home: 0, the area code, then the subscriber number', () => {
+    // Lagos (1), Ibadan (2) and Abuja (9) have a one-digit area code and a seven-digit subscriber number.
+    expect(formatPhone('+23412345678')).toBe('01 234 5678')
+    expect(formatPhone('23412345678')).toBe('01 234 5678')
+    expect(formatPhone('012345678')).toBe('01 234 5678')
+    expect(formatPhone('+234 (0)1 234 5678')).toBe('01 234 5678')
+    expect(formatPhone('+234 (0) 1-234-5678')).toBe('01 234 5678')
+    expect(formatPhone('+2340 1 234 5678')).toBe('01 234 5678')
+    expect(formatPhone('01.234.5678')).toBe('01 234 5678')
+    expect(formatPhone('(01) 234 5678')).toBe('01 234 5678')
+    expect(formatPhone('+23422345678')).toBe('02 234 5678')
+    expect(formatPhone('+23492345678')).toBe('09 234 5678')
+    // Every other area has a two-digit code and a six-digit subscriber number.
+    expect(formatPhone('+23442123456')).toBe('042 123 456')
+    expect(formatPhone('084 123 456')).toBe('084 123 456')
+    expect(formatPhone('+234 (0) 84 123456')).toBe('084 123 456')
+  })
+
+  it('still shows a Nigerian mobile as "0803 123 4567" beside the landline rule', () => {
+    expect(formatPhone('+2349031234567')).toBe('0903 123 4567')
+    expect(formatPhone('+2341031234567')).toBe('0103 123 4567')
+    expect(formatPhone('+234 (0) 903 123 4567')).toBe('0903 123 4567')
+  })
+
+  it('never leaves a group of one or two digits after the country code', () => {
+    expect(formatPhone('+8613800138000')).toBe('+86 138 0013 8000')
+    expect(formatPhone('+4420794600')).toBe('+44 2079 4600')
+    expect(formatPhone('+35312345')).toBe('+353 12345')
+    expect(formatPhone('+3531234')).toBe('+353 1234')
+    expect(formatPhone('+12345678901234')).toBe('+1 234 567 890 1234')
+    for (const stored of ['+3531234', '+35312345', '+4420794600', '+8613800138000', '+447700900123', '+12345678901234',
+      '+123456789012345', '+4930123456789']) {
+      const shown = formatPhone(stored)
+      expect(shown.replace(/\D/g, '')).toBe(stored.replace(/\D/g, ''))
+      for (const group of shown.split(' ').slice(1)) expect(group.length).toBeGreaterThanOrEqual(3)
+    }
+  })
+
+  it('drops a "(0)" trunk written after a foreign country code, and keeps a bare 0 as written', () => {
+    expect(formatPhone('+44 (0) 20 7946 0000')).toBe('+44 207 946 0000')
+    expect(formatPhone('+44(0)2079460000')).toBe('+44 207 946 0000')
+    expect(formatPhone('+44 ( 0 ) 20 7946 0000')).toBe('+44 207 946 0000')
+    expect(formatPhone('+44 020 7946 0000')).toBe('+44 020 7946 0000')
+  })
+
   it('leaves anything that is not a number as it came, and gives the fallback for none', () => {
     expect(formatPhone('+234 •••• 4567')).toBe('+234 •••• 4567')
     expect(formatPhone('  ask at the desk ')).toBe('ask at the desk')
