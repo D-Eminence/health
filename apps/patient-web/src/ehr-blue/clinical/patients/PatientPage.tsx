@@ -29,6 +29,7 @@ import type { ActivePatient } from '../../../staff/App'
 import { isAdult, STAFF_ACCESS_COVERS_PAPER } from '../../../paperRecordsWording'
 import { scanAccess } from '../../../scanAccess'
 import { AllergiesCard } from './AllergiesCard'
+import { PatientAppointmentsCard } from '../../departments/appointments/PatientAppointmentsCard'
 import { ChartSummary } from './ChartSummary'
 import { CHART_SUMMARY_PERMISSIONS } from './chartSummary'
 
@@ -306,6 +307,8 @@ function PatientRecord({ chart, onClosed }: { chart: Chart; onClosed: () => void
         {error ? <Alert intent="error">{error}</Alert> : null}
         {/* Allergies, recorded by clinicians and reported by the patient, each labelled (hid-system 0117; patient-reported only before it). */}
         {!emergency ? <AllergiesCard chart={chart} /> : null}
+        {/* This facility's appointments for the patient (hid-system APPT-1), for those who see appointments here. */}
+        {!emergency ? <PatientAppointmentsCard patientId={chart.patientId} fullName={facts.name} /> : null}
 
         {!emergency ? <Card>
           <CardHeader as="h2" title="Next steps" icon={ListChecks} iconTone="brand" />

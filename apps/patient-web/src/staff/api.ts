@@ -3281,7 +3281,8 @@ export interface VisitQueueCard {
   stage: VisitQueueStage
   triageLevel: number | null
   assignedMembershipId: string | null
-  checkInBasis: 'search' | 'own-facility'
+  /** 'appointment': checked in from this facility's appointment on its own day (hid-system APPT-1, 0160). */
+  checkInBasis: 'search' | 'own-facility' | 'appointment'
   checkedInAt: string
   checkInDay: string
   stageChangedAt: string
@@ -3316,4 +3317,195 @@ export const visitQueueApi = {
   update: (facilityId: string, entry: Pick<VisitQueueCard, 'entryId' | 'rowVersion'>, change: VisitQueueChange) =>
     client.request<VisitQueueCard>({ method: 'PATCH', path: `/api/v1/ehr/visit-queue/${encodeURIComponent(entry.entryId)}`,
       body: { expectedRowVersion: entry.rowVersion, ...change }, headers: facilityHeaders(facilityId, 'direct-care') }),
+}
+
+/**
+ * Appointments (hid-system APPT-1, migrations 0160 and 0161, Release D; INTERFACE_CONTRACT.md "APPT-1"): this facility's
+ * bookings, with check-in to the waiting list. Front desk, clinicians and doctors book and change them; nurses see them.
+ * Direct care only, at the X-Facility-ID facility. Every write carries an Idempotency-Key, made once per form and reused
+ * when the same form is sent again. No Health ID or NIN in any address, query, body or answer: a patient is booked by a
+ * search card's `matchRef` or by the id of a patient already this facility's own, both in the body.
+ *
+ * An ehr-api before 0160 answers 404, and while the service flag APPOINTMENTS_ENABLED is off every route answers 503
+ * APPOINTMENTS_NOT_AVAILABLE: the pages then say appointments are not available yet. So every read here is sent once
+ * (NO_RETRY): the client's read retry counts a 503 as worth trying again, which with the flag off would send each read
+ * three times and log each one as an error in ehr-api. A read that fails for another reason offers Refresh or Try again.
+ */
+export const APPOINTMENT_STATUSES = ['booked', 'checked_in', 'cancelled', 'no_show'] as const
+export type AppointmentStatus = (typeof APPOINTMENT_STATUSES)[number]
+export const APPOINTMENT_VISIT_TYPES = ['new_visit', 'follow_up', 'results_review', 'antenatal', 'procedure', 'other'] as const
+export type AppointmentVisitType = (typeof APPOINTMENT_VISIT_TYPES)[number]
+
+/** The staff card (every staff answer). Never a whole Health ID: its last 4 characters only. */
+export interface AppointmentCard {
+  appointmentId: string
+  patientId: string
+  fullName: string
+  sex: string | null
+  dateOfBirth: string | null
+  healthIdLast4: string
+  chartBlocked: boolean
+  departmentCode: string
+  clinicId: string | null
+  clinicName: string | null
+  clinicianMembershipId: string | null
+  startsAt: string
+  endsAt: string
+  lengthMinutes: number
+  /** The Lagos calendar day of startsAt (YYYY-MM-DD). */
+  appointmentDay: string
+  visitType: AppointmentVisitType
+  reason: string | null
+  status: AppointmentStatus
+  bookingBasis: 'search' | 'own-facility'
+  visitQueueEntryId: string | null
+  bookedAt: string
+  bookedByMembershipId: string
+  statusChangedAt: string
+  reminderSentAt: string | null
+  rowVersion: number
+}
+
+export type AppointmentHistoryKind = 'booked' | 'rescheduled' | 'cancelled' | 'no_show' | 'no_show_undone' | 'checked_in'
+export interface AppointmentHistoryEntry {
+  kind: AppointmentHistoryKind
+  at: string
+  byMembershipId: string | null
+  fromStartsAt: string | null
+  toStartsAt: string | null
+  fromClinicianMembershipId: string | null
+  toClinicianMembershipId: string | null
+  reason: string | null
+}
+
+export interface AppointmentClinic {
+  clinicId: string
+  name: string
+  departmentCode: string
+  defaultLengthMinutes: number | null
+  active: boolean
+  rowVersion: number
+}
+
+export interface AppointmentList { items: AppointmentCard[]; nextCursor: string | null }
+export interface AppointmentRead { appointment: AppointmentCard; history: AppointmentHistoryEntry[] }
+export interface AppointmentSaved { appointment: AppointmentCard; replayed: boolean }
+export interface AppointmentCheckIn { outcome: 'checked_in' | 'already_on_list'; appointment: AppointmentCard; entry: VisitQueueCard; replayed: boolean }
+export interface AppointmentSettings { defaultLengthMinutes: number; rowVersion: number }
+export interface AppointmentCallListItem {
+  appointmentId: string
+  startsAt: string
+  clinicName: string | null
+  clinicianMembershipId: string | null
+  fullName: string
+  healthIdLast4: string
+  /** E.164, the phone this facility recorded for the patient; null when it recorded none. */
+  phone: string | null
+  /** Only the phone this facility recorded (Q-APPT-7 A): 'facility_contact', or null with no phone. */
+  phoneSource: 'facility_contact' | null
+}
+
+export interface AppointmentListQuery {
+  day: string
+  clinicId?: string
+  clinicianMembershipId?: string
+  statuses?: readonly AppointmentStatus[]
+  cursor?: string
+  limit?: number
+  /** Cancels the read: a newer one (another day, clinic or status) takes its place. */
+  signal?: AbortSignal
+}
+
+/** A booking: exactly one of matchRef (a search card, 10 minutes) or patientId (this facility's own patient). */
+export type AppointmentPatient = { matchRef: string } | { patientId: string }
+export interface AppointmentBooking {
+  departmentCode: string
+  clinicId?: string
+  clinicianMembershipId?: string
+  /** ISO UTC, on a 5-minute step. */
+  startsAt: string
+  lengthMinutes?: number
+  visitType: AppointmentVisitType
+  reason?: string
+}
+export interface AppointmentReschedule {
+  startsAt: string
+  lengthMinutes?: number
+  /** null removes the clinician; left out keeps them. */
+  clinicianMembershipId?: string | null
+  reason: string
+}
+export interface AppointmentClinicChange { name?: string; defaultLengthMinutes?: number | null; active?: boolean }
+
+const appointmentPath = (appointmentId: string, action?: string) =>
+  `/api/v1/ehr/appointments/${encodeURIComponent(appointmentId)}${action ? `/${action}` : ''}`
+
+function directCareWrite(facilityId: string, idempotencyKey: string) {
+  return { ...facilityHeaders(facilityId, 'direct-care'), ...keyHeaders(idempotencyKey) }
+}
+
+export const appointmentsApi = {
+  list: (facilityId: string, query: AppointmentListQuery) =>
+    client.get<AppointmentList>('/api/v1/ehr/appointments', {
+      headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false, retry: NO_RETRY, ...(query.signal ? { signal: query.signal } : {}),
+      query: {
+        day: query.day,
+        ...(query.clinicId ? { clinicId: query.clinicId } : {}),
+        ...(query.clinicianMembershipId ? { clinicianMembershipId: query.clinicianMembershipId } : {}),
+        ...(query.statuses && query.statuses.length > 0 ? { status: query.statuses.join(',') } : {}),
+        ...(query.cursor ? { cursor: query.cursor } : {}),
+        ...(query.limit ? { limit: query.limit } : {}),
+      },
+    }),
+  /** `signal` cancels the read: a newer one (Refresh, or the read after a change) takes its place. */
+  read: (facilityId: string, appointmentId: string, signal?: AbortSignal) =>
+    client.get<AppointmentRead>(appointmentPath(appointmentId), {
+      headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false, retry: NO_RETRY, ...(signal ? { signal } : {}) }),
+  forPatient: (facilityId: string, patientId: string) =>
+    client.get<{ items: AppointmentCard[] }>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/appointments`,
+      { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false, retry: NO_RETRY }),
+  book: (facilityId: string, patient: AppointmentPatient, booking: AppointmentBooking, idempotencyKey: string) =>
+    client.post<AppointmentSaved>('/api/v1/ehr/appointments',
+      { ...('matchRef' in patient ? { matchRef: patient.matchRef } : { patientId: patient.patientId }), ...booking },
+      { headers: directCareWrite(facilityId, idempotencyKey) }),
+  reschedule: (facilityId: string, card: Pick<AppointmentCard, 'appointmentId' | 'rowVersion'>, change: AppointmentReschedule, idempotencyKey: string) =>
+    client.post<AppointmentSaved>(appointmentPath(card.appointmentId, 'reschedule'), { expectedRowVersion: card.rowVersion, ...change },
+      { headers: directCareWrite(facilityId, idempotencyKey) }),
+  cancel: (facilityId: string, card: Pick<AppointmentCard, 'appointmentId' | 'rowVersion'>, reason: string, idempotencyKey: string) =>
+    client.post<AppointmentSaved>(appointmentPath(card.appointmentId, 'cancel'), { expectedRowVersion: card.rowVersion, reason },
+      { headers: directCareWrite(facilityId, idempotencyKey) }),
+  noShow: (facilityId: string, card: Pick<AppointmentCard, 'appointmentId' | 'rowVersion'>, idempotencyKey: string) =>
+    client.post<AppointmentSaved>(appointmentPath(card.appointmentId, 'no-show'), { expectedRowVersion: card.rowVersion },
+      { headers: directCareWrite(facilityId, idempotencyKey) }),
+  /** Q-APPT-6 A: the appointment is the basis on its own day; `matchRef` (a fresh search) when the server asks for one. */
+  checkIn: (facilityId: string, card: Pick<AppointmentCard, 'appointmentId' | 'rowVersion'>, idempotencyKey: string, matchRef?: string) =>
+    client.post<AppointmentCheckIn>(appointmentPath(card.appointmentId, 'check-in'),
+      { expectedRowVersion: card.rowVersion, identityConfirmed: true, ...(matchRef ? { matchRef } : {}) },
+      { headers: directCareWrite(facilityId, idempotencyKey) }),
+  bookableStaff: (facilityId: string) =>
+    client.get<{ items: Array<{ membershipId: string }> }>('/api/v1/ehr/appointments/bookable-staff',
+      { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false, retry: NO_RETRY }),
+  clinics: (facilityId: string, includeInactive = false) =>
+    client.get<{ items: AppointmentClinic[] }>('/api/v1/ehr/appointment-clinics',
+      { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false, retry: NO_RETRY, ...(includeInactive ? { query: { includeInactive: true } } : {}) }),
+  createClinic: (facilityId: string, clinic: { name: string; departmentCode: string; defaultLengthMinutes?: number }, idempotencyKey: string) =>
+    client.post<{ clinic: AppointmentClinic; replayed: boolean }>('/api/v1/ehr/appointment-clinics', clinic,
+      { headers: directCareWrite(facilityId, idempotencyKey) }),
+  updateClinic: (facilityId: string, clinic: Pick<AppointmentClinic, 'clinicId' | 'rowVersion'>, change: AppointmentClinicChange, idempotencyKey: string) =>
+    client.request<{ clinic: AppointmentClinic; replayed: boolean }>({ method: 'PATCH',
+      path: `/api/v1/ehr/appointment-clinics/${encodeURIComponent(clinic.clinicId)}`,
+      body: { expectedRowVersion: clinic.rowVersion, ...change }, headers: directCareWrite(facilityId, idempotencyKey) }),
+  settings: (facilityId: string) =>
+    client.get<AppointmentSettings>('/api/v1/ehr/appointment-settings',
+      { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false, retry: NO_RETRY }),
+  saveSettings: (facilityId: string, current: Pick<AppointmentSettings, 'rowVersion'>, defaultLengthMinutes: number, idempotencyKey: string) =>
+    client.request<AppointmentSettings & { replayed?: boolean }>({ method: 'PATCH', path: '/api/v1/ehr/appointment-settings',
+      body: { expectedRowVersion: current.rowVersion, defaultLengthMinutes }, headers: directCareWrite(facilityId, idempotencyKey) }),
+  /** The printable call list (identity-api, which holds the contact key): booked appointments that day, with the phone. */
+  callList: (facilityId: string, query: { day: string; clinicId?: string; clinicianMembershipId?: string; signal?: AbortSignal }) =>
+    client.get<{ items: AppointmentCallListItem[] }>('/api/v1/identity/appointment-call-list', {
+      headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false, retry: NO_RETRY, ...(query.signal ? { signal: query.signal } : {}),
+      query: { day: query.day, ...(query.clinicId ? { clinicId: query.clinicId } : {}),
+        ...(query.clinicianMembershipId ? { clinicianMembershipId: query.clinicianMembershipId } : {}) },
+    }),
 }

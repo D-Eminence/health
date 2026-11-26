@@ -546,6 +546,27 @@ export interface AccessRequest {
   requesterRole?: string | null
 }
 
+/**
+ * One of the patient's own appointments (hid-system APPT-1 route 12, 0161), at any facility: no staff id and no booking
+ * basis. Times are ISO UTC; the page shows them in Lagos time.
+ */
+export interface MyAppointment {
+  appointmentId: string
+  facilityName: string
+  clinicName: string | null
+  departmentCode: string
+  clinicianName: string | null
+  startsAt: string
+  endsAt: string
+  lengthMinutes: number
+  visitType: string
+  reason: string | null
+  status: 'booked' | 'checked_in' | 'cancelled' | 'no_show' | string
+}
+export interface MyAppointmentList { items: MyAppointment[]; nextCursor: string | null }
+/** How many appointments "My appointments" reads at a time. */
+export const MY_APPOINTMENTS_PAGE = 20
+
 export interface PatientNotification {
   id: string
   notificationCode: string
@@ -991,6 +1012,14 @@ export function createPatientApi(sender: ApiClient) {
     // Stop, before the receiving facility accepts it: the patient's only action on an order sent elsewhere.
     stopOrderRoute: (route: Pick<PatientOrderRoute, 'id' | 'version'>) => call<{ route: PatientOrderRoute }>('POST',
       `ehr/me/order-routes/${encodeURIComponent(route.id)}/withdraw`, { expectedVersion: route.version }),
+    // "My appointments" (hid-system APPT-1, 0161; read only): the patient's own appointments at every facility. Before it
+    // ehr-api answers 404, and while it is switched off 503 APPOINTMENTS_NOT_AVAILABLE: the page then says so. The menu
+    // asks for one (`limit` 1) to learn whether it is served (useMyAppointmentsProbe). Sent once (NO_RETRY): the client's
+    // read retry counts a 503 as worth trying again, so with appointments switched off every portal load would send it
+    // three times, each logged as an error in ehr-api. A read that fails for another reason offers Try again.
+    myAppointments: (when: 'upcoming' | 'past', cursor?: string | null, signal?: AbortSignal, limit = MY_APPOINTMENTS_PAGE) =>
+      call<MyAppointmentList>('GET', 'ehr/me/appointments', undefined,
+        { signal, retry: NO_RETRY, query: { when, limit: String(limit), ...(cursor ? { cursor } : {}) } }),
     markNotificationRead: (id: string) => call<{ id: string; readAt: string }>('POST', `identity/me/notifications/${encodeURIComponent(id)}/read`),
     /**
      * The bell's count (hid-system 0093; an Identity before it answers 404): unread inbox items and unread imported

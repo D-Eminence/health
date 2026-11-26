@@ -27,6 +27,7 @@ import { openSite } from './openSite'
 import { usesNovuBackend } from './backendContract'
 import { LEGACY_PATIENT_PATHS } from './legacyPaths'
 import { ShareRecords } from './routes/ShareRecords'
+import { MyAppointments } from './routes/MyAppointments'
 import { SharedCardPage, SharedCardPreview } from './routes/SharedCard'
 import { BLUE_FOR_ALL } from './ehr-blue/clinicSwitch'
 import { Button, EmptyState } from './kasuwa/ui'
@@ -86,6 +87,8 @@ function PatientRoutes() {
         {/* Share my records (hid-system 0095): opens Access and consent where the backend does not serve sharing (404). */}
         <Route path="access/share" element={<ShareRecords />} />
         <Route path="notifications" element={<NotificationsPage />} />
+        {/* "My appointments", read only (hid-system APPT-1, 0161; Novu only: hid-system main has no such route). */}
+        {usesNovuBackend() && <Route path="appointments" element={<MyAppointments />} />}
         {/* Settings is gone: its parts are on the profile, and an old link opens it at the same #. */}
         <Route path="settings" element={<SettingsRedirect />} />
         <Route path="*" element={<PatientNotFound />} />

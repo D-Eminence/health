@@ -1,3 +1,4 @@
+import { formatDateTime, formatWeekday } from '@hid/ui/display'
 import type { PatientNotification } from '../api'
 
 /**
@@ -37,6 +38,8 @@ export const NOTIFICATION_SUBJECTS: Readonly<Record<string, string>> = {
   'share-invitation': 'Invitation to share',
   // hid-1.0 parity B5 (hid-system 0096): the patient's own account deletion.
   'account-deletion': 'Account',
+  // hid-system APPT-1 (0161): an appointment booked, moved, cancelled, or the reminder.
+  appointment: 'Appointment',
 }
 
 /**
@@ -56,6 +59,21 @@ const ORDER_ROUTE_TITLES: Readonly<Record<string, (thing: string, facility: stri
   ORDER_ROUTE_WRONG_PATIENT_CORRECTED: (thing, facility) => `${facility} reports that it accepted your ${thing} for someone who was not you`,
   // D18 (D18-3): the receiving facility accepted it and couldn't complete it; the reason is not sent (D18-4).
   ORDER_ROUTE_NOT_COMPLETED: (thing, facility) => `${facility} couldn’t complete your ${thing}. See it in Access & sharing`,
+}
+
+/** The inbox codes of appointments (hid-system APPT-1, 0161): booked, moved, cancelled, and the reminder a day before. */
+const APPOINTMENT_TITLES: Readonly<Record<string, (facility: string, when: string | null) => string>> = {
+  APPOINTMENT_BOOKED: (facility, when) => `${facility} booked an appointment for you${when ? ` on ${when}` : ''}`,
+  APPOINTMENT_RESCHEDULED: (facility, when) => `${facility} moved your appointment${when ? ` to ${when}` : ''}`,
+  APPOINTMENT_CANCELLED: (facility, when) => `${facility} cancelled your appointment${when ? ` on ${when}` : ''}`,
+  APPOINTMENT_REMINDER: (facility, when) => `Reminder: you have an appointment at ${facility}${when ? ` on ${when}` : ''}`,
+}
+
+/** "Thursday 3 Dec 2026, 09:00": an appointment's start in Lagos (@hid/ui/display); null when the notice carries none. */
+function appointmentStart(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length > 40) return null
+  const start = formatDateTime(value)
+  return start ? `${formatWeekday(value)} ${start}` : null
 }
 
 /** A name from a notice's metadata, or the words that stand for it: never anything but a short plain string. */
@@ -78,6 +96,12 @@ export function notificationTitle(item: PatientNotification): string {
   }
   // hid-1.0 parity B4 (hid-system 0095): a facility's staff opened the record (once per facility a day; the email names no
   // one), and a provider accepted the patient's invitation. Each names the facility only, never the clinician or a record.
+  // Appointments (hid-system APPT-1, 0161): metadata holds the facility's name and the start only, never the clinic or
+  // reason. The time is said in Lagos, whatever the device's zone.
+  const appointment = APPOINTMENT_TITLES[item.notificationCode]
+  if (appointment) {
+    return appointment(metadataName(item.metadata, 'facilityName') ?? 'A hospital', appointmentStart(item.metadata?.startsAt))
+  }
   if (item.notificationCode === 'RECORDS_OPENED') {
     return `${metadataName(item.metadata, 'facilityName') ?? 'A hospital'} opened your health records`
   }
@@ -96,6 +120,8 @@ export function notificationAction(item: PatientNotification): { to: string; lab
     case 'access-request': return { to: '/access', label: 'Review request' }
     case 'consent-grant': case 'order-route': case 'share-invitation': case 'record-access':
       return { to: '/access', label: 'Open Access & sharing' }
+    // hid-system APPT-1: seen in My appointments, where the portal has it (Novu); hid-system main sends no such notice.
+    case 'appointment': return { to: '/appointments', label: 'Open My appointments' }
     default: return null
   }
 }

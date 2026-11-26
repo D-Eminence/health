@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { isHidApiError, PLAIN, plainErrorText } from '@hid/http'
 import { PasswordInput } from '@hid/ui'
-import { Bell, Building2, Check, ClipboardList, FileText, FlaskConical, HeartPulse, House, LayoutDashboard, Lock, MessageSquareText, NotebookPen, PhoneCall, Pill, Search, Share2, ShieldCheck, Siren, Stethoscope, UserRound, X, ChevronDown, ChevronRight, Plus, FilePlus2, FolderHeart, FileImage, RotateCcw } from 'lucide-react'
+import { Bell, Building2, CalendarDays, Check, ClipboardList, FileText, FlaskConical, HeartPulse, House, LayoutDashboard, Lock, MessageSquareText, NotebookPen, PhoneCall, Pill, Search, Share2, ShieldCheck, Siren, Stethoscope, UserRound, X, ChevronDown, ChevronRight, Plus, FilePlus2, FolderHeart, FileImage, RotateCcw } from 'lucide-react'
 import { AppShell, type NavGroup } from '../kasuwa/AppShell'
 import { Alert, Avatar, Badge, Button, buttonClass, Card, CardHeader, EmptyState, Field, FilterTabs, IconChip, Input, PageHeader, SectionHeader, cx, statusTone, timeAgo, type Icon } from '../kasuwa/ui'
 import { ConfirmSheet, PageState } from '../kasuwa/parts'
@@ -56,6 +56,7 @@ import { HealthInformationCard } from './HealthInformation'
 import { ShareInvitationsCard } from './ShareInvitations'
 import { useShareProbe } from './ShareRecords'
 import { useShareServed } from '../shareServed'
+import { useMyAppointmentsProbe } from './MyAppointments'
 import { shareDurationLabel, shareLevelLabel } from '../shareRecords'
 import { accessLevelLabel, countryLabel, fileSizeLabel, fileTypeLabel, genderLabel, labPriorityLabel, labRequestStatusLabel, medicineStatusLabel, patientAccessStatusLabel, plainCode,
   visitClassLabel, visitStatusLabel } from '../plainLabels'
@@ -139,6 +140,8 @@ function PatientChrome({ api, signingOut, onSignOut, children }: { api: ReturnTy
   const photo = usePatientPhoto(shown?.hasPhoto === true)
   useOnProfileChange(() => { void profile.reload().then(() => photo.reload()) })
   const share = useShareServed()
+  // "Appointments" only once an answer says they are served (appointmentsServed.ts), as "Add a record" below.
+  const appointments = useMyAppointmentsProbe(usesNovuBackend()) === true
   const shareTo = share === true ? '/access/share' : '/access'
   // "Add a record" only once the backend serves the records a patient adds (patientEntriesServed.ts): today's refuses the Save.
   const adds = usePatientEntriesServed() === true
@@ -152,6 +155,8 @@ function PatientChrome({ api, signingOut, onSignOut, children }: { api: ReturnTy
       ...(patientChatEnabled() ? [{ to: '/chat', label: 'Ask about your records', icon: MessageSquareText }] : []),
       { to: '/records', label: 'Records', icon: FolderHeart },
       { to: '/access', label: 'Access & sharing', icon: ShieldCheck },
+      // "My appointments" (hid-system APPT-1, Novu only), once an answer says appointments are served and switched on.
+      ...(appointments ? [{ to: '/appointments', label: 'Appointments', icon: CalendarDays }] : []),
     ] },
     { title: 'Account', items: [{ to: '/profile', label: 'Profile', icon: UserRound }] },
   ]
