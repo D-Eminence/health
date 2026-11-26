@@ -118,6 +118,18 @@ const RELEASE_A = 'Served by hid-system staging-novu-ci-20261005 from Release A 
   + 'main, which answers 404. '
 const ACCOUNT_DELETION_NOTE = 'Novu: hid-system 0096; 404 before'
 /**
+ * Inpatient admission, wards and beds, transfers and discharge (hid-system ADT-1, migrations 0170-0173, provisional;
+ * Release D). Built on hid-system claude/sprint-inpatient-backend (hid-system#343) and not live: an ehr-api before it
+ * answers 404, and while the service flag INPATIENT_ENABLED is off every route answers 503 INPATIENT_NOT_AVAILABLE. Ward
+ * setup (routes 2-6) is healthcare operations; every other route is direct care (the ward list and a bed's status take
+ * either). Every write an Idempotency-Key; wards, beds, admissions and movements by UUID, never a Health ID or NIN in an
+ * address. The death record (route 22), ward-team access (route 23) and the ward charges are switched off or BILL-1's,
+ * and the website calls none of them yet.
+ */
+const ADT_1 = 'hid-system ADT-1 (0170-0173, Release D; claude/sprint-inpatient-backend, hid-system#343, not live): 404 before it, 503 '
+  + 'INPATIENT_NOT_AVAILABLE while INPATIENT_ENABLED is off. X-Facility-ID; every write an Idempotency-Key and, on a ward, bed or '
+  + 'admission, expectedRowVersion (412 WARD_VERSION_CONFLICT or ADMISSION_VERSION_CONFLICT).'
+/**
  * "Notifications on this device" (B6, contract b6-contract.md §3): payload-free Web Push, the subscription stored by
  * Identity. Served by Novu from hid-system 0097, and only once the owner has configured the push keys: before that, and
  * on a backend before 0097, each route answers 404, which the portal takes as not offered (the section is hidden).
@@ -409,6 +421,19 @@ const LATE_CORRECTION_ROUTE = `${LATE_CORRECTION_NOVU} Staff session with X-Faci
   + 'CROSS_FACILITY_ORDERS_UNAVAILABLE; 429 ORDER_ROUTE_CORRECTION_LIMIT (5 per member and 20 per facility in any 24 '
   + 'hours; the problem member retryAfter is the ISO time from which another is possible); 503 ORDER_ROUTE_UNAVAILABLE. '
   + 'It can\'t be undone.'
+
+/**
+ * Nursing on the ward (hid-system NUR-1, migrations 0174-0177, provisional; Release D), on hid-system
+ * claude/sprint-inpatient-backend (#343) and not live: an ehr-api before it answers 404, and while NURSING_ENABLED or
+ * ADT-1's INPATIENT_ENABLED is off every route answers 503 NURSING_NOT_AVAILABLE. Direct care at the X-Facility-ID
+ * facility (clinical shift setup: healthcare operations). Every write an Idempotency-Key. No Health ID or NIN in any
+ * path, query, body or answer. Chart content (values, doses, medicine names, notes, completion records) needs the
+ * patient's chart access as today's vitals and notes do (403 CHART_ACCESS_REQUIRED).
+ */
+const NUR_1 = 'hid-system NUR-1 (0174-0177, Release D; claude/sprint-inpatient-backend, not live): 404 before it, 503 '
+  + 'NURSING_NOT_AVAILABLE while NURSING_ENABLED or INPATIENT_ENABLED is off. X-Facility-ID, direct-care; every write an '
+  + 'Idempotency-Key; a stale expectedRowVersion is 412 NURSING_VERSION_CONFLICT.'
+const PA = ['PATCH'] as const, PU = ['PUT'] as const, GPU = ['GET', 'PUT'] as const
 
 export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   proposed(r('support.chat','support','/api/v1/support/chat',P,true,undefined,CHAT_NOTE)),
@@ -986,12 +1011,86 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     one('PATCH','ehr.encounter.read','ehr.encounter.write'),
     `${RELEASE_A} X-Facility-ID, direct-care. Body { expectedRowVersion, stage?, triageLevel? (null clears), `
     + 'assignedMembershipId? (null clears) }. 200 the card; 409 VISIT_QUEUE_ENTRY_CHANGED or VISIT_QUEUE_ENTRY_CLOSED.')),
+  // Inpatient admission, wards and beds (hid-system ADT-1, 0170-0173, Release D; on the branch claude/sprint-inpatient-backend,
+  // hid-system#343, not live). The pages say "Inpatient care is not switched on yet." on a 404 or 503.
+  // Any one of ehr.ward.read or ehr.ward.manage opens the ward list, so neither is listed as required.
+  proposed(r('ehr.wards','ehr','/api/v1/ehr/wards',GP,false,one('POST','ehr.ward.manage'),
+    `${ADT_1} GET (direct-care or healthcare-operations; ehr.ward.read or ehr.ward.manage) query includeInactive?, `
+    + 'includeBeds? (true): 200 { items: [{ wardId, name, wardType, takes, active, bedCount, overflowCount, occupied, available, '
+    + 'cleaning, maintenance, overflowInUse, staffCount, rowVersion, beds?, staffMembershipIds? }] }, counts only. POST '
+    + '(healthcare-operations) { name (2-80), wardType, takes? } 201 { ward, replayed }; 409 WARD_NAME_TAKEN.')),
+  proposed(r('ehr.admissions','ehr','/api/v1/ehr/admissions',GP,false,{GET:['ehr.ward.read'],POST:['ehr.admission.read','ehr.admission.decide']},
+    `${ADT_1} direct-care. GET query status? (open, requested, admitted, discharge_ready, discharged, cancelled), wardId?, `
+    + 'wardType?: 200 { items: card[], hasMore, limit: 500 }. POST { patientId, source, fromEncounterId?, edAttendanceId?, '
+    + 'visitQueueEntryId?, reason (1-300), careTeam?, responsibleMembershipId, requestedWardId?, motherAdmissionId? } with '
+    + 'chart write access: 201 { admission, replayed }; 409 ADMISSION_ALREADY_OPEN.')),
+  proposed(r('ehr.admission','ehr','/api/v1/ehr/admissions/:admissionId',GPA,false,
+    {GET:['ehr.ward.read'],PATCH:['ehr.admission.read','ehr.admission.decide']},
+    `${ADT_1} direct-care. GET 200 { admission: card, movements } (never the handover text). PATCH { expectedRowVersion, `
+    + 'careTeam?, responsibleMembershipId?, expectedDischargeOn?, reason? } while open.')),
   r('ehr.vitals','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals',GP,false,{GET:['ehr.vital.read'],POST:['ehr.vital.write']}),
   r('ehr.vital','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals/:vitalId',G,false,one('GET','ehr.vital.read')),
   r('ehr.vitalCorrections','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals/:vitalId/corrections',GP,false,{GET:['ehr.vital.read'],POST:['ehr.vital.write']}),
   r('ehr.notes','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/clinical-notes',GP,false,{GET:['ehr.note.read'],POST:['ehr.note.write']}),
   r('ehr.note','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/clinical-notes/:noteId',GPA,false,{GET:['ehr.note.read'],PATCH:['ehr.note.write']}),
   r('ehr.noteRevisions','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/clinical-notes/:noteId/revisions',GP,false,{GET:['ehr.note.read'],POST:['ehr.note.write']}),
+  // Nursing on the ward (hid-system NUR-1, 0174-0177), on the branch claude/sprint-inpatient-backend (#343), not live:
+  // the nursing pages say "not switched on yet" on 404 or 503. ADT-1's ward and admission reads it stands on are above.
+  proposed(r('ehr.observationChart','ehr','/api/v1/ehr/admissions/:admissionId/observation-chart',G,false,
+    one('GET','ehr.vital.read','ehr.admission.read'),
+    `${NUR_1} Route 2: query from?, to? (up to 7 days; default the last 24 hours), view? (all | hourly: the ICU grid). `
+    + '200 { readings (values after the current correction, soft flags each its own), hours?, rangesVersion, score: null }.')),
+  proposed(r('ehr.admissionMedicineRound','ehr','/api/v1/ehr/admissions/:admissionId/medicine-round',G,false,one('GET','ehr.mar.read'),
+    `${NUR_1} Route 4: the stay's medicine administration record; due doses worked out in Lagos time on each read.`)),
+  { ...proposed(r('ehr.medicineRound','ehr','/api/v1/ehr/medicine-round',G,false,one('GET','ehr.mar.read'),
+    `${NUR_1} Route 5: query wardId, window? (now | next_4h). Medicines only where the member can read the chart; counts for all.`)),
+    requiredQuery: { GET: ['wardId'] } },
+  proposed(r('ehr.medicineAdministrations','ehr','/api/v1/ehr/admissions/:admissionId/medicine-administrations',P,false,
+    one('POST','ehr.mar.record'),
+    `${NUR_1} Route 6: one record per scheduled dose; 409 DOSE_ALREADY_RECORDED. Never edited or deleted.`)),
+  proposed(r('ehr.medicineAdministrationEnteredInError','ehr','/api/v1/ehr/medicine-administrations/:administrationId/entered-in-error',P,false,
+    one('POST','ehr.mar.record'), `${NUR_1} Route 7: body { expectedRowVersion, reason (8-500) }; one way.`)),
+  proposed(r('ehr.nursingTasks','ehr','/api/v1/ehr/nursing-tasks',G,false,one('GET','ehr.nursing-task.read'),
+    `${NUR_1} Route 8: query wardId or admissionId, status? (open | done), mine?. completionRecord null without chart access.`)),
+  proposed(r('ehr.admissionNursingTasks','ehr','/api/v1/ehr/admissions/:admissionId/nursing-tasks',P,false,
+    one('POST','ehr.nursing-task.write'), `${NUR_1} Route 9: body { name, dueAt, assignedMembershipId?, repeatEveryHours? }.`)),
+  proposed(r('ehr.nursingTask','ehr','/api/v1/ehr/nursing-tasks/:taskId',PA,false,one('PATCH','ehr.nursing-task.write'),
+    `${NUR_1} Route 10: body { expectedRowVersion, assignedMembershipId?, dueAt? }.`)),
+  proposed(r('ehr.nursingTaskStart','ehr','/api/v1/ehr/nursing-tasks/:taskId/start',P,false,one('POST','ehr.nursing-task.write'),
+    `${NUR_1} Route 10: assigned to in progress; 409 TASK_STATE_INVALID.`)),
+  proposed(r('ehr.nursingTaskComplete','ehr','/api/v1/ehr/nursing-tasks/:taskId/complete',P,false,one('POST','ehr.nursing-task.write'),
+    `${NUR_1} Route 10: in progress to completed, with completionRecord? (chart write access); a repeat answers nextTaskId.`)),
+  proposed(r('ehr.nursingTaskCancel','ehr','/api/v1/ehr/nursing-tasks/:taskId/cancel',P,false,one('POST','ehr.nursing-task.write'),
+    `${NUR_1} Route 10: body { expectedRowVersion, reason (8-300) }.`)),
+  proposed(r('ehr.fluidBalance','ehr','/api/v1/ehr/admissions/:admissionId/fluid-balance',GP,false,
+    { GET: ['ehr.vital.read'], POST: ['ehr.vital.write'] },
+    `${NUR_1} Routes 11 and 12: one fluid day (query day?), and an entry { direction, kind, volumeMl? or notMeasured, `
+    + 'recordedAt, note? }. Unmeasured entries and entries in error are never added to a total.')),
+  proposed(r('ehr.fluidEntryEnteredInError','ehr','/api/v1/ehr/fluid-balance/:entryId/entered-in-error',P,false,
+    one('POST','ehr.vital.write'), `${NUR_1} Route 13: body { expectedRowVersion, reason (8-500) }.`)),
+  // The list opens with ehr.nursing-task.read, ehr.shift-assignment.manage or ehr.clinical-shift.manage (any one).
+  proposed(r('ehr.clinicalShifts','ehr','/api/v1/ehr/clinical-shifts',GP,false,one('POST','ehr.clinical-shift.manage'),
+    `${NUR_1} Route 14: the list (either purpose) and a new shift (healthcare-operations) { name, startsAt, endsAt } in `
+    + 'Lagos time; up to 8 active; none seeded for a real facility.')),
+  proposed(r('ehr.clinicalShift','ehr','/api/v1/ehr/clinical-shifts/:shiftId',PA,false,one('PATCH','ehr.clinical-shift.manage'),
+    `${NUR_1} Route 14: body { expectedRowVersion, name?, active? } (healthcare-operations). Never deleted.`)),
+  // The list opens with ehr.nursing-task.read or ehr.shift-assignment.manage (either).
+  { ...proposed(r('ehr.shiftAssignments','ehr','/api/v1/ehr/shift-assignments',GPU,false,one('PUT','ehr.shift-assignment.manage'),
+    `${NUR_1} Route 15: query date, shiftId, wardId; PUT replaces the ward's whole list for that shift (expectedVersion); `
+    + 'warnings icu_nurse_over_two. An assignment opens no chart.')),
+    requiredQuery: { GET: ['date', 'shiftId', 'wardId'] } },
+  { ...proposed(r('ehr.handovers','ehr','/api/v1/ehr/handovers',G,false,one('GET','ehr.nursing-task.read'),
+    `${NUR_1} Route 16: query wardId, date, shiftId; a sheet not made yet is a draft with handoverId null. Notes and chart `
+    + 'figures only where the member can read the chart (noteHidden); counts for all.')),
+    requiredQuery: { GET: ['wardId', 'date', 'shiftId'] } },
+  proposed(r('ehr.handoverPatient','ehr','/api/v1/ehr/handovers/:handoverId/patients/:admissionId',PU,false,
+    one('PUT','ehr.handover.write'),
+    `${NUR_1} Route 17: { note (1-2000), watch?, expectedRowVersion? }; handoverId "new" with wardId, date and shiftId makes `
+    + 'the sheet. The note is a signed clinical note "Nursing handover"; only while the sheet is a draft.')),
+  proposed(r('ehr.handoverGive','ehr','/api/v1/ehr/handovers/:handoverId/give',P,false,one('POST','ehr.handover.write'),
+    `${NUR_1} Route 18: body { expectedRowVersion }.`)),
+  proposed(r('ehr.handoverAccept','ehr','/api/v1/ehr/handovers/:handoverId/accept',P,false,one('POST','ehr.handover.write'),
+    `${NUR_1} Route 18: only a nurse on the next shift for the ward (409 HANDOVER_NOT_YOURS).`)),
   r('ehr.diagnoses','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/diagnoses',GP,false,{GET:['ehr.diagnosis.read'],POST:['ehr.diagnosis.write']}),
   r('ehr.diagnosis','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/diagnoses/:diagnosisId',GPA,false,{GET:['ehr.diagnosis.read'],PATCH:['ehr.diagnosis.write']}),
   r('ehr.prescriptions','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/prescriptions',GP,false,{GET:['ehr.prescription.read'],POST:['ehr.prescription.write']},

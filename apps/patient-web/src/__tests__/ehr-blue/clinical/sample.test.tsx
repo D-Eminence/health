@@ -343,13 +343,10 @@ describe('sample engine', () => {
     expect(sampleState().records.find(record => record.id === created.id)!.status).toBe('occupied')
   })
 
-  it('hands off to Nursing tasks with the patient and admission chosen', async () => {
+  it('hands nothing off to Nursing tasks, a live workspace since hid-system NUR-1: a sample admission is not a real one', () => {
     openMany(`${BASE}/inpatient/${IDS.admitTaylor}`, ['inpatient', 'nursing-tasks'])
-    expect(screen.getByRole('heading', { name: 'Continue care' })).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Create nursing tasks' }))
-    await waitFor(() => expect(heading()).toBe('New nursing tasks'))
-    expect((field('Patient') as unknown as HTMLSelectElement).value).toBe(sampleState().patients[1]!.id)
-    expect((field('Admission') as unknown as HTMLSelectElement).value).toBe(IDS.admitTaylor)
+    expect(screen.queryByRole('heading', { name: 'Continue care' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Create nursing tasks' })).toBeNull()
     expect(sampleState().handoff).toBeNull()
   })
 
@@ -575,10 +572,6 @@ describe('sample engine', () => {
     fireEvent.submit(field('Delivery record', actionsCard()).closest('form')!)
     await waitFor(() => expect(screen.getByText('Delivered')).toBeTruthy())
     view.unmount()
-    const other = openMany(`${BASE}/inpatient/${IDS.admitTaylor}`, ['inpatient'])
-    fireEvent.click(screen.getByRole('button', { name: 'Create nursing tasks' }))
-    expect(sampleState().handoff?.workspace).toBe('nursing-tasks')
-    other.unmount()
 
     staff.facilityId = 'facility-demo-laboratory'
     open('nursing-tasks', '/new')

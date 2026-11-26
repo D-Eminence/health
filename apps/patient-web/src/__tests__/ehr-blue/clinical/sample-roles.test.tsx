@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EmergencyWorkspace } from '../../../ehr-blue/clinical/emergency/EmergencyWorkspace'
@@ -192,21 +192,20 @@ describe('audit 16: sample record pages follow the design’s roles', () => {
     expect(within(actionsCard()).queryAllByRole('button', { name: /^Create / })).toEqual([])
     visit.unmount()
 
-    // An admission's one sample target, Nursing tasks, is not the Receptionist's to create (rendered directly here: the
-    // frame would not open Inpatient / Wards to a Receptionist at all).
+    // An admission hands nothing off to a Receptionist (rendered directly here: the frame would not open Inpatient /
+    // Wards to a Receptionist at all).
     const admission = open('inpatient', `/${IDS.admitTaylor}`)
     expect(continueCare()).toEqual([])
     expect(screen.queryByRole('button', { name: 'Create nursing tasks' })).toBeNull()
     expect(within(actionsCard()).getByText(NO_ACTIONS)).toBeTruthy()
     admission.unmount()
 
-    // A Nurse may create nursing tasks, and transfer a bed ("assign") but not prepare a discharge ("sign").
+    // A Nurse may transfer a bed ("assign") but not prepare a discharge ("sign"). Nursing tasks is live since hid-system
+    // NUR-1, so a sample admission hands nothing off to it.
     signedInAs('nurse')
     open('inpatient', `/${IDS.admitTaylor}`)
     expect(actionLabels()).toEqual(['Transfer bed'])
-    expect(continueCare()).toEqual(['Create nursing tasks'])
-    fireEvent.click(screen.getByRole('button', { name: 'Create nursing tasks' }))
-    expect(screen.getByTestId('landed').textContent).toBe(`${BASE}/nursing-tasks/new`)
+    expect(continueCare()).toEqual([])
   })
 
   it('audit 16: a Receptionist’s history drops Radiology, Inpatient, Dental and Nursing tasks rows (appointments-3-detail.png, journey-3-detail.png)', () => {
