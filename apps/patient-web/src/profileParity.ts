@@ -1,4 +1,4 @@
-import { formatPhone } from '@hid/ui/display'
+import { nigerianPhone } from '@hid/ui/display'
 import { PHONE_COUNTRIES } from './routes/enrollment/phoneCountries'
 import { PlainError } from '@hid/http'
 
@@ -179,14 +179,15 @@ export function maskEmail(email: string): string {
 }
 
 /**
- * A phone number shown masked, with its last four digits: a Nigerian number as it is dialled at home ("0••• ••• 4567",
- * Q183 B), a foreign one with its country code when it is one the sign-up offers ("+1 •••• 0123").
+ * A phone number shown masked, with its last four digits and nothing more: a Nigerian number, mobile or landline, as it
+ * is dialled at home ("0••• ••• 4567", Q183 B, the same shape for both so the mask does not tell them apart), a foreign
+ * one with its country code when it is one the sign-up offers ("+1 •••• 0123").
  */
 export function maskPhone(phone: string): string {
   const digits = phone.replace(/\D/g, '')
   if (digits.length < 6) return '••••'
   const last = digits.slice(-4)
-  if (/^0\d{3} \d{3} \d{4}$/.test(formatPhone(phone))) return `0••• ••• ${last}`
+  if (nigerianPhone(phone)) return `0••• ••• ${last}`
   const code = phone.trim().startsWith('+')
     ? PHONE_COUNTRIES.map(country => country.code).filter(candidate => digits.startsWith(candidate) && digits.length - candidate.length > 4)
       .sort((a, b) => b.length - a.length)[0]

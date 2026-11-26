@@ -6,8 +6,9 @@
  *   facility's own zone comes later, and only this file would change.
  * - Q182 A: a date is "18 Nov 2026" and a time is on the 24-hour clock ("14:05"). A date is never written all in
  *   numbers: "3/4/2026" is 3 April in Lagos and 4 March in an American template, which is a safety risk on a chart.
- * - Q183 B: a Nigerian number reads as it is dialled at home ("0803 123 4567"); a foreign number is international
- *   ("+44 770 090 0123"). Numbers are stored the same either way (E.164); only the display changes.
+ * - Q183 B: a Nigerian number reads as it is dialled at home ("0803 123 4567", a Lagos landline "01 463 0643"); a
+ *   foreign number is international ("+44 770 090 0123"). Numbers are stored the same either way (E.164); only the
+ *   display changes.
  *
  * Lagos is on West Africa Time, UTC+1 all year with no daylight saving, so the clock is worked out from the instant
  * itself rather than from the device's zone or its time-zone tables. The month names are fixed here too, so every
@@ -185,39 +186,100 @@ function countryCodeLength(digits: string): number {
   return TWO_DIGIT_CODES.has(digits.slice(0, 2)) ? 2 : 3
 }
 
-/** "7700900123" as "770 090 0123": groups of three, the last group of four when that leaves no lone digit. */
-function grouped(digits: string): string {
-  const groups: string[] = []
-  let rest = digits
-  while (rest.length > 4) {
-    groups.push(rest.slice(0, 3))
-    rest = rest.slice(3)
-  }
-  if (rest) groups.push(rest)
-  return groups.join(' ')
-}
+/**
+ * Countries whose numbers begin with 0 when dialled from abroad too (Italy and the Vatican, San Marino, Côte d'Ivoire,
+ * Benin, Gabon, Congo): there a "(0)" after the country code is the number's own first digit, not a trunk 0.
+ */
+const LEADING_ZERO_CODES = new Set(['39', '378', '225', '229', '241', '242'])
 
-/** The ten digits after +234 of a Nigerian number, however it was written, or null when it is not one. */
-function nigerianDigits(compact: string): string | null {
-  const match = /^(?:\+?234|0)(\d{10})$/.exec(compact) ?? /^\+2340(\d{10})$/.exec(compact)
-  return match ? match[1]! : null
+/**
+ * The digits of a stored number, with "+" kept, ignoring spaces, dots, dashes and brackets. A "(0)" right after the
+ * country code ("+44 (0)20 7946 0958", "+234 (0) 803 123 4567") is the trunk 0 dialled only at home, so it goes, except
+ * where it is the number's own first digit. Anywhere else, as in "(0)803 123 4567", the 0 is kept.
+ */
+function phoneDigits(written: string): string {
+  const trunk = /^(\+?)([1-9]\d{0,2})[\s.-]*\(\s*0\s*\)/.exec(written)
+  const code = trunk?.[2]
+  const kept = trunk && code && countryCodeLength(code) === code.length
+    ? `${trunk[1]}${code}${LEADING_ZERO_CODES.has(code) ? '0' : ''}${written.slice(trunk[0].length)}`
+    : written
+  return kept.replace(/[\s().-]/g, '')
 }
 
 /**
- * A stored phone number as a screen shows it (Q183 B): a Nigerian number as "0803 123 4567", a foreign one as
- * "+44 770 090 0123". Spaces, dots, dashes and brackets in the stored text are ignored. Anything that is not a phone
- * number is shown as it came, trimmed; `fallback` ('' unless given) when there is none.
+ * Digits in groups of three, with the last one or two groups of four so that no group is shorter than three:
+ * "770 090 0123", "138 0013 8000", "8123 4567". Five digits or fewer stay as one group.
+ */
+function grouped(digits: string): string {
+  if (digits.length <= 5) return digits
+  const fours = digits.length % 3
+  const groups: string[] = []
+  let rest = digits
+  while (rest.length > fours * 4) {
+    groups.push(rest.slice(0, 3))
+    rest = rest.slice(3)
+  }
+  for (; rest; rest = rest.slice(4)) groups.push(rest.slice(0, 4))
+  return groups.join(' ')
+}
+
+/*
+ * Nigeria's numbering plan (Nigerian Communications Commission). After +234, or the 0 dialled at home, a mobile or
+ * other non-geographic number is ten digits: 070, 080, 081, 090 and 091 for mobiles ("0803 123 4567"), with 0700 and
+ * 0800 for business and free-call lines. A landline is an area code and a local number. Lagos (1), Ibadan (2) and Abuja
+ * (9) have one-digit area codes and seven-digit local numbers (six in older ones); every other area has a two-digit
+ * code and a six-digit local number (five in a few places): "01 463 0643", "084 460 643". Since 1 January 2024 the area
+ * code has 20 before it, "0201 463 0643" and "02084 460 643"; a number stored the older way still shows as it was
+ * dialled.
+ */
+const TWO_DIGIT_AREA_CODE = /^(?:3[013-9]|4[1-8]|[5-7]\d|8[2-9])$/
+
+/** A Nigerian landline's number after +234 as it is dialled at home, or null when it is not one. */
+function nigerianLandline(number: string): string | null {
+  const since2024 = number.length >= 9 && number.startsWith('20')
+  const local = since2024 ? number.slice(2) : number
+  if (local.length < 7 || local.length > 8) return null
+  const areaLength = '129'.includes(local[0]!) ? 1 : 2
+  const area = local.slice(0, areaLength)
+  if (areaLength === 2 && !TWO_DIGIT_AREA_CODE.test(area)) return null
+  return `0${since2024 ? '20' : ''}${area} ${grouped(local.slice(areaLength))}`
+}
+
+/** A Nigerian number from its digits, however it was written, as it is dialled at home; null when it is not one. */
+function nigerianNumber(compact: string): string | null {
+  // +234 (at times with the home 0 kept after it) or the home 0, then the number; 234 with no "+" only before ten.
+  const match = /^(?:\+2340?|0)([1-9]\d{6,9})$/.exec(compact) ?? /^234([1-9]\d{9})$/.exec(compact)
+  if (!match) return null
+  const number = match[1]!
+  const landline = nigerianLandline(number)
+  if (landline) return landline
+  return number.length === 10 ? `0${number.slice(0, 3)} ${number.slice(3, 6)} ${number.slice(6)}` : null
+}
+
+/**
+ * A Nigerian phone number, mobile or landline, as it is dialled at home ("0803 123 4567", "01 463 0643"), or null when
+ * the value is not a Nigerian number. formatPhone shows it so; a masked number uses it to keep to the home form.
+ */
+export function nigerianPhone(value: string | null | undefined): string | null {
+  const written = (value ?? '').trim()
+  return written ? nigerianNumber(phoneDigits(written)) : null
+}
+
+/**
+ * A stored phone number as a screen shows it (Q183 B): a Nigerian number as it is dialled at home ("0803 123 4567",
+ * a Lagos landline "01 463 0643"), a foreign one as "+44 770 090 0123" or "+86 138 0013 8000". Spaces, dots, dashes
+ * and brackets in the stored text are ignored, and so is a "(0)" trunk after the country code. Anything that is not a
+ * phone number is shown as it came, trimmed; `fallback` ('' unless given) when there is none.
  */
 export function formatPhone(value: string | null | undefined, fallback = ''): string {
   const written = (value ?? '').trim()
   if (!written) return fallback
-  const compact = written.replace(/[\s().-]/g, '')
-  const nigerian = nigerianDigits(compact)
-  if (nigerian) return `0${nigerian.slice(0, 3)} ${nigerian.slice(3, 6)} ${nigerian.slice(6)}`
+  const compact = phoneDigits(written)
+  const nigerian = nigerianNumber(compact)
+  if (nigerian) return nigerian
   const international = /^\+([1-9]\d{6,14})$/.exec(compact)
   if (!international) return written
   const digits = international[1]!
   const split = countryCodeLength(digits)
   return `+${digits.slice(0, split)} ${grouped(digits.slice(split))}`
 }
-

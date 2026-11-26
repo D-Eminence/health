@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   ageInYears, formatDate, formatDateTime, formatPhone, formatTime, formatTimeOrDateTime, formatWeekday, lagosClock,
-  lagosDay, sameLagosDay,
+  lagosDay, nigerianPhone, sameLagosDay,
 } from '../display'
 
 /*
@@ -136,11 +136,85 @@ describe('phone numbers (Q183 B)', () => {
     expect(formatPhone('0803.123.4567')).toBe('0803 123 4567')
   })
 
-  it('shows a foreign number in international form', () => {
+  it('keeps every Nigerian mobile prefix in the mobile form', () => {
+    for (const prefix of ['701', '703', '708', '802', '803', '805', '810', '813', '816', '901', '903', '912', '916']) {
+      expect(formatPhone(`+234${prefix}1234567`)).toBe(`0${prefix} 123 4567`)
+    }
+    // 0700 and 0800 business and free-call numbers are ten digits too.
+    expect(formatPhone('+2347002255482')).toBe('0700 225 5482')
+    expect(formatPhone('+2348001234567')).toBe('0800 123 4567')
+  })
+
+  it('shows a Nigerian landline as it is dialled at home', () => {
+    // The Commission's own examples, the older way: Lagos, Abuja, Port Harcourt, Kano.
+    expect(formatPhone('+23414630643')).toBe('01 463 0643')
+    expect(formatPhone('+23494630643')).toBe('09 463 0643')
+    expect(formatPhone('+23484460643')).toBe('084 460 643')
+    expect(formatPhone('+23464460643')).toBe('064 460 643')
+    // Ibadan, Enugu, Jos, and an older six-digit Lagos number and a five-digit local number.
+    expect(formatPhone('+23422310123')).toBe('02 231 0123')
+    expect(formatPhone('+23442250123')).toBe('042 250 123')
+    expect(formatPhone('+23473460643')).toBe('073 460 643')
+    expect(formatPhone('+2341463064')).toBe('01 463 064')
+    expect(formatPhone('+2347346064')).toBe('073 46064')
+    // The same numbers since 2024, with 20 before the area code.
+    expect(formatPhone('+2342014630643')).toBe('0201 463 0643')
+    expect(formatPhone('+2342094630643')).toBe('0209 463 0643')
+    expect(formatPhone('+2342084460643')).toBe('02084 460 643')
+    expect(formatPhone('+2342064460643')).toBe('02064 460 643')
+    // However it was stored.
+    expect(formatPhone('014630643')).toBe('01 463 0643')
+    expect(formatPhone('01-463 0643')).toBe('01 463 0643')
+    expect(formatPhone('02014630643')).toBe('0201 463 0643')
+    expect(formatPhone('+234 1 463 0643')).toBe('01 463 0643')
+    expect(formatPhone('+234 (1) 463-0643')).toBe('01 463 0643')
+    expect(formatPhone('+234 01 463 0643')).toBe('01 463 0643')
+    // Not an area code (80 and 81 are mobile ranges), or too short to be a number: international, with no short group.
+    expect(formatPhone('+23480460643')).toBe('+234 8046 0643')
+    expect(formatPhone('+234123456')).toBe('+234 123 456')
+  })
+
+  it('shows a foreign number in international form, never ending on a short group', () => {
     expect(formatPhone('+447700900123')).toBe('+44 770 090 0123')
     expect(formatPhone('+14155550123')).toBe('+1 415 555 0123')
     expect(formatPhone('+233241234567')).toBe('+233 241 234 567')
     expect(formatPhone('+27821234567')).toBe('+27 821 234 567')
+    expect(formatPhone('+8613800138000')).toBe('+86 138 0013 8000')
+    expect(formatPhone('+6581234567')).toBe('+65 8123 4567')
+    expect(formatPhone('+4930123456')).toBe('+49 3012 3456')
+    expect(formatPhone('+3546101234')).toBe('+354 610 1234')
+    expect(formatPhone('+12423570123')).toBe('+1 242 357 0123')
+    expect(formatPhone('+49301234567890')).toBe('+49 301 234 567 890')
+    expect(formatPhone('+861234567890123')).toBe('+86 123 456 789 0123')
+    for (const number of ['+8613800138000', '+4930123456', '+6581234567', '+491511234567', '+33612345678',
+      '+5521987654321', '+2250701234567', '+3726123456', '+35312345678', '+9611234567', '+96171123456']) {
+      const shown = formatPhone(number)
+      // No group after the country code is shorter than three digits, and no digit is lost.
+      expect(shown.split(' ').slice(1).every(group => group.length >= 3), `${number}: ${shown}`).toBe(true)
+      expect(shown.replace(/\D/g, '')).toBe(number.slice(1))
+    }
+  })
+
+  it('leaves out a stored "(0)" trunk for any country, and no other digit', () => {
+    expect(formatPhone('+44 (0)20 7946 0958')).toBe('+44 207 946 0958')
+    expect(formatPhone('+44 (0) 7700 900123')).toBe('+44 770 090 0123')
+    expect(formatPhone('+44(0)7700900123')).toBe('+44 770 090 0123')
+    expect(formatPhone('+49 (0)30 1234 5678')).toBe('+49 301 234 5678')
+    expect(formatPhone('+41 (0) 44 668 18 00')).toBe('+41 446 681 800')
+    expect(formatPhone('+1 (0) 415 555 0123')).toBe('+1 415 555 0123')
+    expect(formatPhone('+234 (0) 803-123-4567')).toBe('0803 123 4567')
+    expect(formatPhone('+234 (0)1 463 0643')).toBe('01 463 0643')
+    expect(formatPhone('+234 (0) 209 463 0643')).toBe('0209 463 0643')
+    expect(formatPhone('234 (0) 803 123 4567')).toBe('0803 123 4567')
+    // Where the 0 is the number's own first digit, it stays.
+    expect(formatPhone('+39 (0)6 1234 5678')).toBe('+39 061 234 5678')
+    expect(formatPhone('+39 06 1234 5678')).toBe('+39 061 234 5678')
+    expect(formatPhone('+225 (0)7 01 23 45 67')).toBe('+225 070 123 4567')
+    // A 0 anywhere else is a digit of the number: the home 0, or one in the middle.
+    expect(formatPhone('(0)803 123 4567')).toBe('0803 123 4567')
+    expect(formatPhone('+44 20 (0) 7946 095')).toBe('+44 200 794 6095')
+    // A bracketed area code is not a trunk.
+    expect(formatPhone('+44 (01) 632 960 001')).toBe('+44 016 3296 0001')
   })
 
   it('leaves anything that is not a number as it came, and gives the fallback for none', () => {
@@ -148,5 +222,15 @@ describe('phone numbers (Q183 B)', () => {
     expect(formatPhone('  ask at the desk ')).toBe('ask at the desk')
     expect(formatPhone(null, 'Not recorded')).toBe('Not recorded')
     expect(formatPhone('   ')).toBe('')
+  })
+
+  it('tells a Nigerian number from any other', () => {
+    expect(nigerianPhone('+2348031234567')).toBe('0803 123 4567')
+    expect(nigerianPhone('+23414630643')).toBe('01 463 0643')
+    expect(nigerianPhone('+234 (0)1 463 0643')).toBe('01 463 0643')
+    expect(nigerianPhone('+447700900123')).toBeNull()
+    expect(nigerianPhone('+234 •••• 4567')).toBeNull()
+    expect(nigerianPhone(null)).toBeNull()
+    expect(nigerianPhone('  ')).toBeNull()
   })
 })
