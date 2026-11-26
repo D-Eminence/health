@@ -181,15 +181,15 @@ export function maskEmail(email: string): string {
 /**
  * A phone number shown masked, with its last four digits. A Nigerian number is masked as formatPhone shows it, dialled
  * at home (Q183 B): every digit after the trunk 0 but the last four is hidden, so a mobile is "0••• ••• 4567", a Lagos
- * landline "0• ••• 5678" and an Enugu one "0•• ••3 456". A foreign number keeps its country code when it is one the
- * sign-up offers ("+1 •••• 0123").
+ * landline "0• ••• 5678" and an Enugu one "0•• ••3 456" ("0••• ••• 5678" and "0•••• ••3 456" with the 20 put before
+ * the area code in 2024). A foreign number keeps its country code when it is one the sign-up offers ("+1 •••• 0123").
  */
 export function maskPhone(phone: string): string {
   const digits = phone.replace(/\D/g, '')
   if (digits.length < 6) return '••••'
   const last = digits.slice(-4)
   const shown = formatPhone(phone)
-  if (/^0(?:\d{3} \d{3} \d{4}|\d \d{3} \d{4}|\d{2} \d{3} \d{3})$/.test(shown)) {
+  if (/^0(?:\d{3} \d{3} \d{4}|\d \d{3} \d{4}|\d{2} \d{3} \d{3}|\d{4} \d{3} \d{3})$/.test(shown)) {
     let kept = 0
     const masked = [...shown.slice(1)].reverse().map(character => {
       if (character === ' ') return character

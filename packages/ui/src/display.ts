@@ -209,15 +209,22 @@ function grouped(digits: string): string {
  * The national number (after +234, without the trunk 0) of a Nigerian number, however it was written, or null. It is
  * written "0..." at home, or "234..." or "+234..." with or without the trunk 0 after the country code
  * ("2340 1 234 5678", "+234 (0)1 234 5678"). A national number never starts with 0, so a doubled trunk
- * ("+2340(0)12345678") is not one. Only a mobile has ten digits, so ten that do not begin with a mobile prefix are not
- * one ("01 234 567 890" is a landline with two digits too many); eight that do are a mobile missing two digits, not a
- * landline (see `MOBILE_PREFIX`).
+ * ("+2340(0)12345678") is not one. A landline has eight digits, and ten since 1 January 2024, when the Commission put
+ * 20 before every area code ("+234 20 1 234 5678"). Any other ten are a mobile and begin with a mobile prefix, so ten
+ * that do neither are not one ("01 234 567 890" is a landline with two digits too many); eight that begin with a
+ * mobile prefix are a mobile missing two digits, not a landline (see `MOBILE_PREFIX`).
  */
 function nigerianDigits(compact: string): string | null {
   const match = /^(?:\+?2340?|0)([1-9]\d{9}|[1-9]\d{7})$/.exec(compact)
   if (!match) return null
   const national = match[1]!
-  return (national.length === 8) === MOBILE_PREFIX.test(national) ? null : national
+  if (national.length === 8) return isLandline(national) ? national : null
+  return MOBILE_PREFIX.test(national) || (national.startsWith('20') && isLandline(national.slice(2))) ? national : null
+}
+
+/** Whether eight national digits are a landline written the older way: an area code, never a mobile prefix. */
+function isLandline(national: string): boolean {
+  return /^[1-9]\d{7}$/.test(national) && !MOBILE_PREFIX.test(national)
 }
 
 /**
@@ -232,9 +239,12 @@ const ONE_DIGIT_AREA_CODES = new Set(['1', '2', '9'])
 
 /**
  * A Nigerian national number as it is written at home. A mobile has ten digits: "0803 123 4567". A landline has eight:
- * the trunk 0 and the area code, then the subscriber number, as "01 234 5678" in Lagos or "042 123 456" in Enugu.
+ * the trunk 0 and the area code, then the subscriber number, as "01 234 5678" in Lagos or "042 123 456" in Enugu. One
+ * with the 20 the Commission put before the area code in 2024 is written with it, as dialled: "0201 234 5678",
+ * "02042 123 456".
  */
 function nigerianAtHome(national: string): string {
+  if (national.length === 10 && !MOBILE_PREFIX.test(national)) return `020${nigerianAtHome(national.slice(2)).slice(1)}`
   if (national.length === 10) return `0${national.slice(0, 3)} ${national.slice(3, 6)} ${national.slice(6)}`
   const area = ONE_DIGIT_AREA_CODES.has(national[0]!) ? 1 : 2
   const subscriber = national.slice(area)
@@ -242,23 +252,35 @@ function nigerianAtHome(national: string): string {
 }
 
 /**
+ * Countries whose numbers keep their first 0 when dialled from abroad (Italy and the Vatican, San Marino,
+ * Cote d'Ivoire, Benin, Gabon, Congo): there a "(0)" after the country code is a digit of the number, not a trunk 0.
+ */
+const LEADING_ZERO_CODES = new Set(['39', '378', '225', '229', '241', '242'])
+
+/**
  * The stored text with spaces, dots, dashes and brackets taken out. A "(0)" written straight after the country code is
  * the trunk 0, which is not dialled from abroad, so it goes too: "+44 (0) 20 7946 0000", "+(44) (0) 20 7946 0000" and
- * "(+44) (0) 20 7946 0000" are all "+442079460000". A 0 written there without brackets is kept as written.
+ * "(+44) (0) 20 7946 0000" are all "+442079460000". Where the 0 is the number's own first digit ("+39 (0)6 1234 5678",
+ * see `LEADING_ZERO_CODES`) it stays. A 0 written there without brackets is kept as written.
  */
 function compactPhone(written: string): string {
   const spaced = written.replace(/[\s.-]/g, '')
   const trunk = /^(?:\+\(?|\(\+)(\d{1,3})\)?\(0\)(.*)$/.exec(spaced)
-  const dialled = trunk && countryCodeLength(trunk[1]!) === trunk[1]!.length ? `+${trunk[1]}${trunk[2]}` : spaced
+  const code = trunk?.[1]
+  const dialled = trunk && code && countryCodeLength(code) === code.length
+    ? `+${code}${LEADING_ZERO_CODES.has(code) ? '0' : ''}${trunk[2]}`
+    : spaced
   return dialled.replace(/[()]/g, '')
 }
 
 /**
  * A stored phone number as a screen shows it (Q183 B). A Nigerian number reads as it is written at home: a mobile as
- * "0803 123 4567", a landline as "01 234 5678" (Lagos, Ibadan and Abuja) or "042 123 456" (other areas). A foreign
+ * "0803 123 4567", a landline as "01 234 5678" (Lagos, Ibadan and Abuja) or "042 123 456" (other areas), with the 20
+ * put before the area code in 2024 when it was stored with it ("0201 234 5678"). A foreign
  * number is international, as "+44 770 090 0123" or "+86 138 0013 8000": no group after the country code is shorter
  * than three digits, and no digit is lost or moved. Spaces, dots, dashes and brackets in the stored text are ignored,
- * and a "(0)" written after the country code is dropped ("+44 (0) 20 7946 0000" shows "+44 207 946 0000"). Anything
+ * and a "(0)" written after the country code is dropped ("+44 (0) 20 7946 0000" shows "+44 207 946 0000") unless
+ * it is the number's own first digit ("+39 (0)6 1234 5678" shows "+39 061 234 5678"). Anything
  * that is not a phone number is shown as it came, trimmed; `fallback` ('' unless given) when there is none. So is a
  * "+234" number that is not a whole Nigerian number, such as a mobile missing two digits ("+234 803 123 45"): Q183 B
  * never shows a Nigerian number in international form, and regrouping it would make it look complete.
