@@ -26,6 +26,8 @@ import { RoleDashboard } from './RoleDashboard'
 import { scanAccess } from '../../scanAccess'
 import { fromHere } from '../clinical/parts/cameFrom'
 import { HomeBillingCard, HomePeopleCard } from './adminCards'
+import { HomeReportsActivity } from './reportsActivity'
+import { canReadReports, useReportsServed } from '../departments/reports/reportRules'
 
 const ACTIVITY = ['patients', 'appointments', 'journey', 'triage'] as const
 const MAX_SHORTCUTS = 6
@@ -71,8 +73,9 @@ export function areaTone(page: { readonly path: string; readonly group: string }
  *   cards, in today's words) and Today (laboratory and pharmacy work), each under today's permission and read as
  *   today's Overview and work pages read them; and the classic Overview's own cards in its words: Active facility,
  *   Current patient, Workspaces and Health ID Migrate (staff/routes/Dashboard.tsx; parity report 3.3-53 to 3.3-57).
- * - Sample (demo facilities only): the reporting period and its activity counts (Health ID serves no such counts yet);
- *   on a facility administrator's Home, Patient billing in their place.
+ * - Activity, live for whoever reads the facility's reports (hid-system REP-1; reportsActivity.tsx) where they are served.
+ * - Sample (demo facilities only): otherwise the reporting period and its activity counts; on a facility administrator's
+ *   Home, Patient billing in their place.
  * - People, for whoever manages the facility's staff: the staff read live at a demo facility where Staff is listed, a
  *   sample figure at the other demo facilities, and the way to Staff & access.
  * - The shortcuts a person picks are kept in memory for the tab (pickedShortcuts), so leaving Home keeps them.
@@ -109,6 +112,8 @@ export function BlueHome() {
   const pharmacy = permissions.includes('pharmacy.work-item.read') && inProduct(product, 'pharmacy')
   const labRead = useWork<LabWorkItem>(facility?.id ?? '', demo && lab, loadLab)
   const rxRead = useWork<PharmacyWorkItem>(facility?.id ?? '', demo && pharmacy, loadPharmacy)
+  // Whether this facility's reports have answered (hid-system REP-1): a 404 or a switched-off 503 brings back the sample.
+  const reportsServed = useReportsServed(facility?.id)
   // A sample dashboard is the demo's alone, even when chosen there before a switch to a clinic.
   if (role.viewing && demo) return <RoleDashboard key={role.viewing} role={role.viewing} />
   if (!session) return null
@@ -135,6 +140,9 @@ export function BlueHome() {
   // Consultation, shows no card.
   const patientCard = activePatient !== null && opens('clinical')
   const receivedHere = (service: ReceivingService) => opens(service === 'lab' ? 'laboratory' : 'pharmacy')
+  // Activity from the facility's own figures, for whoever may read its reports, where Reports & Analytics opens and its
+  // reads have not said reports are switched off here (hid-system REP-1). Everyone else keeps the demo's sample.
+  const liveActivity = Boolean(facility) && canReadReports(permissions) && opens('reports') && reportsServed !== false
   const incomingHere = { services: incoming.services.filter(receivedHere), unsure: incoming.unsure.filter(receivedHere),
     sure: incoming.sure.filter(receivedHere) }
   const work = [
@@ -264,8 +272,9 @@ export function BlueHome() {
 
         {facility && permissions.includes('workforce.manage') ? <HomePeopleCard facility={facility} /> : null}
 
+        {liveActivity && facility ? <HomeReportsActivity key={facility.id} facilityId={facility.id} /> : null}
         {/* A facility administrator's Home shows Patient billing where a clinician's shows Activity. */}
-        {demo && facility?.roles.includes('org_admin') ? <HomeBillingCard /> : demo ? <Card aria-label="Activity in period">
+        {demo && facility?.roles.includes('org_admin') ? <HomeBillingCard /> : demo && !liveActivity ? <Card aria-label="Activity in period">
           <CardHeader as="h2" title="Activity" description="Sample records created" icon={Activity}
             actions={<Select controlSize="sm" aria-label="Reporting period" value={period} onChange={event => setPeriod(event.target.value)}>
               <option value="7">Last 7 days</option><option value="30">Last 30 days</option></Select>} />

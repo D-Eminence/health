@@ -190,6 +190,18 @@ export const PAGE_GUIDES: Readonly<Record<string, PageGuide>> = {
     purpose: 'Your facility’s Health ID subscription.',
     steps: ['See your plan, its status and when it renews, and your invoices once you’ve paid.'],
   },
+  reports: {
+    purpose: 'How busy this facility has been: its waiting list, registrations, visits, laboratory and pharmacy, as totals for a range of days.',
+    steps: [
+      'Choose From and Through (up to 92 days, ending today or earlier), then select Show figures. Or select Last 7 days, Last 30 days or Last 92 days.',
+      'Each figure shows the same number of days before it for comparison, and a line of its daily values. Open Daily values for the numbers day by day.',
+      'To share the figures, select Download CSV or Download PDF. Counts from 1 to 4 are shown as fewer than 5, and each download is recorded.',
+    ],
+    tips: [
+      'Days are Lagos days. While the figure definitions await clinical sign-off, the page says so.',
+      'Reports never name a patient. Open What each figure counts to see what is counted.',
+    ],
+  },
   audit: {
     purpose: 'Who did what at this facility, and when.',
     steps: ['Select Refresh for the latest. Use the filters to narrow it down.'],

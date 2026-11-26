@@ -4,9 +4,9 @@
  * stand-ins, the Overview, Novu's Staff pages) are today's list's to name. Every sample workspace opens only at the demo
  * facilities (frame/pageAccess.ts pageShownHere), yet the sample workspaces stay on this list on purpose: a demo
  * facility returns to them, and a real facility signing in again gets the same demo-only words on the page it left. The
- * pages marked demoOnly in frame/pages.ts (the design review pages, the sample Facility settings and Reports &
- * Analytics) are left out. Kept outside the blue EHR's lazy chunk: the sign-in page reads it before the blue EHR loads.
- * A test keeps it equal to the pages the blue EHR serves.
+ * pages marked demoOnly in frame/pages.ts (the design review pages and the sample Facility settings) are left out.
+ * Kept outside the blue EHR's lazy chunk: the sign-in page reads it before the blue EHR loads. A test keeps it equal to
+ * the pages the blue EHR serves.
  */
 export const BLUE_RETURN_PATHS: readonly string[] = [
   '/provider/appointments', '/provider/journey', '/provider/triage', '/provider/inpatient', '/provider/wards',
@@ -26,4 +26,6 @@ export const BLUE_RETURN_PATHS: readonly string[] = [
   '/provider/waiting-list',
   // Open sign-up on outreach. (owner decision 5): "Start an outreach group" for a signed-in login.
   '/provider/start-outreach-group',
+  // Reports & Analytics (hid-system REP-1) for the facility's administrators: no longer the demo's alone.
+  '/provider/reports',
 ]

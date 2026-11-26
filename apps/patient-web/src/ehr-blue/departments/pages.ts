@@ -5,6 +5,7 @@ import { migratePage, readingQualityPage } from './migrate/page'
 import { outreachPage, startOutreachGroupPage } from './outreach/page'
 import { staffAccessPage } from './staff/page'
 import { auditPage } from './audit/page'
+import { reportsPage } from './reports/page'
 import { facilityPage } from './facility/page'
 import { hrPage } from './hr/page'
 import { commercePages } from './commerce/page'
@@ -29,6 +30,7 @@ export const pages: EhrBluePage[] = [
   outreachPage,
   startOutreachGroupPage,
   staffAccessPage,
+  reportsPage,
   auditPage,
   facilityPage,
   hrPage,

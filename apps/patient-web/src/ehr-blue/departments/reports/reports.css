@@ -1,0 +1,151 @@
+/*
+ * Reports & Analytics (departments/reports): the looks departments.css does not have. Each figure is a tile (its name,
+ * its value, how it compares, its daily line), tiles side by side on a wide screen and one under the other on a phone, so
+ * nothing scrolls sideways. The line is one 2px stroke in the brand ink on a hairline baseline: no colour says good or
+ * bad, and no figure is a rate. Every rule sits under .hid-ehr and names hid-ehr-dept-reports-* classes; values come from
+ * the --ehr-* tokens.
+ */
+
+.hid-ehr .hid-ehr-dept-reports-summary {
+  margin: 0 0 20px;
+}
+
+.hid-ehr .hid-ehr-dept-reports-summary p {
+  margin: 0 0 4px;
+}
+
+.hid-ehr .hid-ehr-dept-reports-figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.hid-ehr .hid-ehr-dept-reports-figure {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--ehr-line);
+  border-radius: var(--ehr-radius-lg, 10px);
+  background: var(--ehr-surface);
+}
+
+.hid-ehr .hid-ehr-dept-section .hid-ehr-dept-reports-figure-label {
+  margin: 0;
+  color: var(--ehr-muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.hid-ehr .hid-ehr-dept-section .hid-ehr-dept-reports-figure-value {
+  margin: 2px 0;
+  color: var(--ehr-ink);
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.hid-ehr .hid-ehr-dept-section .hid-ehr-dept-reports-figure-detail {
+  margin: 0;
+  color: var(--ehr-muted);
+  font-size: 12px;
+}
+
+.hid-ehr .hid-ehr-dept-reports-reasons {
+  display: grid;
+  gap: 2px;
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+
+.hid-ehr .hid-ehr-dept-reports-reasons > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.hid-ehr .hid-ehr-dept-reports-reasons dt {
+  color: var(--ehr-text);
+}
+
+.hid-ehr .hid-ehr-dept-reports-reasons dd {
+  margin: 0;
+  color: var(--ehr-ink);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.hid-ehr .hid-ehr-dept-reports-line {
+  display: block;
+  width: 100%;
+  height: 44px;
+  margin-top: auto;
+  padding-top: 8px;
+  overflow: visible;
+}
+
+.hid-ehr .hid-ehr-dept-reports-line-base {
+  stroke: var(--ehr-line);
+  stroke-width: 1;
+}
+
+.hid-ehr .hid-ehr-dept-reports-line-mark {
+  fill: none;
+  stroke: var(--ehr-brand);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The days' hover targets: there to be pointed at, never seen. */
+.hid-ehr .hid-ehr-dept-reports-line-day {
+  fill: transparent;
+}
+
+.hid-ehr .hid-ehr-dept-reports-daily,
+.hid-ehr .hid-ehr-dept-reports-definitions {
+  padding: 10px 0 0;
+}
+
+.hid-ehr .hid-ehr-dept-reports-daily summary,
+.hid-ehr .hid-ehr-dept-reports-definitions summary {
+  color: var(--ehr-text);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.hid-ehr .hid-ehr-dept-reports-table {
+  margin-top: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.hid-ehr .hid-ehr-dept-reports-definitions {
+  margin: 0 0 20px;
+}
+
+.hid-ehr .hid-ehr-dept-reports-definitions dl {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+
+.hid-ehr .hid-ehr-dept-reports-definitions dt {
+  color: var(--ehr-ink);
+  font-weight: 500;
+}
+
+.hid-ehr .hid-ehr-dept-reports-definitions dd {
+  margin: 0;
+  color: var(--ehr-muted);
+}
+
+@media (forced-colors: active) {
+  .hid-ehr .hid-ehr-dept-reports-line-mark {
+    stroke: CanvasText;
+  }
+}

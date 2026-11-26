@@ -3317,3 +3317,93 @@ export const visitQueueApi = {
     client.request<VisitQueueCard>({ method: 'PATCH', path: `/api/v1/ehr/visit-queue/${encodeURIComponent(entry.entryId)}`,
       body: { expectedRowVersion: entry.rowVersion, ...change }, headers: facilityHeaders(facilityId, 'direct-care') }),
 }
+
+/*
+ * Provider reports, operations figures first (hid-system REP-1, 0203 and 0204, Release D; built on
+ * claude/sprint-reports-backend, not live). The facility's own figures for a range of Lagos days, worked out from its
+ * live records, and a recorded download in which the database has already hidden small counts. Healthcare operations at
+ * the working facility only; no answer names a patient. An ehr-api before REP-1 answers 404, and at a real facility both
+ * routes answer 503 REPORTS_NOT_AVAILABLE while REPORTS_ENABLED is off (the download also 503
+ * REPORTS_EXPORT_NOT_AVAILABLE while REPORTS_EXPORT_ENABLED is off).
+ */
+
+export type ReportSectionKey = 'waitingList' | 'registrations' | 'visits' | 'lab' | 'pharmacy'
+export type ReportFigureKind = 'count' | 'median_minutes'
+export type ReportExportFormat = 'csv' | 'pdf'
+
+/** One day's value of a figure. In a download a count from 1 to 4, or a median of fewer than 5, is null and suppressed. */
+export interface ReportDay {
+  day: string
+  value: number | null
+  /** A median's sample on that day. */
+  sampleSize?: number | null
+  suppressed?: boolean
+}
+
+/** One reason a prescription could not be completed (0091's eight, in their order). */
+export interface ReportReason {
+  reason: string
+  current: number | null
+  previous: number | null
+  suppressed?: boolean
+  currentSuppressed?: boolean
+  previousSuppressed?: boolean
+}
+
+export interface ReportFigure {
+  key: string
+  kind: ReportFigureKind
+  current: number | null
+  previous: number | null
+  currentSuppressed?: boolean
+  previousSuppressed?: boolean
+  /** A median's sample, this period and the previous one. */
+  sampleSize?: number | null
+  previousSampleSize?: number | null
+  /** The three waiting-list figures that need 0203's stamp: how many check-ins record when a clinician first saw the patient. */
+  coverage?: { tracked: number | null; previousTracked: number | null }
+  /** Prescriptions this pharmacy could not complete, by reason. */
+  byReason?: ReportReason[]
+  /** One per day of the range, oldest first. */
+  daily: ReportDay[]
+}
+
+export interface ReportSection { key: ReportSectionKey; figures: ReportFigure[] }
+
+export interface OperationsReport {
+  report: 'operations'
+  facilityId: string
+  from: string
+  to: string
+  days: number
+  previousFrom: string
+  previousTo: string
+  includesToday: boolean
+  timeZone: string
+  generatedAt: string
+  /** The figure definitions: a draft until the clinical lead (and Ola) sign them. */
+  definitions: { version: string; signedOff: boolean }
+  sections: ReportSection[]
+}
+
+/** The download's answer: the report with small counts hidden, and the record of the download. */
+export interface OperationsReportExport extends OperationsReport {
+  export: { format: ReportExportFormat; minimumCount: number; suppressedValues: number; recordedAt: string }
+}
+
+/**
+ * Longer than ehr-api's own 15 s limit on a report (SET LOCAL statement_timeout), so its 503 REPORT_TOO_SLOW arrives
+ * before the browser gives up.
+ */
+export const REPORT_TIMEOUT_MS = 25_000
+
+export const reportsApi = {
+  // Never retried: each read and each download is recorded, and a slow report would only run again.
+  operations: (facilityId: string, from: string, to: string) =>
+    client.get<OperationsReport>('/api/v1/ehr/reports/operations', { query: { from, to },
+      headers: facilityHeaders(facilityId, 'healthcare-operations'), dedupe: false, retry: NO_RETRY, timeoutMs: REPORT_TIMEOUT_MS }),
+  // No Idempotency-Key (the 48.x pattern): one call is one download and one record of it.
+  exportOperations: (facilityId: string, input: { from: string; to: string; format: ReportExportFormat }) =>
+    client.post<OperationsReportExport>('/api/v1/ehr/reports/operations/exports', { from: input.from, to: input.to, format: input.format },
+      { headers: facilityHeaders(facilityId, 'healthcare-operations'), retry: NO_RETRY, timeoutMs: REPORT_TIMEOUT_MS }),
+}

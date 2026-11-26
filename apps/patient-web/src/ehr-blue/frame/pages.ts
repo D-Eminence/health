@@ -129,7 +129,8 @@ export const pages: EhrBluePage[] = [
   { ...sample('inventory', 'Supply', 'Supply', 'box', 'supply/*'), tabLabel: 'Stock' },
   { ...sample('procurement', 'Supply', 'Procurement', 'box'), tabOf: 'supply' },
 
-  // Made-up figures that read as the facility's own: the demo facilities' alone (parity report 3.2).
+  // Made-up figures that read as the facility's own: the demo facilities' alone (parity report 3.2). Replaced by the live
+  // page (departments/reports, hid-system REP-1), which keeps this sample at the demo facilities while reports are off.
   demoOnly(page('reports', 'Insight', 'Reports & Analytics', 'chart', 'sample', createElement(ReportsSample))),
   live('audit', 'Insight', 'Audit trail', 'history', 'audit.read'),
 
