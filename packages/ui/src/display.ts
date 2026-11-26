@@ -7,7 +7,8 @@
  * - Q182 A: a date is "18 Nov 2026" and a time is on the 24-hour clock ("14:05"). A date is never written all in
  *   numbers: "3/4/2026" is 3 April in Lagos and 4 March in an American template, which is a safety risk on a chart.
  * - Q183 B: a Nigerian number reads as it is dialled at home ("0803 123 4567", a Lagos landline "01 234 5678"); a
- *   foreign number is international ("+44 770 090 0123"). Numbers are stored the same either way (E.164); only the display changes.
+ *   foreign number is international ("+44 770 090 0123"). Numbers are stored the same either way (E.164); only the
+ *   display changes.
  *
  * Lagos is on West Africa Time, UTC+1 all year with no daylight saving, so the clock is worked out from the instant
  * itself rather than from the device's zone or its time-zone tables. The month names are fixed here too, so every
@@ -204,11 +205,25 @@ function grouped(digits: string): string {
   return groups.join(' ')
 }
 
-/** The national number (after +234, without the trunk 0) of a Nigerian number, however it was written, or null. */
+/**
+ * The national number (after +234, without the trunk 0) of a Nigerian number, however it was written, or null. It is
+ * written "0..." at home, or "234..." or "+234..." with or without the trunk 0 after the country code
+ * ("2340 1 234 5678", "+234 (0)1 234 5678"). A national number never starts with 0, so a doubled trunk ("+2340(0)12345678") is not one.
+ * Eight digits that begin with a mobile prefix are a mobile missing two digits, not a landline (see `MOBILE_PREFIX`).
+ */
 function nigerianDigits(compact: string): string | null {
-  const match = /^(?:\+?234|0)(\d{10}|[1-9]\d{7})$/.exec(compact) ?? /^\+2340(\d{10}|[1-9]\d{7})$/.exec(compact)
-  return match ? match[1]! : null
+  const match = /^(?:\+?2340?|0)([1-9]\d{9}|[1-9]\d{7})$/.exec(compact)
+  if (!match) return null
+  const national = match[1]!
+  return national.length === 8 && MOBILE_PREFIX.test(national) ? null : national
 }
+
+/**
+ * Nigeria's mobile prefixes are 070x, 080x, 081x, 090x and 091x, so a national number that starts 70, 80, 81, 90 or 91
+ * is a mobile. None of these is an area code: the two-digit codes run 30 to 89 without 70, 80 and 81, and Abuja (9)
+ * subscriber numbers start 2 to 6 ("09 234 5678"), never 0 or 1.
+ */
+const MOBILE_PREFIX = /^(?:70|80|81|90|91)/
 
 /** Area codes of one digit: Lagos (1), Ibadan (2) and Abuja (9). Every other Nigerian area code has two. */
 const ONE_DIGIT_AREA_CODES = new Set(['1', '2', '9'])
@@ -226,12 +241,12 @@ function nigerianAtHome(national: string): string {
 
 /**
  * The stored text with spaces, dots, dashes and brackets taken out. A "(0)" written straight after the country code is
- * the trunk 0, which is not dialled from abroad, so it goes too: "+44 (0) 20 7946 0000" is "+442079460000". A 0 written
- * there without brackets is kept as written.
+ * the trunk 0, which is not dialled from abroad, so it goes too: "+44 (0) 20 7946 0000" and "+(44) (0) 20 7946 0000"
+ * are both "+442079460000". A 0 written there without brackets is kept as written.
  */
 function compactPhone(written: string): string {
   const spaced = written.replace(/[\s.-]/g, '')
-  const trunk = /^\+(\d{1,3})\(0\)(.*)$/.exec(spaced)
+  const trunk = /^\+\(?(\d{1,3})\)?\(0\)(.*)$/.exec(spaced)
   const dialled = trunk && countryCodeLength(trunk[1]!) === trunk[1]!.length ? `+${trunk[1]}${trunk[2]}` : spaced
   return dialled.replace(/[()]/g, '')
 }
@@ -242,7 +257,9 @@ function compactPhone(written: string): string {
  * number is international, as "+44 770 090 0123" or "+86 138 0013 8000": no group after the country code is shorter
  * than three digits, and no digit is lost or moved. Spaces, dots, dashes and brackets in the stored text are ignored,
  * and a "(0)" written after the country code is dropped ("+44 (0) 20 7946 0000" shows "+44 207 946 0000"). Anything
- * that is not a phone number is shown as it came, trimmed; `fallback` ('' unless given) when there is none.
+ * that is not a phone number is shown as it came, trimmed; `fallback` ('' unless given) when there is none. So is a
+ * "+234" number that is not a whole Nigerian number, such as a mobile missing two digits ("+234 803 123 45"): Q183 B
+ * never shows a Nigerian number in international form, and regrouping it would make it look complete.
  */
 export function formatPhone(value: string | null | undefined, fallback = ''): string {
   const written = (value ?? '').trim()
@@ -250,6 +267,7 @@ export function formatPhone(value: string | null | undefined, fallback = ''): st
   const compact = compactPhone(written)
   const nigerian = nigerianDigits(compact)
   if (nigerian) return nigerianAtHome(nigerian)
+  if (compact.startsWith('+234')) return written
   const international = /^\+([1-9]\d{6,14})$/.exec(compact)
   if (!international) return written
   const digits = international[1]!

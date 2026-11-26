@@ -166,4 +166,12 @@ describe('what is typed and shown', () => {
     expect(maskPhone('08031234567')).toBe('0••• ••• 4567')
     expect(maskPhone('123')).toBe('••••')
   })
+
+  it('masks a Nigerian landline as it is shown, keeping its last four digits (Q183 B)', () => {
+    expect(maskPhone('+23412345678')).toBe('0• ••• 5678')
+    expect(maskPhone('012345678')).toBe('0• ••• 5678')
+    expect(maskPhone('+234 (0)9 234 5678')).toBe('0• ••• 5678')
+    expect(maskPhone('+23442123456')).toBe('0•• ••3 456')
+    expect(maskPhone('+23412345678')).not.toContain('+234')
+  })
 })

@@ -179,14 +179,25 @@ export function maskEmail(email: string): string {
 }
 
 /**
- * A phone number shown masked, with its last four digits: a Nigerian number as it is dialled at home ("0••• ••• 4567",
- * Q183 B), a foreign one with its country code when it is one the sign-up offers ("+1 •••• 0123").
+ * A phone number shown masked, with its last four digits. A Nigerian number is masked as formatPhone shows it, dialled
+ * at home (Q183 B): every digit after the trunk 0 but the last four is hidden, so a mobile is "0••• ••• 4567", a Lagos
+ * landline "0• ••• 5678" and an Enugu one "0•• ••3 456". A foreign number keeps its country code when it is one the
+ * sign-up offers ("+1 •••• 0123").
  */
 export function maskPhone(phone: string): string {
   const digits = phone.replace(/\D/g, '')
   if (digits.length < 6) return '••••'
   const last = digits.slice(-4)
-  if (/^0\d{3} \d{3} \d{4}$/.test(formatPhone(phone))) return `0••• ••• ${last}`
+  const shown = formatPhone(phone)
+  if (/^0(?:\d{3} \d{3} \d{4}|\d \d{3} \d{4}|\d{2} \d{3} \d{3})$/.test(shown)) {
+    let kept = 0
+    const masked = [...shown.slice(1)].reverse().map(character => {
+      if (character === ' ') return character
+      kept += 1
+      return kept <= 4 ? character : '•'
+    })
+    return `0${masked.reverse().join('')}`
+  }
   const code = phone.trim().startsWith('+')
     ? PHONE_COUNTRIES.map(country => country.code).filter(candidate => digits.startsWith(candidate) && digits.length - candidate.length > 4)
       .sort((a, b) => b.length - a.length)[0]

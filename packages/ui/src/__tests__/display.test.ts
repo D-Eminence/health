@@ -167,6 +167,35 @@ describe('phone numbers (Q183 B)', () => {
     expect(formatPhone('+234 (0) 903 123 4567')).toBe('0903 123 4567')
   })
 
+  it('never shows a mobile missing digits as a landline', () => {
+    // 70, 80, 81, 90 and 91 begin Nigerian mobile prefixes (0701, 0803, 0813, 0903, 0912), not area codes.
+    expect(formatPhone('0803 123 45')).toBe('0803 123 45')
+    expect(formatPhone('+234 803 123 45')).toBe('+234 803 123 45')
+    expect(formatPhone('070123456')).toBe('070123456')
+    expect(formatPhone('+23481312345')).toBe('+23481312345')
+    expect(formatPhone('+234 903 123 45')).toBe('+234 903 123 45')
+    expect(formatPhone('091 234 567')).toBe('091 234 567')
+    // Abuja keeps its one-digit area code, and the two-digit codes beside the mobile prefixes stay landlines.
+    expect(formatPhone('09 234 5678')).toBe('09 234 5678')
+    expect(formatPhone('+23496123456')).toBe('09 612 3456')
+    expect(formatPhone('+23471123456')).toBe('071 123 456')
+    expect(formatPhone('+23482123456')).toBe('082 123 456')
+  })
+
+  it('never reads a national number that starts with 0, and shows a doubled trunk as written', () => {
+    expect(formatPhone('+2340(0)12345678')).toBe('+2340(0)12345678')
+    expect(formatPhone('+234 0 0803 123 4567')).toBe('+234 0 0803 123 4567')
+    expect(formatPhone('2340012345678')).toBe('2340012345678')
+  })
+
+  it('drops the trunk 0 after 234 written without a "+"', () => {
+    expect(formatPhone('234 (0)1 234 5678')).toBe('01 234 5678')
+    expect(formatPhone('2340 1 234 5678')).toBe('01 234 5678')
+    expect(formatPhone('234 (0)803 123 4567')).toBe('0803 123 4567')
+    expect(formatPhone('2340803 123 4567')).toBe('0803 123 4567')
+    expect(formatPhone('(234) (0) 84 123456')).toBe('084 123 456')
+  })
+
   it('never leaves a group of one or two digits after the country code', () => {
     expect(formatPhone('+8613800138000')).toBe('+86 138 0013 8000')
     expect(formatPhone('+4420794600')).toBe('+44 2079 4600')
@@ -174,7 +203,7 @@ describe('phone numbers (Q183 B)', () => {
     expect(formatPhone('+3531234')).toBe('+353 1234')
     expect(formatPhone('+12345678901234')).toBe('+1 234 567 890 1234')
     for (const stored of ['+3531234', '+35312345', '+4420794600', '+8613800138000', '+447700900123', '+12345678901234',
-      '+123456789012345', '+4930123456789']) {
+      '+123456789012345', '+493023125123']) {
       const shown = formatPhone(stored)
       expect(shown.replace(/\D/g, '')).toBe(stored.replace(/\D/g, ''))
       for (const group of shown.split(' ').slice(1)) expect(group.length).toBeGreaterThanOrEqual(3)
@@ -186,6 +215,9 @@ describe('phone numbers (Q183 B)', () => {
     expect(formatPhone('+44(0)2079460000')).toBe('+44 207 946 0000')
     expect(formatPhone('+44 ( 0 ) 20 7946 0000')).toBe('+44 207 946 0000')
     expect(formatPhone('+44 020 7946 0000')).toBe('+44 020 7946 0000')
+    expect(formatPhone('+(44) (0) 20 7946 0000')).toBe('+44 207 946 0000')
+    expect(formatPhone('+(44)(0)2079460000')).toBe('+44 207 946 0000')
+    expect(formatPhone('+(234) (0) 1 234 5678')).toBe('01 234 5678')
   })
 
   it('leaves anything that is not a number as it came, and gives the fallback for none', () => {
