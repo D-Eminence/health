@@ -29,6 +29,7 @@ import type { ActivePatient } from '../../../staff/App'
 import { isAdult, STAFF_ACCESS_COVERS_PAPER } from '../../../paperRecordsWording'
 import { scanAccess } from '../../../scanAccess'
 import { AllergiesCard } from './AllergiesCard'
+import { PatientReferralsCard } from '../../departments/referrals/ReferralCards'
 import { ChartSummary } from './ChartSummary'
 import { CHART_SUMMARY_PERMISSIONS } from './chartSummary'
 
@@ -353,6 +354,8 @@ function PatientRecord({ chart, onClosed }: { chart: Chart; onClosed: () => void
           ? <ChartSummary chart={chart} canStart={showStart} opens={opens}
             fallback={chart.can('ehr.encounter.read') ? <EncounterHistory chart={chart} canStart={showStart} /> : null} />
           : null}
+        {/* This patient's referrals sent from or received at this facility (hid-system REF-1), for doctors and clinicians. */}
+        {!emergency ? <PatientReferralsCard chart={chart} /> : null}
       </div>
     </div>
   )

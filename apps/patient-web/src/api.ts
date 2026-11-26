@@ -546,6 +546,39 @@ export interface AccessRequest {
   requesterRole?: string | null
 }
 
+/**
+ * One of the patient's own referrals between facilities (hid-system REF-1 route 16, 0192), from every facility: where
+ * they were referred and from where, the department and service, urgency, the reason, the status and dates, the
+ * agreement text the clinician confirmed and which kinds of details were shared with how many of each (Q-REF-12 A). No
+ * staff id, no letter, no items and no outcome note. `enteredInError` (the visit was marked entered in error): reference,
+ * facilities, states and dates only; the rest is null. Times are ISO UTC; the page shows them in Lagos time.
+ */
+export interface MyReferral {
+  referralId: string
+  reference: string
+  referringFacilityName: string
+  destinationKind: 'health_id' | 'printed'
+  destinationName: string
+  departmentCode: string | null
+  serviceWanted: string | null
+  urgency: 'routine' | 'urgent' | string
+  reason: string | null
+  state: string
+  effectiveState: string
+  endedKind: string | null
+  sentAt: string
+  respondBy: string | null
+  acceptedAt: string | null
+  arrivedAt: string | null
+  completedAt: string | null
+  endedAt: string | null
+  sharedSections: Array<{ kind: string; count: number }> | null
+  attestation: { version: string; text: string } | null
+  canWithdraw: boolean
+  rowVersion: number
+  enteredInError: boolean
+}
+
 export interface PatientNotification {
   id: string
   notificationCode: string
@@ -991,6 +1024,13 @@ export function createPatientApi(sender: ApiClient) {
     // Stop, before the receiving facility accepts it: the patient's only action on an order sent elsewhere.
     stopOrderRoute: (route: Pick<PatientOrderRoute, 'id' | 'version'>) => call<{ route: PatientOrderRoute }>('POST',
       `ehr/me/order-routes/${encodeURIComponent(route.id)}/withdraw`, { expectedVersion: route.version }),
+    // Referrals between facilities (hid-system REF-1 routes 16 and 17, 0192): the patient's own referrals, and Withdraw
+    // while one waits for the receiving facility's answer. Before 0192 ehr-api answers 404, and while referrals are
+    // switched off 503 REFERRALS_NOT_AVAILABLE: the card is then not shown.
+    myReferrals: (signal?: AbortSignal) => call<{ items: MyReferral[] }>('GET', 'ehr/me/referrals', undefined, { signal }),
+    withdrawMyReferral: (referral: Pick<MyReferral, 'referralId' | 'rowVersion'>) =>
+      call<{ rowVersion: number; state: string; effectiveState: string }>('POST',
+        `ehr/me/referrals/${encodeURIComponent(referral.referralId)}/withdraw`, { expectedRowVersion: referral.rowVersion }),
     markNotificationRead: (id: string) => call<{ id: string; readAt: string }>('POST', `identity/me/notifications/${encodeURIComponent(id)}/read`),
     /**
      * The bell's count (hid-system 0093; an Identity before it answers 404): unread inbox items and unread imported

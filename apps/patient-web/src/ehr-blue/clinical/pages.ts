@@ -39,7 +39,8 @@ export const pages: EhrBluePage[] = [
   { path: 'emergency/*', group: 'Clinical', label: 'Emergency access', icon: icon('alert'), permission: 'identity.break-glass.write', status: emergencyStatus, element: createElement(EmergencyWorkspace) },
   { path: 'nursing-tasks/*', group: 'Clinical', label: 'Nursing tasks', icon: icon('check'), status: 'sample', element: sample('nursing-tasks') },
   { path: 'radiology/*', group: 'Diagnostics', label: 'Radiology', icon: icon('scan'), status: 'sample', element: sample('radiology') },
-  { path: 'referrals/*', group: 'Network & Services', label: 'Referral Network', icon: icon('share'), status: 'sample', element: sample('referrals') },
+  // Referrals are live: departments/referrals/page.tsx (hid-system REF-1). Its sample stays at the demo facilities until
+  // Health ID serves referrals there.
   { path: 'telemedicine/*', group: 'Network & Services', label: 'Telemedicine', icon: icon('video'), status: 'sample', element: sample('telemedicine') },
   { path: 'bloodbank/*', group: 'Network & Services', label: 'Blood Bank', icon: icon('droplet'), status: 'sample', element: sample('bloodbank') },
   { path: 'ward-config/*', group: 'Settings', label: 'Ward configuration', icon: icon('wardSettings'), status: 'sample', element: sample('ward-config') },

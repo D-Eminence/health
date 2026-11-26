@@ -37,6 +37,8 @@ export const NOTIFICATION_SUBJECTS: Readonly<Record<string, string>> = {
   'share-invitation': 'Invitation to share',
   // hid-1.0 parity B5 (hid-system 0096): the patient's own account deletion.
   'account-deletion': 'Account',
+  // hid-system REF-1 (0191): a referral to another hospital or clinic, or a printed referral letter.
+  referral: 'Referral',
 }
 
 /**
@@ -58,6 +60,18 @@ const ORDER_ROUTE_TITLES: Readonly<Record<string, (thing: string, facility: stri
   ORDER_ROUTE_NOT_COMPLETED: (thing, facility) => `${facility} couldn’t complete your ${thing}. See it in Access & sharing`,
 }
 
+/**
+ * The inbox codes of referrals between facilities (hid-system REF-1, 0191 and 0192). Their metadata holds only the
+ * referral's id, the two facilities' names and whether it is a printed letter: never the department, reason or urgency.
+ */
+const REFERRAL_TITLES: Readonly<Record<string, (to: string, from: string, printed: boolean) => string>> = {
+  REFERRAL_SENT: (to, from, printed) => printed ? `${from} gave you a referral letter for ${to}. See it in Access & sharing`
+    : `${from} referred you to ${to}. See it in Access & sharing`,
+  REFERRAL_ACCEPTED: to => `${to} accepted your referral`,
+  REFERRAL_DECLINED: to => `${to} couldn’t take your referral`,
+  REFERRAL_WITHDRAWN: (to, _from, printed) => printed ? `Your referral letter for ${to} was withdrawn` : `Your referral to ${to} was withdrawn`,
+}
+
 /** A name from a notice's metadata, or the words that stand for it: never anything but a short plain string. */
 function metadataName(metadata: Record<string, unknown> | null | undefined, key: string): string | null {
   const value = metadata?.[key]
@@ -65,6 +79,11 @@ function metadataName(metadata: Record<string, unknown> | null | undefined, key:
 }
 
 export function notificationTitle(item: PatientNotification): string {
+  const referral = REFERRAL_TITLES[item.notificationCode]
+  if (referral) {
+    return referral(metadataName(item.metadata, 'destinationName') ?? 'another hospital or clinic',
+      metadataName(item.metadata, 'referringFacilityName') ?? 'Your doctor’s clinic', item.metadata?.printed === true)
+  }
   const orderRoute = ORDER_ROUTE_TITLES[item.notificationCode]
   if (orderRoute) {
     const kind = metadataName(item.metadata, 'kind')

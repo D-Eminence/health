@@ -831,8 +831,10 @@ describe('application boundaries', () => {
     }
     const lookups = { '/api/v1/lab/order-routes': 'lab.orderRoutes', '/api/v1/pharmacy/order-routes': 'pharmacy.orderRoutes',
       '/api/v1/admin/order-routes': 'admin.orderRoutesFind' } as const
+    // The referral lists (REF-1) refuse a Health ID or NIN too (referrals.test.ts).
+    const referralLists = ['ehr.referralsSent', 'ehr.referralsIncoming', 'ehr.referralsReceived', 'ehr.referralsExpected']
     expect(HID_ENDPOINTS.filter(endpoint => endpoint.forbiddenQuery).map(endpoint => endpoint.name).sort())
-      .toEqual(Object.values(lookups).sort())
+      .toEqual([...Object.values(lookups), ...referralLists].sort())
     for (const [path, name] of Object.entries(lookups)) {
       expect(findEndpoint(name)?.forbiddenQuery, name).toEqual({ GET: ['healthId'] })
       // Refused before transport in every form the backend refuses, alone or beside an allowed key, with a message

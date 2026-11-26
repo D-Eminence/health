@@ -1,0 +1,179 @@
+/*
+ * Referrals between facilities (departments/referrals): the few looks departments.css does not have. One card per
+ * referral in the design's list card (who and where, then the badges, then what to do), the referral's facts and the
+ * frozen package, the tick list of the new referral, and the printable letter. On a phone the actions wrap under the
+ * details, so nothing scrolls sideways. Every rule sits under .hid-ehr and names hid-ehr-dept-referrals-* classes;
+ * values come from the --ehr-* tokens.
+ */
+
+.hid-ehr .hid-ehr-dept-referrals-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hid-ehr .hid-ehr-dept-referrals-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--ehr-line);
+  border-radius: var(--ehr-radius-lg);
+  background: var(--ehr-surface);
+}
+
+.hid-ehr .hid-ehr-dept-referrals-main {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 18rem;
+}
+
+.hid-ehr .hid-ehr-dept-referrals-name {
+  margin: 0;
+  color: var(--ehr-ink);
+  font-size: 15px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-dept-referrals-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0;
+  color: var(--ehr-muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-dept-referrals-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.hid-ehr .hid-ehr-dept-referrals-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.hid-ehr .hid-ehr-dept-referrals-facts {
+  display: grid;
+  grid-template-columns: minmax(9rem, max-content) 1fr;
+  gap: 8px 16px;
+  margin: 0;
+}
+
+.hid-ehr .hid-ehr-dept-referrals-facts dt {
+  color: var(--ehr-muted);
+  font-size: 13px;
+}
+
+.hid-ehr .hid-ehr-dept-referrals-facts dd {
+  margin: 0;
+  color: var(--ehr-ink);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.hid-ehr .hid-ehr-dept-referrals-letter-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-dept-referrals-package {
+  display: grid;
+  gap: 12px;
+}
+
+.hid-ehr .hid-ehr-dept-referrals-package h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.hid-ehr .hid-ehr-dept-referrals-package ul {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.hid-ehr .hid-ehr-dept-referrals-ticks {
+  display: grid;
+  gap: 14px;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.hid-ehr .hid-ehr-dept-referrals-ticks fieldset {
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--ehr-line);
+  border-radius: var(--ehr-radius-lg);
+  margin: 0;
+  padding: 10px 14px;
+}
+
+.hid-ehr .hid-ehr-dept-referrals-ticks legend {
+  padding: 0 4px;
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-dept-referrals-choice {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-dept-referrals-choice input {
+  margin-top: 3px;
+}
+
+.hid-ehr .hid-ehr-dept-referrals-attestation {
+  margin: 0;
+  padding: 10px 14px;
+  border-left: 4px solid var(--ehr-line);
+  background: var(--ehr-subtle, var(--ehr-surface));
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-dept-referrals-tabs {
+  margin-bottom: 12px;
+}
+
+.hid-ehr .hid-ehr-dept-referrals-arrival {
+  display: grid;
+  gap: 12px;
+  flex: 1 1 100%;
+  padding-top: 12px;
+  border-top: 1px solid var(--ehr-line);
+}
+
+.hid-ehr .hid-ehr-dept-referrals-print {
+  display: grid;
+  gap: 14px;
+  max-width: 48rem;
+}
+
+.hid-ehr .hid-ehr-dept-referrals-print h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+@media print {
+  .hid-ehr .hid-ehr-dept-referrals-no-print {
+    display: none !important;
+  }
+
+  .hid-ehr .hid-ehr-dept-referrals-print {
+    max-width: none;
+  }
+}

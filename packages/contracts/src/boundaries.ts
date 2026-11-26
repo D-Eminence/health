@@ -154,7 +154,10 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       // The patient's orders sent to other facilities, and Stop before acceptance (P4c; Novu only, main answers 404).
       'ehr.myOrderRoutes', 'ehr.myOrderRouteWithdraw',
       // The health information the patient enters (hid-system 0094, Novu only; a backend before it answers 404).
-      'ehr.myHealthProfile'],
+      'ehr.myHealthProfile',
+      // The patient's referrals between facilities, and Withdraw before acceptance (hid-system REF-1, 0192; 404 before
+      // it, 503 while it is off).
+      'ehr.myReferrals', 'ehr.myReferralWithdraw'],
   },
   'staff-web': {
     // The anonymous support assistant, from the blue EHR's Help (behind its own privacy guard). Nothing else of support.
@@ -235,7 +238,13 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'ehr.consultations',
       // The waiting list: check-in by a search's matchRef, the list, and each row's stage, triage level and who will see
       // the patient (hid-system 0135, EHR-C7, Release A; a backend before it answers 404).
-      'ehr.visitQueue', 'ehr.visitQueueCheckIn', 'ehr.visitQueueEntry'],
+      'ehr.visitQueue', 'ehr.visitQueueCheckIn', 'ehr.visitQueueEntry',
+      // Referrals between facilities: the agreement text, sending from a visit, the sent, incoming, received and expected
+      // lists, one referral with withdraw, the letter, accept, decline, arrival and the outcome, and a patient's or a
+      // visit's referrals (hid-system REF-1, 0191 and 0192; 404 before it, 503 while it is off).
+      'ehr.referralAttestation', 'ehr.referralSend', 'ehr.referralsSent', 'ehr.referralsIncoming', 'ehr.referralsReceived',
+      'ehr.referralsExpected', 'ehr.referral', 'ehr.referralWithdraw', 'ehr.referralLetter', 'ehr.referralAccept',
+      'ehr.referralDecline', 'ehr.referralArrive', 'ehr.referralComplete', 'ehr.patientReferrals'],
     // Facility billing (docs/BILLING_SPEC.md; proposed routes) and the price catalogue it shows. Not demo requests.
     commercial: ['commercial.pricing', 'commercial.subscription', 'commercial.subscriptionTrial',
       'commercial.subscriptionCheckout', 'commercial.invoices',
@@ -296,6 +305,11 @@ export function assertEndpointAllowed(app: HidApp, endpointName: string): void {
   if ((endpointName === 'ehr.myHealthProfile' && app !== 'patient-web')
     || (endpointName === 'ehr.patientReportedHealthProfile' && !['staff-web', 'ehr-web'].includes(app))) {
     throw new BoundaryViolationError('Patient-reported health information is available only in its patient or provider context.')
+  }
+  // Referrals between facilities (REF-1): the patient's own list and Withdraw are the portal's alone; staff refer and
+  // answer in the provider portal.
+  if ((endpointName === 'ehr.myReferrals' || endpointName === 'ehr.myReferralWithdraw') && app !== 'patient-web') {
+    throw new BoundaryViolationError('"Referrals" in the portal is available only to the patient application.')
   }
   const descriptor = findEndpoint(endpointName)
 

@@ -118,6 +118,19 @@ const RELEASE_A = 'Served by hid-system staging-novu-ci-20261005 from Release A 
   + 'main, which answers 404. '
 const ACCOUNT_DELETION_NOTE = 'Novu: hid-system 0096; 404 before'
 /**
+ * Referrals between facilities (hid-system REF-1, migrations 0191-0193, provisional; Release D). Built on
+ * claude/sprint-referrals-backend and not live: an ehr-api before it answers 404, and while the service flag
+ * REFERRALS_ENABLED is off every route answers 503 REFERRALS_NOT_AVAILABLE. While the control
+ * cross_facility_referrals_enabled is off, sending to a Health ID facility, the directory, accepting and arrival answer
+ * 423 CROSS_FACILITY_REFERRALS_UNAVAILABLE. Staff routes are direct care at the X-Facility-ID facility; every staff write
+ * carries an Idempotency-Key and expectedRowVersion (412 REFERRAL_VERSION_CONFLICT). No Health ID or NIN in any path,
+ * query or body.
+ */
+const REF_1 = 'hid-system REF-1 (0191-0193, Release D; claude/sprint-referrals-backend, not live): 404 before it, 503 '
+  + 'REFERRALS_NOT_AVAILABLE while REFERRALS_ENABLED is off. X-Facility-ID, direct-care.'
+/** The referral lists take states, a cursor and a limit only: a Health ID or NIN is refused before it reaches an address. */
+const REF_NO_ID_QUERY: Partial<Record<EndpointMethod, readonly string[]>> = { GET: ['healthId', 'nin'] }
+/**
  * "Notifications on this device" (B6, contract b6-contract.md §3): payload-free Web Push, the subscription stored by
  * Identity. Served by Novu from hid-system 0097, and only once the owner has configured the push keys: before that, and
  * on a backend before 0097, each route answers 404, which the portal takes as not offered (the section is hidden).
@@ -721,7 +734,10 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'or pharmacy) and query (3 to 80 characters of the facility or organization name). 200 { items [{ facilityId, '
     + 'facilityName, organizationName, registeredAddress (the CAC registered office) | null, newOnHealthId }] }: at most '
     + '10 reviewed or governed facilities listed for orders, never this one. 400 ORDER_DESTINATION_QUERY_INVALID, 429 '
-    + `ORDER_DESTINATION_SEARCH_LIMITED (60 searches an hour per member). ${ORDER_ROUTES_PAUSED}`)),
+    + `ORDER_DESTINATION_SEARCH_LIMITED (60 searches an hour per member). ${ORDER_ROUTES_PAUSED} With REF-1 (hid-system `
+    + '0191, not live) also kind=referral, for holders of ehr.referral.send: facilities listed for referrals, each item '
+    + 'with departments (the profile\'s department codes, possibly empty); 423 CROSS_FACILITY_REFERRALS_UNAVAILABLE while '
+    + 'the referrals control is off, 503 REFERRALS_NOT_AVAILABLE while REFERRALS_ENABLED is off.')),
   requiredQuery: { GET: ['kind', 'query'] } },
   proposed(r('enrollment.providerAvailability','enrollment','/api/v1/identity/provider-enrollments/availability',G,true,undefined,
     `${SELF_SIGN_UP_NOVU} Public, no session, never an error: 200 { open: true }, { open: false, reason: 'closed' } (switched `
@@ -986,6 +1002,56 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     one('PATCH','ehr.encounter.read','ehr.encounter.write'),
     `${RELEASE_A} X-Facility-ID, direct-care. Body { expectedRowVersion, stage?, triageLevel? (null clears), `
     + 'assignedMembershipId? (null clears) }. 200 the card; 409 VISIT_QUEUE_ENTRY_CHANGED or VISIT_QUEUE_ENTRY_CLOSED.')),
+  // Referrals between facilities (hid-system REF-1, migrations 0191-0193, Release D; on the branch
+  // claude/sprint-referrals-backend, not live). Every route answers 503 REFERRALS_NOT_AVAILABLE while the service flag
+  // REFERRALS_ENABLED is off, and an ehr-api before it answers 404: the pages then say "not available yet".
+  { ...proposed(r('ehr.referralAttestation','ehr','/api/v1/ehr/referral-attestation',G,false,one('GET','ehr.referral.send'),
+    `${REF_1} ?destinationKind=health_id|printed. 200 { version, text }: the current agreement text, with {patient}, `
+    + '{referringFacility} and {receivingFacility} for the page to fill.')), requiredQuery: { GET: ['destinationKind'] } },
+  proposed(r('ehr.referralSend','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/referrals',P,false,
+    one('POST','ehr.referral.send','ehr.encounter.write'),
+    `${REF_1} Body { destination: { kind: health_id, facilityId } | { kind: printed, facilityName, town? }, departmentCode, `
+    + 'serviceWanted?, urgency (routine | urgent), reason (8-300), letterText (20-8000), package { diagnosisIds?, '
+    + 'prescriptionIds?, allergyIds?, vitalIds?, labResultIds? }, attestationTextVersion, patientAgreed: true } with an '
+    + 'Idempotency-Key; 201 { referral, package, replayed }. 409 REFERRAL_VISIT_NOT_SIGNED, REFERRAL_PATIENT_APP_REQUIRED, '
+    + 'REFERRAL_DESTINATION_UNAVAILABLE, REFERRAL_ATTESTATION_OUTDATED; 423 for health_id while the control is off.')),
+  { ...proposed(r('ehr.referralsSent','ehr','/api/v1/ehr/referrals/sent',G,false,one('GET','ehr.referral.read'),
+    `${REF_1} [?state=][&limit=1..200][&cursor=]: this facility's sent referrals of the last 90 days, newest first, { items: `
+    + 'card[], nextCursor } (no reason or notes).')), forbiddenQuery: REF_NO_ID_QUERY },
+  { ...proposed(r('ehr.referralsIncoming','ehr','/api/v1/ehr/referrals/incoming',G,false,one('GET','ehr.referral.receive'),
+    `${REF_1} Referrals waiting for this facility's answer, urgent first: { items: card[] (view level preview, or metadata `
+    + 'while the control is off), counts { waiting, urgent }, hasMore, limit }.')), forbiddenQuery: REF_NO_ID_QUERY },
+  { ...proposed(r('ehr.referralsReceived','ehr','/api/v1/ehr/referrals/received',G,false,one('GET','ehr.referral.receive'),
+    `${REF_1} [?state=][&limit=1..200][&cursor=]: referrals this facility answered in the last 90 days, { items: card[], `
+    + 'nextCursor }.')), forbiddenQuery: REF_NO_ID_QUERY },
+  { ...proposed(r('ehr.referralsExpected','ehr','/api/v1/ehr/referrals/expected',G,false,one('GET','ehr.referral.arrive'),
+    `${REF_1} Accepted referrals not yet arrived: { items: [{ referralId, reference, patient { patientId, fullName, sex, `
+    + 'dateOfBirth, dateOfBirthEstimated, healthIdLast4 }, referringFacilityName, departmentCode, serviceWanted, urgency, '
+    + 'acceptedAt, arriveBy, rowVersion }], hasMore, limit }. No reason, letter or package.')), forbiddenQuery: REF_NO_ID_QUERY },
+  proposed(r('ehr.referral','ehr','/api/v1/ehr/referrals/:referralId',G,false,undefined,
+    `${REF_1} ehr.referral.read (referring side) or ehr.referral.receive (receiving side). 200 { referral, package | null, `
+    + 'packageHidden (null, chart_access_needed, not_accepted or access_ended), history }. 404 REFERRAL_NOT_FOUND.')),
+  proposed(r('ehr.referralWithdraw','ehr','/api/v1/ehr/referrals/:referralId/withdraw',P,false,one('POST','ehr.referral.send'),
+    `${REF_1} Body { expectedRowVersion, reasonCode, note? (8-500; required for sent_in_error and other) }; 200 { referral, `
+    + 'replayed }. Only while sent (before respondBy) or printed.')),
+  proposed(r('ehr.referralLetter','ehr','/api/v1/ehr/referrals/:referralId/letter',G,false,one('GET','ehr.referral.send'),
+    `${REF_1} 200 { referral, package, letter { referringFacilityAddress, printedAt } }. Each call is one print (audited). `
+    + 'The letter names no Health ID.')),
+  proposed(r('ehr.referralAccept','ehr','/api/v1/ehr/referrals/:referralId/accept',P,false,one('POST','ehr.referral.receive'),
+    `${REF_1} Body { expectedRowVersion, note? (0-500) }; 200 { referral, package, replayed }. 423 while the control is off.`)),
+  proposed(r('ehr.referralDecline','ehr','/api/v1/ehr/referrals/:referralId/decline',P,false,one('POST','ehr.referral.receive'),
+    `${REF_1} Body { expectedRowVersion, reasonCode, note (8-500) }; 200 { referral, replayed }.`)),
+  proposed(r('ehr.referralArrive','ehr','/api/v1/ehr/referrals/:referralId/arrive',P,false,
+    one('POST','ehr.referral.arrive','ehr.encounter.read','ehr.encounter.write'),
+    `${REF_1} Body { expectedRowVersion, matchRef? | patientId? } (exactly one); 200 { outcome: checked_in | `
+    + 'already_on_list, referral, entry (the waiting-list card), replayed }. 403 REFERRAL_ARRIVAL_NEEDS_SEARCH; 423 while '
+    + 'the control is off.')),
+  proposed(r('ehr.referralComplete','ehr','/api/v1/ehr/referrals/:referralId/complete',P,false,one('POST','ehr.referral.receive'),
+    `${REF_1} Body { expectedRowVersion, outcome, feedbackNote (8-2000) }; 200 { referral, replayed }. did_not_attend only `
+    + 'before arrival, the other outcomes only after.')),
+  proposed(r('ehr.patientReferrals','ehr','/api/v1/ehr/patients/:patientId/referrals',G,false,one('GET','ehr.referral.read'),
+    `${REF_1} [?encounterId=]: this patient's referrals sent from or received at this facility (received ones once `
+    + 'accepted), newest first, at most 100: { items: card[] }. Also the patient\'s read access (403 CONSENT_REQUIRED).')),
   r('ehr.vitals','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals',GP,false,{GET:['ehr.vital.read'],POST:['ehr.vital.write']}),
   r('ehr.vital','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals/:vitalId',G,false,one('GET','ehr.vital.read')),
   r('ehr.vitalCorrections','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals/:vitalId/corrections',GP,false,{GET:['ehr.vital.read'],POST:['ehr.vital.write']}),
@@ -1073,6 +1139,16 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   proposed(r('ehr.myOrderRouteWithdraw','ehr','/api/v1/ehr/me/order-routes/:routeId/withdraw',P,false,undefined,
     `${ORDER_ROUTES_P4C_NOVU} Patient sessions only; Stop. Body { expectedVersion }; 200 { route: PatientOrderRoute }. 404 `
     + 'ORDER_ROUTE_NOT_FOUND, 409 ORDER_ROUTE_NOT_PENDING (accepted or ended), 412 VERSION_CONFLICT.')),
+  // Referrals between facilities in the portal (REF-1 routes 16 and 17, 0192). Patient sessions only.
+  proposed(r('ehr.myReferrals','ehr','/api/v1/ehr/me/referrals',G,false,undefined,
+    `${REF_1.replace(' X-Facility-ID, direct-care.', '')} Patient sessions only (403 PATIENT_SESSION_REQUIRED). 200 { items: `
+    + '[{ referralId, reference, referringFacilityName, destinationKind, destinationName, departmentCode, serviceWanted, '
+    + 'urgency, reason, state, effectiveState, endedKind, sentAt, respondBy, acceptedAt, arrivedAt, completedAt, endedAt, '
+    + 'sharedSections, attestation, canWithdraw, rowVersion, enteredInError }] }, newest first, at most 100. No letter, '
+    + 'items or outcome note.')),
+  proposed(r('ehr.myReferralWithdraw','ehr','/api/v1/ehr/me/referrals/:referralId/withdraw',P,false,undefined,
+    `${REF_1.replace(' X-Facility-ID, direct-care.', '')} Patient sessions only. Body { expectedRowVersion }; 200 { rowVersion, `
+    + 'state, effectiveState }. 409 REFERRAL_NOT_PENDING (answered, past respondBy, or a printed letter).')),
   r('files.list','files','/api/v1/ehr/documents',G,false,one('GET','ehr.document.read'),
     'ehr.document.read or ehr.document.read-own (hid-system 0136: the front desk; the list then holds only the documents this '
     + 'login uploaded here). Item status initiated until completed; since hid-system 0110 source_deleted once Migrate\'s source page was deleted '

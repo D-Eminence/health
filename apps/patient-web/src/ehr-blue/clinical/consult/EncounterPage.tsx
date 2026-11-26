@@ -34,6 +34,8 @@ import {
 } from './encounters'
 import { NotesCard } from './Notes'
 import { EncounterOrders, orderPath } from './orders'
+import { VisitReferrals } from '../../departments/referrals/ReferralCards'
+import { ENCOUNTER_WRITE, REFERRAL_SEND } from '../../departments/referrals/referralRules'
 import { KINDS, learnFrom } from './orders/orders'
 import { progressDetail } from './orders/progress'
 import { useDocumentList, useRecordList, useRevisions, type RecordList } from './records'
@@ -745,11 +747,15 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
       {/* Only where it has something to show: this visit's orders (each create sits with its list, as in classic), or
           the demo facilities' sample radiology and referral steps. A role that may add orders but read none sees no
           empty card. */}
-      {chart.can(KINDS.pharmacy.read) || chart.can(KINDS.laboratory.read) || (chart.canWrite && isDemoFacility(chart.facilityId)) ? (
+      {chart.can(KINDS.pharmacy.read) || chart.can(KINDS.laboratory.read) || (chart.canWrite && isDemoFacility(chart.facilityId))
+        || (chart.canWrite && chart.can(REFERRAL_SEND, ENCOUNTER_WRITE)) ? (
         <div ref={ordersRef}>
           <EhrCard title="Orders"><EncounterOrders chart={chart} encounter={encounter} lists={{ pharmacy: prescriptions, laboratory: labs }} /></EhrCard>
         </div>
       ) : null}
+      {/* This visit's referrals with their status and outcome (hid-system REF-1 route 8): for doctors and clinicians, where
+          Health ID serves referrals. */}
+      <VisitReferrals chart={chart} encounterId={encounterId} />
       {reads.documents ? (
         <div ref={documentsRef}>
           <DocumentsCard chart={chart} encounterId={encounterId} list={documents} canWrite={writes.documents} />

@@ -17,6 +17,8 @@ import { ownProgressText } from './progress'
 import { RouteNotices, routeStatus, routeStatusClass } from './Routing'
 import { isDemoFacility } from '../../../blueFacilities'
 import { useSampleCan } from '../../../frame/sampleAccess'
+import { NewReferral } from '../../../departments/referrals/NewReferral'
+import { ENCOUNTER_WRITE, REFERRAL_SEND, useReferralsServed } from '../../../departments/referrals/referralRules'
 
 export type { OrderKind } from './orders'
 
@@ -31,8 +33,8 @@ export function orderPath(encounterId: string, kind: OrderKind, orderId: string)
 /**
  * Orders raised from an encounter: prescriptions and lab requests, sending them to Pharmacy, Lab or a pharmacy or
  * laboratory at another facility, and what the receiving facility reported. Mounted by the consultation workspace at
- * `:recordId/orders/*`, inside its <ChartProvider>: "new/pharmacy", "new/laboratory", "pharmacy/:orderId" and
- * "laboratory/:orderId". Emergency access never reaches them (ChartGate draws its read-only notice).
+ * `:recordId/orders/*`, inside its <ChartProvider>: "new/pharmacy", "new/laboratory", "new/referral" (hid-system REF-1),
+ * "pharmacy/:orderId" and "laboratory/:orderId". Emergency access never reaches them (ChartGate draws its read-only notice).
  */
 export function EncounterOrderPages() {
   const { recordId = '' } = useParams()
@@ -48,6 +50,8 @@ function OrderPages({ chart, encounterId }: { chart: Chart; encounterId: string 
       <Routes>
         <Route path="new/pharmacy" element={<CreateOrder kind="pharmacy" chart={chart} encounterId={encounterId} />} />
         <Route path="new/laboratory" element={<CreateOrder kind="laboratory" chart={chart} encounterId={encounterId} />} />
+        {/* A referral to another facility, or a printed letter (hid-system REF-1): it opens on the Referrals page once sent. */}
+        <Route path="new/referral" element={<NewReferral chart={chart} encounterId={encounterId} />} />
         <Route path="pharmacy/:orderId" element={<OrderRoute kind="pharmacy" chart={chart} encounterId={encounterId} />} />
         <Route path="laboratory/:orderId" element={<OrderRoute kind="laboratory" chart={chart} encounterId={encounterId} />} />
         <Route path="*" element={<RecordNotFound backHref={href(encounterId)} />} />
@@ -122,8 +126,9 @@ function OrderRow({ kind, record, to, patient }: { kind: OrderKind; record: Clin
 /**
  * The design's "Connected orders" inside an encounter's "Available actions" card: "Create pharmacy record" and
  * "Create laboratory record" (today's prescription and lab request, with today's permissions and write access),
- * "Create radiology record" and "Create referral network record" (sample workspaces: no backend, nothing of this
- * patient carried), the design's note, and this encounter's orders, each linking to its page. The orders are the visit
+ * "Create radiology record" (a sample workspace: no backend, nothing of this patient carried), "New referral" (hid-system
+ * REF-1; the sample's at the demo facilities while Health ID does not serve referrals), the design's note, and this
+ * encounter's orders, each linking to its page. The orders are the visit
  * page's own lists (`lists`), so what it reads again after a change (a cancelled or entered-in-error consultation
  * changes its orders) is what this card shows, and each list is read once.
  */
@@ -133,7 +138,12 @@ export function EncounterOrders({ chart, encounter, lists: orders }: { chart: Ch
   const readRx = chart.can(KINDS.pharmacy.read)
   const readLab = chart.can(KINDS.laboratory.read)
   const sampleCan = useSampleCan()
+  const referralsServed = useReferralsServed()
   if (chart.purpose !== 'direct-care') return null
+  // Referrals (hid-system REF-1): offered at every facility to doctors and clinicians while Health ID serves them; where it
+  // does not (or for a role without the code), the demo facilities keep today's sample step.
+  const liveReferral = chart.canWrite && chart.can(REFERRAL_SEND, ENCOUNTER_WRITE) && referralsServed !== false
+  const sampleReferral = !liveReferral && chart.canWrite && isDemoFacility(chart.facilityId) && sampleCan('referrals', 'create')
 
   // As in classic, each create sits with its list: offered only where the saved order can be read back.
   const createRx = chart.canWrite && readRx && chart.can(KINDS.pharmacy.write)
@@ -154,13 +164,13 @@ export function EncounterOrders({ chart, encounter, lists: orders }: { chart: Ch
       <div className="hid-ehr-clinical-action-list">
         {createRx ? <EhrButton variant="secondary" onClick={() => navigate(href(encounter.id, 'orders', 'new', 'pharmacy'))}>New prescription</EhrButton> : null}
         {createLab ? <EhrButton variant="secondary" onClick={() => navigate(href(encounter.id, 'orders', 'new', 'laboratory'))}>New lab request</EhrButton> : null}
-        {/* Radiology and referrals are samples: offered only at the demo facilities, so a live page at a real facility
-            never leads into a sample; each only to a design role that may create there (sampleAccess.ts), as a role
-            the sample is closed to would land on Home instead. */}
+        {/* Radiology is a sample, and so is a referral where Health ID does not serve referrals yet: offered only at the
+            demo facilities, so a live page at a real facility never leads into a sample; each only to a design role
+            that may create there (sampleAccess.ts), as a role the sample is closed to would land on Home instead. */}
         {chart.canWrite && isDemoFacility(chart.facilityId) && sampleCan('radiology', 'create')
           ? <EhrButton variant="secondary" onClick={() => navigate(href.to('radiology', 'new'))}>New radiology request</EhrButton> : null}
-        {chart.canWrite && isDemoFacility(chart.facilityId) && sampleCan('referrals', 'create')
-          ? <EhrButton variant="secondary" onClick={() => navigate(href.to('referrals', 'new'))}>New referral</EhrButton> : null}
+        {liveReferral ? <EhrButton variant="secondary" onClick={() => navigate(href(encounter.id, 'orders', 'new', 'referral'))}>New referral</EhrButton>
+          : sampleReferral ? <EhrButton variant="secondary" onClick={() => navigate(href.to('referrals', 'new'))}>New referral</EhrButton> : null}
       </div>
       {createRx || createLab ? <p className="hid-ehr-clinical-note">{CONNECTED_ORDERS_NOTE}</p> : null}
       {loading ? <Loading label="Loading records…" /> : null}

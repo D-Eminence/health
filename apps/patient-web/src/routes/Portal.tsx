@@ -37,6 +37,7 @@ import { DeviceNotificationsCard, InstallAppCard } from './DeviceSettings'
 import { describedBy, isFieldProblem, useDocumentTitle, useStepFocus } from '../authSteps'
 import { useFocusOnPageChange } from '../pageFocus'
 import { SentOrdersCard } from './SentOrders'
+import { MyReferralsCard } from './MyReferrals'
 import { NinVerificationCard, ninVerifiedOf } from './NinVerificationCard'
 import { dayWords, groupByDay, matchesQuery } from './recordSearch'
 import { NOTIFICATION_SUBJECTS, notificationAction, notificationTitle } from './notificationTitles'
@@ -928,6 +929,8 @@ export function AccessPage() {
     {tab === 'granted' && <>
       {/* Novu (P4c): orders a clinician sent to another facility, with Stop until it is accepted. Main has no such list. */}
       {usesNovuBackend() && <SentOrdersCard />}
+      {/* Novu (hid-system REF-1): referrals to another facility, with Withdraw until it answers. Not shown while off (503). */}
+      {usesNovuBackend() && <MyReferralsCard />}
       <Card aria-busy={(history.loading && history.data !== null) || undefined}>
         <AccessHeading headingRef={historyHeading} icon={Building2} title={historyReady ? whoHasAccessTitle(historyItems) : 'Who has access'}
           hint={!historyReady ? undefined : activeCount ? 'Each row is one staff member’s access.' : 'Past access stays listed.'} />

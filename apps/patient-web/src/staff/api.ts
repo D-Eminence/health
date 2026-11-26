@@ -3317,3 +3317,251 @@ export const visitQueueApi = {
     client.request<VisitQueueCard>({ method: 'PATCH', path: `/api/v1/ehr/visit-queue/${encodeURIComponent(entry.entryId)}`,
       body: { expectedRowVersion: entry.rowVersion, ...change }, headers: facilityHeaders(facilityId, 'direct-care') }),
 }
+
+/**
+ * Referrals between facilities (hid-system REF-1, migrations 0191-0193, provisional, Release D; INTERFACE_CONTRACT.md
+ * "REF-1"): a doctor or clinician refers a patient from a signed visit to a facility on Health ID, or prints a letter for
+ * one that is not; the receiving facility accepts or declines, marks the patient arrived (after a fresh search) and
+ * records the outcome, which goes back to the referring facility. Direct care only, at the X-Facility-ID facility. Every
+ * write carries an Idempotency-Key, made once per body and sent again with the same body, and the referral's
+ * expectedRowVersion. No Health ID or NIN in any address, query or body: referrals by their UUID, patients by theirs,
+ * a new arrival by a search card's matchRef in the body.
+ *
+ * An ehr-api before 0191 answers 404, and while the service flag REFERRALS_ENABLED is off every route answers 503
+ * REFERRALS_NOT_AVAILABLE: the pages then say referrals are not available yet (at the demo facilities, today's sample).
+ * While the control cross_facility_referrals_enabled is off, sending to a Health ID facility, the directory, accepting
+ * and marking arrival answer 423 CROSS_FACILITY_REFERRALS_UNAVAILABLE; printed letters, decline, withdraw and complete
+ * still work.
+ */
+export const REFERRAL_STATES = ['printed', 'sent', 'accepted', 'arrived', 'completed', 'declined', 'withdrawn'] as const
+export type ReferralState = (typeof REFERRAL_STATES)[number]
+/** `expired` is worked out when read (respondBy or arriveBy passed); never stored. */
+export type ReferralEffectiveState = ReferralState | 'expired'
+export type ReferralUrgency = 'routine' | 'urgent'
+export type ReferralDestinationKind = 'health_id' | 'printed'
+export type ReferralViewLevel = 'preview' | 'full' | 'metadata'
+export const REFERRAL_DECLINE_REASONS = ['service_not_offered', 'no_capacity', 'more_information_needed', 'better_elsewhere', 'other'] as const
+export type ReferralDeclineReason = (typeof REFERRAL_DECLINE_REASONS)[number]
+export const REFERRAL_WITHDRAW_REASONS = ['patient_changed_mind', 'no_longer_needed', 'sent_in_error', 'other'] as const
+export type ReferralWithdrawReason = (typeof REFERRAL_WITHDRAW_REASONS)[number]
+export const REFERRAL_OUTCOMES = ['seen_care_returned', 'seen_care_continues', 'admitted', 'referred_onward', 'did_not_attend'] as const
+export type ReferralOutcome = (typeof REFERRAL_OUTCOMES)[number]
+export const REFERRAL_PACKAGE_KINDS = ['diagnoses', 'medicines', 'allergies', 'vitals', 'labResults'] as const
+export type ReferralPackageKind = (typeof REFERRAL_PACKAGE_KINDS)[number]
+
+/**
+ * The patient as a referral card carries them. At view level `preview` only `sexAtSend` and `ageYearsAtSend` are set
+ * (the rest null); never a whole Health ID, only its last 4 characters.
+ */
+export interface ReferralPatient {
+  patientId: string | null
+  fullName: string | null
+  sex: string | null
+  dateOfBirth: string | null
+  dateOfBirthEstimated: boolean | null
+  healthIdLast4: string | null
+  sexAtSend: string | null
+  ageYearsAtSend: number | null
+}
+
+/** The referral card, every staff answer (planned contract REF-1 "The referral card"). */
+export interface ReferralCard {
+  referralId: string
+  reference: string
+  side: 'sent' | 'received'
+  viewLevel: ReferralViewLevel
+  /** null at view level `metadata`. */
+  patient: ReferralPatient | null
+  destinationKind: ReferralDestinationKind
+  referringFacility: { facilityId: string; name: string }
+  receivingFacility: { facilityId: string; name: string } | null
+  printedFacility: { name: string; town: string | null } | null
+  encounterId: string | null
+  departmentCode: string
+  serviceWanted: string | null
+  urgency: ReferralUrgency
+  reason: string | null
+  referrer: { name: string; licence: { body: string; number: string } | null; membershipId: string | null }
+  state: ReferralState
+  effectiveState: ReferralEffectiveState
+  endedKind: 'not_answered' | 'not_arrived' | 'visit_entered_in_error' | null
+  sentAt: string
+  respondBy: string | null
+  acceptedAt: string | null
+  acceptNote: string | null
+  arriveBy: string | null
+  arrivedAt: string | null
+  visitQueueEntryId: string | null
+  decline: { reasonCode: ReferralDeclineReason | string; note: string | null; declinedAt: string } | null
+  withdrawal: { by: 'referring_facility' | 'patient'; reasonCode: ReferralWithdrawReason | string | null; note: string | null; withdrawnAt: string } | null
+  outcome: { code: ReferralOutcome | string; feedbackNote: string | null; completedAt: string } | null
+  completedAt: string | null
+  endedAt: string | null
+  accessEndsAt: string | null
+  /** The kinds sent and how many of each; null at view level `preview` and `metadata`. */
+  packageSummary: Array<{ kind: ReferralPackageKind | string; count: number }> | null
+  rowVersion: number
+}
+
+/** One item of the frozen package: its content as the server built it when the referral was sent, never changed. */
+export interface ReferralPackageItem<Content> {
+  itemId: string
+  /** The source was marked entered in error after sending: no content then. */
+  enteredInErrorSinceSent: boolean
+  content: Content | null
+}
+export interface ReferralPackage {
+  frozenAt: string
+  letterText: string
+  sections: {
+    diagnoses?: ReferralPackageItem<{ codeSystem: string | null; code: string | null; display: string; clinicalStatus: string | null;
+      verificationStatus: string | null; onsetAt: string | null; recordedAt: string | null }>[]
+    medicines?: ReferralPackageItem<{ medicationDisplay: string; doseQuantity: string | null; doseUnit: string | null; routeCode: string | null;
+      frequency: string | null; instructions: string | null; startsOn: string | null; endsOn: string | null; status: string | null; prescribedAt: string | null }>[]
+    allergies?: ReferralPackageItem<{ substance: string; reaction: string | null; severity: string | null; recordedOn: string | null;
+      recordedAtReferringFacility: boolean | null }>[]
+    vitals?: ReferralPackageItem<{ recordedAt: string | null; measures: Record<string, number | null> }>[]
+    labResults?: ReferralPackageItem<{ testName: string; resultType: string | null; value: string | null; unit: string | null;
+      referenceRange: string | null; abnormalFlag: string | null; releasedAt: string | null }>[]
+  }
+}
+
+export interface ReferralHistoryEntry {
+  kind: 'sent' | 'printed' | 'withdrawn' | 'patient_withdrew' | 'accepted' | 'declined' | 'arrived' | 'completed' | string
+  at: string
+  side: 'referring' | 'receiving' | 'patient' | string
+  /** Only for this facility's own members. */
+  byMembershipId: string | null
+  reasonCode: string | null
+}
+
+export interface ReferralRead {
+  referral: ReferralCard
+  package: ReferralPackage | null
+  packageHidden: null | 'chart_access_needed' | 'not_accepted' | 'access_ended'
+  history: ReferralHistoryEntry[]
+}
+export interface ReferralSaved { referral: ReferralCard; replayed: boolean }
+export interface ReferralWithPackage extends ReferralSaved { package: ReferralPackage }
+export interface ReferralList { items: ReferralCard[]; nextCursor: string | null }
+export interface ReferralIncoming { items: ReferralCard[]; counts: { waiting: number; urgent: number }; hasMore: boolean; limit: number }
+export interface ReferralLetter {
+  referral: ReferralCard
+  package: ReferralPackage
+  letter: { referringFacilityAddress: string | null; printedAt: string }
+}
+
+/** An accepted referral expected at the front desk: identity and booking only, never the reason, letter or package. */
+export interface ReferralExpected {
+  referralId: string
+  reference: string
+  patient: { patientId: string; fullName: string; sex: string | null; dateOfBirth: string | null; dateOfBirthEstimated: boolean | null; healthIdLast4: string | null }
+  referringFacilityName: string
+  departmentCode: string
+  serviceWanted: string | null
+  urgency: ReferralUrgency
+  acceptedAt: string
+  arriveBy: string
+  rowVersion: number
+}
+export interface ReferralExpectedList { items: ReferralExpected[]; hasMore: boolean; limit: number }
+export interface ReferralArrival { outcome: 'checked_in' | 'already_on_list'; referral: ReferralCard; entry: VisitQueueCard; replayed: boolean }
+/** Exactly one: a search card's matchRef (10 minutes) or the id of a patient already this facility's own (0131). */
+export type ReferralArrivalBy = { matchRef: string } | { patientId: string }
+
+/** A facility on Health ID listed to receive referrals (route 6), with its profile's department codes (informational). */
+export interface ReferralDestination extends OrderDestination { departments: string[] }
+export interface ReferralAttestation { version: string; text: string }
+
+export type ReferralDestinationChoice = { kind: 'health_id'; facilityId: string } | { kind: 'printed'; facilityName: string; town?: string }
+export interface ReferralSendInput {
+  destination: ReferralDestinationChoice
+  departmentCode: string
+  serviceWanted?: string
+  urgency: ReferralUrgency
+  reason: string
+  letterText: string
+  package: { diagnosisIds?: string[]; prescriptionIds?: string[]; allergyIds?: string[]; vitalIds?: string[]; labResultIds?: string[] }
+  attestationTextVersion: string
+}
+export interface ReferralListQuery { states?: readonly string[]; cursor?: string; limit?: number }
+
+const referralPath = (referralId: string, action?: string) =>
+  `/api/v1/ehr/referrals/${encodeURIComponent(referralId)}${action ? `/${action}` : ''}`
+
+function referralWrite(facilityId: string, idempotencyKey: string) {
+  return { ...facilityHeaders(facilityId, 'direct-care'), ...keyHeaders(idempotencyKey) }
+}
+
+function referralListQuery(query: ReferralListQuery = {}) {
+  return {
+    ...(query.states && query.states.length > 0 ? { state: query.states.join(',') } : {}),
+    ...(query.cursor ? { cursor: query.cursor } : {}),
+    ...(query.limit ? { limit: query.limit } : {}),
+  }
+}
+
+type ReferralRef = Pick<ReferralCard, 'referralId' | 'rowVersion'>
+
+export const referralsApi = {
+  /** Route 1: the current agreement text of a destination kind, read afresh each time the form opens (audited). */
+  attestation: (facilityId: string, destinationKind: ReferralDestinationKind) =>
+    client.get<ReferralAttestation>('/api/v1/ehr/referral-attestation',
+      { query: { destinationKind }, headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false }),
+  /** Route 6 (identity-api): the directory with kind=referral. Never retried: each search counts towards 60 an hour. */
+  destinations: (facilityId: string, query: string, signal?: AbortSignal) =>
+    client.get<{ items: ReferralDestination[] }>('/api/v1/identity/order-destinations', {
+      query: { kind: 'referral', query }, headers: facilityHeaders(facilityId, 'direct-care'), retry: NO_RETRY, dedupe: false,
+      ...(signal ? { signal } : {}) }),
+  /** Route 2: send from a signed visit, to a Health ID facility or as a printed letter. */
+  send: (facilityId: string, patientId: string, encounterId: string, input: ReferralSendInput, idempotencyKey: string) =>
+    client.post<ReferralWithPackage>(`${encounterPath(patientId, encounterId)}/referrals`,
+      { ...input, patientAgreed: true }, { headers: referralWrite(facilityId, idempotencyKey) }),
+  /** Route 3: this facility's sent referrals of the last 90 days (no reason or notes on these cards). */
+  sent: (facilityId: string, query?: ReferralListQuery) =>
+    client.get<ReferralList>('/api/v1/ehr/referrals/sent',
+      { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false, query: referralListQuery(query) }),
+  /** Route 4: the referring facility withdraws, while sent (before respondBy) or printed. */
+  withdraw: (facilityId: string, card: ReferralRef, input: { reasonCode: ReferralWithdrawReason; note?: string }, idempotencyKey: string) =>
+    client.post<ReferralSaved>(referralPath(card.referralId, 'withdraw'),
+      { expectedRowVersion: card.rowVersion, reasonCode: input.reasonCode, ...(input.note ? { note: input.note } : {}) },
+      { headers: referralWrite(facilityId, idempotencyKey) }),
+  /** Route 5: the printable letter. Each call is one print, audited, so it is read only when the letter page opens. */
+  letter: (facilityId: string, referralId: string) =>
+    client.get<ReferralLetter>(referralPath(referralId, 'letter'), { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false }),
+  /** Route 7: one referral, either side; the package by view level. Audited. */
+  read: (facilityId: string, referralId: string) =>
+    client.get<ReferralRead>(referralPath(referralId), { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false }),
+  /** Route 8: this patient's referrals sent from or received at this facility; with encounterId, one visit's. */
+  forPatient: (facilityId: string, patientId: string, encounterId?: string) =>
+    client.get<{ items: ReferralCard[] }>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/referrals`,
+      { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false, ...(encounterId ? { query: { encounterId } } : {}) }),
+  /** Route 9: referrals waiting for this facility's answer, urgent first. */
+  incoming: (facilityId: string) =>
+    client.get<ReferralIncoming>('/api/v1/ehr/referrals/incoming', { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false }),
+  /** Route 10: referrals this facility answered in the last 90 days. */
+  received: (facilityId: string, query?: ReferralListQuery) =>
+    client.get<ReferralList>('/api/v1/ehr/referrals/received',
+      { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false, query: referralListQuery(query) }),
+  /** Route 11: accept, with an optional note to the referring facility. Answers the package. */
+  accept: (facilityId: string, card: ReferralRef, note: string, idempotencyKey: string) =>
+    client.post<ReferralWithPackage>(referralPath(card.referralId, 'accept'),
+      { expectedRowVersion: card.rowVersion, ...(note ? { note } : {}) }, { headers: referralWrite(facilityId, idempotencyKey) }),
+  /** Route 12: decline with a reason and a note (8-500). Works with the control off. */
+  decline: (facilityId: string, card: ReferralRef, input: { reasonCode: ReferralDeclineReason; note: string }, idempotencyKey: string) =>
+    client.post<ReferralSaved>(referralPath(card.referralId, 'decline'),
+      { expectedRowVersion: card.rowVersion, reasonCode: input.reasonCode, note: input.note }, { headers: referralWrite(facilityId, idempotencyKey) }),
+  /** Route 13: the front desk's expected arrivals. */
+  expected: (facilityId: string) =>
+    client.get<ReferralExpectedList>('/api/v1/ehr/referrals/expected', { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false }),
+  /** Route 14: the patient arrived; the server checks them in to the waiting list (0135) by the same matchRef or patientId. */
+  arrive: (facilityId: string, card: ReferralRef, by: ReferralArrivalBy, idempotencyKey: string) =>
+    client.post<ReferralArrival>(referralPath(card.referralId, 'arrive'),
+      { expectedRowVersion: card.rowVersion, ...('matchRef' in by ? { matchRef: by.matchRef } : { patientId: by.patientId }) },
+      { headers: referralWrite(facilityId, idempotencyKey) }),
+  /** Route 15: the outcome and feedback note (the counter-referral). Works with the control off. */
+  complete: (facilityId: string, card: ReferralRef, input: { outcome: ReferralOutcome; feedbackNote: string }, idempotencyKey: string) =>
+    client.post<ReferralSaved>(referralPath(card.referralId, 'complete'),
+      { expectedRowVersion: card.rowVersion, outcome: input.outcome, feedbackNote: input.feedbackNote },
+      { headers: referralWrite(facilityId, idempotencyKey) }),
+}
