@@ -9,14 +9,13 @@ import type { SubmitOutcome } from '../parts/RecordForm'
 import type { Chart } from '../parts/chart'
 import { formatWhen } from '../parts/format'
 import { ErrorBox, Loading } from '../parts/Notices'
-import { StatusBadge } from '../parts/StatusBadge'
 import { useWorkspaceHref } from '../parts/Workspace'
 import { RELOAD_FAILED, recordKey, refusedFieldErrors } from '../triage/records'
-import { Readings } from '../triage/TriageList'
 import {
-  CHANGED_SINCE, CLOSE_CORRECTION, CORRECTION_FAILED, CORRECTION_HINT, CORRECTION_SAVED, CORRECTION_UNREAD, CORRECT_LABEL, EIE_ALREADY, EIE_CHANGED,
-  EIE_CLOSE, EIE_DONE, EIE_LABEL, LOADING_CORRECTION, RELOAD_FIRST, RETRACTED_SINCE, RETRACTED_TEXT, SAVE_CORRECTION, VITAL_FIELDS, WITHDRAWN_CODES,
-  correctionNumber, currentValues, isRetracted, reloadSentence, useCorrections, vitalName, vitalStatus, type Corrections,
+  CHANGED_SINCE, CLOSE_CORRECTION, CORRECTION_FAILED, CORRECTION_HINT, CORRECTION_SAVED, CORRECTION_UNREAD,
+  CORRECT_LABEL, EIE_ALREADY, EIE_CHANGED, EIE_CLOSE, EIE_DONE, EIE_LABEL, LOADING_CORRECTION, RELOAD_FIRST,
+  RETRACTED_SINCE, RETRACTED_TEXT, SAVE_CORRECTION, VITAL_FIELDS, WITHDRAWN_CODES, correctionNumber, currentValues,
+  isRetracted, reloadSentence, useCorrections, vitalSummary, type Corrections,
 } from '../triage/vitals'
 import { EnteredInErrorForm, canWithdraw, type Withdrawal } from '../triage/EnteredInError'
 import { ActionList } from '../parts/Detail'
@@ -31,17 +30,22 @@ export const VITALS_TITLE = 'Vitals'
 export const NO_VITALS = 'No vitals for this encounter.'
 /** The words the Patients page and the sidebar already use for the vitals form. */
 export const RECORD_VITALS = 'Record vitals'
+/** Classic's title for each row of its Vitals tab (staff/routes/Clinical.tsx recordTitle, :417), word for word. */
+export const VITALS_RECORDED = 'Vitals recorded'
 
 /**
  * The encounter's vitals (today's Vitals tab, Clinical.tsx:1849-1858), newest first, on today's record pages, 50 to a
- * page: each with its values and units, its status, and the time it was recorded. A corrected vital shows its current
+ * page: each titled as classic titles it ("Vitals recorded"), with classic's one-line summary of its values
+ * ("BP 120/80 mmHg · 36.6 °C · 80 bpm", vitalSummary, Clinical.tsx:403-413) and the time it was recorded. Only a vital
+ * entered in error has a badge, as in classic (Clinical.tsx:779); the others have none. A corrected vital shows its current
  * correction (read as today's VitalPanel reads it, Clinical.tsx:770-780), its reason and time, and what was first
  * recorded; one whose correction can't be read says so and shows what was first recorded. Each opens its own page in
  * Triage & Vitals. Each row also has classic's inline "Correct these vitals" / "Close correction" (VitalPanel,
  * Clinical.tsx:760-796), for a role that may write vitals under a grant that allows changes, on a vital whose current
  * values are known and that was not entered in error, and, on Novu, EHR-C8b's "Mark as entered in error" for the whole
  * reading. Nothing is read here but a vital's corrections: the list is the encounter page's own (with the readings
- * entered in error, each struck through), read again after either change.
+ * entered in error, each with classic's "Entered in error" badge and RETRACTED_TEXT, never struck through), read again
+ * after either change.
  */
 export function VitalsCard({ chart, encounterId, list, canRecord }: {
   chart: Chart
@@ -78,23 +82,23 @@ export function VitalsCard({ chart, encounterId, list, canRecord }: {
               <li key={vital.id} className="hid-ehr-clinical-consult-record">
                 <div className="hid-ehr-clinical-history-row">
                   <span>
-                    <strong><Link className="hid-ehr-clinical-link" to={href.to('triage', recordKey(encounterId, vital.id))}>{vitalName(vital)}</Link></strong>
+                    <strong><Link className="hid-ehr-clinical-link" to={href.to('triage', recordKey(encounterId, vital.id))}>{VITALS_RECORDED}</Link></strong>
                     {retracted ? <span className="hid-ehr-clinical-cell-sub">{RETRACTED_TEXT}</span> : null}
-                    {correctionNumber(vital) === 0 ? <span className="hid-ehr-clinical-cell-sub"><Readings values={vital} withdrawn={retracted} /></span> : null}
+                    {correctionNumber(vital) === 0 ? <span className="hid-ehr-clinical-cell-sub">{vitalSummary(vital)}</span> : null}
                     {read.state === 'loading' ? <span className="hid-ehr-clinical-cell-sub" role="status">{LOADING_CORRECTION}</span> : null}
                     {latest ? (
                       <>
-                        <span className="hid-ehr-clinical-cell-sub">Corrected (correction {latest.correctionNo}): <Readings values={latest.replacementValues} withdrawn={retracted} /></span>
+                        <span className="hid-ehr-clinical-cell-sub">Corrected (correction {latest.correctionNo}): {vitalSummary(latest.replacementValues)}</span>
                         <span className="hid-ehr-clinical-cell-sub">Reason: {latest.reason}</span>
                         {formatWhen(latest.createdAt) ? <span className="hid-ehr-clinical-cell-sub">Corrected at: {formatWhen(latest.createdAt)}</span> : null}
                       </>
                     ) : null}
                     {read.state === 'failed' ? <span className="hid-ehr-clinical-cell-sub" role="alert">{`${CORRECTION_UNREAD} ${read.message}`}</span> : null}
-                    {correctionNumber(vital) > 0 ? <span className="hid-ehr-clinical-cell-sub">Originally recorded: <Readings values={vital} withdrawn={retracted} /></span> : null}
+                    {correctionNumber(vital) > 0 ? <span className="hid-ehr-clinical-cell-sub">Originally recorded: {vitalSummary(vital)}</span> : null}
                     {recorded ? <span className="hid-ehr-clinical-cell-sub">Recorded: {recorded}</span> : null}
                   </span>
-                  {/* Today's warning badge for vitals entered in error; the shared status map has no tone for it. */}
-                  {retracted ? <Badge size="sm" tone="warn">Entered in error</Badge> : <StatusBadge status={vitalStatus(vital)} />}
+                  {/* Today's warning badge for vitals entered in error, the only badge classic's row has (Clinical.tsx:779). */}
+                  {retracted ? <Badge size="sm" tone="warn">Entered in error</Badge> : null}
                 </div>
                 {(canCorrect && !retracted) || canWithdraw(chart, vital) ? (
                   <VitalActions

@@ -3,9 +3,11 @@ import { HidApiError } from '@hid/http'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConsultWorkspace } from '../../../ehr-blue/clinical/consult/ConsultWorkspace'
 import { NO_CONSENT, OPEN_PATIENT_AGAIN } from '../../../ehr-blue/clinical/consult/encounters'
+import { VITALS_RECORDED } from '../../../ehr-blue/clinical/consult/Vitals'
 import { TriageWorkspace } from '../../../ehr-blue/clinical/triage/TriageWorkspace'
 import {
   EIE_ALREADY, EIE_CHANGED, EIE_DONE, EIE_FAILED, EIE_NOT_FOUND, EIE_NO_ROLE, EIE_UNAVAILABLE, EIE_WARNING, RETRACTED_SINCE, RETRACTED_TEXT, vitalName,
+  vitalSummary,
 } from '../../../ehr-blue/clinical/triage/vitals'
 import { consultationLabel } from '../../../plainLabels'
 import { ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, activePatient, allowedLookup, labelled, renderPage } from './harness'
@@ -14,8 +16,9 @@ import { ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, activePatient, allo
  * EHR-C8b on the blue pages (Novu, hid-system 0142): "Mark as entered in error" for one vitals reading, on its record
  * page in Triage & Vitals and on each row of the consultation's Vitals card. It is offered only to a role that may
  * write vitals, with write access, on a reading not already withdrawn; it asks for the reason, confirms, sends the row
- * version, and reads the vitals again with those entered in error, which then show struck through. Every refusal is in
- * plain words, never the service's own text or code. Everything here is fictional.
+ * version, and reads the vitals again with those entered in error, which then show classic's "Entered in error" badge
+ * and RETRACTED_TEXT, never struck through (release D keeps classic's vitals display). Every refusal is in plain words,
+ * never the service's own text or code. Everything here is fictional.
  */
 
 const api = vi.hoisted(() => ({
@@ -125,7 +128,7 @@ function noCodesOrServerWords() {
 }
 
 describe('Triage & Vitals record: Mark as entered in error', () => {
-  it('reads the reading with those entered in error, so a withdrawn reading’s page still opens, struck through', async () => {
+  it('reads the reading with those entered in error, so a withdrawn reading’s page still opens, said in words', async () => {
     vitals = [WITHDRAWN]
     await openRecord()
     expect(vitalsReads()[0]).toEqual([FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'vitals', { includeEnteredInError: true }])
@@ -310,6 +313,23 @@ describe('Triage & Vitals record: Mark as entered in error', () => {
   })
 })
 
+describe('Triage & Vitals list: a reading entered in error', () => {
+  it('lists it with its status in words, never struck through', async () => {
+    vitals = [WITHDRAWN]
+    renderPage(<TriageWorkspace />, 'triage')
+    const table = await screen.findByRole('table', { name: 'Triage & Vitals' })
+    expect(vitalsReads()[0]).toEqual([FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'vitals', { includeEnteredInError: true }])
+    const row = within(within(table).getByRole('link', { name: vitalName(VITAL) }).closest('tr') as HTMLElement)
+    expect(row.getByText('Entered in error')).toBeTruthy()
+    const value = row.getByText(/120\/80/)
+    for (let node: HTMLElement | null = value; node; node = node.parentElement) {
+      expect(getComputedStyle(node).textDecoration).not.toContain('line-through')
+      expect(node.className).not.toMatch(/withdrawn/)
+    }
+    noCodesOrServerWords()
+  })
+})
+
 describe('New triage & vitals: earlier vitals', () => {
   it('leaves a reading entered in error out of the earlier vitals, and reads no corrections for it', async () => {
     const OTHER_ID = 'f0000000-0000-4000-8000-000000000002'
@@ -335,13 +355,18 @@ describe('Consultation Vitals card: Mark as entered in error on each row', () =>
     renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
     expect(await screen.findByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
     const card = within(screen.getByRole('heading', { level: 2, name: 'Vitals' }).closest('section') as HTMLElement)
-    await card.findByRole('link', { name: vitalName(VITAL) })
+    // Each row is titled as classic's ("Vitals recorded", release D), with classic's one-line summary of its values.
+    await card.findByRole('link', { name: VITALS_RECORDED })
     return card
   }
 
-  it('withdraws one reading and reads the visit’s vitals again, the reading then struck through and labelled', async () => {
+  it('withdraws one reading and reads the visit’s vitals again, the reading then labelled in classic’s words, not struck through', async () => {
     const card = await vitalsCard()
-    const row = () => within((card.getByRole('link', { name: vitalName(VITAL) })).closest('li') as HTMLElement)
+    const row = () => within((card.getByRole('link', { name: VITALS_RECORDED })).closest('li') as HTMLElement)
+    // Before: classic's summary and no badge.
+    expect(row().getByText(vitalSummary(VITAL))).toBeTruthy()
+    expect(row().queryByText('Entered in error')).toBeNull()
+    expect(row().queryByText(RETRACTED_TEXT)).toBeNull()
     expect(vitalsReads()[0]).toEqual([FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'vitals', { includeEnteredInError: true }])
     api.records.mockClear()
     await withdraw(row())
@@ -350,8 +375,13 @@ describe('Consultation Vitals card: Mark as entered in error on each row', () =>
     expect(api.markVitalEnteredInError).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, VITAL_ID, { expectedRowVersion: 3, changeReason: REASON })
     await waitFor(() => expect(vitalsReads()).toEqual([[FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'vitals', { cursor: undefined, fresh: true, includeEnteredInError: true }]]))
     expect(await row().findByText(RETRACTED_TEXT)).toBeTruthy()
+    // Classic's warning badge and words for a reading entered in error; its values still shown, never struck through.
     expect(row().getByText('Entered in error')).toBeTruthy()
-    expect(row().getByText('120/80').closest('.hid-ehr-clinical-readings-withdrawn')).not.toBeNull()
+    const values = row().getByText(vitalSummary(WITHDRAWN))
+    for (let node: HTMLElement | null = values; node; node = node.parentElement) {
+      expect(getComputedStyle(node).textDecoration).not.toContain('line-through')
+      expect(node.className).not.toMatch(/withdrawn/)
+    }
     expect(row().queryByRole('button', { name: 'Mark as entered in error' })).toBeNull()
     expect(row().queryByRole('button', { name: 'Correct these vitals' })).toBeNull()
     noCodesOrServerWords()
@@ -360,7 +390,7 @@ describe('Consultation Vitals card: Mark as entered in error on each row', () =>
   it('says a version conflict in the card and reads the vitals again', async () => {
     api.markVitalEnteredInError.mockRejectedValue(refused(412, 'VERSION_CONFLICT'))
     const card = await vitalsCard()
-    const row = within((card.getByRole('link', { name: vitalName(VITAL) })).closest('li') as HTMLElement)
+    const row = within((card.getByRole('link', { name: VITALS_RECORDED })).closest('li') as HTMLElement)
     await withdraw(row)
     confirm()
     expect((await card.findByRole('alert')).textContent).toBe(`${EIE_CHANGED} The list was reloaded.`)
@@ -371,7 +401,7 @@ describe('Consultation Vitals card: Mark as entered in error on each row', () =>
   it('offers no withdrawal without the vitals write, and never shows the Health ID in a link', async () => {
     staff.permissions = ['ehr.encounter.read', 'ehr.vital.read']
     const card = await vitalsCard()
-    await card.findByRole('link', { name: vitalName(VITAL) })
+    await card.findByRole('link', { name: VITALS_RECORDED })
     expect(card.queryByRole('button', { name: 'Mark as entered in error' })).toBeNull()
     for (const link of screen.queryAllByRole('link')) expect(link.getAttribute('href') ?? '').not.toContain(PATIENT_HID)
     await act(async () => {})

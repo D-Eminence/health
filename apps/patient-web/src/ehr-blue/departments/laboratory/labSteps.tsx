@@ -3,7 +3,7 @@ import { HidApiError, isHidApiError } from '@hid/http'
 import { CheckCheck, Droplet, FlaskConical, History, PackageCheck, Play, RotateCcw, Save, Square, X } from 'lucide-react'
 import { Segmented } from '../../../kasuwa/interactive'
 import { ConfirmSheet, FormActions, Value } from '../../../kasuwa/parts'
-import { Alert, Badge, Button, Card, CardHeader, DescriptionList, Field, Input, Select, Textarea, cx } from '../../../kasuwa/ui'
+import { Alert, Badge, Button, Card, CardHeader, DescriptionList, Field, Input, Select, Textarea } from '../../../kasuwa/ui'
 import {
   staffApi, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultRevision, type LabResultValue, type LabSpecimen,
   type LabWorkItem,
@@ -39,8 +39,6 @@ interface StepBase {
   readonly onDone: (message: string) => void
   readonly onRefused: (caught: unknown) => void
 }
-
-const SAMPLE_TYPES = ['Blood', 'Urine', 'Stool', 'Swab', 'Sputum'] as const
 
 function Problem({ text }: { readonly text: string }) {
   return text ? <Alert intent="error" size="sm">{text}</Alert> : null
@@ -103,8 +101,9 @@ export function CollectStep({ facilityId, permissions, subject, routed, onDone, 
 const ACCESSION_REASON_MAX = 500
 
 /**
- * Classic's accession form (Operations.tsx AccessionForm): the specimen type, and the clinical reason typed by the
- * scientist. The reason starts empty, as on classic: nothing is filled in for them (parity row 12).
+ * Classic's accession form (Operations.tsx AccessionForm): the specimen type, typed into one field with classic's
+ * placeholder and no quick picks, and the clinical reason typed by the scientist. Both start empty, as on classic (parity
+ * row 12); only at the demo facilities, where the price list is served, the type starts with the price list's guess.
  */
 function RegisterForm({ facilityId, permissions, routed, onDone, onRefused, item, defaultType, onRegistered, onListChanged }: StepBase & {
   readonly item: LabWorkItem; readonly defaultType?: string | null
@@ -146,12 +145,6 @@ function RegisterForm({ facilityId, permissions, routed, onDone, onRefused, item
         aria-invalid={errors.type ? true : undefined} aria-describedby={errors.type ? 'lab-collect-type-error' : undefined}
         onChange={event => { setType(event.target.value); setErrors({}) }} />
     </Field>
-    <div className="flex flex-wrap gap-2" role="group" aria-label="Common samples">
-      {SAMPLE_TYPES.map(option => <button key={option} type="button" aria-pressed={type === option}
-        onClick={() => { setType(option); setErrors({}) }}
-        className={cx('inline-flex min-h-11 cursor-pointer items-center rounded-full border-0 px-4 text-[14px] font-medium ring-1 ring-inset',
-          type === option ? 'bg-brand-soft text-brand-ink ring-brand-line' : 'bg-surface text-ink ring-line-strong hover:bg-subtle')}>{option}</button>)}
-    </div>
     <Field label={ACCESSION_WORDS.reason} htmlFor="lab-collect-reason" error={errors.reason} errorId="lab-collect-reason-error">
       <Textarea id="lab-collect-reason" rows={2} maxLength={ACCESSION_REASON_MAX} value={reason}
         aria-invalid={errors.reason ? true : undefined} aria-describedby={errors.reason ? 'lab-collect-reason-error' : undefined}
@@ -160,7 +153,7 @@ function RegisterForm({ facilityId, permissions, routed, onDone, onRefused, item
     <Problem text={problem} />
     {/* Marked busy, not disabled, as on today's page: focus stays on it while it runs, a second press does nothing, and a
         refusal is read beside it. */}
-    <FormActions sticky={false}><Button type="submit" variant="primary" size="lg" icon={Droplet} {...busyMark(busy)}>{ACCESSION_WORDS.button}</Button></FormActions>
+    <FormActions sticky={false}><Button type="submit" variant="primary" size="lg" icon={Droplet} {...busyMark(busy)}>{busy ? ACCESSION_WORDS.creating : ACCESSION_WORDS.button}</Button></FormActions>
   </form>
 }
 
@@ -271,8 +264,8 @@ function SpecimenForm({ facilityId, permissions, subject, routed, onDone, onRefu
       <FormActions sticky={false}>
         {canReject && !rejecting ? <Button id={`lab-reject-open-${id}`} variant="danger" icon={X} onClick={() => reject(true)}>{SPECIMEN_WORDS.reject}</Button> : null}
         {rejecting ? <Button onClick={() => reject(false)}>Cancel</Button> : null}
-        {rejecting ? <Button type="submit" variant="destructive" size="lg" {...busyMark(busy)}>{SPECIMEN_WORDS.reject}</Button>
-          : canStep ? <Button type="submit" variant="primary" size="lg" icon={next.icon} {...busyMark(busy)}>{next.button}</Button> : null}
+        {rejecting ? <Button type="submit" variant="destructive" size="lg" {...busyMark(busy)}>{busy ? SPECIMEN_WORDS.saving : SPECIMEN_WORDS.reject}</Button>
+          : canStep ? <Button type="submit" variant="primary" size="lg" icon={next.icon} {...busyMark(busy)}>{busy ? SPECIMEN_WORDS.saving : next.button}</Button> : null}
       </FormActions>
     </form> : null}
     {next.action === 'collect' ? <ConfirmSheet open={asking} onClose={() => setAsking(false)} title="Collect the sample" subject={subject.banner} busy={busy}
@@ -292,24 +285,25 @@ function StartForm({ facilityId, permissions, routed, onDone, onRefused, specime
   async function start(event: FormEvent) {
     event.preventDefault()
     if (busy) return
-    if (!details.trim()) { setError('Say what is being done, like “Run on the analyser”.'); document.getElementById(`lab-start-${id}`)?.focus(); return }
+    if (!details.trim()) { setError('Enter a reason to begin execution.'); document.getElementById(`lab-start-${id}`)?.focus(); return }
     setBusy(true); setProblem('')
     try { await staffApi.startLabExecution(facilityId, specimen, details.trim(), method); onDone(EXECUTION_WORDS.started) }
     catch (caught) { setProblem(errorText(caught, EXECUTION_WORDS.startFailed, routed)); onRefused(caught) }
     finally { setBusy(false) }
   }
   return <form className="@container flex flex-col gap-4" noValidate onSubmit={event => void start(event)}>
+    <p className="m-0 text-[15px] text-ink-2">Begin analysis for this received specimen. Health ID checks the exact specimen version and patient authorization.</p>
     <div className="grid gap-4 @md:grid-cols-2">
       <Field label="Method" htmlFor={`lab-method-${id}`} optional>
-        <Input id={`lab-method-${id}`} value={method} maxLength={240} autoComplete="off" className="h-11" placeholder="Analyser, microscopy…" onChange={event => setMethod(event.target.value)} />
+        <Input id={`lab-method-${id}`} value={method} maxLength={240} autoComplete="off" className="h-11" onChange={event => setMethod(event.target.value)} />
       </Field>
-      <Field label="What is being done" htmlFor={`lab-start-${id}`} error={error} errorId={`lab-start-${id}-error`}>
+      <Field label="Reason" htmlFor={`lab-start-${id}`} error={error} errorId={`lab-start-${id}-error`}>
         <Input id={`lab-start-${id}`} value={details} maxLength={500} autoComplete="off" className="h-11" aria-invalid={error ? true : undefined}
           aria-describedby={error ? `lab-start-${id}-error` : undefined} onChange={event => { setDetails(event.target.value); setError('') }} />
       </Field>
     </div>
     <Problem text={problem} />
-    <FormActions sticky={false}><Button type="submit" variant="primary" size="lg" icon={Play} loading={busy}>Start test</Button></FormActions>
+    <FormActions sticky={false}><Button type="submit" variant="primary" size="lg" icon={Play} loading={busy}>{busy ? 'Starting…' : 'Start execution'}</Button></FormActions>
   </form>
 }
 
@@ -328,11 +322,11 @@ function FinishForm({ facilityId, permissions, routed, onDone, onRefused, execut
   }
   return <form className="flex flex-col gap-4" noValidate onSubmit={event => void finish(event)}>
     <p className="m-0 text-[15px] text-ink">{execution.test.name}{execution.method ? <span className="text-ink-3"> · {execution.method}</span> : null}</p>
-    <Field label="Notes" htmlFor={`lab-finish-${execution.id}`} optional>
+    <Field label="Completion notes" htmlFor={`lab-finish-${execution.id}`} optional>
       <Input id={`lab-finish-${execution.id}`} value={notes} maxLength={1000} autoComplete="off" className="h-11" onChange={event => setNotes(event.target.value)} />
     </Field>
     <Problem text={problem} />
-    <FormActions sticky={false}><Button type="submit" variant="primary" size="lg" icon={Square} loading={busy}>Finish test</Button></FormActions>
+    <FormActions sticky={false}><Button type="submit" variant="primary" size="lg" icon={Square} loading={busy}>{busy ? 'Completing…' : 'Complete execution'}</Button></FormActions>
   </form>
 }
 
@@ -392,11 +386,11 @@ export function ResultForm({ facilityId, subject, routed, onDone, onRefused, exe
   function check(event: FormEvent) {
     event.preventDefault()
     const found: ResultErrors = {}
-    if (kind === 'numeric' && (!value.trim() || !Number.isFinite(Number(value)))) found.value = 'Enter a number.'
-    if (kind === 'text' && !value.trim()) found.value = 'Type the result.'
+    if (kind === 'numeric' && (!value.trim() || !Number.isFinite(Number(value)))) found.value = 'Enter a valid numeric result.'
+    if (kind === 'text' && !value.trim()) found.value = 'Enter the text result.'
     // A number without its unit can't be read safely (mg/dL or mmol/L?): the unit is required.
     if (kind === 'numeric' && !unit.trim()) found.unit = 'Enter the unit, like g/dL or mmol/L.'
-    if (result && !reason.trim()) found.reason = 'Say why it is changed.'
+    if (result && !reason.trim()) found.reason = 'Explain the correction or amendment.'
     setErrors(found); setProblem('')
     const first = (['value', 'unit', 'reason'] as const).find(field => found[field])
     if (first) { document.getElementById(`lab-${first}-${id}`)?.focus(); return }
@@ -417,6 +411,8 @@ export function ResultForm({ facilityId, subject, routed, onDone, onRefused, exe
       setProblem(errorText(caught, RESULT_WORDS.failed, routed)); onRefused(caught)
     } finally { setBusy(false) }
   }
+  // Classic's button (Operations.tsx ResultEntry), saying "not yet verified" where classic says "unverified" (parity 3.3-68).
+  const saveLabel = result ? RESULT_WORDS.correct : RESULT_WORDS.record
   const control = (field: keyof ResultErrors) => ({
     id: `lab-${field}-${id}`, 'aria-invalid': errors[field] ? true : undefined,
     'aria-describedby': errors[field] ? `lab-${field}-${id}-error` : undefined,
@@ -424,44 +420,44 @@ export function ResultForm({ facilityId, subject, routed, onDone, onRefused, exe
   return <form className="@container flex flex-col gap-4" noValidate onSubmit={check} aria-label={`${result ? 'Correct' : 'Enter'} result: ${execution.test.name}`}>
     <div className="flex flex-wrap items-center justify-between gap-2">
       <p className="m-0 min-w-0 text-title-3 text-ink break-words">{execution.test.name}</p>
-      <Segmented ariaLabel="Kind of result" value={kind} onChange={next => { setKind(next); setErrors({}) }}
-        options={[{ value: 'numeric', label: 'Number' }, { value: 'text', label: 'Text' }]} />
+      <Segmented ariaLabel="Result type" value={kind} onChange={next => { setKind(next); setErrors({}) }}
+        options={[{ value: 'numeric', label: 'Numeric' }, { value: 'text', label: 'Text' }]} />
     </div>
     {kind === 'numeric' ? <div className="grid gap-4 @md:grid-cols-2 @xl:grid-cols-3">
-      <Field label="Result" htmlFor={`lab-value-${id}`} error={errors.value} errorId={`lab-value-${id}-error`}>
+      <Field label="Numeric value" htmlFor={`lab-value-${id}`} error={errors.value} errorId={`lab-value-${id}-error`}>
         <Input {...control('value')} type="number" step="any" inputMode="decimal" value={value} className="h-12 text-[17px] font-semibold tabular"
           onChange={event => { setValue(event.target.value); setErrors({}); follow(event.target.value, range) }} />
       </Field>
       <Field label="Unit" htmlFor={`lab-unit-${id}`} error={errors.unit} errorId={`lab-unit-${id}-error`}>
         <Input {...control('unit')} value={unit} maxLength={80} autoComplete="off" placeholder="g/dL" className="h-12" onChange={event => { setUnit(event.target.value); setErrors({}) }} />
       </Field>
-      <Field label="Normal range" htmlFor={`lab-range-${id}`} optional>
+      <Field label="Reference range" htmlFor={`lab-range-${id}`} optional>
         <Input id={`lab-range-${id}`} value={range} maxLength={240} autoComplete="off" placeholder="12-16" className="h-12"
           onChange={event => { setRange(event.target.value); follow(value, event.target.value) }} />
       </Field>
     </div> : <>
-      <Field label="Result" htmlFor={`lab-value-${id}`} error={errors.value} errorId={`lab-value-${id}-error`}>
+      <Field label="Text value" htmlFor={`lab-value-${id}`} error={errors.value} errorId={`lab-value-${id}-error`}>
         <Textarea {...control('value')} rows={3} maxLength={4000} value={value} onChange={event => { setValue(event.target.value); setErrors({}) }} />
       </Field>
       <div className="grid gap-4 @md:grid-cols-2">
         <Field label="Unit" htmlFor={`lab-unit-${id}`} optional>
           <Input id={`lab-unit-${id}`} value={unit} maxLength={80} autoComplete="off" className="h-11" onChange={event => setUnit(event.target.value)} />
         </Field>
-        <Field label="Normal range" htmlFor={`lab-range-${id}`} optional>
+        <Field label="Reference range" htmlFor={`lab-range-${id}`} optional>
           <Input id={`lab-range-${id}`} value={range} maxLength={240} autoComplete="off" className="h-11" onChange={event => setRange(event.target.value)} />
         </Field>
       </div>
     </>}
-    <Field label="Flag" htmlFor={`lab-flag-${id}`} hint={auto ? 'Set from the normal range. You can change it.' : undefined} hintId={`lab-flag-${id}-hint`}>
+    <Field label="Abnormal flag" htmlFor={`lab-flag-${id}`} hint={auto ? 'Set from the reference range. You can change it.' : undefined} hintId={`lab-flag-${id}-hint`}>
       <Select id={`lab-flag-${id}`} value={flag} aria-describedby={auto ? `lab-flag-${id}-hint` : undefined} className="[&>select]:h-11"
         onChange={event => { setFlag(event.target.value as LabAbnormalFlag); setChosen(true) }}>
         {ABNORMAL_FLAGS.map(option => <option key={option} value={option}>{FLAG_WORDS[option]}</option>)}
       </Select>
     </Field>
     {result ? <>
-      <Segmented ariaLabel="Type of change" value={revisionKind} onChange={setRevisionKind} className="self-start"
+      <Segmented ariaLabel="Revision type" value={revisionKind} onChange={setRevisionKind} className="self-start"
         options={[{ value: 'correction', label: 'Correction' }, { value: 'amendment', label: 'Amendment' }]} />
-      <Field label="Why it is changed" htmlFor={`lab-reason-${id}`} error={errors.reason} errorId={`lab-reason-${id}-error`}>
+      <Field label="Reason" htmlFor={`lab-reason-${id}`} error={errors.reason} errorId={`lab-reason-${id}-error`}>
         <Textarea {...control('reason')} rows={2} maxLength={500} value={reason} onChange={event => { setReason(event.target.value); setErrors({}) }} />
       </Field>
     </> : null}
@@ -469,11 +465,11 @@ export function ResultForm({ facilityId, subject, routed, onDone, onRefused, exe
     <Problem text={problem} />
     <FormActions sticky={false}>
       {onCancel ? <Button onClick={onCancel}>Cancel</Button> : null}
-      <Button type="submit" variant="primary" size="lg" icon={Save}>{result ? 'Save correction' : 'Save result'}</Button>
+      <Button type="submit" variant="primary" size="lg" icon={Save}>{saveLabel}</Button>
     </FormActions>
-    <ConfirmSheet open={asking} onClose={() => setAsking(false)} title={result ? 'Save the correction' : 'Save the result'} subject={subject.banner} busy={busy}
+    <ConfirmSheet open={asking} onClose={() => setAsking(false)} title={saveLabel} subject={subject.banner} busy={busy}
       effect={<>Save <strong className="tabular">{value.trim()}{unit.trim() ? ` ${unit.trim()}` : ''}</strong> as the {execution.test.name} result for <strong>{subject.name}</strong>?</>}
-      undo="It is checked and released in the next step; until then only the lab sees it." confirmLabel={result ? 'Save correction' : 'Save result'} onConfirm={() => void save()} />
+      undo="It is checked and released in the next step; until then only the lab sees it." confirmLabel={saveLabel} onConfirm={() => void save()} />
   </form>
 }
 
@@ -483,7 +479,7 @@ export function ResultValue({ result }: { readonly result: LabResult }) {
   if (!current) return <span className="text-ink-3">Not recorded</span>
   return <span className="flex flex-col gap-0.5">
     <span className="text-[17px]"><Value value={revisionText(current)} unit={current.unit} flag={flagLevel(current.abnormalFlag)} /></span>
-    {current.referenceRange ? <span className="text-caption text-ink-3">Normal range {current.referenceRange}</span> : null}
+    {current.referenceRange ? <span className="text-caption text-ink-3">Reference range {current.referenceRange}</span> : null}
   </span>
 }
 
@@ -580,7 +576,7 @@ export function CheckStep({ facilityId, permissions, subject, routed, onDone, on
         <p className="m-0 text-title-3 text-ink">{execution.test.name}</p>
         <ResultValue result={result} />
       </div>
-      <Badge size="sm" tone={needsVerify ? 'warn' : 'info'}>{needsVerify ? 'To check' : 'Checked, not released'}</Badge>
+      <Badge size="sm" tone={needsVerify ? 'warn' : 'info'}>{needsVerify ? 'Entered, not verified' : 'Verified, not released'}</Badge>
     </div>
     {checkedBySame ? <p className="m-0 text-[14px] text-ink-2">{checkedBySame.text}.</p> : null}
     {selfCheck && can ? <p className="m-0 text-[14px] text-ink-2">{SELF_CHECK_HINT}</p> : null}
@@ -592,14 +588,11 @@ export function CheckStep({ facilityId, permissions, subject, routed, onDone, on
       effect={selfCheck
         ? <>Check version {result.currentVersion} of the {execution.test.name} result for <strong>{subject.name}</strong> yourself?</>
         : needsVerify
-          ? <>Verify version {result.currentVersion} of the {execution.test.name} result for <strong>{subject.name}</strong> after independent review?</>
-          : <>Release verified version {result.currentVersion} of the {execution.test.name} result for <strong>{subject.name}</strong> to authorized readers?</>}
+          ? <>Verify version {result.currentVersion} after independent review.</>
+          : <>Release verified version {result.currentVersion} to authorized readers.</>}
       undo={selfCheck
-        ? 'Your reason is kept with the check, and the result’s history shows it was checked by the same scientist who entered it. '
-          + 'It is released in a separate step; until then only the lab sees it.'
-        : needsVerify
-          ? 'The person who entered it cannot verify it. It is released in a separate step; until then only the lab sees it.'
-          : 'A wrong result can be corrected; every version is kept.'}
+        ? 'Your reason is kept with the check, and the result’s history shows it was checked by the same scientist who entered it.'
+        : needsVerify ? 'The person who entered it cannot verify it.' : undefined}
       confirmLabel={words.action} onConfirm={() => void run()}>
       <Field label={words.reason} htmlFor={reasonId} error={reasonError} errorId={`${reasonId}-error`}
         hint={selfCheck ? `${SELF_CHECK_HINT} ${typed} of ${SELF_CHECK_MAX} characters; at least ${SELF_CHECK_MIN}.` : undefined}
@@ -623,10 +616,10 @@ function sameScientist(entry: LabResultRevision) {
 }
 
 const RELEASE_WORDS: Readonly<Record<LabResultRevision['releaseStatus'], string>> = {
-  not_released: 'not released', verified_not_released: 'checked, not released', released: 'released',
+  not_released: 'not released', verified_not_released: 'verified, not released', released: 'released',
 }
 const CHECK_WORDS: Readonly<Record<LabResultRevision['verificationStatus'], string>> = {
-  unverified: 'Not checked', verified: 'Checked', entered_in_error: 'Entered in error',
+  unverified: 'Not verified', verified: 'Verified', entered_in_error: 'Entered in error',
 }
 
 /**
@@ -681,9 +674,9 @@ export function ResultHistory({ facilityId, execution, onRefused }: {
           <div className="px-4 pb-3"><DescriptionList items={[
             ['Value', `${revisionText(entry)}${entry.unit ? ` ${entry.unit}` : ''} · ${FLAG_WORDS[entry.abnormalFlag]}`],
             ['Entered', dateText(entry.enteredAt)],
-            ['Checked', CHECK_WORDS[entry.verificationStatus]],
+            ['Verification', CHECK_WORDS[entry.verificationStatus]],
             entry.releasedAt ? ['Released', dateText(entry.releasedAt)] : null,
-            entry.referenceRange ? ['Normal range', entry.referenceRange] : null,
+            entry.referenceRange ? ['Reference range', entry.referenceRange] : null,
             entry.correctionReason ? ['Reason', entry.correctionReason] : null,
           ]} />{sameScientist(entry)}</div>
         </details></li>)}

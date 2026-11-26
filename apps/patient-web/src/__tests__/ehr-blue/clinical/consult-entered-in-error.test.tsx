@@ -13,8 +13,9 @@ import { ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, activePatient, allo
 /**
  * EHR-C8a on the blue consultation page (Novu, Release A): a completed consultation offers "Mark as entered in error"
  * under More actions, to a role that may change consultations, with write access, except on the visit that holds the
- * imported paper records. It asks for the reason, says what it does in the form and in its dialog, sends the row
- * version, and reads the visit and its records again. Each refusal says what to do first, in plain words, with the way
+ * imported paper records. It asks for the reason, says what it does beside the form's button, and is sent in one press
+ * from that form, as classic's status form sends it (no confirm dialog: parity row 18c, release D, keeps the decision
+ * dialog for Cancel only). It sends the row version, and reads the visit and its records again. Each refusal says what to do first, in plain words, with the way
  * to the card it names; a stale version is read again as before. Everything here is fictional.
  */
 
@@ -109,13 +110,13 @@ function submitOf(name: string) {
   return actions().getAllByRole('button', { name }).find(button => button.getAttribute('type') === 'submit')!
 }
 
-/** Chooses "Mark as entered in error", gives the reason, presses its submit and says yes in the dialog. */
+/** Chooses "Mark as entered in error", gives the reason and presses its submit, which sends it (no dialog, row 18c). */
 function markEnteredInError() {
   fireEvent.click(actions().getByRole('button', { name: /^More actions/ }))
   fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: LABEL }))
   fireEvent.change(actions().getByLabelText(labelled('Reason for change')), { target: { value: REASON } })
   fireEvent.click(submitOf(LABEL))
-  fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: LABEL }))
+  expect(screen.queryByRole('alertdialog')).toBeNull()
 }
 
 function noCodesOrServerWords() {
@@ -140,14 +141,12 @@ describe('Consultation: a completed visit marked as entered in error (EHR-C8a)',
     expect(submitOf(LABEL).getAttribute('aria-describedby')).toBe(warning.id)
     expect(actions().queryByText(/Closing or cancelling/)).toBeNull()
     fireEvent.change(actions().getByLabelText(labelled('Reason for change')), { target: { value: `  ${REASON} ` } })
-    fireEvent.click(submitOf(LABEL))
-    const dialog = screen.getByRole('alertdialog')
-    expect(within(dialog).getByRole('heading', { name: `${LABEL}?` })).toBeTruthy()
-    expect(document.getElementById(dialog.getAttribute('aria-describedby')!)!.textContent).toBe(COMPLETED_ERROR_WARNING)
     expect(api.updateEncounter).not.toHaveBeenCalled()
     const checks = api.lookupPatient.mock.calls.length
     api.records.mockClear()
-    fireEvent.click(within(dialog).getByRole('button', { name: LABEL }))
+    // One press of the form's own button sends it: release D's row 18c, no confirm dialog for entered in error.
+    fireEvent.click(submitOf(LABEL))
+    expect(screen.queryByRole('alertdialog')).toBeNull()
     expect(await screen.findByText(ENCOUNTER_STATUS_UPDATED)).toBeTruthy()
     expect(api.updateEncounter).toHaveBeenCalledTimes(1)
     expect(api.updateEncounter).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, { expectedRowVersion: 6, changeReason: REASON, status: 'entered_in_error' })
@@ -155,6 +154,18 @@ describe('Consultation: a completed visit marked as entered in error (EHR-C8a)',
     expect(api.lookupPatient.mock.calls.length).toBe(checks + 2)
     expect(api.records.mock.calls.map(call => call[3]).sort()).toEqual(['clinical-notes', 'lab-requests', 'prescriptions', 'vitals'])
     expect(screen.getAllByText('Entered in error').length).toBeGreaterThan(0)
+    expect(menuLabels()).toEqual([])
+    noCodesOrServerWords()
+  })
+
+  it('is offered to whoever may change consultations, the front desk included', async () => {
+    // The front desk's grants: it reads and changes consultations, and reads none of their notes, vitals or orders.
+    staff.permissions = ['ehr.encounter.read', 'ehr.encounter.write', 'identity.registration.write', 'identity.patient.read']
+    await openEncounter()
+    expect(menuLabels()).toEqual([LABEL])
+    markEnteredInError()
+    expect(await screen.findByText(ENCOUNTER_STATUS_UPDATED)).toBeTruthy()
+    expect(api.updateEncounter).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, { expectedRowVersion: 6, changeReason: REASON, status: 'entered_in_error' })
     expect(menuLabels()).toEqual([])
     noCodesOrServerWords()
   })

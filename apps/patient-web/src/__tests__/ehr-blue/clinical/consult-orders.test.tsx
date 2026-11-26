@@ -1,3 +1,4 @@
+import { formatDateTime } from '@hid/ui/display'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { HidApiError } from '@hid/http'
 import { Route, Routes, useParams } from 'react-router-dom'
@@ -797,7 +798,7 @@ describe('New laboratory (lab request)', () => {
     api.createRecord.mockResolvedValue({ ...labRequest({ status: 'active' }), labHandoff: { state: 'accepted' } })
     await form()
     expect(handling()).toEqual(['draft', 'active'])
-    expect(options('Request handling')).toEqual(['Save as a draft', 'Create active request and send to Lab'])
+    expect(options('Request handling')).toEqual(['Save EHR draft', 'Create active request and send to Lab'])
     expect(screen.getByText('Active creation saves the request, then asks Lab to accept it. If Lab does not, the request stays saved and active, even when an error is shown: '
       + 'check the list before creating it again, then open the request and use Send to Lab.')).toBeTruthy()
     fill()
@@ -859,7 +860,7 @@ describe('New laboratory (lab request)', () => {
     routes.send.mockResolvedValue({})
     const save = await form()
     await waitFor(() => expect(handling()).toEqual(['draft', 'route']))
-    expect(options('Request handling')).toEqual(['Save as a draft', 'Create and send to another laboratory'])
+    expect(options('Request handling')).toEqual(['Save EHR draft', 'Create and send to another laboratory'])
     fill()
     fireEvent.change(field('Priority'), { target: { value: 'stat' } })
     fireEvent.change(field('Request handling'), { target: { value: 'route' } })
@@ -1192,12 +1193,13 @@ describe('A lab request’s page', () => {
     const view = screen.getByRole('button', { name: 'View released results' })
     fireEvent.click(view)
     expect(view.getAttribute('aria-expanded')).toBe('true')
-    expect(await screen.findByText('9.8 g/dL')).toBeTruthy()
+    // Classic's line: the value, then Lab's flag in its words (staff/labRevisions.tsx:47).
+    expect(await screen.findByText('9.8 g/dL · low')).toBeTruthy()
     expect(screen.getByText('Reference range: 12.0-15.5')).toBeTruthy()
     expect(screen.getByText('Result 1')).toBeTruthy()
     // The test leads with its name; its code waits under a closed "More details" (owner decision 33.4).
     const named = screen.getByText(/^Haemoglobin · accepted by Lab /)
-    expect(named.textContent).toBe(`Haemoglobin · accepted by Lab ${formatWhen('2026-10-30T10:00:00.000Z')}`)
+    expect(named.textContent).toBe(`Haemoglobin · accepted by Lab ${formatDateTime('2026-10-30T10:00:00.000Z')}`)
     expect(named.textContent).not.toContain('718-7')
     const details = named.parentElement!.querySelector(':scope > details') as HTMLDetailsElement
     expect(details.open).toBe(false)
@@ -1220,8 +1222,8 @@ describe('A lab request’s page', () => {
     await openOrder('laboratory', LAB)
     fireEvent.click(screen.getByRole('button', { name: 'View released results' }))
     const named = await screen.findByText(/^LOINC 718-7 · accepted by Lab /)
-    // In the app's own date format (formatWhen), as every released-results date is.
-    expect(named.textContent).toBe(`LOINC 718-7 · accepted by Lab ${formatWhen('2026-10-30T10:00:00.000Z')}`)
+    // In classic's date format (toLocaleString), as every released-results date is (Clinical.tsx:931).
+    expect(named.textContent).toBe(`LOINC 718-7 · accepted by Lab ${formatDateTime('2026-10-30T10:00:00.000Z')}`)
     expect(named.parentElement!.querySelector(':scope > details')).toBeNull()
     // The printed result names the test the same way.
     let printed = ''
@@ -1627,9 +1629,9 @@ describe('Where each order stands, under its row in the orders list', () => {
     expect(within(rx).getByText('Twice daily')).toBeTruthy()
     expect(within(rx).getByText(`Recorded: ${formatWhen('2026-10-30T09:00:00.000Z')}`)).toBeTruthy()
     const lab = screen.getByRole('link', { name: 'Laboratory · Haemoglobin' }).closest('li')!
-    // Classic's test code is left off the row: no codes on facility screens.
-    expect(within(lab as HTMLElement).getByText('Routine')).toBeTruthy()
-    expect(within(lab as HTMLElement).queryByText(/718-7/)).toBeNull()
+    // Classic's test code, then the priority (Clinical.tsx:428): a test's code is clinical, not a code the house rule
+    // keeps off facility screens.
+    expect(within(lab as HTMLElement).getByText('718-7 · Routine')).toBeTruthy()
     expect(within(lab as HTMLElement).getByText(`Recorded: ${formatWhen('2026-10-30T09:05:00.000Z')}`)).toBeTruthy()
   })
 
@@ -4307,7 +4309,7 @@ describe('Visit rehearsal (11 Nov): after a send, the order shows it was sent an
   })
 })
 
-describe('Visit rehearsal (11 Nov): a released result in the app’s date format, its flag called out', () => {
+describe('Live, View released results: a released result as classic’s RevisionList says it (staff/labRevisions.tsx)', () => {
   const revision = (abnormalFlag: string, overrides: Record<string, unknown> = {}) => ({
     version: 1, resultType: 'text', numericValue: null, textValue: 'Plasmodium falciparum seen (++)', unit: null, referenceRange: null, abnormalFlag,
     entrySource: 'manual', verificationStatus: 'verified', releaseStatus: 'released', enteredAt: '2026-11-11T12:31:20.000Z',
@@ -4329,33 +4331,32 @@ describe('Visit rehearsal (11 Nov): a released result in the app’s date format
     return screen.findByRole('heading', { name: 'Released results' }).then(() => waitFor(() => expect(screen.getAllByText(/^Result \d$/).length).toBeGreaterThan(0)))
   }
 
-  it('says when it was entered, released and accepted in the app’s own format: day, month in words, 24-hour, no seconds', async () => {
+  it('says when it was entered, released and accepted in the one date format, in Lagos time (Q181 A, Q182 A)', async () => {
     await view(released(revision('abnormal')))
     const text = document.body.textContent ?? ''
-    // Built with the app's own formatter, so the test holds in any time zone (12:31Z is 18:01 in Kolkata, 12 Nov in Auckland).
-    expect(text).toContain(`Entered ${formatWhen('2026-11-11T12:31:20.000Z')}`)
-    expect(text).toContain(`Released ${formatWhen('2026-11-11T12:45:05.000Z')}`)
-    expect(text).toContain(`accepted by Lab ${formatWhen('2026-11-11T12:20:00.000Z')}`)
-    expect(formatWhen('2026-11-11T12:31:20.000Z')).toMatch(/^\d{1,2} [A-Z][a-z]{2} 2026, \d{2}:\d{2}$/)
-    expect(text).not.toMatch(/11\/11\/2026|\d:\d{2}:\d{2}|\b(AM|PM)\b/)
+    expect(text).toContain(`Entered ${formatDateTime('2026-11-11T12:31:20.000Z')} · verified`)
+    expect(text).toContain(`Released ${formatDateTime('2026-11-11T12:45:05.000Z')}`)
+    expect(text).toContain(`accepted by Lab ${formatDateTime('2026-11-11T12:20:00.000Z')}`)
+    expect(text).toContain('Entered 11 Nov 2026, 13:31 · verified')
   })
 
-  it.each([['abnormal', 'Abnormal'], ['high', 'High'], ['low', 'Low'], ['critical_candidate', 'Possibly critical']])(
-    'calls out the %s flag in a word with its icon, not in lower-case text', async (flag, word) => {
+  it.each([['abnormal', 'abnormal'], ['high', 'high'], ['low', 'low'], ['critical_candidate', 'critical candidate'], ['normal', 'normal'], ['unknown', 'unknown']])(
+    'writes the %s flag after the value in Lab’s words, as classic’s line (labRevisions.tsx:47)', async (flag, words) => {
       await view(released(revision(flag)))
-      const value = screen.getByText('Plasmodium falciparum seen (++)')
-      const called = within(value).getByText(word)
-      expect(called.querySelector('svg')).toBeTruthy()
-      // Lab's critical_candidate is unconfirmed: never the bare word "Critical", as the printed result says it.
-      expect(within(value).queryByText('Critical')).toBeNull()
-      expect(value.textContent).not.toMatch(/·\s*(abnormal|high|low|critical candidate)\b/)
+      const value = screen.getByText(`Plasmodium falciparum seen (++) · ${words}`)
+      expect(value.querySelector('svg')).toBeNull()
     })
 
-  it('says a normal result is normal in words, and says nothing of a flag the lab did not set', async () => {
-    await view(released(revision('normal', { textValue: 'No parasites seen' }), revision('unknown', { textValue: 'Film unreadable' })))
-    expect(screen.getByText('No parasites seen · Normal')).toBeTruthy()
-    expect(screen.getByText('Film unreadable').textContent).toBe('Film unreadable')
-    expect(document.body.textContent).not.toMatch(/\bunknown\b/)
+  it('says a revision was checked by the same scientist who entered it, with their reason where Lab sends one (owner decision 33.3)', async () => {
+    await view(released(
+      revision('normal', { textValue: 'No parasites seen', checkedBySamePerson: true, selfCheckReason: 'Only scientist on the night shift' }),
+      revision('normal', { textValue: 'Film clear', checkedBySamePerson: true }),
+      revision('normal', { textValue: 'Second film clear' }),
+    ))
+    expect(screen.getByText('Checked by the same scientist who entered it. Their reason: Only scientist on the night shift')).toBeTruthy()
+    const results = screen.getAllByText(/^Result \d$/).map(result => result.closest('.hid-ehr-clinical-orders-result') as HTMLElement)
+    expect(within(results[1]!).getByText('Checked by the same scientist who entered it')).toBeTruthy()
+    expect(within(results[2]!).queryByText(/Checked by the same scientist/)).toBeNull()
   })
 })
 

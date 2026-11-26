@@ -54,7 +54,7 @@ export async function readPage<P extends Page<unknown>>(read: (cursor: string | 
 
 /**
  * How a record list is read here: Novu's vitals list leaves readings marked entered in error out unless asked
- * (EHR-C8b), and the blue pages show them as EHR answers them, struck through with "Entered in error", so a reading
+ * (EHR-C8b), and the blue pages show them as EHR answers them, with classic's "Entered in error" words, so a reading
  * just withdrawn stays on its page and in its list. Other kinds, and an earlier backend, are read as before.
  */
 export function listRead(kind: RecordKind): Pick<RecordsRequest, 'includeEnteredInError'> {

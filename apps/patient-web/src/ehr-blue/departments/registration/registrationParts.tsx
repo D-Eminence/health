@@ -1,10 +1,15 @@
 import { useCallback, useId, useRef, useState, type ReactNode } from 'react'
 import { focusIsWithin } from '../../../staff/fieldProblem'
 import { useFocusById } from '../../../staff/focus'
+import { DeptNotice } from '../parts/DeptNotice'
+import { ERROR_TITLE } from './registrationText'
 
-/** The design's ErrorBox: a refusal after an action, or a read that failed. */
+/**
+ * The design's ErrorBox: a refusal after an action, or a read that failed, under classic's title "That didn’t work"
+ * (Registration.tsx 301), as every refusal on classic's page is (parity 3.3-60 to 3.3-63).
+ */
 export function ErrorBox({ message }: { readonly message: string }) {
-  return message ? <div role="alert" className="hid-ehr-dept-registration-error">{message}</div> : null
+  return message ? <DeptNotice role="alert" tone="critical" title={ERROR_TITLE}>{message}</DeptNotice> : null
 }
 
 interface Shown {

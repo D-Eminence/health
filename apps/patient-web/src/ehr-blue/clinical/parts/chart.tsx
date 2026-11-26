@@ -47,12 +47,13 @@ const ChartContext = createContext<ChartValue | null>(null)
 type WriteAnswer = { readonly allowed: boolean; readonly failed: boolean }
 
 /**
- * The open patients whose re-check (Chart.verify) passed, at the facility and patient it was for, read by
- * Chart.checked. Any passed check counts, wherever it was made: the encounter list's, or an earlier save in any
- * workspace (a triage save hours ago, for example). Keyed on the open patient as the staff session holds it, so a new
- * lookup clears it.
+ * The visit list's passed check, handed on to the one visit opened from it (Chart.passOn, Chart.checked): for each open
+ * patient, the latest pass and the facility and patient it was for. A pass is used once; a visit reached any other way
+ * (by its address, from another page, by going back to it later) checks again. Keyed on the open patient as the staff
+ * session holds it, so a new lookup clears it.
  */
-const passedChecks = new WeakMap<object, string>()
+const passes = new WeakMap<object, { readonly token: string; readonly scope: string }>()
+let passCount = 0
 
 /**
  * What the current grant permits, asked once per open patient and shared by every workspace's chart, as classic's one
@@ -132,15 +133,17 @@ export interface Chart {
    */
   readonly verify: () => Promise<void>
   /**
-   * The chart's check, reused: resolves at once when `verify` already passed for the patient as open now (a new grant
-   * or a new lookup is checked afresh), else runs it. For reads only, as a visit opened from the list (which checked):
-   * classic checks on loading the encounters, not again on choosing one (staff/routes/Clinical.tsx:1316, :1838). The
-   * reuse is not limited to that move: any earlier passed check for the open patient counts (a save in another
-   * workspace, say), so a visit reached by its address after one makes no lookup either, and access that has ended
-   * since is answered by the server's refusal of the read, not ACCESS_ENDED. Only a page reached with no check yet
-   * made checks before it reads. Every save calls `verify`.
+   * The visit list's check handed on to the visit opened from it: called once the list's own check (`verify`) has
+   * passed, it answers a pass for the visit link's router state (never the address). Classic checks on loading the
+   * encounters, not again on choosing one (staff/routes/Clinical.tsx:1316, :1838).
    */
-  readonly checked: () => Promise<void>
+  readonly passOn: () => string
+  /**
+   * The check before a visit is read: resolves at once for the pass the visit list handed on (`passOn`), used once and
+   * only for the patient open now, else runs `verify`, so a visit reached by its address, or again later, checks as
+   * classic's every Clinical load does (Clinical.tsx:1316) and an ended access says ACCESS_ENDED. Every save calls `verify`.
+   */
+  readonly checked: (pass: unknown) => Promise<void>
   /** Close the patient and show "Access to this patient ended", after a refusal seen elsewhere. */
   readonly endAccess: () => void
 }
@@ -188,11 +191,21 @@ export function useChart(): Chart | null {
       endAccess()
       throw new PlainError(ACCESS_ENDED)
     }
-    passedChecks.set(activePatient, JSON.stringify([facilityId, patientId]))
   }, [activePatient, endAccess, facilityId, patientId])
 
-  const checked = useCallback(async () => {
-    if (activePatient && passedChecks.get(activePatient) === JSON.stringify([facilityId, patientId])) return
+  const passOn = useCallback(() => {
+    if (!activePatient) return ''
+    const token = `pass-${++passCount}`
+    passes.set(activePatient, { token, scope: JSON.stringify([facilityId, patientId]) })
+    return token
+  }, [activePatient, facilityId, patientId])
+
+  const checked = useCallback(async (pass: unknown) => {
+    const held = activePatient ? passes.get(activePatient) : undefined
+    if (activePatient && held && typeof pass === 'string' && held.token === pass && held.scope === JSON.stringify([facilityId, patientId])) {
+      passes.delete(activePatient)
+      return
+    }
     await verify()
   }, [activePatient, facilityId, patientId, verify])
 
@@ -214,10 +227,11 @@ export function useChart(): Chart | null {
       writeNotice,
       can,
       verify,
+      passOn,
       checked,
       endAccess,
     }
-  }, [activePatient, can, checked, context.ended, endAccess, facilityId, facilityName, patientId, verify, writeAccess])
+  }, [activePatient, can, checked, context.ended, endAccess, facilityId, facilityName, passOn, patientId, verify, writeAccess])
 }
 
 /**

@@ -1,3 +1,4 @@
+import { formatPhone } from '@hid/ui/display'
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { ChevronRight, FileText, Printer, RotateCcw, Search } from 'lucide-react'
@@ -82,7 +83,7 @@ export function Results() {
                 className="flex min-h-11 items-center gap-3 rounded-xl bg-surface p-4 text-ink no-underline shadow-[var(--shadow-card)] ring-1 ring-line hover:bg-subtle">
                 <span className="min-w-0 flex-1">
                   <span className="block text-title-3 text-ink break-words">{person.name}</span>
-                  <span className="block text-caption text-ink-2">{[ageSex(person), person.phone].filter(Boolean).join(' · ')}</span>
+                  <span className="block text-caption text-ink-2">{[ageSex(person), formatPhone(person.phone)].filter(Boolean).join(' · ')}</span>
                   <span className="mt-1 block text-[15px] font-medium text-ink break-words">{item.testName ?? 'Lab test'}</span>
                   {released ? <span className="block text-caption text-ink-3">Released {stampText(released)}</span> : null}
                 </span>
@@ -129,7 +130,7 @@ function ResultView({ facilityId, item, permissions }: { readonly facilityId: st
           {released.map(({ execution, revision }) => <li key={execution.id} className="flex flex-col gap-0.5 py-3 first:pt-0 last:pb-0">
             <span className="text-[15px] font-medium text-ink">{execution.test.name}</span>
             <span className="text-[19px]"><Value value={revisionText(revision)} unit={revision.unit} flag={flagLevel(revision.abnormalFlag)} /></span>
-            <span className="text-caption text-ink-3">{[revision.referenceRange ? `Normal range ${revision.referenceRange}` : null,
+            <span className="text-caption text-ink-3">{[revision.referenceRange ? `Reference range ${revision.referenceRange}` : null,
               revision.releasedAt ? `Released ${stampText(revision.releasedAt)}` : null].filter(Boolean).join(' · ')}</span>
             {sameScientistCheck(revision) ? <span className="text-caption text-ink-2">{SAME_SCIENTIST}</span> : null}
           </li>)}

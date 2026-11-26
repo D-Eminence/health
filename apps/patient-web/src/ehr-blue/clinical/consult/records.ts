@@ -181,7 +181,7 @@ export function pagerProps(list: RecordList<unknown>) {
 export function useRecordList(chart: Chart, encounterId: string, kind: RecordKind, enabled: boolean, learn?: (answer: Page<ClinicalRecord>) => void): RecordList<ClinicalRecord> {
   const { facilityId, patientId } = chart
   const told = <P extends Page<ClinicalRecord>>(answer: P) => { learn?.(answer); return answer }
-  // Novu's vitals are read with those entered in error (listRead), so each shows struck through, as EHR answers it.
+  // Novu's vitals are read with those entered in error (listRead), so each shows with "Entered in error", as EHR answers it.
   const reader: Reader<ClinicalRecord> = {
     first: async () => told(await readRecords({ facilityId, patientId }, encounterId, kind)),
     page: async (cursor, fresh) => told(await readRecords({ facilityId, patientId }, encounterId, kind, { cursor, fresh })),

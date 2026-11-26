@@ -1,3 +1,4 @@
+import { formatDateTime } from '@hid/ui/display'
 import { useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
@@ -12,7 +13,7 @@ import { staffApi, staffInvitationApi, type StaffInvitationOpened, type StaffInv
 import { invitationLinkOf, staffJoinAddress, type InvitationLink } from '../../../staff/invitationCapture'
 import { licenceBodyForRole, roleNameInSentence } from '../../../staff/staffAccess'
 import { isRouteMissing, joinProblemText } from '../../../staff/staffProblems'
-import { BlueAuthLayout, NOTE, siteName } from './BlueAuthLayout'
+import { authHrefs, BlueAuthLayout, NOTE, siteName } from './BlueAuthLayout'
 
 /*
  * Joining a facility by invitation, in the redesign's auth look, working as today's page does
@@ -58,10 +59,7 @@ function SupportLink() {
 }
 
 function when(value: string | null | undefined): string | null {
-  if (!value) return null
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? null
-    : new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short' }).format(parsed)
+  return formatDateTime(value) || null
 }
 
 function FocusedHeading({ id, children }: { readonly id: string; readonly children: ReactNode }) {
@@ -164,14 +162,18 @@ function InvitationSteps() {
   }
 
   return (
+    // Classic's header link to the staff sign-in (staff/routes/StaffInvitation.tsx:172; parity report 3.3-46). The row of
+    // other ways in and the boxed alerts are the redesign's auth look (README.md).
     <BlueAuthLayout title={accepted ? 'You’ve joined.' : 'Join your facility.'} titleId="blue-invitation-title"
+      headerLink={{ href: authHrefs().signIn, label: 'Sign in' }}
       lede="Open the invitation your facility sent you, then set up your Health ID staff account.">
       {error ? <Alert intent="error" size="sm">{error}</Alert> : null}
 
       {unavailable ? (
         <section className="staff-form" aria-labelledby="blue-invitation-unavailable-title">
-          <FocusedHeading id="blue-invitation-unavailable-title">Invitations aren’t available yet</FocusedHeading>
-          <p className={NOTE}>Joining a facility by invitation isn’t available on Health ID yet. Please try again later.</p>
+          {/* Classic's words (staff/routes/StaffInvitation.tsx:177-178; parity report 3.3-46). */}
+          <FocusedHeading id="blue-invitation-unavailable-title">Invitations aren’t available</FocusedHeading>
+          <p className={NOTE}>Joining a facility by invitation isn’t available. Contact the facility that invited you.</p>
         </section>
       ) : null}
 

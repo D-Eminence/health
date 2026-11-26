@@ -1,10 +1,10 @@
 import { HEALTH_ID_PREFIX, normalizeHealthIdInput } from '@hid/contracts'
+import { plainErrorText } from '@hid/http'
 import { Send } from 'lucide-react'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { FormActions, FormPage } from '../../../kasuwa/parts'
 import { Alert, Button, Card, Field, Input, Textarea, cx } from '../../../kasuwa/ui'
 import { staffApi } from '../../../staff/api'
-import { failureText } from '../parts/chart'
 import type { FieldErrors, FormValues } from '../parts/RecordForm'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 import {
@@ -66,7 +66,6 @@ export function RequestAccess() {
   const [errors, setErrors] = useState<FieldErrors>({})
   const [formError, setFormError] = useState<ReactNode>(null)
   const [message, setMessage] = useState('')
-  const [sent, setSent] = useState(0)
   const [busy, setBusy] = useState(false)
   const [focusRequest, setFocusRequest] = useState<{ key: Key; n: number } | null>(null)
   // A problem refused from Enter in its own field: focus does not move there, so the field's description would not be
@@ -74,14 +73,11 @@ export function RequestAccess() {
   // staff/useFieldProblems.tsx:12-15,25-27,45); as both it would be spoken twice.
   const [alerted, setAlerted] = useState<{ key: Key; n: number } | null>(null)
   const sending = useRef(false)
-  const status = useRef<HTMLDivElement>(null)
   const unavailable = actionUnavailable(METHOD_ROUTES.request, permissions, administratorOf(facility, permissions))
   const unavailableId = `${id}-unavailable`
 
   // The first problem gets focus as it is shown.
   useLayoutEffect(() => { if (focusRequest) document.getElementById(`${id}-${focusRequest.key}`)?.focus() }, [focusRequest, id])
-  // A request sent: focus goes to what happened, so it is heard.
-  useLayoutEffect(() => { if (sent) status.current?.focus() }, [sent])
   const clear = (key: Key) => setErrors(current => {
     if (!(key in current)) return current
     const next = { ...current }
@@ -110,11 +106,13 @@ export function RequestAccess() {
       // Said in words: never the request's id (owner rule, IDs on screen; Patients.tsx:182). Today's form keeps what was
       // typed after a send (Patients.tsx:181-184), so this one does too.
       await staffApi.requestAccess(facility.id, normalizeHealthIdInput(hid), scope, reason.trim(), REQUEST_MINUTES)
+      // Focus stays on Send access request, as today's does (Patients.tsx:262): the status region, mounted throughout,
+      // announces the sentence (Patients.tsx:272-273).
       setMessage(REQUEST_SENT)
-      setSent(value => value + 1)
     } catch (caught) {
-      // Today's words for a request that failed (Patients.tsx:226), and the chart's words for an unknown Health ID.
-      setFormError(failureText(caught, COMMAND_FAILED))
+      // Today's words for a request that failed (Patients.tsx:183-190, 226): plainErrorText for the facility, with no
+      // words of the chart's own, so an unknown Health ID reads as today's 404 sentence (parity 22a).
+      setFormError(plainErrorText(caught, COMMAND_FAILED, { audience: 'facility' }))
     } finally {
       sending.current = false
       setBusy(false)
@@ -153,7 +151,9 @@ export function RequestAccess() {
               onChange={event => { setReason(event.target.value); clear('reason') }} />
           </Field>
 
-          <div ref={status} tabIndex={-1} role="status" className="outline-none empty:hidden">
+          {/* Mounted throughout and never display:none, so what a send says is announced (Patients.tsx:272-273); while
+              empty it takes no room (it cancels the form's gap above it). */}
+          <div role="status" className="empty:-mt-5">
             {message ? <Alert intent="success" live={false}>{message}</Alert> : null}
           </div>
           {/* Today's error has no title of its own (Patients.tsx:271). */}

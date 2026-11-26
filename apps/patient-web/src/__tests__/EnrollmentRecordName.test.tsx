@@ -1,3 +1,4 @@
+import { formatTime } from '@hid/ui/display'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, within } from '@testing-library/react'
 import { Enrollment } from '../routes/Enrollment'
@@ -272,7 +273,7 @@ describe('"Use a different NIN" at the contact, code and password steps', () => 
   /** On a whole minute, so the time said is exactly this one. */
   const SOON = new Date(Math.floor((Date.now() + 20 * 60 * 1000) / 60_000) * 60_000).toISOString()
   const PAST = new Date(Date.now() - 60 * 1000).toISOString()
-  const at = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  const at = (iso: string) => formatTime(iso)
   const TIED = (until: string) => `You continued with Google for this registration, so a different NIN can be used here only after ${until}. `
     + 'If the name is not yours, stop here and come back then.'
   const TIED_UNNAMED = (until: string) => `You continued with Google for this registration, so a different NIN can be used here only ${until}. `

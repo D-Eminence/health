@@ -52,7 +52,7 @@ export interface RowOpenAction {
  * line, the context, when it was updated, then its two actions), so nothing scrolls sideways (owner, 2026-10-31). A row
  * opens through its link, its action (`open`), or not at all.
  */
-export function RecordTable({ caption, rows, hrefFor, loading = false, emptyTitle = 'No matching records', emptyMessage, emptyAction, contextHeader = 'Patient / context', updatedHeader = 'Updated', notice }: {
+export function RecordTable({ caption, rows, hrefFor, stateFor, loading = false, emptyTitle = 'No matching records', emptyMessage, emptyAction, contextHeader = 'Patient / context', updatedHeader = 'Updated', notice }: {
   caption: string
   /** The second column's heading. In one patient's chart it names what the row holds, never the patient again. */
   contextHeader?: string
@@ -60,6 +60,8 @@ export function RecordTable({ caption, rows, hrefFor, loading = false, emptyTitl
   updatedHeader?: string
   rows: readonly RecordRow[]
   hrefFor: (row: RecordRow) => string
+  /** The router state a row's link carries, when its page needs one (never anything for the address). */
+  stateFor?: (row: RecordRow) => unknown
   loading?: boolean
   emptyTitle?: ReactNode
   emptyMessage: ReactNode
@@ -76,7 +78,7 @@ export function RecordTable({ caption, rows, hrefFor, loading = false, emptyTitl
   /** The Record name or "Open →": the row's link, its action drawn as that link, or (`open: null`) plain text and nothing. */
   function opener(row: RecordRow, text: string, label?: string) {
     if (row.open === null) return label ? null : <span>{text}</span>
-    if (!row.open) return <Link className="hid-ehr-clinical-link" to={hrefFor(row)} aria-label={label}>{text}</Link>
+    if (!row.open) return <Link className="hid-ehr-clinical-link" to={hrefFor(row)} state={stateFor?.(row)} aria-label={label}>{text}</Link>
     const { onOpen, busy = false, unavailable = null } = row.open
     return (
       <button
@@ -97,7 +99,7 @@ export function RecordTable({ caption, rows, hrefFor, loading = false, emptyTitl
   function openFull(row: RecordRow) {
     if (row.open === null) return null
     const action = row.open
-    if (!action) return <EhrButton onClick={() => { const to = hrefFor(row); setViewingId(null); navigate(to) }}>Open full record</EhrButton>
+    if (!action) return <EhrButton onClick={() => { const to = hrefFor(row); setViewingId(null); navigate(to, { state: stateFor?.(row) }) }}>Open full record</EhrButton>
     const { onOpen, busy = false, unavailable = null } = action
     return (
       <>

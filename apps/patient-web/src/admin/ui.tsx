@@ -1,3 +1,4 @@
+import { formatDateTime } from '@hid/ui/display'
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { ChevronLeft, ChevronRight, Inbox, RefreshCw, RotateCcw } from 'lucide-react'
 import {
@@ -21,11 +22,7 @@ export function label(value: string) {
 }
 
 export function date(value: string | null | undefined) {
-  if (!value) return 'Not available'
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? 'Not available' : new Intl.DateTimeFormat('en-NG', {
-    dateStyle: 'medium', timeStyle: 'short',
-  }).format(parsed)
+  return formatDateTime(value, 'Not available')
 }
 
 export interface Resource<T> {

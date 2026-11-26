@@ -1,5 +1,5 @@
 import { useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { ArrowRight, Check, CircleCheck, PackagePlus, PackageX, TriangleAlert, Undo2 } from 'lucide-react'
+import { ArrowRight, Check, CircleCheck, PackagePlus, PackageX, TriangleAlert } from 'lucide-react'
 import { FormActions, PatientBanner, Value } from '../../../kasuwa/parts'
 import { Badge, Button, Card, CardHeader, cx } from '../../../kasuwa/ui'
 import { useConfirm } from '../../clinical/parts/confirm'
@@ -42,25 +42,21 @@ import { billOf, billOwing, paysFirst, stockOf } from './pocFields'
 
 /**
  * What a failed dispensing or reversal says, as classic's PharmacyAction says it (staff/routes/Operations.tsx): errorText
- * with "Pharmacy action could not be recorded.", so no connection, signed out, Health ID unavailable, too many tries, a
- * prescription changed meanwhile and a reversal with nothing to reverse read as on classic (parity row 11b). Screens
- * never repeat the server's words: errorText says only the page's own sentences and the words every page shares. Three
- * refusals keep the blue page's sentence, as they change what the pharmacist does next: a refusal for the role says
- * Pharmacy's own refusal with the work refused (`refusedFor`, pharmacyRefusalText), so a facility's own administrator is
- * never told to ask themselves; a request with no answer in time may already be recorded; and a medicine already
- * recorded as handed over must never look like a passing glitch.
+ * with "Pharmacy action could not be recorded.", so no connection, no answer in time, signed out, no access, Health ID
+ * unavailable, too many tries, a prescription changed meanwhile, one already dispensed and a reversal with nothing to
+ * reverse read as on classic (parity row 11b). Screens never repeat the server's words: errorText says only the page's
+ * own sentences and the words every page shares.
  */
-function failureOf(caught: unknown, reverse: boolean, refusedFor: (work: string) => string): string {
-  if (isHidApiError(caught)) switch (caught.code) {
-    // Pharmacy may have recorded it before the wait ran out: the list says so before anything is pressed again.
-    case 'REQUEST_TIMEOUT': return 'Health ID took too long to answer, so this may already be recorded. Go back to Prescriptions '
-      + 'and refresh the list to check before you try again.'
-    case 'PHARMACY_ACCESS_DENIED': return refusedFor(reverse ? 'reversing a dispensing' : 'dispensing medicines')
-    case 'PHARMACY_WORK_ITEM_ALREADY_DISPENSED': return 'This prescription is already recorded as dispensed. Go back to '
-      + 'Prescriptions and refresh the list before you hand anything over.'
-  }
+function failureOf(caught: unknown): string {
   return errorText(caught, ACTION_FAILED)
 }
+
+/** Accept's words when Pharmacy may have recorded it before the wait ran out: the list says so before anything is pressed again. */
+const ACCEPT_TIMED_OUT = 'Health ID took too long to answer, so this may already be recorded. Go back to Prescriptions '
+  + 'and refresh the list to check before you try again.'
+/** Accept's words for a medicine already recorded as handed over, which must never look like a passing glitch. */
+const ACCEPT_ALREADY_DISPENSED = 'This prescription is already recorded as dispensed. Go back to '
+  + 'Prescriptions and refresh the list before you hand anything over.'
 
 /** Today's portal's words when a dispensing or reversal fails (staff/routes/Operations.tsx PharmacyAction). */
 const ACTION_FAILED = 'Pharmacy action could not be recorded.'
@@ -83,10 +79,11 @@ function acceptFailureOf(caught: unknown, refusedFor: (work: string) => string):
     case 'NETWORK_ERROR': return { text: 'We couldn’t reach Health ID. Check your internet connection and try again.', retry: true }
     case 'AUTHENTICATION_REQUIRED': return { text: 'Your session has ended. Sign in again to continue.', retry: false }
     case 'PHARMACY_ACCESS_DENIED': return { text: refusedFor('accepting prescriptions'), retry: false }
+    case 'REQUEST_TIMEOUT': return { text: ACCEPT_TIMED_OUT, retry: false }
+    case 'PHARMACY_WORK_ITEM_ALREADY_DISPENSED': return { text: ACCEPT_ALREADY_DISPENSED, retry: false }
   }
-  const text = failureOf(caught, false, refusedFor)
-  return { text, retry: !['REQUEST_TIMEOUT', 'PHARMACY_WORK_ITEM_ALREADY_DISPENSED', 'ORDER_ROUTE_CLOSED'].includes(caught.code)
-    && text !== MODULE_NOT_IN_SERVICE }
+  const text = failureOf(caught)
+  return { text, retry: caught.code !== 'ORDER_ROUTE_CLOSED' && text !== MODULE_NOT_IN_SERVICE }
 }
 
 /**
@@ -166,8 +163,6 @@ function ActionField({ id, label, hint, error, full, children }: {
   )
 }
 
-type ActionKind = 'dispense' | 'reverse'
-
 /** The picking checklist: each step ticked as it is done at the shelf, before the medicine is handed over. */
 type CheckStep = 'picked' | 'counted' | 'label'
 
@@ -219,8 +214,6 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [done, setDone] = useState<Done | null>(null)
-  // The reversal form, opened on request: rare, and set apart from the counter's work.
-  const [opened, setOpened] = useState<ActionKind | null>(null)
   const [ticked, setTicked] = useState<ReadonlySet<CheckStep>>(() => new Set())
   const focus = useFocusById()
   const problems = useFieldProblems()
@@ -229,7 +222,10 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
   const checklistId = `pharmacy-checklist-${item.id}`
   // Who the medicine is for, confirmed before a dispensing is recorded (wrong-patient prevention).
   const name = item.patient?.fullName ?? patientLabel(item)
-  const banner = <PatientBanner compact name={name} hid={item.patient?.healthIdLast4 ? `Health ID ending ${item.patient.healthIdLast4}` : 'Health ID not sent'}
+  // Routed work's Health ID comes from the sending facility; own work carries no patient details until the backend sends them.
+  const hid = item.patient?.healthIdLast4 ? `Health ID ending ${item.patient.healthIdLast4}`
+    : item.orderRoute ? 'Health ID not sent' : 'Health ID not shown'
+  const banner = <PatientBanner compact name={name} hid={hid}
     dateOfBirth={item.patient?.dateOfBirth} sex={item.patient?.sex} />
   const { ask, sheet } = useConfirm()
   const asking = useRef(false)
@@ -291,7 +287,6 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
         await staffApi.reverseDispensing(facilityId, current.id, current.version, reason)
         setDone(null)
         setSuccess('Dispensing reversal recorded.')
-        setOpened(null)
         focus(title, true)
         await onChanged()
         focus(title, true)
@@ -309,7 +304,7 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
         // Its dispensing form goes, so the work continues at the prescription.
         onUndispensable()
         focus(title, true)
-      } else setError(failureOf(caught, reverse, work => pharmacyRefusalText(work, facility, permissions)))
+      } else setError(failureOf(caught))
     }
     finally { setBusy(false); onBusy(false) }
   }
@@ -376,7 +371,9 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
   const step = stepText(item, Date.now(), acceptor)
   const justAcceptedBy = useAcceptorName(staffName, justAccepted?.acceptance?.acceptedByMembershipId)
   const statusLine = justAccepted ? acceptedText(justAccepted.acceptance, justAccepted.already, justAccepted.at, justAcceptedBy) : success
-  const reversing = opened === 'reverse' && canReverse
+  // Classic's reversal form (Operations.tsx PharmacyAction), shown on the record as classic shows it, with no button to
+  // open it first (parity 3.3-70); set apart under Other actions, and confirmed against the patient (Q142 B).
+  const reversing = canReverse
   // Point of care: the bill as the payment step last left it (paid or set to follow), else as the work item carries it.
   const [cleared, setCleared] = useState<NonNullable<WorkItemBill> | null>(null)
   const bill = cleared ?? billOf(item)
@@ -538,16 +535,13 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
   const otherActions = (canReverse || ending) && <Card>
     <CardHeader as="h2" title="Other actions" titleId={`pharmacy-${item.id}-actions`} />
     <div className="flex flex-col gap-3 p-5">
-      {canReverse && <Button icon={Undo2} aria-expanded={reversing} aria-controls={`pharmacy-reverse-${item.id}`} className="self-start"
-        onClick={() => { setError(''); problems.clear(); setOpened(current => current === 'reverse' ? null : 'reverse') }}>Reverse dispensing</Button>}
       {reversing && <form id={`pharmacy-reverse-${item.id}`} className="flex flex-col gap-3" aria-label="Reverse dispensing" noValidate
         onSubmit={event => void submit(event, true)}>
-        <ActionField id={`pharmacy-reversal-${item.id}`} label="Reason" error={problems.error(`pharmacy-reversal-${item.id}`)}
-          hint="Why the dispensing is being reversed, for the record.">
-          <EhrTextarea name="reason" rows={3} minLength={8} maxLength={500} required {...control(`pharmacy-reversal-${item.id}`, true)} />
+        <ActionField id={`pharmacy-reversal-${item.id}`} label="Reversal reason" error={problems.error(`pharmacy-reversal-${item.id}`)}>
+          <EhrTextarea name="reason" rows={3} minLength={8} maxLength={500} required {...control(`pharmacy-reversal-${item.id}`)} />
         </ActionField>
         {failure}
-        <EhrButton type="submit" variant="secondary" busy={busy}>{busy ? 'Saving…' : 'Reverse dispensing'}</EhrButton>
+        <EhrButton type="submit" variant="secondary" busy={busy}>{busy ? 'Recording…' : 'Reverse dispensing'}</EhrButton>
       </form>}
       {ending && <DeptEmbedded className="hid-ehr-dept-pharmacy-endings"><OrderEndingActions base={`pharmacy-${item.id}`}
         service="pharmacy" facilityId={facilityId} route={{ id: route.id, version: route.version, reference: route.reference }}

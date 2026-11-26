@@ -145,7 +145,7 @@ function SampleTriage() {
  */
 function PatientContext({ chart, prior: read }: { chart: Chart; prior: readonly VisitRecord[] | null }) {
   const { state: allergies } = useAllergies(chart)
-  // Novu's vitals are read with those entered in error (listRead) for the lists that strike them through. They are not
+  // Novu's vitals are read with those entered in error (listRead) for the lists that show them withdrawn. They are not
   // earlier vitals of this patient (one may be another patient's), so they are left out here, as EHR's latest vitals do.
   const prior = read?.filter(item => !isRetracted(item.record)) ?? null
   const corrections = useCorrections(chart, prior?.map(item => ({ encounterId: item.encounter.id, vital: item.record })) ?? null)

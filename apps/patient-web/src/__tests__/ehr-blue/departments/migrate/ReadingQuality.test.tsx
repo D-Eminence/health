@@ -141,7 +141,7 @@ describe('Reading quality, in Migrate', () => {
     // A platform administrator's figures cover the range asked, this week included: no finished-weeks note.
     expect(screen.queryByText('Figures cover finished weeks only.')).toBeNull()
     expect(qualityCalls()[0]!.query ?? {}).toEqual({})
-    expect(screen.getByText('Weeks from 12 October 2026 to 8 November 2026, at this facility.')).toBeTruthy()
+    expect(screen.getByText('Weeks from 12 Oct 2026 to 8 Nov 2026, at this facility.')).toBeTruthy()
     expect(within(tile('Documents checked and saved')).getByText('198')).toBeTruthy()
     expect(within(tile('Checks where every item was looked at')).getByText('160 of 198')).toBeTruthy()
     expect(within(tile('Items kept as read')).getByText('1,240')).toBeTruthy()
@@ -280,7 +280,7 @@ describe('Reading quality, for a facility’s own manager (hid-system #236)', ()
   it('a manager without OCR job read still gets Migrate’s own refusal: the page that offers it is not open to them', async () => {
     session.permissions = ['workforce.manage']
     renderDept(<Migrate />)
-    expect(screen.getByRole('alert').textContent).toBe('Scanning paper records is done by the front desk, nurses and clinicians here.')
+    expect(screen.getByRole('alert').textContent).toBe('Scanning paper records is done by the front desk, doctors, nurses and clinicians here.')
     expect(screen.queryByRole('button', { name: 'Reading quality' })).toBeNull()
     expect(qualityCalls()).toHaveLength(0)
   })

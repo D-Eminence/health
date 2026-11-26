@@ -55,7 +55,8 @@ export function encounterTransitions(encounter: Pick<Encounter, 'status' | 'impo
 }
 
 /**
- * What marking a completed consultation entered in error does, said in its form and its dialog: it changes none of the
+ * What marking a completed consultation entered in error does, said in its form beside the button that sends it (no
+ * dialog: release D's row 18c sends entered in error in one press, as classic's status form): it changes none of the
  * visit's records itself, and the route refuses it while orders are open or notes are signed.
  */
 export const COMPLETED_ERROR_WARNING = 'Use this only for a consultation recorded by mistake, for example on the wrong patient. It then leaves the patient’s record, nothing more can be added to it, and this can’t be undone. First cancel or stop its prescriptions and lab requests, drafts included, and mark its signed notes as entered in error.'

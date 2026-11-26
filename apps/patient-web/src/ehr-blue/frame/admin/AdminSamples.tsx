@@ -1,3 +1,4 @@
+import { formatPhone, formatTime } from '@hid/ui/display'
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
@@ -138,7 +139,7 @@ export function FacilityProfileSample() {
   const [departments, setDepartments] = useState<readonly string[]>(['General Outpatient', 'Emergency', 'Inpatient', 'Laboratory', 'Pharmacy'])
   const [history, setHistory] = useState<readonly { readonly at: string; readonly fields: string }[]>([])
   const record = (fields: readonly string[]) => setHistory(current => [
-    { at: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), fields: fields.join(', ') }, ...current,
+    { at: formatTime(new Date()), fields: fields.join(', ') }, ...current,
   ])
   const saveHospital = (event: FormEvent) => {
     event.preventDefault()
@@ -346,7 +347,7 @@ export function FacilitySetupSample() {
     Review: (
       <SpacedCard title="Review your configuration">
         <Facts facts={[
-          ['Name', facility.name], ['Type', type], ['Phone', facility.phone], ['Email', facility.email], ['Address', facility.address],
+          ['Name', facility.name], ['Type', type], ['Phone', formatPhone(facility.phone)], ['Email', facility.email], ['Address', facility.address],
           ['City', facility.city], ['State', facility.state], ['Departments', departments.join(', ')], ['Currency', billing.currency],
           ['Payment methods', billing.methods], ['Payment timing', billing.timing], ['Insurance', billing.insurance ? 'Yes' : 'No'],
         ]} />

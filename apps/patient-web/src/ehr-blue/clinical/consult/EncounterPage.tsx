@@ -60,16 +60,34 @@ type Loaded =
   | { readonly phase: 'ready'; readonly encounter: Encounter; readonly others: readonly Encounter[] }
 
 /**
- * Reads the encounter, with the first page of the patient's other encounters, after the chart's access check: reused
- * when a check already passed for the open patient (a visit opened from the list, which checked, as classic re-checks
- * on loading the encounters, not on choosing one, staff/routes/Clinical.tsx:1316, :1838; or any earlier save, see
- * Chart.checked), made when none has. Every save still re-checks first (chart.verify).
+ * Reads the encounter, with the first page of the patient's other encounters, after the chart's access check: the
+ * visit list's own check when the visit was opened from it (its pass, in router state, used once: classic re-checks on
+ * loading the encounters, not on choosing one, staff/routes/Clinical.tsx:1316, :1838), else a fresh check, as
+ * classic's every Clinical load makes (Clinical.tsx:1316), so a visit reached by its address, or again later, says
+ * ACCESS_ENDED and closes the patient once access has ended. Every save still re-checks first (chart.verify). A role
+ * that can't read visits sees the record pages' sentence, and nothing is read (parity 3.3-50).
  */
 function EncounterLoader({ chart }: { chart: Chart }) {
   const href = useWorkspaceHref()
+  if (!chart.can('ehr.encounter.read')) {
+    return (
+      <>
+        <RecordHeading title={TITLE} backHref={href()} />
+        <ErrorBox>{NO_RECORD_ACCESS}</ErrorBox>
+      </>
+    )
+  }
+  return <EncounterReader chart={chart} />
+}
+
+function EncounterReader({ chart }: { chart: Chart }) {
+  const href = useWorkspaceHref()
   const { recordId = '' } = useParams()
+  const location = useLocation()
   const { facilityId, patientId } = chart
   const checked = useLatest(chart.checked)
+  // The visit list's pass, as the visit was opened (it is used once, by the first read).
+  const pass = useRef<unknown>((location.state as { checked?: unknown } | null)?.checked)
   const [loaded, setLoaded] = useState<Loaded>({ phase: 'loading' })
 
   useEffect(() => {
@@ -77,7 +95,9 @@ function EncounterLoader({ chart }: { chart: Chart }) {
     setLoaded({ phase: 'loading' })
     void (async () => {
       try {
-        await checked.current()
+        const handed = pass.current
+        pass.current = undefined
+        await checked.current(handed)
         const [encounter, page] = await Promise.all([
           staffApi.encounter(facilityId, patientId, recordId),
           staffApi.encounters(facilityId, patientId).catch(() => null),
@@ -113,8 +133,9 @@ interface ActionDef {
   readonly label: string
   readonly fields: readonly FieldDef[]
   /**
-   * The design's decision dialog: `word` asks for it typed (SIGN); `description` is what it says, when the change does
-   * more than change this record (a closing status: today's warning, which today's submit is described by).
+   * The design's decision dialog, only for the actions the design confirms (sign and cancel, CONFIRMED_ACTIONS in
+   * sample/definitions.ts): `word` asks for it typed (SIGN); `description` is what it says, when the change does more
+   * than change this record (a cancel: today's warning, which today's submit is described by).
    */
   readonly confirm?: { readonly word?: string; readonly description?: string }
   readonly warning?: string
@@ -254,10 +275,17 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
   // A diagnosis typed with a note change is added as today's Diagnoses tab adds one: that tab needs the read as well as
   // the write (Clinical.tsx:28, 1853), so a role that can't see the diagnoses doesn't add one unseen.
   const addsDiagnosis = writes.diagnoses && reads.diagnoses
-  // Classic reads only the open tab's records (staff/routes/Clinical.tsx:1350-1371). Here the lists the top of the page
-  // uses are read as the visit opens: the vitals, the note and the diagnoses it summarises, and the prescriptions that
-  // "Print prescription" (in the Actions card) prints. The lab requests and the documents are read only once their
-  // card comes into view (or History's, which lists the orders), or "Print discharge summary" asks for them.
+  // Classic reads only the open tab's records (staff/routes/Clinical.tsx:1316, :1350-1371, tabs :25-32), its first tab,
+  // Notes, as the page opens. Here the notes are read as the visit opens, as classic's first tab is; every other list
+  // waits until a part of the page that shows it comes into view (or near it), as the lab requests and documents
+  // always have: the vitals with their card (or History's), the diagnoses with the Note and Actions cards (the Saved
+  // record names them) or their own card, the prescriptions with the Note and Actions cards ("Print prescription"
+  // prints them), the Orders card or History's, the consultation note's revisions with the Note and Actions cards
+  // (the note's content, and what Sign and Amend need read first), and the lab requests with the Orders card or
+  // History's. "Print discharge summary" asks for every list it prints.
+  const [vitalsRef, vitalsSeen] = useSeen()
+  const [summaryRef, summarySeen] = useSeen()
+  const [diagnosesRef, diagnosesSeen] = useSeen()
   const [ordersRef, ordersSeen] = useSeen()
   const [documentsRef, documentsSeen] = useSeen()
   const [historyRef, historySeen] = useSeen()
@@ -267,16 +295,16 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
   const [printQueued, setPrintQueued] = useState(false)
   const labsWanted = ordersSeen || historySeen || printPressed
   const notes = useRecordList(chart, encounterId, 'clinical-notes', reads.notes)
-  const diagnoses = useRecordList(chart, encounterId, 'diagnoses', reads.diagnoses)
-  const vitals = useRecordList(chart, encounterId, 'vitals', reads.vitals)
+  const diagnoses = useRecordList(chart, encounterId, 'diagnoses', reads.diagnoses && (summarySeen || diagnosesSeen || printPressed))
+  const vitals = useRecordList(chart, encounterId, 'vitals', reads.vitals && (vitalsSeen || historySeen))
   // Today's page learns from its orders answers what the order pages need (receiving-side reports, late corrections).
-  const prescriptions = useRecordList(chart, encounterId, 'prescriptions', reads.prescriptions, learnFrom)
+  const prescriptions = useRecordList(chart, encounterId, 'prescriptions', reads.prescriptions && (summarySeen || ordersSeen || historySeen || printPressed), learnFrom)
   const labs = useRecordList(chart, encounterId, 'lab-requests', reads.labs && labsWanted, learnFrom)
   const documents = useDocumentList(chart, encounterId, reads.documents && documentsSeen)
   // The Saved record summarises the encounter: its consultation note is read from the first page, whichever page the
   // Notes card shows.
   const note = consultationNote(notes.first)
-  const revisions = useRevisions(chart, encounterId, note?.id ?? null, note?.rowVersion)
+  const revisions = useRevisions(chart, encounterId, summarySeen || printPressed ? note?.id ?? null : null, note?.rowVersion)
   const latest = revisions.items?.at(-1) ?? null
   // Nothing is signed or amended unseen: its content must have been read (today's rule).
   const seen = !!note && !revisions.loading && !revisions.error && (revisions.items?.length ?? 0) > 0
@@ -522,13 +550,17 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
     for (const transition of encounterTransitions(encounter)) {
       more.push({
         id: `encounter-${transition.value}`, label: transition.label, fields: [REASON_FIELD], validate: reasonCheck, busy: UPDATING,
-        // The dialog's button is the one that sends a cancel or entered in error, so it says the warning too.
-        confirm: CLOSING_STATUSES.has(transition.value) ? { description: warning } : undefined, warning, run: encounterStatus(transition.value),
+        // Only a cancel asks first: the design's decision dialog confirms a cancel (CONFIRMED_ACTIONS,
+        // sample/definitions.ts:323; frame/sample/SampleWorkspace.tsx), and its button, which sends it, says the warning
+        // too. Entered in error is not among the design's confirmed actions, so it is sent from its reasoned form in one
+        // press, with the warning beside it, as classic's status form sends it (Clinical.tsx StatusActionForm).
+        confirm: transition.value === 'cancelled' ? { description: warning } : undefined, warning, run: encounterStatus(transition.value),
       })
     }
   }
   if (writes.notes && note && seen && (NOTE_TRANSITIONS[recordStatus(note, 'unknown')] ?? []).some(change => change.status === 'entered_in_error')) {
-    more.push({ id: 'note-error', label: NOTE_EIE_LABEL, fields: [REASON_FIELD], confirm: {}, validate: reasonCheck, busy: UPDATING, run: noteStatus('entered_in_error') })
+    // Sent from its reasoned form in one press, as classic's (Clinical.tsx:122-126): the design confirms no entered in error.
+    more.push({ id: 'note-error', label: NOTE_EIE_LABEL, fields: [REASON_FIELD], validate: reasonCheck, busy: UPDATING, run: noteStatus('entered_in_error') })
   }
   const action = [...actions, ...more].find(item => item.id === selected) ?? null
   const choose = (id: string | null) => { settle(); setSelected(id) }
@@ -664,73 +696,77 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
       {/* The visit's vitals first, once (owner, 18 Nov 2026): the doctor sees them before writing, and Record vitals is
           beside them. Not repeated further down or under History. */}
       {reads.vitals ? (
-        <VitalsCard chart={chart} encounterId={encounterId} list={vitals} canRecord={chart.canWrite && chart.can('ehr.vital.write')} />
+        <div ref={vitalsRef}>
+          <VitalsCard chart={chart} encounterId={encounterId} list={vitals} canRecord={chart.canWrite && chart.can('ehr.vital.write')} />
+        </div>
       ) : null}
-      <DetailGrid>
-        <SavedRecord title="Note" items={saved}>
-          {writes.notes && note?.status === 'draft' && seen ? (
-            <div className="hid-ehr-clinical-consult-edit">
-              <EhrButton variant="secondary" aria-expanded={editing} onClick={() => { settle(); setEditing(open => !open) }}>
-                {editing ? 'Cancel editing' : EDIT_DRAFT_LABEL}
-              </EhrButton>
-              {editing ? (
-                <RecordForm
-                  key={`${note.id}-${String(note.rowVersion)}`}
-                  fields={[EDIT_CONTENT, ...diagnosisFields, REVISION_REASON_FIELD]}
-                  initial={{ content: latest?.content ?? '', ...diagnosisInitial }}
-                  submitLabel="Save draft"
-                  validate={revisionCheck}
-                  disabled={revisions.loading}
-                  onSubmit={noteRevision}
-                />
-              ) : null}
-            </div>
-          ) : null}
-        </SavedRecord>
-        <EhrCard title={<span id={actionsId} className="hid-ehr-clinical-consult-focus" tabIndex={-1}>Actions</span>}>
-          {actions.length > 0 ? (
-            <ActionList>
-              {actions.map(item => (
-                <EhrButton key={item.id} variant={variantOf(item)} aria-expanded={selected === item.id} onClick={() => choose(selected === item.id ? null : item.id)}>
-                  {item.label}
+      <div ref={summaryRef}>
+        <DetailGrid>
+          <SavedRecord title="Note" items={saved}>
+            {writes.notes && note?.status === 'draft' && seen ? (
+              <div className="hid-ehr-clinical-consult-edit">
+                <EhrButton variant="secondary" aria-expanded={editing} onClick={() => { settle(); setEditing(open => !open) }}>
+                  {editing ? 'Cancel editing' : EDIT_DRAFT_LABEL}
                 </EhrButton>
-              ))}
-            </ActionList>
-          ) : more.length === 0 ? <NoActions /> : null}
-          {/* Printing is an action on this consultation: it sits with the others, not in a card of its own. */}
-          {!readsNone ? (
-            <>
+                {editing ? (
+                  <RecordForm
+                    key={`${note.id}-${String(note.rowVersion)}`}
+                    fields={[EDIT_CONTENT, ...diagnosisFields, REVISION_REASON_FIELD]}
+                    initial={{ content: latest?.content ?? '', ...diagnosisInitial }}
+                    submitLabel="Save draft"
+                    validate={revisionCheck}
+                    disabled={revisions.loading}
+                    onSubmit={noteRevision}
+                  />
+                ) : null}
+              </div>
+            ) : null}
+          </SavedRecord>
+          <EhrCard title={<span id={actionsId} className="hid-ehr-clinical-consult-focus" tabIndex={-1}>Actions</span>}>
+            {actions.length > 0 ? (
               <ActionList>
-                {reads.prescriptions && toPrint.length > 0 ? <EhrButton variant="secondary" onClick={printPrescriptions}>Print prescription</EhrButton> : null}
-                <EhrButton variant="secondary" onClick={printDischarge} aria-disabled={printWaiting || undefined}
-                  aria-describedby={printWaiting ? `${actionsId}-print-wait` : undefined}>Print discharge summary</EhrButton>
+                {actions.map(item => (
+                  <EhrButton key={item.id} variant={variantOf(item)} aria-expanded={selected === item.id} onClick={() => choose(selected === item.id ? null : item.id)}>
+                    {item.label}
+                  </EhrButton>
+                ))}
               </ActionList>
-              {printWaiting ? <p id={`${actionsId}-print-wait`} className="hid-ehr-clinical-note">{DISCHARGE_WAIT}</p> : null}
-            </>
-          ) : null}
-          <MoreActions id={moreId} items={more.map(({ id, label }) => ({ id, label }))} selected={selected} onSelect={choose} />
-          {action ? (
-            <RecordForm
-              key={`${action.id}-${String(encounter.rowVersion)}-${String(note?.rowVersion)}`}
-              fields={action.fields}
-              initial={action.initial}
-              submitLabel={action.submit ?? action.label}
-              busyLabel={action.busy}
-              validate={action.validate}
-              nativeRequired={action.nativeRequired}
-              disabled={(action.id === 'sign' || action.id === 'note-error') && revisions.loading}
-              // Today's status form ties its submit to the warning (staff/routes/Clinical.tsx:615-618).
-              describedBy={action.warning ? warningId : undefined}
-              onSubmit={submitAction(action)}
-              // A form More actions opened closes with "Cancel"; the note actions toggle with their button.
-              footer={more.includes(action) ? <EhrButton variant="secondary" onClick={close}>Cancel</EhrButton> : undefined}
-            >
-              {action.hint ? <p className="hid-ehr-clinical-note">{action.hint}</p> : null}
-              {action.warning ? <p id={warningId} className="hid-ehr-clinical-consult-warning">{action.warning}</p> : null}
-            </RecordForm>
-          ) : null}
-        </EhrCard>
-      </DetailGrid>
+            ) : more.length === 0 ? <NoActions /> : null}
+            {/* Printing is an action on this consultation: it sits with the others, not in a card of its own. */}
+            {!readsNone ? (
+              <>
+                <ActionList>
+                  {reads.prescriptions && toPrint.length > 0 ? <EhrButton variant="secondary" onClick={printPrescriptions}>Print prescription</EhrButton> : null}
+                  <EhrButton variant="secondary" onClick={printDischarge} aria-disabled={printWaiting || undefined}
+                    aria-describedby={printWaiting ? `${actionsId}-print-wait` : undefined}>Print discharge summary</EhrButton>
+                </ActionList>
+                {printWaiting ? <p id={`${actionsId}-print-wait`} className="hid-ehr-clinical-note">{DISCHARGE_WAIT}</p> : null}
+              </>
+            ) : null}
+            <MoreActions id={moreId} items={more.map(({ id, label }) => ({ id, label }))} selected={selected} onSelect={choose} />
+            {action ? (
+              <RecordForm
+                key={`${action.id}-${String(encounter.rowVersion)}-${String(note?.rowVersion)}`}
+                fields={action.fields}
+                initial={action.initial}
+                submitLabel={action.submit ?? action.label}
+                busyLabel={action.busy}
+                validate={action.validate}
+                nativeRequired={action.nativeRequired}
+                disabled={(action.id === 'sign' || action.id === 'note-error') && revisions.loading}
+                // Today's status form ties its submit to the warning (staff/routes/Clinical.tsx:615-618).
+                describedBy={action.warning ? warningId : undefined}
+                onSubmit={submitAction(action)}
+                // A form More actions opened closes with "Cancel"; the note actions toggle with their button.
+                footer={more.includes(action) ? <EhrButton variant="secondary" onClick={close}>Cancel</EhrButton> : undefined}
+              >
+                {action.hint ? <p className="hid-ehr-clinical-note">{action.hint}</p> : null}
+                {action.warning ? <p id={warningId} className="hid-ehr-clinical-consult-warning">{action.warning}</p> : null}
+              </RecordForm>
+            ) : null}
+          </EhrCard>
+        </DetailGrid>
+      </div>
       {reads.notes ? (
         <div id={NOTES_ANCHOR} className="hid-ehr-clinical-consult-focus" tabIndex={-1}><NotesCard
           chart={chart} encounterId={encounterId} list={notes} canWrite={writes.notes} onSaved={setSuccess} onError={setPageError}
@@ -738,10 +774,12 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
         /></div>
       ) : null}
       {reads.diagnoses ? (
-        <DiagnosesCard
-          chart={chart} encounterId={encounterId} list={diagnoses} canWrite={writes.diagnoses} onSaved={setSuccess}
-          onReloadFailed={(failure, first) => addFailed(reloadFailed(failure, { diagnoses: on => on.diagnoses.reload(first) }))}
-        />
+        <div ref={diagnosesRef}>
+          <DiagnosesCard
+            chart={chart} encounterId={encounterId} list={diagnoses} canWrite={writes.diagnoses} onSaved={setSuccess}
+            onReloadFailed={(failure, first) => addFailed(reloadFailed(failure, { diagnoses: on => on.diagnoses.reload(first) }))}
+          />
+        </div>
       ) : null}
       {/* Only where it has something to show: this visit's orders (each create sits with its list, as in classic), or
           the demo facilities' sample radiology and referral steps. A role that may add orders but read none sees no

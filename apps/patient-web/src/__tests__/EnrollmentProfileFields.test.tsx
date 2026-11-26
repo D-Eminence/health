@@ -1,3 +1,4 @@
+import { lagosDay } from '@hid/ui/display'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { Enrollment } from '../routes/Enrollment'
@@ -30,10 +31,7 @@ const atPassword = (requiredProfileFields?: string[]) => () => json({ stage: 'se
   ...(requiredProfileFields ? { requiredProfileFields } : {}) })
 const activations = (sent: Array<{ path: string; method: string; body: unknown }>) => sent.filter(request => request.path === ACTIVATE)
 const activateButton = () => screen.getByRole('button', { name: 'Get my Health ID' }) as HTMLButtonElement
-const today = () => {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-}
+const today = () => lagosDay()
 
 /**
  * hid-system ADR-061 (on main since #82, migration 0092): a NIN record may lack a

@@ -1,19 +1,13 @@
 import { useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { isHidApiError, plainErrorText } from '@hid/http'
-import { EhrButton, EhrField, EhrInput, EhrSelect, type EhrBadgeTone } from '@hid/ui/ehr'
+import { EhrButton, EhrField, EhrInput, EhrSelect } from '@hid/ui/ehr'
 import { staffApi, type AssistedDocumentType } from '../../../staff/api'
-import { useStaff } from '../../../staff/App'
 import { useFocusById } from '../../../staff/focus'
 import { refusalText } from '../../../staff/fieldProblem'
 import { useFieldProblems } from '../../../staff/useFieldProblems'
-import { pageAllowed } from '../../frame/pageAccess'
-import { basePath, pageHrefOf } from '../../frame/pageHref'
-import { useBluePages } from '../../frame/pageContext'
 import { useDeptAccess } from '../parts/access'
 import { DeptNotice } from '../parts/DeptNotice'
 import { DeptPage, DeptSection, DeptUnavailable } from '../parts/DeptPage'
-import { DeptContextLine, DeptFacts, DeptRecordLayout } from '../parts/DeptRecord'
 import {
   ANOTHER, ASSISTED_REGISTRATION_PERMISSION, ATTESTATIONS, ATTESTATIONS_ENTRY, CHECK, CHECK_AGAIN, CHECKING, CODE_HINT, CODE_LABEL,
   CODE_PLACEHOLDER, CONFIRM_LEGEND, DATE_OF_BIRTH_ENTRY, DATE_OF_BIRTH_HINT, DATE_OF_BIRTH_LABEL, DESCRIPTION, DESK_CODE_ENTRY,
@@ -21,17 +15,18 @@ import {
   ERROR_TITLE, FIRST_NAME_ENTRY, FORM_TITLE, KEY_REUSED, LAST_NAME_ENTRY, LIMITED, MISMATCH_NEXT, MISMATCH_TITLE, NOT_AUTHORIZED,
   NOT_COMPLETED, PAGE_TITLE, REGISTERED_NEXT, REGISTERED_TITLE, RETRY, RETRY_PROOF, ROLE_REFUSED, SOME_REFUSED, STALE, STEP_CODE,
   STEP_CONFIRM, STEP_ID, STEP_ID_HINT, UNAVAILABLE_MESSAGE, UNAVAILABLE_TITLE, VERIFIED_NEXT, VERIFIED_TITLE, dateOfBirthUnfinished,
-  documentLabel, knownResult, normalizeDeskCode, outcomeUnknown, requestOf, resultWords, signatureOf, type Attestation,
+  knownResult, normalizeDeskCode, outcomeUnknown, requestOf, resultWords, signatureOf, type Attestation,
   type Mismatch, type Values,
 } from './inPersonRules'
 import './inperson.css'
 
 /**
- * The staff in-person check of facility-assisted registration in the blue EHR, drawn in the design's form and record
- * pattern (the design has no screen for it): the form card with classic's three steps, the five statements as its
- * checkbox list, the submit, then the outcome as its record view with "Available actions" and "Next steps". Requests,
- * checks, refusals, steps and words are classic's (staff/routes/InPersonCheck.tsx, ported in inPersonRules.ts). As classic,
- * the method is fixed, so it is never offered as a choice.
+ * The staff in-person check of facility-assisted registration in the blue EHR, drawn in the design's form look (the
+ * design has no screen for it): the form card with classic's three steps, the five statements as its checkbox list, the
+ * submit, then the outcome as classic shows it (staff/routes/InPersonCheck.tsx:271-287): its heading, its lines and
+ * "Check another patient", with no status badge, fact, "Available actions" or "Next steps" (parity 3.3-22, 3.3-24).
+ * Requests, checks, refusals, steps and words are classic's (ported in inPersonRules.ts). As classic, the method is
+ * fixed, so it is never offered as a choice.
  *
  * A patient without a usable registry phone starts on their own phone, which shows a desk code. A doctor, clinician or
  * nurse types that code and the names and date of birth as written on one original photo ID, and confirms five
@@ -56,11 +51,11 @@ export function InPersonUnavailable() {
   return <DeptUnavailable title={UNAVAILABLE_TITLE} message={UNAVAILABLE_MESSAGE} />
 }
 
-/** InPersonCheck.tsx:143, with the document checked kept for the outcome's record (never a name, a date or the code). */
+/** InPersonCheck.tsx:143. */
 type Stage =
   | { readonly kind: 'form' }
-  | { readonly kind: 'verified'; readonly checked: string }
-  | { readonly kind: 'registered'; readonly detail: string; readonly checked: string }
+  | { readonly kind: 'verified' }
+  | { readonly kind: 'registered'; readonly detail: string }
 
 function Required() {
   return <span aria-hidden="true"> *</span>
@@ -78,7 +73,6 @@ function CheckDesk({ facilityId }: { readonly facilityId: string }) {
   const [retrySignature, setRetrySignature] = useState<string | null>(null)
   const problems = useFieldProblems()
   const focus = useFocusById()
-  const patientsHref = usePatientsStep()
   const signature = signatureOf(values)
   const retrying = retrySignature !== null && retrySignature === signature
 
@@ -113,7 +107,6 @@ function CheckDesk({ facilityId }: { readonly facilityId: string }) {
     setError(''); setMismatch(null); problems.clear()
     if (refused(form)) return
     const input = requestOf(values)
-    const checked = documentLabel(input.documentType)
     const key = pending.current?.signature === signature ? pending.current.key : crypto.randomUUID()
     pending.current = { signature, key }
     setBusy(true)
@@ -121,18 +114,18 @@ function CheckDesk({ facilityId }: { readonly facilityId: string }) {
       await staffApi.assistedVerification(facilityId, input, key)
       pending.current = null; setRetrySignature(null)
       setValues(EMPTY)
-      setStage({ kind: 'verified', checked })
+      setStage({ kind: 'verified' })
       focus('in-person-verified-title')
     } catch (caught) {
       if (isHidApiError(caught) && caught.code === 'REQUEST_CANCELLED') return
       if (outcomeUnknown(caught)) setRetrySignature(signature)
       else { pending.current = null; setRetrySignature(null) }
-      answer(caught, form, Boolean(input.document.dateOfBirth), checked)
+      answer(caught, form, Boolean(input.document.dateOfBirth))
     } finally { setBusy(false) }
   }
 
   /** InPersonCheck.tsx:208-257: each answer, said where classic says it, in classic's words. */
-  function answer(caught: unknown, form: HTMLFormElement, typedDateOfBirth: boolean, checked: string) {
+  function answer(caught: unknown, form: HTMLFormElement, typedDateOfBirth: boolean) {
     const code = isHidApiError(caught) ? caught.code : ''
     switch (code) {
       case 'ASSISTED_VERIFICATION_NOT_MATCHED': {
@@ -143,7 +136,7 @@ function CheckDesk({ facilityId }: { readonly facilityId: string }) {
       }
       case 'NIN_ALREADY_REGISTERED':
         setValues(EMPTY)
-        setStage({ kind: 'registered', detail: '', checked })
+        setStage({ kind: 'registered', detail: '' })
         focus('in-person-registered-title')
         return
       case 'DESK_CODE_NOT_FOUND':
@@ -194,8 +187,7 @@ function CheckDesk({ facilityId }: { readonly facilityId: string }) {
   if (stage.kind === 'verified') {
     return (
       <Page>
-        <Outcome status="verified" tone="positive" titleId="in-person-verified-title" title={VERIFIED_TITLE} checked={stage.checked}
-          onAnother={another} patientsHref={patientsHref}>
+        <Outcome titleId="in-person-verified-title" title={VERIFIED_TITLE} onAnother={another}>
           <p>{VERIFIED_NEXT}</p>
         </Outcome>
       </Page>
@@ -204,8 +196,7 @@ function CheckDesk({ facilityId }: { readonly facilityId: string }) {
   if (stage.kind === 'registered') {
     return (
       <Page>
-        <Outcome status="already registered" tone="caution" titleId="in-person-registered-title" title={REGISTERED_TITLE}
-          checked={stage.checked} onAnother={another} patientsHref={patientsHref}>
+        <Outcome titleId="in-person-registered-title" title={REGISTERED_TITLE} onAnother={another} anotherVariant="secondary">
           {/* InPersonCheck.tsx:282: the detail line only when there is a detail to say. */}
           {stage.detail ? <p>{stage.detail}</p> : null}
           <p>{REGISTERED_NEXT}</p>
@@ -328,61 +319,24 @@ function ResultItem({ label, result, children }: { readonly label: string; reado
 }
 
 /**
- * The outcome as the design's record view: its status under the heading, the outcome's card beside "Available actions",
- * and "Next steps" only where one leads to a live page. Its one fact is the ID checked: never a name, a date of birth or
- * the desk code, which are cleared as the outcome shows. The method is fixed, so it is not repeated (classic says none).
+ * The outcome as classic shows it (InPersonCheck.tsx:271-287): its heading, its lines, and "Check another patient". No
+ * status badge, no fact, no "Available actions" and no "Next steps": classic has none, and the design has no screen for
+ * this check (parity 3.3-22, 3.3-24). Nothing typed is shown: the name, date of birth and code are cleared as it shows.
  */
-function Outcome({ status, tone, title, titleId, checked, onAnother, patientsHref, children }: {
-  readonly status: string
-  readonly tone: EhrBadgeTone
+function Outcome({ title, titleId, onAnother, anotherVariant = 'primary', children }: {
   readonly title: string
   readonly titleId: string
-  readonly checked: string
   readonly onAnother: () => void
-  readonly patientsHref: string | null
+  /** Classic's button: primary after a check (InPersonCheck.tsx:275), plain after "already has a Health ID" (:283). */
+  readonly anotherVariant?: 'primary' | 'secondary'
   readonly children: ReactNode
 }) {
-  const navigate = useNavigate()
   return (
-    <>
-      <DeptContextLine status={status} tone={tone} />
-      <DeptRecordLayout
-        main={(
-          <DeptSection title={title} headingId={titleId}>
-            {children}
-            <DeptFacts className="hid-ehr-dept-inperson-facts" facts={[{ label: 'ID checked', value: checked }]} />
-          </DeptSection>
-        )}
-        aside={(
-          <section className="hid-ehr-card hid-ehr-dept-section hid-ehr-dept-actions-card" aria-labelledby="in-person-actions-title">
-            <h2 id="in-person-actions-title" className="hid-ehr-card-title">Available actions</h2>
-            <div className="hid-ehr-dept-action-stack">
-              <EhrButton variant="secondary" onClick={onAnother}>{ANOTHER}</EhrButton>
-            </div>
-            {patientsHref ? (
-              <>
-                <h3>Next steps</h3>
-                <p className="hid-ehr-dept-inperson-step">
-                  <EhrButton variant="secondary" onClick={() => navigate(patientsHref)}>Open patients</EhrButton>
-                </p>
-              </>
-            ) : null}
-          </section>
-        )}
-      />
-    </>
+    <DeptSection title={title} headingId={titleId}>
+      {children}
+      <div className="hid-ehr-dept-form-actions">
+        <EhrButton variant={anotherVariant} onClick={onAnother}>{ANOTHER}</EhrButton>
+      </div>
+    </DeptSection>
   )
-}
-
-/**
- * The address of Patients when it is a live page this session may open: where the patient is looked up by their
- * Health ID once they have one. Null otherwise, so no step leads into a sample or to a refusal. Nothing about the
- * patient goes with it: the address is the page's own.
- */
-function usePatientsStep(): string | null {
-  const pages = useBluePages()
-  const { state } = useStaff()
-  const session = state.status === 'ready' ? state.session : null
-  const patients = pages.find(page => basePath(page.path) === 'patients')
-  return patients && patients.status === 'live' && pageAllowed(patients, session) ? pageHrefOf(patients) : null
 }

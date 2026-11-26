@@ -1,3 +1,4 @@
+import { formatDateTime } from '@hid/ui/display'
 import { Profiler } from 'react'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -992,7 +993,7 @@ describe('Laboratory result history', () => {
     fireEvent.click(await within(panel).findByRole('button', { name: 'View result history' }))
 
     expect(await within(panel).findByText('Version 2')).toBeTruthy()
-    expect(within(revisionEntry(1)).getByText(`Released ${new Date(releasedAt).toLocaleString()}`)).toBeTruthy()
+    expect(within(revisionEntry(1)).getByText(`Released ${formatDateTime(releasedAt)}`)).toBeTruthy()
     expect(within(revisionEntry(2)).queryByText(/^Released /)).toBeNull()
   })
 
