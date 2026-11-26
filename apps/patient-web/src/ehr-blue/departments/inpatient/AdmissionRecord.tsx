@@ -15,10 +15,10 @@ import { DeptNotice, type DeptNoticeTone } from '../parts/DeptNotice'
 import { DeptPage, DeptSection } from '../parts/DeptPage'
 import { useIdempotencyKeys, useStaffNames } from './hooks'
 import {
-  CONDITION_WORDS, DEATH_RECORD_OFF, DISCHARGE_TIME_WORDS, EYEBROW, OUTCOME_HINTS, OUTCOME_WORDS, RELOAD_AFTER, REPRINT_WORDS,
-  SIGN_WORD, canAllocate, canDecide, canPrintBand, canReadAdmission, cardName, daysText, dischargeTimeRange, dischargedText,
-  isCancelled, lagosDateTime, lagosInputToUtc, learnFrom, lengthProblem, memberText, movementText, notServed, outcomeText, placeText,
-  refusalWords, sourceText, takesText, utcToLagosInput, dayText,
+  BED_GONE, CONDITION_WORDS, DEATH_RECORD_OFF, DEATH_TIME_WORDS, DISCHARGE_TIME_WORDS, EYEBROW, OUTCOME_HINTS, OUTCOME_WORDS,
+  RELOAD_AFTER, REPRINT_WORDS, SIGN_WORD, canAllocate, canDecide, canPrintBand, canReadAdmission, cardName, daysText,
+  deathTimeMin, dischargeTimeRange, dischargedText, isCancelled, lagosDateTime, lagosInputToUtc, learnFrom, lengthProblem, lineText,
+  memberText, movementText, notServed, outcomeText, placeText, refusalWords, sourceText, takesText, utcToLagosInput, dayText,
 } from './inpatientRules'
 import { AdmissionBadges, AdmissionIdentity, ScreenWarning } from './parts'
 import { BandPaper, DischargeSummaryPaper, useInpatientPrint } from './prints'
@@ -71,9 +71,12 @@ export function AdmissionRecordPage({ facilityId, admissionId, base }: {
   const names = useStaffNames(facilityId, [card?.responsibleMembershipId, card?.requestedByMembershipId, card?.admittedByMembershipId,
     card?.discharge?.dischargedByMembershipId, ...(record?.movements ?? []).map(movement => movement.byMembershipId)])
 
-  /** Sends one write with its own key per body; a stale card reloads; every answer shows the new card at once. */
+  /**
+   * Sends one write with its own key per body; a stale card reloads; every answer shows the new card at once. `words` says
+   * a refusal as this write means it, where the general sentence would point at the wrong thing.
+   */
   async function write(name: string, body: unknown, send: (key: string) => Promise<AdmissionWritten>, done: Omit<Notice, 'tone'>,
-    invalid?: string): Promise<'done' | unknown> {
+    invalid?: string, words?: Readonly<Record<string, string>>): Promise<'done' | unknown> {
     if (busy || !card) return null
     setBusy(true)
     try {
@@ -88,7 +91,8 @@ export function AdmissionRecordPage({ facilityId, admissionId, base }: {
       learnFrom(caught)
       const reload = isHidApiError(caught) && RELOAD_AFTER.has(caught.code) && caught.code !== 'BED_NOT_AVAILABLE'
       if (reload) { setAction(null); void load() }
-      setNotice({ tone: 'critical', text: refusalWords(caught, 'The change could not be saved. Try again.', invalid) })
+      const own = isHidApiError(caught) && words && Object.hasOwn(words, caught.code) ? words[caught.code] : undefined
+      setNotice({ tone: 'critical', text: own ?? refusalWords(caught, 'The change could not be saved. Try again.', invalid) })
       return caught
     } finally {
       setBusy(false)
@@ -247,7 +251,7 @@ export function AdmissionRecordPage({ facilityId, admissionId, base }: {
             action === 'admit'
               ? { text: `${name} is admitted to ${place}.`, printBand: printed === 0 }
               : { text: `${name} has moved to ${place}. The old bed is marked for cleaning.`, printBand: false },
-            'Choose a free bed, and keep the handover to 2,000 characters.')} />
+            'Choose a free bed, and keep the handover to 2,000 characters.', { BED_NOT_FOUND: BED_GONE })} />
         ) : null}
         {action === 'prepare' ? (
           <PrepareForm facilityId={facilityId} card={card} busy={busy} onCancel={() => setAction(null)}
@@ -258,7 +262,7 @@ export function AdmissionRecordPage({ facilityId, admissionId, base }: {
           <DischargeForm card={card} busy={busy} onCancel={() => setAction(null)}
             onSave={body => write('discharge', body, key => inpatientApi.discharge(facilityId, card, body, key),
               { text: dischargedText(name, body.outcome, body.referredToFacilityName), printSummary: Boolean(body.summary) },
-              'Check the discharge details.')} />
+              'Check the discharge details.', body.diedAt ? { DISCHARGE_TIME_INVALID: DEATH_TIME_WORDS } : undefined)} />
         ) : null}
         {action === 'cancel' ? (
           <CancelForm busy={busy} onCancel={() => setAction(null)} onSave={reason => write('cancel', { reason },
@@ -365,7 +369,7 @@ function BedForm({ facilityId, card, transfer, chartOpen, busy, onCancel, onSave
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!chosen) { setProblem('Choose a free bed or overflow space.'); return }
-    const text = handover.trim()
+    const text = lineText(handover)
     if (text) {
       const tooLong = lengthProblem(text, 1, 2000, 'the handover', true)
       if (tooLong) { setProblem(tooLong); return }
@@ -374,7 +378,8 @@ function BedForm({ facilityId, card, transfer, chartOpen, busy, onCancel, onSave
     setProblem('')
     const answer = await onSave(chosen.bedId, text, confirm, chosen.place)
     if (isHidApiError(answer) && answer.code === 'WARD_SEX_MISMATCH') setMustConfirm(true)
-    if (isHidApiError(answer) && answer.code === 'BED_NOT_AVAILABLE') { setBedId(''); void read() }
+    // The bed went to someone else, out of use or with its closed ward: it is no longer offered, and the free beds are read again.
+    if (isHidApiError(answer) && (answer.code === 'BED_NOT_AVAILABLE' || answer.code === 'BED_NOT_FOUND')) { setBedId(''); void read() }
   }
 
   return (
@@ -472,11 +477,11 @@ function PrepareForm({ facilityId, card, busy, onCancel, onSave }: {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const text = lengthProblem(plan, 1, 2000, 'the follow-up plan', true) || expectedDayProblem(expected, range)
+    const text = lengthProblem(lineText(plan), 1, 2000, 'the follow-up plan', true) || expectedDayProblem(expected, range)
     if (text) { setProblem(text); return }
     if (chosen.size > 50) { setProblem('Choose at most 50 medicines.'); return }
     setProblem('')
-    await onSave({ followUpPlan: plan.trim(), ...(expected ? { expectedDischargeOn: expected } : {}),
+    await onSave({ followUpPlan: lineText(plan), ...(expected ? { expectedDischargeOn: expected } : {}),
       ...(chosen.size > 0 ? { dischargeMedicineIds: [...chosen] } : {}) })
   }
 
@@ -535,19 +540,30 @@ const EMPTY_SUMMARY: SummaryValues = {
   presentingProblem: '', courseInHospital: '', proceduresDone: '', conditionAtDischarge: '', followUpPlan: '', patientAdvice: '',
 }
 
-/** What the form sends, or the first problem with it. No outcome is ever assumed: the doctor chooses one. */
+/** An optional summary (absconded, died) partly written: route 16 takes a summary only with these two. */
+export const SUMMARY_PART = 'A summary needs the presenting problem and the course in hospital. Write both, or leave the whole summary empty.'
+
+/**
+ * What the form sends, or the first problem with it. No outcome is ever assumed: the doctor chooses one. Anything written
+ * in the summary is sent, never dropped: where the summary is optional, writing any of it asks for the whole of it.
+ */
 export function dischargeBody(outcome: DischargeOutcome | '', values: SummaryValues, extra: { dischargedAt: string; diedAt: string;
   referredTo: string; signature: string; admittedAt?: string | null }, now: number = Date.now()): DischargeInput | string {
   if (!outcome) return 'Choose the outcome.'
-  const filled = values.presentingProblem.trim() !== '' || values.courseInHospital.trim() !== ''
-  if (needsSummary(outcome) || filled) {
-    const problem = lengthProblem(values.presentingProblem, 1, 4000, 'the presenting problem', true)
-      || lengthProblem(values.courseInHospital, 1, 4000, 'the course in hospital', true)
+  const text = {
+    presentingProblem: lineText(values.presentingProblem), courseInHospital: lineText(values.courseInHospital),
+    proceduresDone: lineText(values.proceduresDone), followUpPlan: lineText(values.followUpPlan), patientAdvice: lineText(values.patientAdvice),
+  }
+  const filled = Object.values(text).some(value => value !== '') || values.conditionAtDischarge !== ''
+  const summarised = needsSummary(outcome) || filled
+  if (summarised) {
+    if (!needsSummary(outcome) && (!text.presentingProblem || !text.courseInHospital)) return SUMMARY_PART
+    const problem = lengthProblem(text.presentingProblem, 1, 4000, 'the presenting problem', true)
+      || lengthProblem(text.courseInHospital, 1, 4000, 'the course in hospital', true)
+      || lengthProblem(text.proceduresDone, 0, 4000, 'the procedures', true)
+      || lengthProblem(text.followUpPlan, 0, 4000, 'the follow-up plan', true)
+      || lengthProblem(text.patientAdvice, 0, 4000, 'the advice', true)
     if (problem) return problem
-    for (const [value, what] of [[values.proceduresDone, 'the procedures'], [values.followUpPlan, 'the follow-up plan'],
-      [values.patientAdvice, 'the advice']] as const) {
-      if (value.trim().length > 4000) return `Keep ${what} to 4,000 characters.`
-    }
   }
   const at = extra.dischargedAt ? lagosInputToUtc(extra.dischargedAt) : null
   if (extra.dischargedAt) {
@@ -559,18 +575,22 @@ export function dischargeBody(outcome: DischargeOutcome | '', values: SummaryVal
     diedAt = extra.diedAt ? lagosInputToUtc(extra.diedAt) : null
     if (!diedAt) return 'Enter the time of death.'
     if (Date.parse(diedAt) > now) return 'The time of death cannot be in the future.'
+    const admitted = extra.admittedAt ? Date.parse(extra.admittedAt) : Number.NaN
+    if (Number.isFinite(admitted) && Date.parse(diedAt) < admitted) {
+      return `The time of death must be after admission (${lagosDateTime(extra.admittedAt)}).`
+    }
   }
   if (outcome === 'referred_out') {
     const problem = lengthProblem(extra.referredTo, 2, 120, 'the facility’s name')
     if (problem) return problem
   }
   if (extra.signature.trim() !== SIGN_WORD) return 'Type SIGN to sign.'
-  const summary = needsSummary(outcome) || filled ? {
-    presentingProblem: values.presentingProblem.trim(), courseInHospital: values.courseInHospital.trim(),
-    ...(values.proceduresDone.trim() ? { proceduresDone: values.proceduresDone.trim() } : {}),
+  const summary = summarised ? {
+    presentingProblem: text.presentingProblem, courseInHospital: text.courseInHospital,
+    ...(text.proceduresDone ? { proceduresDone: text.proceduresDone } : {}),
     ...(values.conditionAtDischarge ? { conditionAtDischarge: values.conditionAtDischarge } : {}),
-    ...(values.followUpPlan.trim() ? { followUpPlan: values.followUpPlan.trim() } : {}),
-    ...(values.patientAdvice.trim() ? { patientAdvice: values.patientAdvice.trim() } : {}),
+    ...(text.followUpPlan ? { followUpPlan: text.followUpPlan } : {}),
+    ...(text.patientAdvice ? { patientAdvice: text.patientAdvice } : {}),
   } : undefined
   return {
     outcome, signature: SIGN_WORD,
@@ -600,6 +620,7 @@ function DischargeForm({ card, busy, onCancel, onSave }: {
   const change = (next: Partial<SummaryValues>) => setValues(previous => ({ ...previous, ...next }))
   const now = utcToLagosInput()
   const range = dischargeTimeRange(card.admittedAt)
+  const diedMin = deathTimeMin(card.admittedAt)
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -634,8 +655,8 @@ function DischargeForm({ card, busy, onCancel, onSave }: {
         </EhrField>
       ) : null}
       {outcome === 'died' ? (
-        <EhrField label="Time of death" controlId="discharge-died" hint="Lagos time, 24-hour clock.">
-          <EhrInput type="datetime-local" value={diedAt} max={now} onChange={event => setDiedAt(event.target.value)} />
+        <EhrField label="Time of death" controlId="discharge-died" hint="Lagos time, after admission and not in the future.">
+          <EhrInput type="datetime-local" value={diedAt} min={diedMin || undefined} max={now} onChange={event => setDiedAt(event.target.value)} />
         </EhrField>
       ) : null}
       <EhrField label="Discharge time (optional)" controlId="discharge-at"
@@ -644,6 +665,9 @@ function DischargeForm({ card, busy, onCancel, onSave }: {
       </EhrField>
       <fieldset className="hid-ehr-dept-inpatient-choices">
         <legend>{!outcome || needsSummary(outcome) ? 'Discharge summary' : 'Discharge summary (optional)'}</legend>
+        {outcome && !needsSummary(outcome) ? (
+          <p className="hid-ehr-dept-inpatient-hint">Leave it all empty, or write at least the presenting problem and the course in hospital.</p>
+        ) : null}
         <EhrField label="Presenting problem" controlId="discharge-problem">
           <EhrTextarea value={values.presentingProblem} rows={2} maxLength={4000} onChange={event => change({ presentingProblem: event.target.value })} />
         </EhrField>
@@ -689,10 +713,10 @@ function CancelForm({ busy, onCancel, onSave }: {
   const [problem, setProblem] = useState('')
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const text = lengthProblem(reason, 8, 500, 'why', true)
+    const text = lengthProblem(lineText(reason), 8, 500, 'why', true)
     if (text) { setProblem('Say why in at least 8 characters, and at most 500.'); return }
     setProblem('')
-    await onSave(reason.trim())
+    await onSave(lineText(reason))
   }
   return (
     <form className="hid-ehr-dept-inpatient-form" noValidate onSubmit={event => void submit(event)} aria-labelledby="cancel-title">

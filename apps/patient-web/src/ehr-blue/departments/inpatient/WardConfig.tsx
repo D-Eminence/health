@@ -165,11 +165,14 @@ function WardConfigDesk({ facilityId }: { readonly facilityId: string }) {
       {notice ? <DeptNotice id="ward-config-notice" tabIndex={-1} role={notice.tone === 'critical' ? 'alert' : 'status'} tone={notice.tone} variant="box">{notice.text}</DeptNotice> : null}
       {error ? <DeptNotice role="alert" tone={unavailable ? 'info' : 'critical'}>{error}</DeptNotice> : null}
       {adding && !unavailable ? (
-        <WardForm busy={busy} onCancel={() => setAdding(false)} onSave={async values => {
-          const saved = await write(`ward:new`, values, key => inpatientApi.createWard(facilityId, values, key),
-            `${values.name.trim()} is set up. Add its beds next.`, 'Check the ward’s name, type and who it takes.')
-          if (saved === 'saved') setAdding(false)
-        }} />
+        // A section of its own, as each ward is: its h2 follows the page's h1, and names the form.
+        <DeptSection title="New ward" headingId="ward-new-title">
+          <WardForm busy={busy} onCancel={() => setAdding(false)} onSave={async values => {
+            const saved = await write(`ward:new`, values, key => inpatientApi.createWard(facilityId, values, key),
+              `${values.name.trim()} is set up. Add its beds next.`, 'Check the ward’s name, type and who it takes.')
+            if (saved === 'saved') setAdding(false)
+          }} />
+        </DeptSection>
       ) : null}
       {wards.value === null && wards.loading && !error ? <p className="hid-ehr-state-message" role="status">Loading the wards…</p> : null}
       {wards.value !== null && items.length === 0 ? <EhrEmptyState title="No wards yet." message="Select New ward to set up the first one." /> : null}
@@ -204,7 +207,8 @@ function WardForm({ ward, busy, onCancel, onSave }: {
   }
   return (
     <form className="hid-ehr-dept-inpatient-form" noValidate onSubmit={event => void submit(event)} aria-labelledby={`${id}-title`}>
-      <h3 id={`${id}-title`}>{ward ? `Change ${ward.name}` : 'New ward'}</h3>
+      {/* A change is under its ward's h2; a new ward's title is its section's h2 (ward-new-title). */}
+      {ward ? <h3 id={`${id}-title`}>{`Change ${ward.name}`}</h3> : null}
       <div className="hid-ehr-dept-form-grid">
         <EhrField label="Ward name" controlId={`${id}-name`} error={problem || undefined} hint="2 to 80 characters, such as “Female Medical Ward”.">
           <EhrInput value={name} maxLength={80} onChange={event => setName(event.target.value)} />

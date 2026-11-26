@@ -24,6 +24,26 @@ const ENCOUNTER_PAIR = ['ehr.encounter.read', 'ehr.encounter.write']
 type Source = 'direct' | 'consultation' | 'waiting_list'
 
 /**
+ * The patient's place on today's waiting list, looked for only once the doctor chooses it as the source: the list's
+ * read (GET ehr/visit-queue, which has no one-patient filter) sends every waiting patient's card and records each as
+ * shown to the doctor, so a direct or visit admission never reads it. Kept for the patient it was read for.
+ */
+type QueueLookup =
+  | { readonly state: 'unread' }
+  | { readonly state: 'reading'; readonly patientId: string }
+  | { readonly state: 'found'; readonly patientId: string; readonly entry: VisitQueueCard }
+  | { readonly state: 'absent'; readonly patientId: string }
+  | { readonly state: 'failed'; readonly patientId: string }
+
+export const NOT_ON_LIST = 'This patient is not on today’s waiting list. Choose another source.'
+export const LIST_NOT_READ = 'Today’s waiting list could not be read.'
+
+/** The patient's open place on today's waiting list, from the list's cards; null when they are not on it. */
+export function queueEntryOf(items: readonly VisitQueueCard[], patientId: string): VisitQueueCard | null {
+  return items.find(item => item.patientId === patientId && OPEN_QUEUE.has(item.stage)) ?? null
+}
+
+/**
  * Whose admission a newborn's may name (Q-ADT-17, route 10's motherAdmissionId): any other patient's open admission here,
  * whatever the ward (a mother moved to ICU, a facility with general wards only) or none yet (waiting for a bed). Those on
  * a maternity ward come first; the backend still checks (MOTHER_ADMISSION_INVALID).
@@ -58,7 +78,10 @@ export function NewAdmission({ facilityId }: { readonly facilityId: string }) {
 
   const [source, setSource] = useState<Source>('direct')
   const [visits, setVisits] = useState<Encounter[]>([])
-  const [queueEntry, setQueueEntry] = useState<VisitQueueCard | null>(null)
+  const [lookup, setLookup] = useState<QueueLookup>({ state: 'unread' })
+  const queue: QueueLookup = lookup.state !== 'unread' && lookup.patientId === patientId ? lookup : { state: 'unread' }
+  const queueEntry = queue.state === 'found' ? queue.entry : null
+  const readsQueue = ENCOUNTER_PAIR.every(code => permissions.includes(code))
   const [wards, setWards] = useState<Ward[]>([])
   const [encounterId, setEncounterId] = useState('')
   const [reason, setReason] = useState('')
@@ -90,13 +113,20 @@ export function NewAdmission({ facilityId }: { readonly facilityId: string }) {
     void staffApi.encounters(facilityId, patientId).then(page => {
       if (live) setVisits(page.items.filter(visit => OPEN_VISIT.has(visit.status) && visit.encounterType !== 'inpatient'))
     }, () => {})
-    if (ENCOUNTER_PAIR.every(code => permissions.includes(code))) {
-      void visitQueueApi.list(facilityId).then(list => {
-        if (live) setQueueEntry(list.items.find(item => item.patientId === patientId && OPEN_QUEUE.has(item.stage)) ?? null)
-      }, () => {})
-    }
     return () => { live = false }
-  }, [facilityId, patientId, permissions])
+  }, [facilityId, patientId])
+
+  /** Looks for the patient on today's waiting list (once per patient; again after a failed read). */
+  function findOnList() {
+    if (!patientId || queue.state === 'reading' || queue.state === 'found' || queue.state === 'absent') return
+    const forPatient = patientId
+    setLookup({ state: 'reading', patientId: forPatient })
+    const settle = (next: QueueLookup) => setLookup(previous => previous.state === 'reading' && previous.patientId === forPatient ? next : previous)
+    void visitQueueApi.list(facilityId).then(list => {
+      const entry = queueEntryOf(list.items, forPatient)
+      settle(entry ? { state: 'found', patientId: forPatient, entry } : { state: 'absent', patientId: forPatient })
+    }, () => settle({ state: 'failed', patientId: forPatient }))
+  }
 
   useEffect(() => {
     if (!newborn || openAdmissions !== null) return
@@ -133,7 +163,7 @@ export function NewAdmission({ facilityId }: { readonly facilityId: string }) {
     const reasonProblem = lengthProblem(reason, 1, 300, 'the admission reason')
     const teamProblem = careTeam.trim() ? lengthProblem(careTeam, 1, 80, 'the care team') : ''
     const sourceProblem = source === 'consultation' && !encounterId ? 'Choose the visit the admission comes from.'
-      : source === 'waiting_list' && !queueEntry ? 'This patient is not on today’s waiting list.' : ''
+      : source === 'waiting_list' && !queueEntry ? listProblem(queue) : ''
     const motherProblem = newborn && !motherId ? 'Choose the mother’s admission.' : ''
     const first = reasonProblem || teamProblem || sourceProblem || motherProblem
     if (first) { setProblem(first); focus('new-admission-problem'); return }
@@ -172,11 +202,14 @@ export function NewAdmission({ facilityId }: { readonly facilityId: string }) {
             <input type="radio" name="admission-source" checked={source === 'consultation'} disabled={visits.length === 0}
               onChange={() => setSource('consultation')} /> From a visit{visits.length === 0 ? ' (no open visit)' : ''}
           </label>
-          <label>
-            <input type="radio" name="admission-source" checked={source === 'waiting_list'} disabled={!queueEntry}
-              onChange={() => setSource('waiting_list')} /> From today’s waiting list{queueEntry ? '' : ' (not on the list)'}
-          </label>
+          {readsQueue ? (
+            <label>
+              <input type="radio" name="admission-source" checked={source === 'waiting_list'}
+                onChange={() => { setSource('waiting_list'); findOnList() }} /> From today’s waiting list
+            </label>
+          ) : null}
         </fieldset>
+        {source === 'waiting_list' ? <QueueStatus queue={queue} onRetry={findOnList} /> : null}
         {source === 'consultation' ? (
           <EhrField label="Visit" controlId="new-admission-visit">
             <EhrSelect value={encounterId} onChange={event => setEncounterId(event.target.value)}>
@@ -227,4 +260,28 @@ export function NewAdmission({ facilityId }: { readonly facilityId: string }) {
       </form>
     </DeptPage>
   )
+}
+
+function listProblem(queue: QueueLookup): string {
+  if (queue.state === 'absent') return NOT_ON_LIST
+  if (queue.state === 'failed') return `${LIST_NOT_READ} Try again, or choose another source.`
+  return 'Wait while today’s waiting list is checked.'
+}
+
+/** What looking for the patient on today's waiting list found, said under the choice. */
+function QueueStatus({ queue, onRetry }: { readonly queue: QueueLookup; readonly onRetry: () => void }) {
+  if (queue.state === 'found') return <p className="hid-ehr-dept-inpatient-hint" role="status">This patient is on today’s waiting list.</p>
+  if (queue.state === 'absent') return <DeptNotice role="status" tone="caution">{NOT_ON_LIST}</DeptNotice>
+  if (queue.state === 'failed') {
+    return (
+      <DeptNotice role="alert" tone="critical">
+        {LIST_NOT_READ} <EhrButton size="sm" variant="secondary" onClick={onRetry}>Try again</EhrButton>
+      </DeptNotice>
+    )
+  }
+  if (queue.state === 'unread') {
+    // Another patient's record was opened since: their place is looked for afresh.
+    return <p className="hid-ehr-dept-inpatient-hint"><EhrButton size="sm" variant="secondary" onClick={onRetry}>Check today’s waiting list</EhrButton></p>
+  }
+  return <p className="hid-ehr-state-message" role="status">Checking today’s waiting list…</p>
 }

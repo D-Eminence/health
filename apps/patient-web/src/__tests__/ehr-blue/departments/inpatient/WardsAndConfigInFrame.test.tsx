@@ -184,6 +184,10 @@ describe('Ward configuration', () => {
     expect(url).toContain('includeBeds=true')
 
     fireEvent.click(screen.getByRole('button', { name: 'New ward' }))
+    // Its own section: an h2 after the page's h1, as each ward's, never an h3 straight under the h1.
+    expect(screen.getByRole('heading', { level: 2, name: 'New ward' })).toBeDefined()
+    expect(screen.queryByRole('heading', { level: 3, name: 'New ward' })).toBeNull()
+    expect(screen.getByRole('form', { name: 'New ward' })).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: 'Set up ward' }))
     expect(await screen.findByText('Enter a ward name of at least 2 characters.')).toBeDefined()
     fireEvent.change(screen.getByRole('textbox', { name: 'Ward name' }), { target: { value: ' ICU A ' } })

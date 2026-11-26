@@ -10,12 +10,12 @@ import { useFacilityRead } from '../parts/useFacilityRead'
 import { AdmissionRecordPage } from './AdmissionRecord'
 import { BedBoardView } from './BedBoard'
 import {
-  EYEBROW, ICU_BASE, ICU_TITLE, INPATIENT_BASE, INPATIENT_TITLE, POLL_MS, UUID, WARDS_REFUSED, canDecide, canReadWards,
-  learnFrom, notServed, refusalWords,
+  EYEBROW, ICU_BASE, ICU_TITLE, INPATIENT_BASE, INPATIENT_TITLE, NOT_AVAILABLE, POLL_MS, UUID, WARDS_REFUSED, canDecide,
+  canReadWards, learnFrom, refusalWords,
 } from './inpatientRules'
 import { NewAdmission } from './NewAdmission'
 import { AdmissionItem, ScreenWarning } from './parts'
-import { usePolling } from './hooks'
+import { usePolling, useSteadyNotServed } from './hooks'
 import './inpatient.css'
 
 /**
@@ -58,11 +58,27 @@ const FILTERS: ReadonlyArray<readonly [Filter, string]> = [
   ['cancelled', 'Requests cancelled'],
 ]
 
-const GROUPS: ReadonlyArray<{ readonly id: string; readonly title: string; readonly empty: string; readonly has: (card: AdmissionCard) => boolean }> = [
-  { id: 'waiting', title: 'Waiting for a bed', empty: 'No one is waiting for a bed.', has: card => card.status === 'requested' },
-  { id: 'wards', title: 'On the wards', empty: 'No one is admitted.', has: card => card.status === 'admitted' || card.status === 'discharge_ready' },
-  { id: 'today', title: 'Discharged or cancelled today', empty: 'No one has left today.', has: card => card.status === 'discharged' || card.status === 'cancelled' },
+interface Group {
+  readonly id: string
+  readonly title: string
+  readonly empty: string
+  readonly message: string
+  readonly has: (card: AdmissionCard) => boolean
+}
+const MOVING = 'Patients show here as they move.'
+const GROUPS: readonly Group[] = [
+  { id: 'waiting', title: 'Waiting for a bed', empty: 'No one is waiting for a bed.', message: MOVING, has: card => card.status === 'requested' },
+  { id: 'wards', title: 'On the wards', empty: 'No one is admitted.', message: MOVING, has: card => card.status === 'admitted' || card.status === 'discharge_ready' },
+  { id: 'today', title: 'Discharged or cancelled today', empty: 'No one has left today.', message: MOVING, has: card => card.status === 'discharged' || card.status === 'cancelled' },
 ]
+/**
+ * ICU's list (wardType=icu) has the requests for an ICU ward only: one waiting list on the page, said so, with the bed
+ * board's own left out. A request for any ward waits on Inpatient / Wards.
+ */
+const ICU_GROUPS: readonly Group[] = GROUPS.map(group => group.id === 'waiting' ? {
+  ...group, title: 'Waiting for an ICU bed', empty: 'No one is waiting for an ICU bed.',
+  message: 'Requests for an ICU ward show here. Requests for any ward are on Inpatient / Wards.',
+} : group)
 
 function AdmissionsList({ facilityId, icu, filter, onFilter }: {
   readonly facilityId: string
@@ -78,8 +94,9 @@ function AdmissionsList({ facilityId, icu, filter, onFilter }: {
   const list = useFacilityRead<AdmissionList>(facilityId, true, loader, 'The admissions could not be loaded.')
   const { refresh } = list
   usePolling(refresh, POLL_MS)
-  const unavailable = list.caught !== null && notServed(list.caught)
-  const error = list.error ? refusalWords(list.caught, list.error) : ''
+  // Kept while the list is read again (every minute): a page switched off stays so, without a moment of controls.
+  const unavailable = useSteadyNotServed(list)
+  const error = unavailable ? NOT_AVAILABLE : list.error ? refusalWords(list.caught, list.error) : ''
   const items = list.value?.items ?? []
   const base = icu ? ICU_BASE : INPATIENT_BASE
 
@@ -94,7 +111,7 @@ function AdmissionsList({ facilityId, icu, filter, onFilter }: {
       <ScreenWarning />
       {error ? <DeptNotice role="alert" tone={unavailable ? 'info' : 'critical'}>{error}</DeptNotice> : null}
 
-      {icu && !unavailable ? <BedBoardView facilityId={facilityId} which={{ wardType: 'icu' }} headingId="icu-board" recordBase={ICU_BASE} /> : null}
+      {icu && !unavailable ? <BedBoardView facilityId={facilityId} which={{ wardType: 'icu' }} headingId="icu-board" recordBase={ICU_BASE} waiting={false} /> : null}
 
       {!unavailable ? (
         <div className="hid-ehr-dept-inpatient-controls">
@@ -107,13 +124,13 @@ function AdmissionsList({ facilityId, icu, filter, onFilter }: {
       ) : null}
       {list.value === null && list.loading && !error ? <p className="hid-ehr-state-message" role="status">Loading the admissions…</p> : null}
 
-      {list.value !== null ? (
-        filter === '' ? GROUPS.map(group => {
+      {list.value !== null && !unavailable ? (
+        filter === '' ? (icu ? ICU_GROUPS : GROUPS).map(group => {
           const cards = items.filter(group.has)
           const headingId = `${icu ? 'icu' : 'inpatient'}-${group.id}`
           return (
             <DeptSection key={group.id} title={`${group.title} (${cards.length})`} headingId={headingId}>
-              {cards.length === 0 ? <EhrEmptyState title={group.empty} message="Patients show here as they move." /> : (
+              {cards.length === 0 ? <EhrEmptyState title={group.empty} message={group.message} /> : (
                 <ul className="hid-ehr-dept-inpatient-list" aria-labelledby={headingId}>
                   {cards.map(card => <AdmissionItem key={card.admissionId} card={card} base={base} />)}
                 </ul>
@@ -130,7 +147,7 @@ function AdmissionsList({ facilityId, icu, filter, onFilter }: {
           </DeptSection>
         )
       ) : null}
-      {list.value?.hasMore ? (
+      {list.value?.hasMore && !unavailable ? (
         <DeptNotice tone="caution">Only the first {list.value.limit} admissions are shown. Choose a list above to see the rest.</DeptNotice>
       ) : null}
     </DeptPage>

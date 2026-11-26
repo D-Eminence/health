@@ -65,7 +65,8 @@ describe('New admission', () => {
     expect(screen.getByText('Ada Wardone')).toBeDefined()
     expect(document.body.textContent).not.toContain('HID-FICT0042')
     await waitFor(() => expect(screen.getByRole('radio', { name: /From a visit/ })).toHaveProperty('disabled', false))
-    expect(screen.getByRole('radio', { name: /From today’s waiting list \(not on the list\)/ })).toHaveProperty('disabled', true)
+    // Today's waiting list is looked at only when chosen.
+    expect(screen.getByRole('radio', { name: 'From today’s waiting list' })).toHaveProperty('disabled', false)
     fireEvent.click(screen.getByRole('radio', { name: /From a visit/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Request admission' }))
     expect(await screen.findByText('Enter the admission reason.')).toBeDefined()
@@ -88,6 +89,39 @@ describe('New admission', () => {
     expect(request.headers.get('X-Purpose-Of-Use')).toBe('direct-care')
     expect(request.headers.get('Idempotency-Key')).toMatch(/^[0-9a-f-]{36}$/)
     for (const [url] of vi.mocked(fetch).mock.calls) expect(String(url)).not.toMatch(/HID-|Wardone/)
+    // A visit admission never reads today's waiting list: every waiting patient's card, each recorded as shown.
+    expect(sentTo(sent, QUEUE)).toEqual([])
+  })
+
+  it('reads today’s waiting list only once it is chosen, and says when the patient is not on it', async () => {
+    const sent = serve({
+      [WARDS]: [() => json({ items: [] })],
+      [ENCOUNTERS]: [() => json({ items: [], nextCursor: null })],
+      [QUEUE]: [() => new Response(JSON.stringify({ type: 'about:blank', title: 'INTERNAL', status: 500, code: 'INTERNAL', detail: 'x', retryable: false }),
+        { status: 500, headers: { 'Content-Type': 'application/problem+json' } }),
+      () => json({ items: [{ entryId: 'q0000000-0000-4000-8000-000000000002', patientId: MOTHER, stage: 'waiting' },
+          { entryId: 'q0000000-0000-4000-8000-000000000003', patientId: PATIENT, stage: 'finished' }], hasMore: false, limit: 200 })],
+    })
+    await renderNew()
+    await waitFor(() => expect(sentTo(sent, ENCOUNTERS)).toHaveLength(1))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Admission reason' }), { target: { value: 'Observation after a fall' } })
+    expect(sentTo(sent, QUEUE)).toEqual([])
+    fireEvent.click(screen.getByRole('radio', { name: 'From today’s waiting list' }))
+    expect(await screen.findByText('Today’s waiting list could not be read.', { exact: false }, { timeout: 4000 })).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Request admission' }))
+    expect(await screen.findByText('Today’s waiting list could not be read. Try again, or choose another source.')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    // On the list once, but that visit is finished: not on today's list.
+    expect((await screen.findAllByText('This patient is not on today’s waiting list. Choose another source.')).length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('button', { name: 'Request admission' }))
+    await waitFor(() => expect(screen.getAllByText('This patient is not on today’s waiting list. Choose another source.')).toHaveLength(2))
+    expect(sentTo(sent, REQUEST)).toEqual([])
+    // Choosing it again does not read the list again.
+    expect(sentTo(sent, QUEUE)).toHaveLength(2)
+    fireEvent.click(screen.getByRole('radio', { name: 'Direct admission' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'From today’s waiting list' }))
+    expect(screen.getAllByText('This patient is not on today’s waiting list. Choose another source.').length).toBeGreaterThan(0)
+    expect(sentTo(sent, QUEUE)).toHaveLength(2)
   })
 
   it('takes the patient’s place on today’s waiting list, and a newborn with the mother’s admission', async () => {
@@ -100,9 +134,10 @@ describe('New admission', () => {
       [REQUEST]: [() => problem(409, 'ADMISSION_ALREADY_OPEN', 'x')],
     })
     await renderNew()
-    const fromList = screen.getByRole('radio', { name: /From today’s waiting list/ })
-    await waitFor(() => expect(fromList).toHaveProperty('disabled', false))
-    fireEvent.click(fromList)
+    expect(sentTo(sent, QUEUE)).toEqual([])
+    fireEvent.click(screen.getByRole('radio', { name: 'From today’s waiting list' }))
+    expect(await screen.findByText('This patient is on today’s waiting list.')).toBeDefined()
+    expect(sentTo(sent, QUEUE)).toHaveLength(1)
     fireEvent.change(screen.getByRole('textbox', { name: 'Admission reason' }), { target: { value: 'Neonatal jaundice' } })
     fireEvent.click(screen.getByRole('checkbox', { name: /newborn baby/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Request admission' }))
@@ -197,7 +232,7 @@ describe('New admission', () => {
 })
 
 describe('Transfer bed with the patient’s record open', () => {
-  it('offers the nursing handover and sends it with the move', async () => {
+  it('offers the nursing handover and sends it with the move, a pasted tab as a space', async () => {
     const BED = 'c0000000-0000-4000-8000-0000000000c1'
     const sent = serve({
       [`GET /api/v1/ehr/admissions/${ADMISSION}`]: [() => json({ admission: card(), movements: [] }), () => json({ admission: card({ rowVersion: 4 }), movements: [] })],
@@ -209,7 +244,7 @@ describe('Transfer bed with the patient’s record open', () => {
     render(<MemoryRouter><div className="hid-ehr"><AdmissionRecordPage facilityId={FACILITY} admissionId={ADMISSION} base="/provider/inpatient" /></div></MemoryRouter>)
     fireEvent.click(await screen.findByRole('button', { name: 'Transfer bed' }))
     fireEvent.change(await screen.findByRole('combobox', { name: 'Move to' }), { target: { value: BED } })
-    fireEvent.change(screen.getByRole('textbox', { name: 'Nursing handover (optional)' }), { target: { value: ' On 2 L oxygen; review at 14:00. ' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Nursing handover (optional)' }), { target: { value: ' On 2 L oxygen;\treview at 14:00. ' } })
     fireEvent.click(screen.getByRole('button', { name: 'Move patient' }))
     expect(await screen.findByText('Ada Wardone has moved to Ward B, Bed 1. The old bed is marked for cleaning.')).toBeDefined()
     expect(sentTo(sent, `POST /api/v1/ehr/admissions/${ADMISSION}/transfer`)[0]!.body)

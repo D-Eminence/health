@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { FACILITY_STAFF_NAMES_MAX_IDS, staffApi } from '../../../staff/api'
-import { newKey } from './inpatientRules'
+import { inpatientServed, newKey, notServed } from './inpatientRules'
 
 export interface IdempotencyKeys {
   (action: string, body: unknown): string
@@ -77,4 +77,18 @@ export function usePolling(refresh: () => unknown, every: number) {
       document.removeEventListener('visibilitychange', shown)
     }
   }, [refresh, every])
+}
+
+/**
+ * Whether a read says inpatient care is not served here (INPATIENT_ENABLED off, or an ehr-api without it), kept as the
+ * last answer said while the read runs again: a page polled while switched off keeps saying so, steadily, rather than
+ * showing its loading state and controls for a moment and announcing the notice again every minute. Starts from what
+ * the page's other reads have learned.
+ */
+export function useSteadyNotServed(read: { readonly loading: boolean; readonly caught: unknown }): boolean {
+  const [off, setOff] = useState(() => inpatientServed() === false)
+  const now = read.loading ? off : read.caught !== null && notServed(read.caught)
+  // Kept from render to render (React's state from earlier renders): set here, never in an effect, so no frame shows the other.
+  if (now !== off) setOff(now)
+  return now
 }

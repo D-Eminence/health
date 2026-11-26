@@ -211,6 +211,8 @@ export function utcToLagosInput(value: string | number | Date = Date.now()): str
 
 /** Route 16's limits on a discharge time, in its own words: the field's hint, the check before sending, and the refusal. */
 export const DISCHARGE_TIME_WORDS = 'The discharge time must be after admission, within the last 24 hours, and not in the future.'
+/** Route 16's DISCHARGE_TIME_INVALID when a time of death was sent: either time may be the one refused. */
+export const DEATH_TIME_WORDS = 'Check the time of death (after admission, and not in the future) and the discharge time (after admission, within the last 24 hours).'
 
 /**
  * When a discharge may say it happened (route 16, DISCHARGE_TIME_INVALID otherwise): not before admission, no more than
@@ -223,6 +225,15 @@ export function dischargeTimeRange(admittedAt: string | null | undefined, now: n
   return { earliest, latest: now, min: utcToLagosInput(Math.ceil(earliest / 60_000) * 60_000), max: utcToLagosInput(now) }
 }
 
+/**
+ * The earliest a time of death may be (route 16: not before admission), as the field's Lagos limit, rounded up to the next
+ * minute so the earliest time the field offers is one the backend takes; '' when the admission time is not known.
+ */
+export function deathTimeMin(admittedAt: string | null | undefined): string {
+  const admitted = admittedAt ? Date.parse(admittedAt) : Number.NaN
+  return Number.isFinite(admitted) ? utcToLagosInput(Math.ceil(admitted / 60_000) * 60_000) : ''
+}
+
 /** The census can show today or a Lagos day up to 90 days back. */
 export function censusRange(now: number = Date.now()): { readonly min: string; readonly max: string } {
   return { min: lagosDay(now - 90 * 86_400_000), max: lagosDay(now) }
@@ -233,15 +244,25 @@ export function censusRange(now: number = Date.now()): { readonly min: string; r
 // Control characters, which the server refuses in names and one-line text.
 // eslint-disable-next-line no-control-regex
 const CONTROL = /[\u0000-\u001f\u007f]/
+// The server's TEXT_LINES (inpatient.dto.ts): line breaks are taken, every other control character (a tab too) is not.
 // eslint-disable-next-line no-control-regex
-const CONTROL_BUT_LINES = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/
+const CONTROL_BUT_LINES = /[\u0000-\u0009\u000b\u000c\u000e-\u001f\u007f]/
 
 export function lengthProblem(value: string, min: number, max: number, what: string, lines = false): string {
   const trimmed = value.trim()
   if (trimmed.length < min) return min <= 1 ? `Enter ${what}.` : `Enter ${what} of at least ${min} characters.`
-  if (trimmed.length > max) return `Keep ${what} to ${max} characters.`
+  if (trimmed.length > max) return `Keep ${what} to ${max.toLocaleString('en-GB')} characters.`
   if ((lines ? CONTROL_BUT_LINES : CONTROL).test(trimmed)) return 'Use letters, numbers and punctuation only.'
   return ''
+}
+
+/**
+ * Text written in lines (a handover, a plan, a summary, a reason), as it is checked and sent: trimmed, and each tab a
+ * space. A tab comes with text pasted from a word processor; the server refuses it (TEXT_LINES), and no one can see it
+ * to take it out.
+ */
+export function lineText(value: string): string {
+  return value.replaceAll('\t', ' ').trim()
 }
 
 export const SIGN_WORD = 'SIGN'
@@ -254,6 +275,12 @@ export function notServed(caught: unknown): boolean {
   if (caught.status === 503 && caught.code === 'INPATIENT_NOT_AVAILABLE') return true
   return caught.status === 404 && !['ADMISSION_NOT_FOUND', 'WARD_NOT_FOUND', 'BED_NOT_FOUND'].includes(caught.code)
 }
+
+/**
+ * Admit or transfer's BED_NOT_FOUND (routes 12 and 13): the bed chosen from this facility's free beds has since been taken
+ * out of use, or its ward closed.
+ */
+export const BED_GONE = 'This bed is no longer in use, or its ward has closed. Choose another bed or overflow space.'
 
 /** ADT-1's refusals, in the contract's own plain words (never "permission"). */
 export const INPATIENT_REFUSALS: Readonly<Record<string, string>> = {

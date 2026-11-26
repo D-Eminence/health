@@ -115,6 +115,32 @@ describe('Inpatient / Wards in the frame', () => {
     expect(screen.queryByRole('combobox', { name: 'Show' })).toBeNull()
   })
 
+  it('keeps saying so, steadily, while the list is read again every minute: no controls, no loading, no second alert', async () => {
+    const doctor = facility(REAL_FACILITY, 'Fictional Hospital', DOCTOR, ['doctor'])
+    const off = () => problem(503, 'INPATIENT_NOT_AVAILABLE', 'Service unavailable')
+    let answer: ((response: Response) => void) | undefined
+    // The first read and the client's two tries again; then the next minute's read, held open; then its two tries again.
+    const answers = [...many(off, 3), () => new Promise<Response>(resolve => { answer = resolve }), ...many(off, 2)]
+    const sent = serve({ [SESSION]: [sessionAt(doctor, [doctor])], [ADMISSIONS]: answers })
+    await openStaffApp('/provider/icu')
+    const notice = await screen.findByText('Inpatient care is not switched on yet.', undefined, { timeout: 4000 })
+    // The first read of ICU's bed board went with the list's, before anything said inpatient care is off.
+    const boards = sentTo(sent, BOARD).length
+    // The page comes back on screen (as the minute's timer does): the list is read again.
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')) })
+    await waitFor(() => expect(answer).toBeDefined())
+    // While it is read, the page still says it is off: the same notice (not announced again), and nothing else.
+    expect(screen.getByText('Inpatient care is not switched on yet.')).toBe(notice)
+    expect(screen.queryByText('Loading the admissions…')).toBeNull()
+    expect(screen.queryByRole('combobox', { name: 'Show' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'New admission' })).toBeNull()
+    await act(async () => { answer!(off()) })
+    await waitFor(() => expect(answers).toHaveLength(0))
+    expect(screen.getByText('Inpatient care is not switched on yet.')).toBe(notice)
+    // ICU's bed board is not read again while inpatient care is off.
+    expect(sentTo(sent, BOARD)).toHaveLength(boards)
+  })
+
   it('says an ehr-api without inpatient care (404) is not switched on yet, and a guard’s 403 in plain words', async () => {
     const nurse = facility(REAL_FACILITY, 'Fictional Hospital', NURSE, ['nurse'])
     serve({
@@ -193,6 +219,32 @@ describe('an admission’s record', () => {
     expect(JSON.stringify({ ...localStorage, ...sessionStorage })).not.toContain('HID-FICT0042')
     expect(await screen.findByRole('button', { name: 'Print wristband again' })).toBeDefined()
     noIdentityInAddresses()
+  })
+
+  it('drops a bed taken out of use since the form opened (BED_NOT_FOUND), says so, and reads the free beds again', async () => {
+    const nurse = facility(REAL_FACILITY, 'Fictional Hospital', NURSE, ['nurse'])
+    const sent = serve({
+      [SESSION]: [sessionAt(nurse, [nurse])],
+      [RECORD]: [recordOf(waiting({ rowVersion: 3 }), [movement('requested')])],
+      // An admin has since taken Bed 4 out of use.
+      [WARDS]: [freeWards, () => json({ items: [
+        { ...ward(WARD_MALE, 'Male Ward', { takes: 'male' }), beds: [{ bedId: BED_1, name: 'Bed 1', kind: 'bed', status: 'available', active: true, rowVersion: 1 }] },
+        { ...ward(WARD_FEMALE, 'Female Medical Ward', { takes: 'female' }), beds: [
+          { bedId: BED_4, name: 'Bed 4', kind: 'bed', status: 'available', active: false, rowVersion: 3 }] },
+      ] })],
+      [action('admit')]: [() => problem(404, 'BED_NOT_FOUND', 'x')],
+    })
+    await openStaffApp(`/provider/inpatient/${ADMISSION}`)
+    fireEvent.click(await screen.findByRole('button', { name: 'Admit and allocate bed' }))
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Bed' }), { target: { value: BED_4 } })
+    fireEvent.click(screen.getByRole('button', { name: 'Admit to this bed' }))
+    expect(await screen.findByText('This bed is no longer in use, or its ward has closed. Choose another bed or overflow space.')).toBeDefined()
+    expect(screen.queryByText('This ward, bed or admission is not at this facility.')).toBeNull()
+    await waitFor(() => expect(sentTo(sent, WARDS)).toHaveLength(2))
+    const bed = screen.getByRole('combobox', { name: 'Bed' }) as HTMLSelectElement
+    await waitFor(() => expect(Array.from(bed.options, option => option.textContent)).toEqual(['Choose a bed', 'Bed 1 (Male Ward)']))
+    expect(bed.value).toBe('')
+    expect(sentTo(sent, action('admit'))).toHaveLength(1)
   })
 
   it('asks why a band is printed again', async () => {
@@ -327,8 +379,8 @@ describe('an admission’s record', () => {
       dischargedByMembershipId: null, summaryNoteId: null, referredToFacilityName: null, diedAt: '2026-11-20T04:40:00.000Z' } })
     const sent = serve({
       [SESSION]: [sessionAt(doctor, [doctor])],
-      [RECORD]: [recordOf(), recordOf(died)],
-      [action('discharge')]: [() => problem(400, 'DIED_AT_REQUIRED', 'x'), written(died)],
+      [RECORD]: [recordOf(card({ admittedAt: '2026-11-19T08:00:00.000Z' })), recordOf(died)],
+      [action('discharge')]: [() => problem(400, 'DIED_AT_REQUIRED', 'x'), () => problem(400, 'DISCHARGE_TIME_INVALID', 'x'), written(died)],
     })
     await openStaffApp(`/provider/inpatient/${ADMISSION}`)
     fireEvent.click(await screen.findByRole('button', { name: 'Discharge patient' }))
@@ -336,15 +388,27 @@ describe('an admission’s record', () => {
     expect(screen.getByRole('radio', { name: 'Routine discharge (prepare the discharge first)' })).toHaveProperty('disabled', true)
     for (const radio of screen.getAllByRole('radio')) expect(radio).toHaveProperty('checked', false)
     fireEvent.click(screen.getByRole('radio', { name: 'Died' }))
-    fireEvent.change(screen.getByLabelText('Time of death'), { target: { value: '2026-11-20T05:40' } })
+    const deathTime = screen.getByLabelText('Time of death')
+    // From admission (Lagos time), and the hint says no more than the field does.
+    expect(deathTime.getAttribute('min')).toBe('2026-11-19T09:00')
+    expect(screen.getByText('Lagos time, after admission and not in the future.')).toBeDefined()
+    expect(document.body.textContent).not.toContain('24-hour clock')
+    fireEvent.change(deathTime, { target: { value: '2026-11-19T08:30' } })
     fireEvent.change(screen.getByRole('textbox', { name: 'Type SIGN to sign the discharge' }), { target: { value: 'SIGN' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Sign and discharge' }))
+    expect(await screen.findByText('The time of death must be after admission (19 Nov 2026, 09:00).')).toBeDefined()
+    expect(sentTo(sent, action('discharge'))).toEqual([])
+    fireEvent.change(deathTime, { target: { value: '2026-11-20T05:40' } })
     fireEvent.click(screen.getByRole('button', { name: 'Sign and discharge' }))
     await waitFor(() => expect(sentTo(sent, action('discharge'))).toHaveLength(1))
     expect(await screen.findByText('Enter the time of death.')).toBeDefined()
+    // Route 16's time refusal, with a time of death sent, names it too: not only the discharge time the doctor left empty.
+    fireEvent.click(screen.getByRole('button', { name: 'Sign and discharge' }))
+    expect(await screen.findByText('Check the time of death (after admission, and not in the future) and the discharge time (after admission, within the last 24 hours).')).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: 'Sign and discharge' }))
     expect(await screen.findByText('Ada Wardone’s death is recorded.')).toBeDefined()
     expect(document.body.textContent).not.toMatch(/discharged: died/i)
-    expect(sentTo(sent, action('discharge'))[1]!.body).toEqual({ expectedRowVersion: 3, outcome: 'died', signature: 'SIGN', diedAt: '2026-11-20T04:40:00.000Z' })
+    expect(sentTo(sent, action('discharge'))[2]!.body).toEqual({ expectedRowVersion: 3, outcome: 'died', signature: 'SIGN', diedAt: '2026-11-20T04:40:00.000Z' })
     expect(await screen.findByText('The death certificate is not switched on yet. The outcome and time of death are recorded.')).toBeDefined()
     expect(screen.getByText('20 Nov 2026, 05:40')).toBeDefined()
     // No death record route is ever called (Q188 A: built but off).
@@ -479,6 +543,36 @@ describe('ICU', () => {
     expect(urls.some(url => url.includes('/admissions') && url.includes('wardType=icu'))).toBe(true)
     checkHeaders(sentTo(sent, BOARD)[0]!)
     expect(screen.queryByRole('button', { name: 'New admission' })).toBeNull()
+  })
+
+  it('lists one waiting list, for an ICU bed, and leaves out the board’s own (which counts requests for any ward too)', async () => {
+    const nurse = facility(REAL_FACILITY, 'Fictional Hospital', NURSE, ['nurse'])
+    const forIcu = waiting({ admissionId: ADMISSION_TWO, fullName: 'Bola Waitone', requestedWardId: WARD_ICU })
+    serve({
+      [SESSION]: [sessionAt(nurse, [nurse])],
+      [ADMISSIONS]: [listOf(forIcu)],
+      [BOARD]: [() => json({ wards: [{ wardId: WARD_ICU, name: 'ICU A', wardType: 'icu', takes: 'any', active: true, beds: [] }],
+        waitingForBed: [forIcu, waiting({ admissionId: ADMISSION_THREE, fullName: 'Chidi Anyward', requestedWardId: null })] })],
+    })
+    await openStaffApp('/provider/icu')
+    expect(await screen.findByRole('heading', { level: 2, name: 'Waiting for an ICU bed (1)' })).toBeDefined()
+    expect(await screen.findByText('This ward has no beds yet.')).toBeDefined()
+    // One "Waiting for" on the page, so no two counts that disagree, and no heading id twice.
+    expect(screen.getAllByRole('heading', { name: /^Waiting for/ })).toHaveLength(1)
+    expect(screen.getAllByRole('link', { name: 'Bola Waitone' })).toHaveLength(1)
+    expect(screen.queryByText('Chidi Anyward')).toBeNull()
+    const ids = Array.from(document.querySelectorAll('[id^="admission-"]'), element => element.id)
+    expect(new Set(ids).size).toBe(ids.length)
+  })
+
+  it('says where a request for any ward waits when no one waits for an ICU bed', async () => {
+    const nurse = facility(REAL_FACILITY, 'Fictional Hospital', NURSE, ['nurse'])
+    serve({ [SESSION]: [sessionAt(nurse, [nurse])], [ADMISSIONS]: [listOf()],
+      [BOARD]: [() => json({ wards: [], waitingForBed: [waiting({ requestedWardId: null })] })] })
+    await openStaffApp('/provider/icu')
+    expect(await screen.findByText('No one is waiting for an ICU bed.')).toBeDefined()
+    expect(screen.getByText('Requests for an ICU ward show here. Requests for any ward are on Inpatient / Wards.')).toBeDefined()
+    expect(screen.getAllByRole('heading', { name: /^Waiting for/ })).toHaveLength(1)
   })
 
   it('says when the facility has no ICU ward yet', async () => {

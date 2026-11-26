@@ -7,10 +7,10 @@ import { useDeptAccess } from '../parts/access'
 import { DeptNotice, type DeptNoticeTone } from '../parts/DeptNotice'
 import { DeptSection } from '../parts/DeptPage'
 import { useFacilityRead } from '../parts/useFacilityRead'
-import { useIdempotencyKeys, usePolling } from './hooks'
+import { useIdempotencyKeys, usePolling, useSteadyNotServed } from './hooks'
 import {
-  BED_STATUS_TONES, INPATIENT_BASE, POLL_MS, RELOAD_AFTER, bedStatusText, canAllocate, canManageWards, canSetBedStatus,
-  cardName, daysText, isCancelled, learnFrom, lagosDateTime, lengthProblem, notServed, refusalWords, takesText,
+  BED_STATUS_TONES, INPATIENT_BASE, NOT_AVAILABLE, POLL_MS, RELOAD_AFTER, bedStatusText, canAllocate, canManageWards,
+  canSetBedStatus, cardName, daysText, isCancelled, learnFrom, lagosDateTime, lengthProblem, refusalWords, takesText,
   wardTypeText,
 } from './inpatientRules'
 import { AdmissionIdentity, AdmissionItem } from './parts'
@@ -34,15 +34,20 @@ export function bedMoves(status: BedStatus): readonly BedMove[] {
 /**
  * One ward's bed board, or every active ward of a type (ICU), as route 7 answers it: each bed with its status in words
  * (never colour alone), how long it has been so, the patient in it (named under Q190 A, with days since admission), and
- * the bed's hand moves for those who give beds or set up wards. Patients waiting for a bed are listed after. Read again
- * every 60 seconds while shown. Nothing here opens a chart.
+ * the bed's hand moves for those who give beds or set up wards. Patients waiting for a bed are listed after, unless the
+ * page lists them itself (ICU). Read again every 60 seconds while shown. Nothing here opens a chart.
  */
-export function BedBoardView({ facilityId, which, headingId, recordBase = INPATIENT_BASE }: {
+export function BedBoardView({ facilityId, which, headingId, recordBase = INPATIENT_BASE, waiting = true }: {
   readonly facilityId: string
   /** Where a patient's admission opens: Inpatient / Wards, or ICU on the ICU page. */
   readonly recordBase?: string
   readonly which: { readonly wardId: string } | { readonly wardType: WardType }
   readonly headingId: string
+  /**
+   * Whether to list the board's own "Waiting for a bed". ICU's page leaves it out: its admissions list has its own, of
+   * requests for an ICU ward, and the board's (which also takes requests for any ward) would say another count.
+   */
+  readonly waiting?: boolean
 }) {
   const { permissions } = useDeptAccess()
   const keyFor = useIdempotencyKeys()
@@ -61,8 +66,8 @@ export function BedBoardView({ facilityId, which, headingId, recordBase = INPATI
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<{ tone: DeptNoticeTone; text: string } | null>(null)
 
-  const unavailable = board.caught !== null && notServed(board.caught)
-  const error = board.error ? refusalWords(board.caught, board.error) : ''
+  const unavailable = useSteadyNotServed(board)
+  const error = unavailable ? NOT_AVAILABLE : board.error ? refusalWords(board.caught, board.error) : ''
   const setsStatus = canSetBedStatus(permissions)
   // A ward admin without the ward roles sets a bed's status under healthcare operations; ward staff under direct care.
   const purpose = canAllocate(permissions) ? 'direct-care' as const : 'healthcare-operations' as const
@@ -96,7 +101,7 @@ export function BedBoardView({ facilityId, which, headingId, recordBase = INPATI
   }
 
   if (unavailable || (error && board.value === null)) {
-    return error ? <DeptNotice role="alert" tone={unavailable ? 'info' : 'critical'}>{error}</DeptNotice> : null
+    return <DeptNotice role="alert" tone={unavailable ? 'info' : 'critical'}>{error}</DeptNotice>
   }
   if (board.value === null) return <p className="hid-ehr-state-message" role="status">Loading the bed board…</p>
 
@@ -173,13 +178,15 @@ export function BedBoardView({ facilityId, which, headingId, recordBase = INPATI
           </DeptSection>
         )
       })}
-      <DeptSection title={`Waiting for a bed (${waitingForBed.length})`} headingId={`${headingId}-waiting`}>
-        {waitingForBed.length === 0 ? <EhrEmptyState title="No one is waiting for a bed." message="Admission requests show here until a bed is given." /> : (
-          <ul className="hid-ehr-dept-inpatient-list" aria-labelledby={`${headingId}-waiting`}>
-            {waitingForBed.map(card => <AdmissionItem key={card.admissionId} card={card} base={recordBase} />)}
-          </ul>
-        )}
-      </DeptSection>
+      {waiting ? (
+        <DeptSection title={`Waiting for a bed (${waitingForBed.length})`} headingId={`${headingId}-waiting`}>
+          {waitingForBed.length === 0 ? <EhrEmptyState title="No one is waiting for a bed." message="Admission requests show here until a bed is given." /> : (
+            <ul className="hid-ehr-dept-inpatient-list" aria-labelledby={`${headingId}-waiting`}>
+              {waitingForBed.map(card => <AdmissionItem key={card.admissionId} card={card} base={recordBase} />)}
+            </ul>
+          )}
+        </DeptSection>
+      ) : null}
     </>
   )
 }
