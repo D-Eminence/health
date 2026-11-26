@@ -78,9 +78,10 @@ export const CHANGED_SINCE = 'These vitals changed since they were loaded, so th
 
 /**
  * EHR-C8b, marking one whole reading entered in error (Novu, hid-system 0142): the action and the button that closes
- * its form, what it does (said beside the button that sends it in one press), and each outcome in plain words. Every
- * refusal opens "Nothing was changed.", the route's own sentence following where it is plain
- * (VITALS_STATUS_UNAVAILABLE's), and no code is ever shown.
+ * its form, what it does (said beside the button that sends it in one press), and each outcome in plain words. The
+ * refusals with their own reason (not found, unavailable, no role, consent, purpose) open "Nothing was changed.", the
+ * route's own sentence following where it is plain (VITALS_STATUS_UNAVAILABLE's); a changed row, a reload and any other
+ * refusal say so in their own words (EIE_CHANGED, EIE_RELOAD_FIRST, EIE_FAILED). No code is ever shown.
  */
 export const EIE_LABEL = 'Mark as entered in error'
 export const EIE_CLOSE = 'Close entered in error'

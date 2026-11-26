@@ -169,7 +169,8 @@ describe('Triage & Vitals record: Mark as entered in error', () => {
     await openRecord()
     await withdraw(actions())
     expect(screen.queryByRole('alertdialog')).toBeNull()
-    await waitFor(() => expect(api.markVitalEnteredInError).toHaveBeenCalledTimes(1))
+    expect(await screen.findByText(EIE_DONE)).toBeTruthy()
+    expect(api.markVitalEnteredInError).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole('alertdialog')).toBeNull()
   })
 
