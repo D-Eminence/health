@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import { MyAppointments, appointmentWhen } from '../routes/MyAppointments'
 import { notificationAction, notificationTitle } from '../routes/notificationTitles'
 import { forgetMyAppointmentsServed, myAppointmentsServed } from '../appointmentsServed'
@@ -71,6 +71,35 @@ describe('My appointments', () => {
     })
     await press(await screen.findByRole('button', { name: /Try again/ }))
     expect(await screen.findByRole('list', { name: 'Upcoming appointments' })).toBeDefined()
+  })
+
+  it('keeps the tab chosen last when a slow Show more for the other tab answers after it', async () => {
+    let releaseMore: ((response: Response) => void) | null = null
+    let reads = 0
+    const { sent } = renderPortal(<MyAppointments />, path => {
+      if (path !== MINE) return json({})
+      reads += 1
+      if (reads === 1) return json({ items: [item()], nextCursor: 'upcoming-page-2' })
+      // Show more on Upcoming: held back, as a slow connection delivers it after the Past answer.
+      if (reads === 2) return new Promise<Response>(resolve => { releaseMore = resolve })
+      return json({ items: [item({ appointmentId: 'a3', status: 'checked_in', startsAt: '2026-11-02T13:00:00.000Z', endsAt: '2026-11-02T13:20:00.000Z' })],
+        nextCursor: null })
+    })
+    await screen.findByRole('list', { name: 'Upcoming appointments' })
+    await press(screen.getByRole('button', { name: 'Show more' }))
+    await waitFor(() => expect(reads).toBe(2))
+    await press(screen.getByRole('button', { name: 'Past' }))
+    const past = await screen.findByRole('list', { name: 'Past appointments' })
+    expect(within(past).getByText('You checked in')).toBeDefined()
+
+    await act(async () => {
+      releaseMore?.(json({ items: [item({ appointmentId: 'a2', clinicName: 'Late Upcoming Clinic' })], nextCursor: null }))
+      await new Promise(resolve => setTimeout(resolve, 50))
+    })
+    // Past keeps its own list: not blank, and not Upcoming's second page.
+    expect(within(screen.getByRole('list', { name: 'Past appointments' })).getByText('You checked in')).toBeDefined()
+    expect(screen.queryByText(/Late Upcoming Clinic/)).toBeNull()
+    expect(sent.filter(request => request.path === MINE)).toHaveLength(3)
   })
 
   it('says each time in Lagos', () => {

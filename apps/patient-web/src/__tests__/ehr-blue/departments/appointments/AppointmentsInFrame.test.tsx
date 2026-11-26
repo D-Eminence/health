@@ -412,6 +412,35 @@ describe('Appointments in the frame', () => {
     expect(await screen.findAllByText('No-show')).not.toHaveLength(0)
   })
 
+  it('keeps the card as a change left it when a read sent before the change answers after it', async () => {
+    const desk = deskAt()
+    const past = card({ startsAt: '2026-01-05T08:00:00.000Z', endsAt: '2026-01-05T08:30:00.000Z', appointmentDay: '2026-01-05' })
+    const noShow = { ...past, status: 'no_show', rowVersion: 2 }
+    const refresh = later()
+    serve({
+      [SESSION]: [sessionAt(desk, [desk])],
+      [READ]: [readOf(past), refresh.answer, readOf(noShow)],
+      [NO_SHOW]: [() => json({ appointment: noShow, replayed: false })],
+    })
+    await openStaffApp(`/provider/appointments/${APPOINTMENT}`)
+    fireEvent.click(await screen.findByRole('button', { name: 'Mark no-show' }))
+    // Refresh, held back on a slow connection, then the no-show.
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    await waitFor(() => expect(urlsOf(READ)).toHaveLength(2))
+    fireEvent.click(within(screen.getByRole('group', { name: 'Mark no-show' })).getByRole('button', { name: 'Mark no-show' }))
+    expect(await screen.findByText('Marked as a no-show.')).toBeDefined()
+    await waitFor(() => expect(urlsOf(READ)).toHaveLength(3))
+    // The read after the no-show cancelled the Refresh sent before it.
+    expect(signalOf(READ, 1)?.aborted).toBe(true)
+
+    await refresh.release(readOf(past)())
+    // Not booked again: no booked appointment's actions, and the no-show stays.
+    expect(screen.getAllByText('No-show')).not.toHaveLength(0)
+    expect(screen.queryByRole('button', { name: 'Mark no-show' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Cancel appointment' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Reschedule' })).toBeNull()
+  })
+
   it('cancels with a reason of at least 8 characters', async () => {
     const desk = deskAt()
     const sent = serve({

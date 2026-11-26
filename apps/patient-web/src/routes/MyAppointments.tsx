@@ -77,29 +77,38 @@ export function MyAppointments() {
   const [loading, setLoading] = useState(true)
   const [more, setMore] = useState(false)
   const retry = useRef<HTMLButtonElement>(null)
+  /**
+   * The read in flight. A newer one (the other tab, Show more, Try again) cancels it, so a slow answer for the tab left
+   * behind never replaces the one shown (which would leave it blank) and its error is never said under the other tab.
+   */
+  const reading = useRef<AbortController | null>(null)
 
-  const load = useCallback(async (which: When, cursor?: string | null, signal?: AbortSignal) => {
+  const load = useCallback(async (which: When, cursor?: string | null) => {
+    reading.current?.abort()
+    const controller = new AbortController()
+    reading.current = controller
+    const { signal } = controller
     if (cursor) setMore(true); else setLoading(true)
     setError(null)
     try {
       const answer = await api.myAppointments(which, cursor, signal)
-      if (signal?.aborted) return
+      if (signal.aborted) return
       learnMyAppointmentsServed(true)
       setState(previous => ({ when: which, items: cursor && previous?.when === which ? [...previous.items, ...answer.items] : answer.items,
         nextCursor: answer.nextCursor }))
     } catch (caught) {
-      if (signal?.aborted) return
+      if (signal.aborted) return
       if (notServed(caught)) { learnMyAppointmentsServed(false); setUnavailable(true); return }
       setError(plainErrorText(caught, 'We couldn’t load your appointments right now. Check your connection and try again.'))
     } finally {
-      if (!signal?.aborted) { setLoading(false); setMore(false) }
+      if (!signal.aborted) { setLoading(false); setMore(false) }
+      if (reading.current === controller) reading.current = null
     }
   }, [api])
 
   useEffect(() => {
-    const controller = new AbortController()
-    void load(when, null, controller.signal)
-    return () => controller.abort()
+    void load(when)
+    return () => { reading.current?.abort() }
   }, [load, when])
 
   const items = state?.when === when ? state.items : []

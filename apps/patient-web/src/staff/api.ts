@@ -3399,7 +3399,8 @@ export interface AppointmentCallListItem {
   healthIdLast4: string
   /** E.164, the phone this facility recorded for the patient; null when it recorded none. */
   phone: string | null
-  phoneSource: 'facility_contact' | 'sign_in_phone' | null
+  /** Only the phone this facility recorded (Q-APPT-7 A): 'facility_contact', or null with no phone. */
+  phoneSource: 'facility_contact' | null
 }
 
 export interface AppointmentListQuery {
@@ -3454,8 +3455,10 @@ export const appointmentsApi = {
         ...(query.limit ? { limit: query.limit } : {}),
       },
     }),
-  read: (facilityId: string, appointmentId: string) =>
-    client.get<AppointmentRead>(appointmentPath(appointmentId), { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false }),
+  /** `signal` cancels the read: a newer one (Refresh, or the read after a change) takes its place. */
+  read: (facilityId: string, appointmentId: string, signal?: AbortSignal) =>
+    client.get<AppointmentRead>(appointmentPath(appointmentId), {
+      headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false, ...(signal ? { signal } : {}) }),
   forPatient: (facilityId: string, patientId: string) =>
     client.get<{ items: AppointmentCard[] }>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/appointments`,
       { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false }),

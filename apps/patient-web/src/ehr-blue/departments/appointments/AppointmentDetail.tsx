@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { EhrBadge, EhrButton, EhrField, EhrInput, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
@@ -48,22 +48,38 @@ export function AppointmentDetail({ facilityId, appointmentId }: { readonly faci
   const [notice, setNotice] = useState<Notice | null>(booked ? { tone: 'positive', text: BOOKED_DONE } : null)
   const [open, setOpen] = useState<Open>(null)
   const [busy, setBusy] = useState(false)
+  /**
+   * The read in flight. A newer one (Refresh, or the read after a change) cancels it, so an answer sent before a change
+   * never puts the card back as it was (a cancelled appointment shown as booked again, with its actions).
+   */
+  const reading = useRef<AbortController | null>(null)
 
   const load = useCallback(async () => {
+    reading.current?.abort()
+    const controller = new AbortController()
+    reading.current = controller
+    const { signal } = controller
     setLoading(true)
     try {
-      const answer = await appointmentsApi.read(facilityId, appointmentId)
+      const answer = await appointmentsApi.read(facilityId, appointmentId, signal)
+      if (signal.aborted) return
       learnFrom()
       setRead({ appointment: answer.appointment, history: answer.history })
       setLoadError(null)
     } catch (caught) {
-      if (isHidApiError(caught) && caught.code === 'REQUEST_CANCELLED') return
+      if (signal.aborted || (isHidApiError(caught) && caught.code === 'REQUEST_CANCELLED')) return
       learnFrom(caught)
       setLoadError({ text: refusalWords(caught, 'The appointment could not be loaded. Try again.'),
         missing: isHidApiError(caught) && caught.code === 'APPOINTMENT_NOT_FOUND' })
-    } finally { setLoading(false) }
+    } finally {
+      if (!signal.aborted) setLoading(false)
+      if (reading.current === controller) reading.current = null
+    }
   }, [facilityId, appointmentId])
-  useEffect(() => { void load() }, [load])
+  useEffect(() => {
+    void load()
+    return () => { reading.current?.abort() }
+  }, [load])
 
   const card = read?.appointment ?? null
   const names = useStaffNames(facilityId, [card?.clinicianMembershipId, card?.bookedByMembershipId,
