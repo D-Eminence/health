@@ -16,8 +16,9 @@ import { birthDateText, countText } from '../parts/format'
 import { NO_TRIAGE_LEVEL, TRIAGE_HINT, TRIAGE_LEVELS, triageText } from '../parts/triageLevels'
 import { EMPTY_SEARCH, SEARCH_EMPTY, SEARCH_HINT, healthIdEnding, searchKeys, sexText, type SearchValues } from '../waiting/waitingRules'
 import {
-  ARRIVAL_MODES, ARRIVAL_MODE_WORDS, BASE, COMPLAINT_MAX, EYEBROW, UNKNOWN_HINT, UNKNOWN_REASONS, UNKNOWN_REASON_WORDS, UNKNOWN_SEXES,
-  arrivalMoment, canArrive, canSearch, canTriage, cardName, complaintProblem, learnFrom, refusalWords, unknownRefusal,
+  ARRIVAL_MODES, ARRIVAL_MODE_WORDS, BASE, COMPLAINT_MAX, EYEBROW, NOT_AVAILABLE, UNKNOWN_HINT, UNKNOWN_REASONS, UNKNOWN_REASON_WORDS,
+  UNKNOWN_SEXES, arrivalMoment, canArrive, canSearch, canTriage, cardName, complaintProblem, edBoardServed, learnFrom, refusalWords,
+  unknownRefusal,
 } from './edRules'
 import { useIdempotencyKeys } from './hooks'
 import { PrintHeader } from '../../frame/PrintHeader'
@@ -40,8 +41,10 @@ const WRISTBAND_PAPER: PaperPrint = { size: 'slip', kind: 'Wristband' }
  * matchRef, in the body), or "Unknown patient" (an ID-7 record made here, then put on the board by its patientId as this
  * facility's own); how they came; the arrival time (Lagos, up to 6 hours ago; left empty, now); and for nurses,
  * clinicians and doctors the triage level and a short presenting complaint. Nothing typed or found goes to storage, the
- * address or router state, and is cleared once the patient is on the board. An unknown patient's Health ID is shown once,
- * for the wristband.
+ * address or router state, and is cleared once the patient is on the board. An unknown patient's Health ID is shown on
+ * this page only, for the wristband, from the moment the record is made (ID-7 answers it once): an arrival that then
+ * fails does not lose it. Each arrival is a request of its own: "Add another arrival" starts with new Idempotency-Keys,
+ * so a second unknown patient with the same answers as the first gets a record and a Health ID of their own.
  */
 export function NewArrival({ facilityId }: { readonly facilityId: string }) {
   const navigate = useNavigate()
@@ -70,6 +73,10 @@ export function NewArrival({ facilityId }: { readonly facilityId: string }) {
   if (done) {
     return <Arrived done={done} onAnother={() => {
       setDone(null); setChosen(null); setMade(null); setUnknown(EMPTY_UNKNOWN); setDetails(EMPTY_DETAILS)
+      // Another arrival is another patient: the keys of this one are dropped, so the same answers (two casualties both
+      // "Not known" and "Unconscious") make a second record, never a replay of the first patient's record and Health ID.
+      // A retry within one arrival keeps its key, as before.
+      keyFor.clear()
       // The button pressed goes with the result: focus starts the new arrival at its first question.
       focus('ed-arrival-who')
     }} />
@@ -114,6 +121,9 @@ export function NewArrival({ facilityId }: { readonly facilityId: string }) {
       } else {
         if (!wristband) {
           if (unknown.gender === '' || unknown.reason === '') { setError('Choose the sex and why the patient cannot say who they are.'); return }
+          // The board has answered that it is not served (switched off, or an ehr-api before 0168): no record is made
+          // for an arrival that cannot be added.
+          if (edBoardServed() === false) { setError(NOT_AVAILABLE); return }
           const age = unknown.age.trim()
           if (age && !(/^\d{1,3}$/.test(age) && Number(age) <= 120)) { setError('Enter the estimated age in years, from 0 to 120.'); return }
           const body: UnknownPatientInput = {
@@ -165,7 +175,7 @@ export function NewArrival({ facilityId }: { readonly facilityId: string }) {
         </div>
         {who === 'search' ? (
           searches
-            ? <ArrivalSearch facilityId={facilityId} chosen={chosen} onChoose={card => { setChosen(card); setError('') }} />
+            ? <ArrivalSearch facilityId={facilityId} chosen={chosen} onChoose={card => { setChosen(card); setError('') }} onPicked={focus} />
             : <DeptNotice tone="info">Your role here does not search for patients. Ask the front desk to find the patient, or choose Unknown patient.</DeptNotice>
         ) : made ? (
           <DeptNotice tone="positive" title={`Unknown patient ${made.label}`}>
@@ -177,6 +187,10 @@ export function NewArrival({ facilityId }: { readonly facilityId: string }) {
           <DeptNotice tone="info">Your role here can’t make an unknown patient’s record. Ask the front desk.</DeptNotice>
         )}
       </DeptSection>
+
+      {/* Shown as soon as the record is made, not only once the arrival is saved: the record exists even if the arrival
+          then fails (the board switched off, no connection), and its full Health ID is not shown anywhere else. */}
+      {made ? <Wristband made={made} /> : null}
 
       <form className="hid-ehr-dept-form" noValidate onSubmit={event => void submit(event)} aria-label="Arrival">
         <DeptSection title="Arrival" headingId="ed-arrival-details">
@@ -242,7 +256,6 @@ function Arrived({ done, onAnother }: {
   readonly onAnother: () => void
 }) {
   const navigate = useNavigate()
-  const { facility } = useDeptAccess()
   const card = done.arrived.attendance
   const name = cardName(card)
   const already = done.arrived.outcome === 'already_on_board'
@@ -260,34 +273,43 @@ function Arrived({ done, onAnother }: {
           The board still shows {name} as: {triageText(card.triageLevel)}. To change it, open their record and select Triage.
         </DeptNotice>
       ) : null}
-      {done.wristband ? (
-        <DeptSection title="Wristband" headingId="ed-wristband" className="hid-ehr-dept-emergency-wristband">
-          <p className="hid-ehr-dept-waiting-hint">Write or print this on the patient’s wristband now. It is shown only once.</p>
-          <p className="hid-ehr-dept-emergency-wristband-line"><strong>Unknown patient {done.wristband.label}</strong></p>
-          <p className="hid-ehr-dept-emergency-wristband-line">Health ID <strong>{done.wristband.hid}</strong></p>
-          <div className="hid-ehr-dept-form-actions">
-            {/* The wristband slip alone, as a paper (printPaper: a PDF in Safari and on an iPhone or iPad, so no browser
-                prints its web address on it, owner 23 Nov 2026), never the page as it is. */}
-            <EhrButton variant="secondary" onClick={event => printPaper(receiptFor(event.currentTarget, 'health-id'), WRISTBAND_PAPER)}>
-              Print wristband
-            </EhrButton>
-          </div>
-          <section data-receipt-print="health-id" aria-hidden="true" className="hidden print:block">
-            <div className="flex flex-col gap-2 p-4 text-black">
-              <PrintHeader facility={facility?.name} stacked />
-              <p className="m-0 text-[18px] font-semibold">Unknown patient {done.wristband.label}</p>
-              <p className="m-0 text-[14px]">Health ID</p>
-              <p className="m-0 text-[26px] font-semibold tracking-[.06em]">{done.wristband.hid}</p>
-            </div>
-          </section>
-        </DeptSection>
-      ) : null}
+      {done.wristband ? <Wristband made={done.wristband} /> : null}
       <div className="hid-ehr-dept-form-actions">
         <Link className="hid-ehr-button" to={`${BASE}/${card.attendanceId}`}>Open their record</Link>
         <EhrButton variant="secondary" onClick={onAnother}>Add another arrival</EhrButton>
         <Link className="hid-ehr-button hid-ehr-button-secondary" to={BASE}>Back to the board</Link>
       </div>
     </DeptPage>
+  )
+}
+
+/**
+ * An unknown patient's label and full Health ID, to write or print on the wristband (ID-7 answers the Health ID when the
+ * record is made, and only then; later lists show its last 4 characters). On this page only, never stored.
+ */
+function Wristband({ made }: { readonly made: UnknownPatientMade }) {
+  const { facility } = useDeptAccess()
+  return (
+    <DeptSection title="Wristband" headingId="ed-wristband" className="hid-ehr-dept-emergency-wristband">
+      <p className="hid-ehr-dept-waiting-hint">Write or print this on the patient’s wristband now. It is not shown again once you leave this page.</p>
+      <p className="hid-ehr-dept-emergency-wristband-line"><strong>Unknown patient {made.label}</strong></p>
+      <p className="hid-ehr-dept-emergency-wristband-line">Health ID <strong>{made.hid}</strong></p>
+      <div className="hid-ehr-dept-form-actions">
+        {/* The wristband slip alone, as a paper (printPaper: a PDF in Safari and on an iPhone or iPad, so no browser
+            prints its web address on it, owner 23 Nov 2026), never the page as it is. */}
+        <EhrButton variant="secondary" onClick={event => printPaper(receiptFor(event.currentTarget, 'health-id'), WRISTBAND_PAPER)}>
+          Print wristband
+        </EhrButton>
+      </div>
+      <section data-receipt-print="health-id" aria-hidden="true" className="hidden print:block">
+        <div className="flex flex-col gap-2 p-4 text-black">
+          <PrintHeader facility={facility?.name} stacked />
+          <p className="m-0 text-[18px] font-semibold">Unknown patient {made.label}</p>
+          <p className="m-0 text-[14px]">Health ID</p>
+          <p className="m-0 text-[26px] font-semibold tracking-[.06em]">{made.hid}</p>
+        </div>
+      </section>
+    </DeptSection>
   )
 }
 
@@ -321,12 +343,15 @@ function UnknownFields({ value, onChange }: { readonly value: Unknown; readonly 
 
 /**
  * The staff patient search (0132) by name, date of birth, phone or Health ID, all in the request body; a card is chosen
- * by its matchRef, which stays out of the page's markup and is used within 10 minutes.
+ * by its matchRef, which stays out of the page's markup and is used within 10 minutes. Choose and Choose someone else
+ * each remove the button pressed, so focus moves on with the work (`onPicked`, the page's own focus request, which the
+ * page's later requests replace): to the patient chosen, or back to the search's first field.
  */
-function ArrivalSearch({ facilityId, chosen, onChoose }: {
+function ArrivalSearch({ facilityId, chosen, onChoose, onPicked }: {
   readonly facilityId: string
   readonly chosen: PatientSearchCard | null
   readonly onChoose: (card: PatientSearchCard | null) => void
+  readonly onPicked: (id: string) => void
 }) {
   const [values, setValues] = useState<SearchValues>(EMPTY_SEARCH)
   const [busy, setBusy] = useState(false)
@@ -360,13 +385,13 @@ function ArrivalSearch({ facilityId, chosen, onChoose }: {
 
   if (chosen) {
     return (
-      <div className="hid-ehr-dept-waiting-card" aria-label={`Chosen: ${chosen.fullName}`}>
+      <div id="ed-arrival-chosen" tabIndex={-1} role="group" className="hid-ehr-dept-waiting-card" aria-label={`Chosen: ${chosen.fullName}`}>
         <div className="hid-ehr-dept-waiting-main">
           <p className="hid-ehr-dept-waiting-name">{chosen.fullName}</p>
           <CardIdentity card={chosen} />
         </div>
         <div className="hid-ehr-dept-waiting-actions">
-          <EhrButton size="sm" variant="secondary" onClick={() => onChoose(null)}>Choose someone else</EhrButton>
+          <EhrButton size="sm" variant="secondary" onClick={() => { onChoose(null); onPicked('ed-search-first-name') }}>Choose someone else</EhrButton>
         </div>
       </div>
     )
@@ -413,7 +438,7 @@ function ArrivalSearch({ facilityId, chosen, onChoose }: {
                     <CardIdentity card={card} />
                   </div>
                   <div className="hid-ehr-dept-waiting-actions">
-                    <EhrButton size="sm" aria-label={`Choose ${card.fullName}`} onClick={() => onChoose(card)}>Choose</EhrButton>
+                    <EhrButton size="sm" aria-label={`Choose ${card.fullName}`} onClick={() => { onChoose(card); onPicked('ed-arrival-chosen') }}>Choose</EhrButton>
                   </div>
                 </li>
               )

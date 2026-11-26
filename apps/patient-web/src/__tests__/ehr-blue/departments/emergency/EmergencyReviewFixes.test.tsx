@@ -202,7 +202,7 @@ describe('Emergency department board review fixes', () => {
     // Admission requested on Monday, still waiting for a ward on Wednesday (Q-ED-6 A).
     const waiting = card({ arrivedAt: '2026-12-01T13:05:00.000Z', triageLevel: 2, triagedAt: '2026-12-01T13:20:00.000Z', triagedByMembershipId: ME,
       column: 'disposition', status: 'decided', minutesInDepartment: 2875, disposition: { outcome: 'admit_requested',
-        decidedAt: '2026-12-01T15:00:00.000Z', decidedByMembershipId: ME, admitToDepartmentCode: 'inpatient', admittingMembershipId: null,
+        decidedAt: '2026-12-01T15:00:00.000Z', decidedByMembershipId: ME, admitToDepartmentCode: 'inpatient', admittingMembershipId: ME,
         referredToFacilityName: null } })
     const today = card({ attendanceId: 'e0000000-0000-4000-8000-0000000000e2', fullName: 'Ada Boardtwo', arrivedAt: '2026-12-03T08:10:00.000Z' })
     serve({
@@ -217,8 +217,9 @@ describe('Emergency department board review fixes', () => {
 
     fireEvent.click(within(earlier).getByRole('link', { name: 'Tunde Boardone' }))
     const patient = await screen.findByRole('region', { name: 'Patient' })
-    expect(within(patient).getByText('Level 2: very urgent, 1 Dec 2026, 14:20 by You')).toBeDefined()
-    expect(within(patient).getByText('Admission requested to Inpatient, 1 Dec 2026, 16:00')).toBeDefined()
+    // "you" inside a sentence, without a capital letter.
+    expect(within(patient).getByText('Level 2: very urgent, 1 Dec 2026, 14:20 by you')).toBeDefined()
+    expect(within(patient).getByText('Admission requested to Inpatient under you, 1 Dec 2026, 16:00')).toBeDefined()
   })
 
   it('never says a cancelled arrival left the department, on the board or on its record', async () => {
@@ -304,5 +305,160 @@ describe('Emergency department board review fixes', () => {
     expect(screen.queryByText(BOARD_REFUSED)).toBeNull()
     expect(within(nav()).queryByRole('link', { name: 'Emergency department' })).toBeNull()
     expect(sent.filter(call => call.route.includes('/ed-'))).toEqual([])
+  })
+})
+
+/*
+ * Round 2 (health#330): each arrival is a request of its own; an unknown patient's Health ID is never lost to a failed
+ * arrival, and no record is made for a board that said it is off; a board or record switched off after use is dropped,
+ * not kept on screen; focus follows Choose and Choose someone else; and the help says where a board patient's triage is
+ * changed.
+ */
+const UNKNOWN = 'POST /api/v1/identity/unknown-patients'
+const unknownMade = (label: string, patientId: string, hid: string) => () => json({ patientId, recordKind: 'unknown', label,
+  displayName: `Unknown patient ${label}`, sex: 'unknown', dateOfBirth: null, dateOfBirthEstimated: false, ninStatus: 'not_verified',
+  status: 'open', createdAt: '2026-12-03T08:10:00.000Z', openDays: 0, overdue: false, version: 1, hid, replayed: false }, 201)
+const unknownCard = (label: string, patientId: string, attendanceId: string) => card({ attendanceId, patientId,
+  fullName: `Unknown patient ${label}`, recordKind: 'unknown', unknownLabel: label, arrivalBasis: 'own-facility', arrivalMode: 'brought_by_public' })
+
+/** A read answered 503 ED_BOARD_NOT_AVAILABLE: the client asks twice more (a read's retries), and each answers the same. */
+const switchedOff = () => Array.from({ length: 3 }, () => () => problem(503, 'ED_BOARD_NOT_AVAILABLE', 'Service unavailable'))
+/** Long enough for a read's two retries after a 503, with their backoff. */
+const RETRIED = { timeout: 5000 }
+
+/** An unknown patient's arrival, as a mass-casualty intake enters each one: sex Not known, Unconscious, no age or note. */
+async function addUnknownCasualty() {
+  fireEvent.click(await screen.findByRole('radio', { name: 'Unknown patient' }))
+  fireEvent.change(screen.getByRole('combobox', { name: 'Sex' }), { target: { value: 'unknown' } })
+  fireEvent.change(screen.getByRole('combobox', { name: 'Why they cannot say who they are' }), { target: { value: 'unconscious' } })
+  fireEvent.change(screen.getByRole('combobox', { name: 'How they came' }), { target: { value: 'brought_by_public' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Add to the board' }))
+}
+
+describe('Emergency department board review fixes, round 2', () => {
+  it('gives a second unknown patient with the same answers a record and Health ID of their own after Add another arrival', async () => {
+    const nurse = facility(REAL_FACILITY, 'Fictional Hospital', NURSE, ['nurse'])
+    const second = 'b0000000-0000-4000-8000-0000000000f2'
+    const sent = serve({
+      [SESSION]: [sessionAt(nurse, [nurse])],
+      [UNKNOWN]: [() => problem(500, 'INTERNAL_ERROR', 'Something went wrong'), unknownMade('U-0007', PATIENT, 'HID-ZZZZ77'),
+        unknownMade('U-0008', second, 'HID-ZZZZ88')],
+      [ARRIVE]: [() => json({ outcome: 'arrived', attendance: unknownCard('U-0007', PATIENT, ATTENDANCE), replayed: false }, 201),
+        () => json({ outcome: 'arrived', attendance: unknownCard('U-0008', second, 'e0000000-0000-4000-8000-0000000000e2'), replayed: false }, 201)],
+    })
+    await openStaffApp('/provider/emergency-department/new')
+    await addUnknownCasualty()
+    // A retry within one arrival is the same request: the same body with the same key.
+    expect(await screen.findByText('The record could not be made. Try again.')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Add to the board' }))
+    expect(await screen.findByText('Unknown patient U-0007 is on the board.')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Add another arrival' }))
+    await addUnknownCasualty()
+    expect(await screen.findByText('Unknown patient U-0008 is on the board.')).toBeDefined()
+    expect(within(screen.getByRole('region', { name: 'Wristband' })).getByText('HID-ZZZZ88', { selector: 'strong' })).toBeDefined()
+
+    const made = sentTo(sent, UNKNOWN)
+    expect(made.map(call => call.body)).toEqual(Array(3).fill({ gender: 'unknown', unknownReason: 'unconscious', purpose: 'healthcare-operations' }))
+    const keys = made.map(call => call.headers.get('Idempotency-Key'))
+    expect(keys[1]).toBe(keys[0])
+    // The second casualty's record is a new request: never the first patient's record and Health ID replayed.
+    expect(keys[2]).toMatch(/^[0-9a-f-]{36}$/)
+    expect(keys[2]).not.toBe(keys[0])
+    const arrivals = sentTo(sent, ARRIVE)
+    expect(arrivals[1]!.headers.get('Idempotency-Key')).not.toBe(arrivals[0]!.headers.get('Idempotency-Key'))
+  })
+
+  it('makes no unknown patient’s record once the board has said it is not available', async () => {
+    const nurse = facility(REAL_FACILITY, 'Fictional Hospital', NURSE, ['nurse'])
+    const sent = serve({
+      [SESSION]: [sessionAt(nurse, [nurse])],
+      [SEARCH]: [searchAnswer],
+      [ARRIVE]: [() => problem(503, 'ED_BOARD_NOT_AVAILABLE', 'Service unavailable')],
+    })
+    await openStaffApp('/provider/emergency-department/new')
+    await chooseFromSearch()
+    fireEvent.click(screen.getByRole('button', { name: 'Add to the board' }))
+    expect(await screen.findByText(NOT_AVAILABLE)).toBeDefined()
+    await addUnknownCasualty()
+    await waitFor(() => expect(document.activeElement?.id).toBe('ed-arrival-error'))
+    expect(document.activeElement?.textContent).toBe(NOT_AVAILABLE)
+    expect(sentTo(sent, UNKNOWN)).toEqual([])
+    expect(sentTo(sent, ARRIVE)).toHaveLength(1)
+    expect(screen.queryByRole('region', { name: 'Wristband' })).toBeNull()
+  })
+
+  it('drops the board it showed once the board answers that it is switched off, and shows it again once it is back', async () => {
+    const nurse = facility(REAL_FACILITY, 'Fictional Hospital', NURSE, ['nurse'])
+    serve({
+      [SESSION]: [sessionAt(nurse, [nurse])],
+      [BOARD]: [boardOf(card({ presentingComplaint: 'Fall from motorcycle, left leg pain' })), ...switchedOff(), boardOf(card())],
+    })
+    await openStaffApp('/provider/emergency-department')
+    expect(await screen.findByRole('listitem', { name: 'Tunde Boardone' })).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    expect(await screen.findByText(NOT_AVAILABLE, {}, RETRIED)).toBeDefined()
+    // Its patients are back on the waiting list while it is off: none of the board it showed stays on screen.
+    expect(screen.queryByText('Tunde Boardone')).toBeNull()
+    expect(screen.queryByText('Fall from motorcycle, left leg pain')).toBeNull()
+    expect(screen.queryByLabelText('Patients in the department')).toBeNull()
+    expect(screen.queryByRole('list', { name: /^Waiting/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'New arrival' })).toBeNull()
+    expect(screen.queryByRole('checkbox', { name: 'Show patients who left the board today' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    expect(await screen.findByRole('listitem', { name: 'Tunde Boardone' })).toBeDefined()
+    expect(screen.queryByText(NOT_AVAILABLE)).toBeNull()
+    expect(screen.getByRole('button', { name: 'New arrival' })).toBeDefined()
+  })
+
+  it('drops a record and its actions once the board answers that it is switched off, read or written', async () => {
+    const nurse = facility(REAL_FACILITY, 'Fictional Hospital', NURSE, ['nurse'])
+    serve({
+      [SESSION]: [sessionAt(nurse, [nurse])],
+      [RECORD]: [recordOf(card({ triageLevel: 2, presentingComplaint: 'Fall from motorcycle, left leg pain' })), ...switchedOff(), recordOf(card())],
+      [action('move')]: [() => problem(503, 'ED_BOARD_NOT_AVAILABLE', 'Service unavailable')],
+    })
+    await openStaffApp(`/provider/emergency-department/${ATTENDANCE}`)
+    expect(await screen.findByRole('heading', { level: 1, name: 'Tunde Boardone' })).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    expect(await screen.findByText(NOT_AVAILABLE, {}, RETRIED)).toBeDefined()
+    expect(screen.queryByText('Tunde Boardone')).toBeNull()
+    expect(screen.queryByText('Fall from motorcycle, left leg pain')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Start care' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Triage' })).toBeNull()
+
+    // Back on: read again, then a write answered 503 drops it the same way, with focus on the words left.
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    const start = await screen.findByRole('button', { name: 'Start care' })
+    start.focus()
+    fireEvent.click(start)
+    expect(await screen.findByText(NOT_AVAILABLE)).toBeDefined()
+    expect(screen.queryByRole('heading', { level: 1, name: 'Tunde Boardone' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Start care' })).toBeNull()
+    await waitFor(() => expect(document.activeElement?.id).toBe('ed-record-load-error'))
+  })
+
+  it('moves focus to the patient chosen, and back to the search for Choose someone else', async () => {
+    const nurse = facility(REAL_FACILITY, 'Fictional Hospital', NURSE, ['nurse'])
+    serve({ [SESSION]: [sessionAt(nurse, [nurse])], [SEARCH]: [searchAnswer] })
+    await openStaffApp('/provider/emergency-department/new')
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Health ID' }), { target: { value: 'hid-bbbb33' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Find patient' }))
+    const choose = within(await screen.findByRole('listitem', { name: 'Tunde Boardone' })).getByRole('button', { name: 'Choose Tunde Boardone' })
+    choose.focus()
+    fireEvent.click(choose)
+    // The button pressed is gone with the results: focus is on the patient chosen, not lost to the page.
+    await waitFor(() => expect(document.activeElement?.id).toBe('ed-arrival-chosen'))
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Chosen: Tunde Boardone')
+    const again = screen.getByRole('button', { name: 'Choose someone else' })
+    again.focus()
+    fireEvent.click(again)
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'First name' })))
+  })
+
+  it('says in the guide that a board patient’s triage level is changed on the board only', async () => {
+    const { PAGE_GUIDES } = await import('../../../../ehr-blue/frame/pageGuides')
+    const tips = PAGE_GUIDES['emergency-department']!.tips!.join(' ')
+    expect(tips).not.toContain('a change on one shows on the other')
+    expect(tips).toContain('A board patient also shows on the waiting list, but their stage, triage level and who sees them are changed on the board only.')
   })
 })

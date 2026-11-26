@@ -109,7 +109,7 @@ export const PAGE_GUIDES: Readonly<Record<string, PageGuide>> = {
     ],
     tips: [
       'Do not show this board on a screen patients or visitors can see.',
-      'The board uses the waiting list’s five triage levels: a change on one shows on the other.',
+      'The board uses the waiting list’s five triage levels. A board patient also shows on the waiting list, but their stage, triage level and who sees them are changed on the board only.',
       'An unknown patient gets a Health ID for the wristband, shown once. Print it or write it down straight away.',
     ],
   },

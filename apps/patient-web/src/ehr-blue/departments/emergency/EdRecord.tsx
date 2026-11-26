@@ -16,12 +16,23 @@ import {
   ADMIT_DEPARTMENTS, ARRIVAL_BASIS_WORDS, BASE, COMPLAINT_MAX, EYEBROW, FACILITY_NAME_MAX, FACILITY_NAME_MIN, KEEPS_ON_BOARD,
   MOVE_STAGES, OUTCOMES, OUTCOME_HINTS, OUTCOME_WORDS, REASON_MAX, RELOAD_AFTER, arrivalModeText, canArrive, canDecide,
   canTriage, cardName, closedWords, complaintProblem, complaintText, departmentText, historyText, lagosDateTime, lagosWhen, leaveLabel,
-  learnFrom, memberText, minutesText, notServed, reasonProblem, refusalWords, stageText, startEmergencyVisit, statusWords, visitRefusal,
+  learnFrom, memberInSentence, memberText, minutesText, NOT_AVAILABLE, notServed, reasonProblem, refusalWords, stageText, startEmergencyVisit,
+  statusWords, visitRefusal,
 } from './edRules'
 import { useIdempotencyKeys, useStaffNames } from './hooks'
 
 type Action = 'triage' | 'move' | 'disposition' | 'cancel' | null
-interface Notice { readonly tone: DeptNoticeTone; readonly text: string }
+/** What a step's notice says, with a link to where the work goes on when there is one. */
+interface Done { readonly text: string; readonly link?: { readonly to: string; readonly label: string } }
+interface Notice extends Done { readonly tone: DeptNoticeTone }
+
+/**
+ * After Cancel arrival (route 9): only the ED record closes. The waiting-list row stays open, back at Waiting with no
+ * triage level and nobody down to see the patient (or as it was before a move from the waiting list), because an
+ * outpatient check-in may have claimed it since. The contract's words, with the way to the waiting list.
+ */
+const STILL_ON_WAITING_LIST = 'The patient is still on the outpatient waiting list. Cancel them there if they are not waiting.'
+const WAITING_LIST = '/provider/waiting-list'
 
 /**
  * One patient's emergency department record (ED-1 route 3): the card, its history and the actions the member's role
@@ -42,6 +53,18 @@ export function EdRecordPage({ facilityId, attendanceId }: { readonly facilityId
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<Notice | null>(null)
 
+  /**
+   * The board answered that it is not served (switched off, maybe after use): the record shown is dropped with its
+   * actions, as the waiting list now changes and finishes the patient's row (ED-1, the kill switch), so it is no longer
+   * true. The page says only that the board is not available yet.
+   */
+  const offBoard = useCallback(() => {
+    setRecord(null)
+    setAction(null)
+    setNotice(null)
+    setLoadError({ text: NOT_AVAILABLE, unavailable: true })
+  }, [])
+
   const load = useCallback(async () => {
     setLoading(true)
     try {
@@ -52,9 +75,10 @@ export function EdRecordPage({ facilityId, attendanceId }: { readonly facilityId
     } catch (caught) {
       if (isHidApiError(caught) && caught.code === 'REQUEST_CANCELLED') return
       learnFrom(caught)
-      setLoadError({ text: refusalWords(caught, 'This patient’s record could not be loaded. Try again.'), unavailable: notServed(caught) })
+      if (notServed(caught)) { offBoard(); return }
+      setLoadError({ text: refusalWords(caught, 'This patient’s record could not be loaded. Try again.'), unavailable: false })
     } finally { setLoading(false) }
-  }, [facilityId, attendanceId])
+  }, [facilityId, attendanceId, offBoard])
 
   useEffect(() => { void load() }, [load])
 
@@ -63,31 +87,34 @@ export function EdRecordPage({ facilityId, attendanceId }: { readonly facilityId
     card?.disposition?.admittingMembershipId, ...(record?.history ?? []).map(event => event.byMembershipId)])
 
   /** Sends one write with its own key per body; a stale card reloads, every answer shows the new card at once. */
-  async function write(name: string, body: unknown, send: (key: string) => Promise<EdWritten>, done: string, invalid?: string) {
+  async function write(name: string, body: unknown, send: (key: string) => Promise<EdWritten>, done: string | Done, invalid?: string) {
     if (busy || !card) return
     setBusy(true)
     try {
       const answer = await send(keyFor(`${name}:${card.attendanceId}:${card.rowVersion}`, body))
       setRecord(previous => previous ? { ...previous, attendance: answer.attendance } : previous)
       setAction(null)
-      setNotice({ tone: 'positive', text: done })
+      setNotice({ tone: 'positive', ...(typeof done === 'string' ? { text: done } : done) })
       void load()
     } catch (caught) {
       if (isHidApiError(caught) && caught.code === 'REQUEST_CANCELLED') return
       learnFrom(caught)
+      if (notServed(caught)) { offBoard(); return }
       const reload = isHidApiError(caught) && RELOAD_AFTER.has(caught.code)
       if (reload) { setAction(null); void load() }
       setNotice({ tone: 'critical', text: refusalWords(caught, 'The change could not be saved. Try again.', invalid) })
     } finally {
       setBusy(false)
-      focus('ed-record-notice')
+      // The notice, or once the board said it is not served, the page's only words.
+      focus(['ed-record-notice', 'ed-record-load-error'])
     }
   }
 
   if (!card) {
     return (
-      <DeptPage eyebrow={EYEBROW} title="Emergency department record" onBack={() => navigate(BASE)} backLabel="Back to the board">
-        {loadError ? <DeptNotice role="alert" tone={loadError.unavailable ? 'info' : 'critical'}>{loadError.text}</DeptNotice> : null}
+      <DeptPage eyebrow={EYEBROW} title="Emergency department record" onBack={() => navigate(BASE)} backLabel="Back to the board"
+        secondaryActions={loadError?.unavailable ? <EhrButton variant="secondary" onClick={() => void load()} busy={loading}>Refresh</EhrButton> : undefined}>
+        {loadError ? <DeptNotice id="ed-record-load-error" tabIndex={-1} role="alert" tone={loadError.unavailable ? 'info' : 'critical'}>{loadError.text}</DeptNotice> : null}
         {loading && !loadError ? <p className="hid-ehr-state-message" role="status">Loading the patient’s record…</p> : null}
       </DeptPage>
     )
@@ -108,7 +135,10 @@ export function EdRecordPage({ facilityId, attendanceId }: { readonly facilityId
     <DeptPage eyebrow={EYEBROW} title={name} onBack={() => navigate(BASE)} backLabel="Back to the board"
       secondaryActions={<EhrButton variant="secondary" onClick={() => void load()} busy={loading}>Refresh</EhrButton>}>
       {notice ? <DeptNotice id="ed-record-notice" tabIndex={-1} role={notice.tone === 'critical' ? 'alert' : 'status'}
-        tone={notice.tone} variant="box">{notice.text}</DeptNotice> : null}
+        tone={notice.tone} variant="box">
+        {notice.text}
+        {notice.link ? <>{' '}<Link className="hid-ehr-dept-link" to={notice.link.to}>{notice.link.label}</Link></> : null}
+      </DeptNotice> : null}
       {loadError && record ? <DeptNotice role="alert" tone="critical">{loadError.text}</DeptNotice> : null}
 
       <DeptSection title="Patient" headingId="ed-record-patient">
@@ -120,7 +150,7 @@ export function EdRecordPage({ facilityId, attendanceId }: { readonly facilityId
           <div><dt>How they came</dt><dd>{arrivalModeText(card.arrivalMode)}</dd></div>
           <div><dt>Added</dt><dd>{ARRIVAL_BASIS_WORDS[card.arrivalBasis] ?? ''}</dd></div>
           <div><dt>Stage</dt><dd>{card.status === 'open' ? stageText(card.stage) : closedWords(card, record?.history ?? [])}</dd></div>
-          <div><dt>Triage</dt><dd>{triageText(card.triageLevel)}{card.triagedAt ? `, ${lagosWhen(card.triagedAt)} by ${memberText(card.triagedByMembershipId, membershipId, names, 'a staff member')}` : ''}</dd></div>
+          <div><dt>Triage</dt><dd>{triageText(card.triageLevel)}{card.triagedAt ? `, ${lagosWhen(card.triagedAt)} by ${memberInSentence(card.triagedByMembershipId, membershipId, names, 'a staff member')}` : ''}</dd></div>
           <div><dt>Complaint</dt><dd>{complaintText(card)}</dd></div>
           <div><dt>Seen by</dt><dd>{memberText(card.assignedMembershipId, membershipId, names)}</dd></div>
           <div><dt>Visit</dt><dd>{card.encounterId ? 'Linked' : 'Not linked yet'}</dd></div>
@@ -167,7 +197,7 @@ export function EdRecordPage({ facilityId, attendanceId }: { readonly facilityId
 
           {action === 'triage' ? (
             <TriageForm card={card} busy={busy} onCancel={() => setAction(null)} onSave={body => void write('triage', body,
-              key => edBoardApi.triage(facilityId, card, body, key), `${name}: ${triageText(body.triageLevel).toLowerCase()}.`,
+              key => edBoardApi.triage(facilityId, card, body, key), `${name}’s triage is saved (${triageText(body.triageLevel)}).`,
               'Choose a triage level from 1 to 5, and keep the complaint to 120 characters.')} />
           ) : null}
           {action === 'move' ? (
@@ -181,7 +211,9 @@ export function EdRecordPage({ facilityId, attendanceId }: { readonly facilityId
           ) : null}
           {action === 'cancel' ? (
             <CancelForm busy={busy} onCancel={() => setAction(null)} onSave={reason => void write('cancel', { reason },
-              key => edBoardApi.cancel(facilityId, card, reason, key), `${name}’s arrival is cancelled.`, 'Say why in at least 8 characters.')} />
+              key => edBoardApi.cancel(facilityId, card, reason, key),
+              { text: `${name}’s arrival is cancelled. ${STILL_ON_WAITING_LIST}`, link: { to: WAITING_LIST, label: 'Open the waiting list' } },
+              'Say why in at least 8 characters.')} />
           ) : null}
           {triages ? <VisitLink card={card} facilityId={facilityId} busy={busy} write={write} /> : null}
         </DeptSection>
@@ -210,7 +242,7 @@ function dispositionText(card: EdCard, membershipId: string | undefined, names: 
   if (!decision) return ''
   const parts = [OUTCOME_WORDS[decision.outcome] ?? statusWords(card)]
   if (decision.admitToDepartmentCode) parts.push(`to ${departmentText(decision.admitToDepartmentCode)}`)
-  if (decision.admittingMembershipId) parts.push(`under ${memberText(decision.admittingMembershipId, membershipId, names)}`)
+  if (decision.admittingMembershipId) parts.push(`under ${memberInSentence(decision.admittingMembershipId, membershipId, names)}`)
   if (decision.referredToFacilityName) parts.push(`to ${decision.referredToFacilityName}`)
   // A decision days old (an admission request waits for a ward, Q-ED-6 A) carries its date.
   const when = lagosWhen(decision.decidedAt)
@@ -240,7 +272,7 @@ function VisitLink({ card, facilityId, busy, write }: {
   readonly card: EdCard
   readonly facilityId: string
   readonly busy: boolean
-  readonly write: (name: string, body: unknown, send: (key: string) => Promise<EdWritten>, done: string, invalid?: string) => Promise<void>
+  readonly write: (name: string, body: unknown, send: (key: string) => Promise<EdWritten>, done: string | Done, invalid?: string) => Promise<void>
 }) {
   const { activePatient } = useStaff()
   const keyFor = useIdempotencyKeys()
@@ -498,7 +530,10 @@ function CancelForm({ busy, onSave, onCancel }: {
   }
   return (
     <form className="hid-ehr-dept-form" noValidate onSubmit={save} aria-label="Cancel arrival">
-      <p className="hid-ehr-dept-waiting-hint">Only for an arrival added in error. The record is kept.</p>
+      <p className="hid-ehr-dept-waiting-hint">
+        Only for an arrival added in error. The record is kept. The patient stays on the outpatient waiting list: cancel them
+        there too if they are not waiting.
+      </p>
       <EhrField label="Why it is cancelled" controlId="ed-cancel-reason" hint="At least 8 characters.">
         <EhrTextarea rows={3} value={reason} onChange={event => setReason(event.target.value)} maxLength={REASON_MAX} />
       </EhrField>

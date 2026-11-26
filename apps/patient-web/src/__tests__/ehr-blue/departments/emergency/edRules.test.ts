@@ -3,7 +3,8 @@ import { HidApiError } from '@hid/http'
 import {
   ADMIT_DEPARTMENTS, BOARD_REFUSED, COLUMN_WORDS, ED_REFUSALS, NOT_AVAILABLE, VISIT_CHART_CLOSED, VISIT_FAILED, VISIT_NOT_FOUND,
   arrivalMoment, awaitsBoardCodes, canArrive, canDecide, canRead, canTriage, cardName, closedWords, complaintProblem, complaintText,
-  historyText, lagosTime, lagosWhen, leaveLabel, minutesText, notServed, reasonProblem, refusalWords, statusWords, unknownRefusal,
+  historyText, lagosTime, lagosWhen, leaveLabel, memberInSentence, memberText, minutesText, notServed, reasonProblem, refusalWords, statusWords,
+  unknownRefusal,
   startEmergencyVisit, visitAttempt, visitRefusal, type VisitKeyBody,
 } from '../../../../ehr-blue/departments/emergency/edRules'
 import { lagosDay } from '@hid/ui/display'
@@ -105,6 +106,32 @@ describe('emergency board rules', () => {
     expect(historyText({ ...base, kind: 'moved', fromStage: 'ready', toStage: 'with_clinician' })).toBe('Moved to being seen')
     expect(historyText({ ...base, kind: 'disposition', outcome: 'discharged' })).toBe('Decision recorded: discharged home')
     expect(historyText({ ...base, kind: 'closed_on_waiting_list' })).toBe('Closed on the waiting list')
+  })
+
+  it('says each move in plain words, never "Moved to in triage", and a move of who sees them as that', () => {
+    const base = { at: '2026-12-03T08:10:00.000Z', byMembershipId: null, fromStage: null, toStage: null, triageLevel: null, outcome: null,
+      reason: null, complaintChanged: false, kind: 'moved' as const }
+    expect(historyText({ ...base, fromStage: 'waiting', toStage: 'triage' })).toBe('Moved to triage')
+    expect(historyText({ ...base, fromStage: 'triage', toStage: 'ready' })).toBe('Marked ready to be seen')
+    expect(historyText({ ...base, fromStage: 'ready', toStage: 'with_clinician' })).toBe('Moved to being seen')
+    expect(historyText({ ...base, fromStage: 'with_clinician', toStage: 'waiting' })).toBe('Moved back to waiting')
+    // Only the member down to see them changed: the stage before and after is the same.
+    expect(historyText({ ...base, fromStage: 'ready', toStage: 'ready' })).toBe('Changed who will see them')
+    for (const stage of ['waiting', 'triage', 'ready', 'with_clinician'] as const) {
+      expect(historyText({ ...base, fromStage: stage === 'waiting' ? 'triage' : 'waiting', toStage: stage })).not.toMatch(/Moved to (in|ready)/)
+    }
+  })
+
+  it('names a member inside a sentence without a capital letter: "by you", "by a staff member here"', () => {
+    const names = new Map([['member-2', 'Ngozi Okafor']])
+    expect(memberInSentence('MEMBER-1', 'member-1', names)).toBe('you')
+    expect(memberInSentence('member-2', 'member-1', names)).toBe('Ngozi Okafor')
+    expect(memberInSentence('member-3', 'member-1', names)).toBe('a staff member here')
+    expect(memberInSentence(null, 'member-1', names)).toBe('no one yet')
+    expect(memberInSentence(null, 'member-1', names, 'a staff member')).toBe('a staff member')
+    // On its own (a column of a card or the history), the same member keeps a capital letter.
+    expect(memberText('member-1', 'member-1', names)).toBe('You')
+    expect(memberText('member-3', 'member-1', names)).toBe('A staff member here')
   })
 
   it('checks the complaint and reasons as the server does', () => {

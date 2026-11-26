@@ -216,6 +216,17 @@ export function memberText(membershipId: string | null | undefined, own: string 
   return names.get(membershipId.toLowerCase()) ?? 'A staff member here'
 }
 
+/**
+ * memberText inside a sentence ("… by you", "… under a staff member here"): the same member, without a capital letter
+ * where it is not a name.
+ */
+export function memberInSentence(membershipId: string | null | undefined, own: string | undefined,
+  names: ReadonlyMap<string, string | null>, none = 'no one yet'): string {
+  if (!membershipId) return none
+  if (own && membershipId.toLowerCase() === own.toLowerCase()) return 'you'
+  return names.get(membershipId.toLowerCase()) ?? 'a staff member here'
+}
+
 /** "09:05": the Lagos time of day of an ISO moment (@hid/ui/display, P2-4); '' when it is not one. */
 export function lagosTime(iso: string | null | undefined): string {
   return formatTime(iso)
@@ -308,11 +319,22 @@ const HISTORY_WORDS: Readonly<Record<EdHistoryEvent['kind'], string>> = {
   closed_on_waiting_list: 'Closed on the waiting list',
 }
 
+/** A move on the board, by the stage it went to: each said as staff say it, never "Moved to in triage". */
+const MOVED_WORDS: Readonly<Partial<Record<VisitQueueStage, string>>> = {
+  waiting: 'Moved back to waiting',
+  triage: 'Moved to triage',
+  ready: 'Marked ready to be seen',
+  with_clinician: 'Moved to being seen',
+}
+
 /** One history line, in plain words (never the complaint's text: the history says only that it changed). */
 export function historyText(event: EdHistoryEvent): string {
-  const what = Object.hasOwn(HISTORY_WORDS, event.kind) ? HISTORY_WORDS[event.kind] : 'Changed'
+  const known = Object.hasOwn(HISTORY_WORDS, event.kind) ? HISTORY_WORDS[event.kind] : 'Changed'
+  // A move records the stage before and after; the same stage means only who sees the patient changed.
+  const what = event.kind !== 'moved' || !event.toStage ? known
+    : event.toStage === event.fromStage ? 'Changed who will see them'
+      : Object.hasOwn(MOVED_WORDS, event.toStage) ? MOVED_WORDS[event.toStage] ?? known : known
   const parts: string[] = [what]
-  if (event.kind === 'moved' && event.toStage) parts.push(`to ${stageText(event.toStage).toLowerCase()}`)
   if (event.triageLevel !== null && (event.kind === 'triaged' || event.kind === 'arrived')) parts.push(`(level ${event.triageLevel})`)
   if (event.outcome) parts.push(`: ${outcomeText(event.outcome).toLowerCase()}`)
   let text = parts.join(' ').replace(' :', ':')

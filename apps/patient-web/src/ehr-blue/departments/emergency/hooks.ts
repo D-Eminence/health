@@ -11,6 +11,11 @@ export interface IdempotencyKeys {
   (action: string, body: unknown): string
   /** Drops a body's key: a request that can never succeed as it was (the visit link across Lagos midnight). */
   forget(action: string, body: unknown): void
+  /**
+   * Drops every key: the next request is a new one even with the same body (another arrival, which may be a second
+   * unknown patient with the same answers as the first, who must get a record and a Health ID of their own).
+   */
+  clear(): void
 }
 export function useIdempotencyKeys(): IdempotencyKeys {
   const [keyFor] = useState<IdempotencyKeys>(() => {
@@ -23,7 +28,10 @@ export function useIdempotencyKeys(): IdempotencyKeys {
         keys.set(signature(action, body), key)
       }
       return key
-    }, { forget: (action: string, body: unknown) => { keys.delete(signature(action, body)) } })
+    }, {
+      forget: (action: string, body: unknown) => { keys.delete(signature(action, body)) },
+      clear: () => { keys.clear() },
+    })
   })
   return keyFor
 }

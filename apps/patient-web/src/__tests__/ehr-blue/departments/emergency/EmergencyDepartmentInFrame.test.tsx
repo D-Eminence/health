@@ -237,7 +237,7 @@ describe('Emergency department board in the frame', () => {
     expect(screen.getByRole('button', { name: 'Find patient' })).toBeDefined()
   })
 
-  it('makes an unknown patient’s record, puts it on the board by its patientId and shows the wristband Health ID once', async () => {
+  it('makes an unknown patient’s record, shows its wristband Health ID at once, and puts it on the board by its patientId', async () => {
     // The wristband prints as a paper (printPaper: a PDF in Safari and on an iPad, with no web address), never the page.
     const printed = vi.fn()
     vi.doMock('../../../../print/printPaper', async importOriginal => ({
@@ -265,6 +265,11 @@ describe('Emergency department board in the frame', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add to the board' }))
     // The record is made once; the arrival refused (the board is off) is sent again with the same patient and key.
     expect(await screen.findByText('The emergency board is not available yet.')).toBeDefined()
+    // The record exists although the arrival failed: its Health ID is on screen now, not only once the arrival is saved
+    // (ID-7 answers it once; the unknown-patient list shows its last 4 characters).
+    const madeNow = screen.getByRole('region', { name: 'Wristband' })
+    expect(within(madeNow).getByText('HID-ZZZZ77', { selector: 'strong' })).toBeDefined()
+    expect(within(madeNow).getByRole('button', { name: 'Print wristband' })).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: 'Add to the board' }))
     expect(await screen.findByText('Unknown patient U-0007 is on the board.')).toBeDefined()
     expect(sentTo(sent, UNKNOWN)).toHaveLength(1)
@@ -276,7 +281,7 @@ describe('Emergency department board in the frame', () => {
     expect(arrivals[1]!.headers.get('Idempotency-Key')).toBe(arrivals[0]!.headers.get('Idempotency-Key'))
     const wristband = screen.getByRole('region', { name: 'Wristband' })
     expect(within(wristband).getByText('HID-ZZZZ77', { selector: 'strong' })).toBeDefined()
-    expect(within(wristband).getByText('It is shown only once.', { exact: false })).toBeDefined()
+    expect(within(wristband).getByText('It is not shown again once you leave this page.', { exact: false })).toBeDefined()
     fireEvent.click(within(wristband).getByRole('button', { name: 'Print wristband' }))
     expect(pagePrint).not.toHaveBeenCalled()
     expect(printed).toHaveBeenCalledOnce()
@@ -321,7 +326,7 @@ describe('Emergency department board in the frame', () => {
     fireEvent.change(within(form).getByRole('combobox', { name: /Triage level/ }), { target: { value: '2' } })
     fireEvent.change(within(form).getByRole('textbox', { name: /Presenting complaint/ }), { target: { value: 'Fall, left leg pain' } })
     fireEvent.click(within(form).getByRole('button', { name: 'Save triage' }))
-    expect(await screen.findByText('Tunde Boardone: level 2: very urgent.')).toBeDefined()
+    expect(await screen.findByText('Tunde Boardone’s triage is saved (Level 2: very urgent).')).toBeDefined()
     expect(sentTo(sent, action('triage'))[0]!.body).toEqual({ expectedRowVersion: 3, triageLevel: 2, presentingComplaint: 'Fall, left leg pain' })
     checkHeaders(sentTo(sent, action('triage'))[0]!)
     expect(sentTo(sent, action('triage'))[0]!.headers.get('Idempotency-Key')).toBeTruthy()
@@ -437,6 +442,37 @@ describe('Emergency department board in the frame', () => {
     expect(await screen.findByText('This arrival already has a visit or a decision, so it cannot be cancelled. Record where the patient goes next instead.')).toBeDefined()
     expect(sentTo(sent, action('cancel'))[0]!.body).toEqual({ expectedRowVersion: 3, reason: 'Added the wrong patient' })
     await waitFor(() => expect(sentTo(sent, RECORD)).toHaveLength(2))
+  })
+
+  it('after Cancel arrival, says the patient is still on the outpatient waiting list and links to it (route 9, hid-system 8c12017b)', async () => {
+    const desk = facility(REAL_FACILITY, 'Fictional Hospital', FRONT_DESK, ['receptionist'])
+    const hidden = { presentingComplaint: null, complaintHidden: true }
+    const cancelled = card({ ...hidden, status: 'closed', column: 'closed', stage: 'waiting', triageLevel: null, leftAt: '2026-12-03T08:20:00.000Z', rowVersion: 4 })
+    const sent = serve({
+      [SESSION]: [sessionAt(desk, [desk])],
+      // The front desk never gets the cancel's reason in the history, even its own (null).
+      [RECORD]: [recordOf(card(hidden)), recordOf(cancelled, [
+        { kind: 'arrived', at: '2026-12-03T08:10:00.000Z', byMembershipId: ME, fromStage: null, toStage: 'waiting', triageLevel: null,
+          outcome: null, reason: null, complaintChanged: false },
+        { kind: 'cancelled', at: '2026-12-03T08:20:00.000Z', byMembershipId: ME, fromStage: null, toStage: null, triageLevel: null,
+          outcome: null, reason: null, complaintChanged: false }])],
+      [action('cancel')]: [written(cancelled)],
+    })
+    await openStaffApp(`/provider/emergency-department/${ATTENDANCE}`)
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel arrival' }))
+    const form = screen.getByRole('form', { name: 'Cancel arrival' })
+    // Said before it is done: only the ED record closes, the waiting-list place stays open.
+    expect(form.textContent).toContain('The patient stays on the outpatient waiting list: cancel them there too if they are not waiting.')
+    fireEvent.change(within(form).getByRole('textbox', { name: /Why it is cancelled/ }), { target: { value: 'Added the wrong patient' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Cancel arrival' }))
+    await waitFor(() => expect(document.getElementById('ed-record-notice')).not.toBeNull())
+    const notice = document.getElementById('ed-record-notice')!
+    expect(notice.textContent).toContain('Tunde Boardone’s arrival is cancelled. '
+      + 'The patient is still on the outpatient waiting list. Cancel them there if they are not waiting.')
+    expect(within(notice).getByRole('link', { name: 'Open the waiting list' }).getAttribute('href')).toBe('/provider/waiting-list')
+    expect(sentTo(sent, action('cancel'))[0]!.body).toEqual({ expectedRowVersion: 3, reason: 'Added the wrong patient' })
+    await waitFor(() => expect(within(screen.getByRole('region', { name: 'History' })).getByText('Arrival cancelled')).toBeDefined())
+    expect(screen.queryByText(/^Reason:/)).toBeNull()
   })
 
   it('says a record that is not on this facility’s board in plain words, and links an unknown patient to Patients', async () => {

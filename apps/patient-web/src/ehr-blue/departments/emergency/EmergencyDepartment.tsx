@@ -55,7 +55,14 @@ function EmergencyDesk({ facilityId }: { readonly facilityId: string }) {
   return <Navigate replace to={BASE} />
 }
 
-type BoardRead = EdBoard & { readonly withClosed: boolean }
+/**
+ * One read of the board: the board, or that it is not served (503 ED_BOARD_NOT_AVAILABLE, the flag off, or an ehr-api
+ * before 0168). Not served is the read's value, not an error kept beside the last board: switched off after use, the
+ * board hands every patient back to the waiting list (ED-1, the kill switch), so a board shown before is no longer true
+ * and is dropped, also while it is read again every 30 seconds.
+ */
+type BoardRead = (EdBoard & { readonly served: true; readonly withClosed: boolean }) | { readonly served: false }
+const NOT_SERVED: BoardRead = { served: false }
 
 function Board({ facilityId, includeClosed, onIncludeClosed }: {
   readonly facilityId: string
@@ -66,21 +73,24 @@ function Board({ facilityId, includeClosed, onIncludeClosed }: {
   const { permissions, membershipId } = useDeptAccess()
   const loader = useCallback((id: string) => edBoardApi.board(id, includeClosed).then(answer => {
     learnFrom()
-    return { ...answer, withClosed: includeClosed } as BoardRead
+    return { ...answer, served: true, withClosed: includeClosed } as BoardRead
   }, caught => {
     learnFrom(caught)
+    if (notServed(caught)) return NOT_SERVED
     throw caught
   }), [includeClosed])
   const board = useFacilityRead<BoardRead>(facilityId, true, loader, 'The emergency board could not be loaded.')
   const { refresh } = board
   usePolling(refresh, POLL_MS)
 
-  const items = board.value?.items ?? []
+  const unavailable = board.value?.served === false
+  // The board as last read, never one from before it said it is not served.
+  const shown = board.value?.served ? board.value : null
+  const items = shown?.items ?? []
   const names = useStaffNames(facilityId, items.map(card => card.assignedMembershipId))
-  const unavailable = board.caught !== null && notServed(board.caught)
-  const error = board.error ? refusalWords(board.caught, board.error) : ''
+  const error = board.error ? refusalWords(board.caught, board.error) : unavailable ? NOT_AVAILABLE : ''
   const byColumn = (column: EdColumn) => items.filter(card => card.column === column)
-  const counts = board.value?.counts
+  const counts = shown?.counts
 
   return (
     <DeptPage eyebrow={EYEBROW} title={TITLE} description={DESCRIPTION} className="hid-ehr-dept-emergency"
@@ -89,10 +99,10 @@ function Board({ facilityId, includeClosed, onIncludeClosed }: {
       secondaryActions={<EhrButton variant="secondary" onClick={() => void refresh()} busy={board.loading && board.value !== null}>Refresh</EhrButton>}>
       <DeptNotice tone="caution" title="Staff only">{SCREEN_WARNING}</DeptNotice>
 
-      {error ? <DeptNotice role="alert" tone={unavailable ? 'info' : 'critical'}>{error}</DeptNotice> : null}
+      {error ? <DeptNotice role="alert" tone={board.error ? 'critical' : 'info'}>{error}</DeptNotice> : null}
       {board.value === null && board.loading ? <p className="hid-ehr-state-message" role="status">Loading the emergency board…</p> : null}
 
-      {board.value !== null ? (
+      {shown !== null ? (
         <>
           {counts ? (
             <dl className="hid-ehr-dept-emergency-counts" aria-label="Patients in the department">
@@ -106,9 +116,9 @@ function Board({ facilityId, includeClosed, onIncludeClosed }: {
               <BoardColumn key={column} column={column} cards={byColumn(column)} membershipId={membershipId} names={names} />
             ))}
           </div>
-          {board.value.hasMore ? (
+          {shown.hasMore ? (
             <DeptNotice tone="caution">
-              Only the first {board.value.limit} patients are shown, the most urgent first. Record where patients go next as they leave.
+              Only the first {shown.limit} patients are shown, the most urgent first. Record where patients go next as they leave.
             </DeptNotice>
           ) : null}
         </>
@@ -120,7 +130,7 @@ function Board({ facilityId, includeClosed, onIncludeClosed }: {
           <span>Show patients who left the board today</span>
         </label>
       ) : null}
-      {includeClosed && board.value?.withClosed ? (
+      {includeClosed && shown?.withClosed ? (
         <BoardColumn column="closed" cards={byColumn('closed')} membershipId={membershipId} names={names} />
       ) : null}
     </DeptPage>

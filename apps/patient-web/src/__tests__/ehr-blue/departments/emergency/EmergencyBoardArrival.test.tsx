@@ -5,8 +5,9 @@ import type * as StaffApi from '../../../../staff/api'
 
 /*
  * "Add to the emergency board" on the emergency summary (hid-system ED-1 route 1, basis emergency, Q-ED-3 A): only for
- * the emergency search card this session opened the patient from, only to members who add patients to the board, and
- * sent as emergency with that card's matchRef. Every id and reference is fictional.
+ * the emergency search card this session opened the patient from, only to members who add patients to the board, only
+ * once the board has answered that it is served (the summary is live while ED_BOARD_ENABLED is off), and sent as
+ * emergency with that card's matchRef. Every id and reference is fictional.
  */
 const { arrive } = vi.hoisted(() => ({ arrive: vi.fn() }))
 vi.mock('../../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
@@ -25,10 +26,14 @@ const ARRIVE = ['ehr.ed.read', 'ehr.ed.arrive', 'ehr.encounter.read', 'ehr.encou
 
 afterEach(() => { cleanup(); arrive.mockReset(); vi.resetModules() })
 
-async function show(permissions: readonly string[], remembered: boolean, patientId = PATIENT) {
+/** `served`: what the board has answered in this page's life (null: nothing yet). */
+async function show(permissions: readonly string[], remembered: boolean, patientId = PATIENT, served: boolean | null = true) {
   const memory = await import('../../../../ehr-blue/departments/emergency/emergencyArrival')
   memory.forgetEmergencyCard()
   if (remembered) memory.rememberEmergencyCard(FACILITY, PATIENT, MATCH_REF)
+  const rules = await import('../../../../ehr-blue/departments/emergency/edRules')
+  rules.forgetEdBoardServed()
+  if (served !== null) rules.learnEdBoardServed(served)
   const { EmergencyBoardArrival } = await import('../../../../ehr-blue/departments/emergency/EmergencyBoardArrival')
   return render(<MemoryRouter><EmergencyBoardArrival facilityId={FACILITY} patientId={patientId} permissions={permissions} /></MemoryRouter>)
 }
@@ -73,5 +78,32 @@ describe('Add to the emergency board from the emergency summary', () => {
     cleanup()
     await show(['identity.break-glass.write', 'ehr.encounter.read'], true)
     expect(screen.queryByRole('button', { name: 'Add to the emergency board' })).toBeNull()
+  })
+
+  it('offers nothing until the board has answered that it is served: not while it is switched off, not before it answered', async () => {
+    // ED_BOARD_ENABLED off (or an ehr-api before 0168): the board answered 503 or 404 in this page's life.
+    await show(ARRIVE, true, PATIENT, false)
+    expect(screen.queryByRole('region', { name: 'Emergency department board' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Add to the emergency board' })).toBeNull()
+    cleanup()
+    // Nothing answered yet (the summary opened straight from Emergency access, with the board off in production).
+    await show(ARRIVE, true, PATIENT, null)
+    expect(screen.queryByRole('button', { name: 'Add to the emergency board' })).toBeNull()
+    expect(arrive).not.toHaveBeenCalled()
+  })
+
+  it('switched off after it answered: the first refusal says the board is not available yet, and the action goes', async () => {
+    await show(ARRIVE, true)
+    const { HidApiError } = await import('@hid/http')
+    arrive.mockRejectedValue(new HidApiError(503, 'Service unavailable', { code: 'ED_BOARD_NOT_AVAILABLE' }))
+    fireEvent.change(screen.getByRole('combobox', { name: 'How they came' }), { target: { value: 'ambulance' } })
+    const add = screen.getByRole('button', { name: 'Add to the emergency board' })
+    add.focus()
+    fireEvent.click(add)
+    expect(await screen.findByText('The emergency board is not available yet.')).toBeDefined()
+    expect(screen.queryByRole('button', { name: 'Add to the emergency board' })).toBeNull()
+    expect(screen.queryByRole('combobox', { name: 'How they came' })).toBeNull()
+    // The pressed button went: focus is on the words that replaced it.
+    await waitFor(() => expect(document.activeElement?.id).toBe('ed-emergency-arrival-off'))
   })
 })

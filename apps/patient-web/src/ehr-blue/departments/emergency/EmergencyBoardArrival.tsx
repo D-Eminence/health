@@ -5,7 +5,9 @@ import { EhrButton, EhrField, EhrSelect } from '@hid/ui/ehr'
 import { edBoardApi, type EdArrivalMode, type EdArrived } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
 import { DeptNotice } from '../parts/DeptNotice'
-import { ARRIVAL_MODES, ARRIVAL_MODE_WORDS, BASE, canArrive, cardName, learnFrom, refusalWords } from './edRules'
+import {
+  ARRIVAL_MODES, ARRIVAL_MODE_WORDS, BASE, NOT_AVAILABLE, canArrive, cardName, learnFrom, notServed, refusalWords, useEdBoardServed,
+} from './edRules'
 import { emergencyCardFor } from './emergencyArrival'
 import { useIdempotencyKeys } from './hooks'
 
@@ -13,6 +15,10 @@ import { useIdempotencyKeys } from './hooks'
  * "Add to the emergency board" on the emergency summary of a patient opened by break-glass from an emergency search
  * card (ED-1 route 1, basis `emergency`, Q-ED-3 A). Offered only to members who add patients to the board, and only for
  * the card this session opened the patient from. The board gives no chart access: the summary stays under the grant.
+ *
+ * The summary is live today and the board is not: offered only once the board has answered in this page's life that it
+ * is served (useEdBoardServed, as Triage & Vitals names it), so while ED_BOARD_ENABLED is off (or before 0168) no one is
+ * offered an action that cannot work. Switched off after that, the first refusal says so and the action goes.
  */
 export function EmergencyBoardArrival({ facilityId, patientId, permissions }: {
   readonly facilityId: string
@@ -25,8 +31,10 @@ export function EmergencyBoardArrival({ facilityId, patientId, permissions }: {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState<EdArrived | null>(null)
+  const [off, setOff] = useState(false)
+  const served = useEdBoardServed()
   const matchRef = emergencyCardFor(facilityId, patientId)
-  if (!matchRef || !canArrive(permissions)) return null
+  if (!matchRef || !canArrive(permissions) || served !== true) return null
 
   async function add() {
     if (busy || !matchRef) return
@@ -42,6 +50,12 @@ export function EmergencyBoardArrival({ facilityId, patientId, permissions }: {
     } catch (caught) {
       if (isHidApiError(caught) && caught.code === 'REQUEST_CANCELLED') return
       learnFrom(caught)
+      if (notServed(caught)) {
+        // Switched off since it answered: the action goes, and focus moves to the words that replace it.
+        setOff(true)
+        focus('ed-emergency-arrival-off')
+        return
+      }
       setError(refusalWords(caught, 'The patient could not be added to the board. Try again.', 'Choose how the patient came.'))
     } finally { setBusy(false) }
   }
@@ -49,7 +63,9 @@ export function EmergencyBoardArrival({ facilityId, patientId, permissions }: {
   return (
     <section className="flex flex-col gap-3 rounded-xl bg-surface p-4 ring-1 ring-line" aria-labelledby="ed-emergency-arrival">
       <h2 id="ed-emergency-arrival" className="m-0 text-base font-semibold text-ink">Emergency department board</h2>
-      {done ? (
+      {off ? (
+        <DeptNotice id="ed-emergency-arrival-off" tabIndex={-1} tone="info" role="status">{NOT_AVAILABLE}</DeptNotice>
+      ) : done ? (
         <DeptNotice id="ed-emergency-arrival-done" tabIndex={-1} tone="positive" role="status">
           {done.outcome === 'already_on_board' ? `${cardName(done.attendance)} is already on the board.` : `${cardName(done.attendance)} is on the board.`}{' '}
           <Link className="hid-ehr-dept-link" to={`${BASE}/${done.attendance.attendanceId}`}>Open their record on the board</Link>
