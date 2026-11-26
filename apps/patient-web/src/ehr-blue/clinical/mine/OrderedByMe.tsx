@@ -40,7 +40,10 @@ import './mine.css'
 export function OrderedByMe() {
   const { facility, permissions } = useDeptAccess()
   if (!facility || !canUseOrderedByMe(permissions)) return <OrderedByMeUnavailable />
-  return <MyOrdersDesk key={facility.id} facilityId={facility.id} lab={showsLab(permissions)} prescriptions={showsPrescriptions(permissions)} />
+  const lab = showsLab(permissions)
+  const prescriptions = showsPrescriptions(permissions)
+  // Keyed by what it shows too, so a change of role at the same facility starts again with the kinds it now shows.
+  return <MyOrdersDesk key={`${facility.id}|${lab}|${prescriptions}`} facilityId={facility.id} lab={lab} prescriptions={prescriptions} />
 }
 
 export function OrderedByMeUnavailable() {

@@ -92,6 +92,7 @@ describe('Ordered by me in the frame', () => {
     ['laboratory staff, who read lab requests only', ['ehr.lab-request.read', 'lab.work-item.read'], 'lab_scientist'],
     ['pharmacy staff, who read prescriptions only', ['ehr.prescription.read', 'pharmacy.work-item.read'], 'pharmacist'],
     ['a nurse who reads both kinds but orders neither', ['ehr.encounter.read', 'ehr.lab-request.read', 'ehr.prescription.read'], 'nurse'],
+    ['a member who orders lab tests but cannot read them', ['ehr.encounter.read', 'ehr.lab-request.write'], 'doctor'],
   ])('is not listed or found for %s, and its address says who it is for without reading', async (_who, permissions, role) => {
     const member = facility(REAL_FACILITY, 'Demo Hospital', [...permissions, 'identity.patient.read'], [role])
     const sent = serve({ [SESSION]: [sessionAt(member, [member])] })

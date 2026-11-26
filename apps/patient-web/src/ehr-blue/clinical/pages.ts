@@ -4,7 +4,7 @@ import { ConsentWorkspace, consentStatus } from './consent/ConsentWorkspace'
 import { ConsultWorkspace, consultStatus } from './consult/ConsultWorkspace'
 import { EmergencyWorkspace, emergencyStatus } from './emergency/EmergencyWorkspace'
 import { OrderedByMe, OrderedByMeUnavailable } from './mine/OrderedByMe'
-import { LAB_WRITE, PRESCRIPTION_WRITE, TITLE as ORDERED_BY_ME } from './mine/myOrders'
+import { canUseOrderedByMe, LAB_WRITE, PRESCRIPTION_WRITE, TITLE as ORDERED_BY_ME } from './mine/myOrders'
 import { NursingWorkspace, nursingStatus } from './nursing/NursingWorkspace'
 import { ClinicalIcon, type ClinicalIconName } from './parts/icons'
 import { PatientsWorkspace, patientsStatus } from './patients/PatientsWorkspace'
@@ -31,8 +31,10 @@ export const pages: EhrBluePage[] = [
   // "Ordered by me" (hid-system 0143, MY-1) under Care, beside Consultation: offered only to staff who order lab tests or
   // medicines here (either write), not to everyone who can read them (the overseer, hid-system#258, 26 Nov 2026,
   // following Ola's clinical view). The backend still lists by either read (contracts ehr.myOrders); the page shows
-  // only the kinds the member writes and reads (mine/myOrders.ts). Live since Release C (d519e5d1).
+  // only the kinds the member writes and reads (mine/myOrders.ts), and is listed only where it shows one (a member who
+  // writes a kind but cannot read it is not offered a page that would only refuse). Live since Release C (d519e5d1).
   { path: 'ordered-by-me', group: 'Clinical', label: ORDERED_BY_ME, icon: icon('clipboard'), permission: LAB_WRITE, orPermissions: [PRESCRIPTION_WRITE],
+    listed: session => canUseOrderedByMe(session.actor.facility?.permissions ?? []),
     status: 'live', element: createElement(OrderedByMe), refusal: createElement(OrderedByMeUnavailable) },
   { path: 'inpatient/*', group: 'Clinical', label: 'Inpatient / Wards', icon: icon('bed'), status: 'sample', element: sample('inpatient') },
   { path: 'wards/*', group: 'Clinical', label: 'Wards & Beds', icon: icon('ward'), status: 'sample', element: sample('wards') },
