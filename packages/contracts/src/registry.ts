@@ -637,7 +637,11 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'or facility, which also needs identity.registration.approve), status, evidence (none or nin), limit (1 to 100, 50 by '
     + 'default) and cursor; any other key is 400 VALIDATION_FAILED. 200 { view, cases: [{ caseId, status, version, '
     + 'candidateCount, contactRecorded, ninStatus, identityEvidence, patient?, fullName, dateOfBirth, createdAt, updatedAt, '
-    + 'createdByMe }], nextCursor }, newest first; never who else started a case. 400 REGISTRATION_CASE_CURSOR_INVALID; '
+    + 'createdByMe, createdByMembershipId, createdByName }], nextCursor }, newest first. createdByName (hid-system #340) is '
+    + 'the starter\'s name by SX-9\'s rule (login display name, else staff full name, trimmed), null once the login is '
+    + 'deleted or neither is set; a name only, no contact, account, role or licence. The page shows it, else "Started by '
+    + 'you" on the member\'s own, and reads an answer without it (an Identity before #340) as no name; it does not read '
+    + 'createdByMembershipId. 400 REGISTRATION_CASE_CURSOR_INVALID; '
     + '403 REGISTRATION_CASE_LIST_DENIED (view facility without approve).'),
   forbiddenQuery: { GET: ['hid', 'healthId', 'nin'] } },
   r('identity.registrationCase','identity','/api/v1/identity/registration-cases/:caseId',G,false,one('GET','identity.registration.write')),

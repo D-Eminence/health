@@ -16,7 +16,7 @@ import {
   CASE_ID_LABEL, caseTitle, caseWhen, CHECK_AGAIN, CHECKING, COMPLETED, CONTINUE_TITLE, CREATE_RECORD, DESCRIPTION, ERROR_TITLE,
   EVIDENCE_CHOICES, EVIDENCE_FILTER, EYEBROW, FILTERED_EMPTY, FILTERED_EMPTY_TITLE, LIST_CHOICE, LIST_EMPTY_TITLE, LIST_LOADING, LIST_TITLE,
   LOAD_CASE, LOAD_MORE, LOADING, LOADING_MORE, MINE_EMPTY, MINE_TITLE, MORE_ADDED, NIN_FACT, NIN_NOT_ENABLED, NIN_OFF_TITLE,
-  NIN_OFF_WITHOUT_NIN, NO_HID_YET, ninStatusText, OPENING, STARTED_BY_YOU, STATUS_CHOICES, STATUS_FILTER, statusLabel, TITLE, TRY_AGAIN,
+  NIN_OFF_WITHOUT_NIN, NO_HID_YET, ninStatusText, OPENING, startedByText, STATUS_CHOICES, STATUS_FILTER, statusLabel, TITLE, TRY_AGAIN,
   UPDATED, VISIT_CAPTION,
 } from './registrationText'
 
@@ -147,8 +147,8 @@ function CaseList({ cases, caseLoading, busy, error, onOpen }: {
     {
       id: 'patient', header: 'Patient', cell: ({ item, row }) => (
         <DeptRecordName id={listRowId(row)} name={item.fullName} onOpen={() => open(item)}
-          // "Started by you" wherever the member started it: nobody else who started one is named.
-          reference={[bornText(item.dateOfBirth), item.createdByMe ? STARTED_BY_YOU : null].filter(Boolean).join(' · ')} />
+          // Who started it, by name; with no name, "Started by you" on the member's own.
+          reference={[bornText(item.dateOfBirth), startedByText(item)].filter(Boolean).join(' · ')} />
       ),
     },
     { id: 'hid', header: 'Health ID', cell: ({ item }) => item.patient?.hid ?? <span className="hid-ehr-dept-muted">{NO_HID_YET}</span> },

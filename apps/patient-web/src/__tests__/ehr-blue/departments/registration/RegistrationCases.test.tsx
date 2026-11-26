@@ -114,7 +114,7 @@ describe('My registrations', () => {
     expect(within(two).getByText('No Health ID yet')).toBeTruthy()
     expect(within(two).getByText('NIN Not Verified')).toBeTruthy()
     expect(within(two).getByText('Possible match')).toBeTruthy()
-    // "Started by you" wherever the member started it, here too; nobody else is named.
+    // With no names sent (an Identity before hid-system #340): "Started by you" on the member's own, nobody else named.
     expect(within(two).getByText('Born 6 May 2019')).toBeTruthy()
     expect(within(region).getAllByText(/Started by you/)).toHaveLength(1)
     // A member who does not approve registrations is offered neither all of them nor the NIN filter.
@@ -154,7 +154,7 @@ describe('My registrations', () => {
 describe('All registrations', () => {
   beforeEach(() => { session.permissions = [WRITE, APPROVE] })
 
-  it('is offered to an approver: every registration at the facility, "Started by you" on their own and nobody else named', async () => {
+  it('is offered to an approver: every registration at the facility, and with no names sent, "Started by you" on their own', async () => {
     renderDept(<PatientRegistration />)
     await table()
     expect(screen.getByRole('heading', { level: 2, name: 'Registrations' })).toBeTruthy()
@@ -175,6 +175,25 @@ describe('All registrations', () => {
     fireEvent.click(mine)
     await table()
     expect(api.listRegistrationCases).toHaveBeenLastCalledWith(DEMO_HOSPITAL_ID, { view: 'mine' })
+  })
+
+  it('names who started each registration where Identity sends a name, and no name where it sends none (hid-system #340)', async () => {
+    renderDept(<PatientRegistration />)
+    await table()
+    api.listRegistrationCases.mockResolvedValue(page([
+      { ...ONE, createdByName: 'Staff One' }, { ...TWO, createdByName: ' Staff Two ' },
+      { ...THREE, createdByName: null }, { ...TWO, caseId: 'c0000000-0000-4000-8000-000000000004', fullName: 'Patient Four', createdByName: null },
+    ], null, 'facility'))
+    fireEvent.click(screen.getByRole('button', { name: 'All registrations' }))
+    const region = await table('All registrations')
+    // A name is shown as sent, the member's own included.
+    expect(within(rowOf(region, 'Patient One')).getByText('Born 2 Jan 1990 · Started by Staff One')).toBeTruthy()
+    expect(within(rowOf(region, 'Patient Two')).getByText('Born 6 May 2019 · Started by Staff Two')).toBeTruthy()
+    // No name: "Started by you" on the member's own, and nothing on anyone else's.
+    expect(within(rowOf(region, 'Patient Three')).getByText('Date of birth not given · Started by you')).toBeTruthy()
+    expect(within(rowOf(region, 'Patient Four')).getByText('Born 6 May 2019')).toBeTruthy()
+    expect(within(region).getAllByText(/Started by/)).toHaveLength(3)
+    expectPlainScreen()
   })
 
   it('says when the facility has none yet', async () => {

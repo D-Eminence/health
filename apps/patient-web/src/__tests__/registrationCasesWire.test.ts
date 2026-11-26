@@ -67,9 +67,24 @@ describe('listRegistrationCases', () => {
     ['without when it was started', { createdAt: undefined }],
     ['without when it was updated', { updatedAt: undefined }],
     ['without who started it', { createdByMe: 'yes' }],
+    ['with the name of who started it in another shape', { createdByName: { name: 'Staff One' } }],
+    ['with no name of who started it in another shape', { createdByName: false }],
   ])('refuses the whole page when a row comes %s, rather than show part of it as all of it', async (_, change) => {
     const { staffApi } = await listWith({ view: 'mine', cases: [ITEM, { ...ITEM, caseId: 'c0000000-0000-4000-8000-000000000002', ...change }], nextCursor: null })
     await expect(staffApi.listRegistrationCases(FACILITY, { view: 'mine' })).rejects.toThrow('The registration list answered in a shape this page does not read.')
+  })
+
+  it('takes the name of who started each row, or none (hid-system #340)', async () => {
+    const answer = { view: 'facility', cases: [{ ...ITEM, createdByName: 'Staff One' },
+      { ...ITEM, caseId: 'c0000000-0000-4000-8000-000000000002', createdByMe: false, createdByName: null }], nextCursor: null }
+    const { staffApi } = await listWith(answer)
+    expect(await staffApi.listRegistrationCases(FACILITY, { view: 'facility' })).toEqual(answer)
+  })
+
+  it('takes rows without the name of who started them, from an Identity that does not send it yet', async () => {
+    const { staffApi } = await listWith({ view: 'mine', cases: [ITEM], nextCursor: null })
+    const [row] = (await staffApi.listRegistrationCases(FACILITY, { view: 'mine' })).cases
+    expect(row).not.toHaveProperty('createdByName')
   })
 
   it('takes a row without a date of birth', async () => {

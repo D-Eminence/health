@@ -49,7 +49,7 @@ export function visitWhen(visit: VisitCase): { readonly started: boolean; readon
   return { started: false, at: visit.at }
 }
 
-/** Whether this member started the case: on this visit, or as the list says. Nobody else who started one is named. */
+/** Whether this member started the case: on this visit, or as the list says (by createdByMe, never by a name). */
 export function startedByMe(visit: VisitCase): boolean {
   return visit.started || visit.listed?.createdByMe === true
 }

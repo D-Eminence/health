@@ -172,8 +172,8 @@ export type RegistrationCaseView = 'mine' | 'facility'
 
 /**
  * One registration in GET identity/registration-cases (SX-10): the case as GET :caseId reads it, without its possible
- * matches, with the patient's name and date of birth as registered and whether the caller started it. Nobody else who
- * started a registration is named: the list says only `createdByMe`.
+ * matches, with the patient's name and date of birth as registered, whether the caller started it, and the name of the
+ * member who started it (hid-system #340).
  */
 export interface RegistrationCaseListItem extends Omit<RegistrationCase, 'candidates'> {
   fullName: string
@@ -182,6 +182,12 @@ export interface RegistrationCaseListItem extends Omit<RegistrationCase, 'candid
   createdAt: string
   updatedAt: string
   createdByMe: boolean
+  /**
+   * The name of the member who started it (hid-system #340, SX-9's rule: their login's display name, else their staff
+   * record's full name). null when Identity has no name for them (the login was deleted, or neither name is set); absent
+   * from an Identity that does not send it yet. A name only: nothing else of theirs is sent.
+   */
+  createdByName?: string | null
 }
 
 /** A page of the list, newest first, with the opaque cursor of the next page; null on the last. */
@@ -209,6 +215,8 @@ function isRegistrationCaseListItem(item: unknown): item is RegistrationCaseList
   return typeof row.caseId === 'string' && typeof row.status === 'string' && typeof row.version === 'number'
     && typeof row.fullName === 'string' && (row.dateOfBirth === null || typeof row.dateOfBirth === 'string')
     && typeof row.createdAt === 'string' && typeof row.updatedAt === 'string' && typeof row.createdByMe === 'boolean'
+    // Who started it: a name or null, or left out by an Identity that does not send it yet; never anything else.
+    && (row.createdByName === undefined || row.createdByName === null || typeof row.createdByName === 'string')
 }
 
 /**

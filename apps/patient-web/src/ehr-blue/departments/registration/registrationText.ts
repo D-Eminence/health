@@ -343,8 +343,16 @@ export const MORE_ADDED = 'More registrations added below.'
 export const ALL_LOADED = 'Every registration in this list is shown.'
 export const LIST_FAILED = 'We couldn’t load registrations. Try again.'
 export const MORE_FAILED = 'We couldn’t load more registrations. Try again.'
-/** The list names nobody else who started a registration: only the caller's own are marked. */
+/**
+ * Who started a registration, on its row (hid-system #340): by name where Identity sends one; with no name, "Started by
+ * you" on the member's own, and nothing on anyone else's.
+ */
 export const STARTED_BY_YOU = 'Started by you'
+export function startedByText(item: { readonly createdByMe: boolean; readonly createdByName?: string | null }) {
+  const name = item.createdByName?.trim()
+  if (name) return `Started by ${name}`
+  return item.createdByMe ? STARTED_BY_YOU : null
+}
 export const NO_HID_YET = 'No Health ID yet'
 export const bornText = (dateOfBirth: string | null) => {
   const day = birthDateText(dateOfBirth)
