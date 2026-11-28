@@ -199,6 +199,18 @@ export interface RegisteredWithoutNin {
   patient?: { patientId: string; hid: string }
 }
 
+/**
+ * POST identity/patients/:patientId/nin (hid-system 0138, docs/INTERFACE_CONTRACT.md ID-6 "Verify NIN later"): the answer
+ * when the NIN is on the patient's record. It never carries the NIN or anything from the NIN record.
+ */
+export interface LinkedPatientNin {
+  patientId: string
+  outcome: 'nin_linked' | 'already_linked'
+  ninStatus: 'verified'
+  message?: string
+  replayed: boolean
+}
+
 export interface RegistrationEnrollment {
   patientId: string
   hid: string
@@ -2651,6 +2663,12 @@ export const staffApi = {
     client.post<RegisteredWithoutNin>('/api/v1/identity/registration-cases/without-nin',
       { ...input, purpose: 'healthcare-operations' },
       { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders(idempotencyKey) } }),
+  // hid-system 0138 (ID-6): a NIN checked with QoreID and added to this facility's own patient registered without one. The
+  // NIN goes only in the body; a QoreID check can take longer than the usual 15 s (ninCheck.ts), and is never resent here.
+  linkPatientNin: (facilityId: string, patientId: string, nin: string, idempotencyKey: string) =>
+    client.post<LinkedPatientNin>(`/api/v1/identity/patients/${encodeURIComponent(patientId)}/nin`,
+      { nin, purpose: 'healthcare-operations' },
+      { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders(idempotencyKey) }, timeoutMs: NIN_CHECK_TIMEOUT_MS }),
   registrationCase: (facilityId: string, caseId: string) =>
     client.get<RegistrationCase>(`/api/v1/identity/registration-cases/${encodeURIComponent(caseId)}`,
       { headers: facilityHeaders(facilityId, 'healthcare-operations') }),

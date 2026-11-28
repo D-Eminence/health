@@ -430,14 +430,26 @@ describe('a registration without a NIN, as an approver reads it', () => {
     expect(screen.queryByText('No possible existing patients reported.')).toBeNull()
   })
 
-  it('registered without a NIN: offers no patient account, and says when one can be set up', async () => {
+  it('registered without a NIN: offers no patient account, and says one cannot be set up from it', async () => {
     api.registrationCase.mockResolvedValue({ caseId: CASE, status: 'approved_new_identity', version: 1, candidateCount: 0,
       identityEvidence: 'none', ninStatus: 'not_verified', patient: { patientId: PATIENT, hid: 'HID-ZDEMAAB2' } })
     await findCase()
     expect(within(actions()).queryByRole('button', { name: 'No phone or app? Create their account · optional' })).toBeNull()
-    expect(within(actions()).getByText(NEEDS_NIN)).toBeTruthy()
+    // 0032 sets up an account only for the NIN checked on the registration itself, so a NIN added later (ID-6) is not
+    // promised to open one.
+    expect(within(actions()).getByText('A patient account can’t be set up from a registration made without a NIN, '
+      + 'even after a NIN is added.')).toBeTruthy()
+    expect(within(actions()).queryByText(NEEDS_NIN)).toBeNull()
     expect(within(actions()).queryByText('Nothing else to do here.')).toBeNull()
     expect(api.enrollRegistration).not.toHaveBeenCalled()
+  })
+
+  it('a NIN case whose NIN no longer reads verified still says an account can be set up once the NIN is checked', async () => {
+    api.registrationCase.mockResolvedValue({ caseId: CASE, status: 'approved_new_identity', version: 2, candidateCount: 0,
+      identityEvidence: 'nin', ninStatus: 'not_verified', patient: { patientId: PATIENT, hid: 'HID-ZDEMAAB2' } })
+    await findCase()
+    expect(within(actions()).getByText(NEEDS_NIN)).toBeTruthy()
+    expect(within(actions()).queryByText(/made without a NIN/)).toBeNull()
   })
 
   it('a NIN case’s enrollment refused as PATIENT_ENROLLMENT_CONFLICT is said as classic says it (parity 3.3-63)', async () => {

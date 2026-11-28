@@ -10,18 +10,34 @@ import { DeptNotice } from '../parts/DeptNotice'
 import { dateText } from '../parts/format'
 import { DeptPage, DeptSection } from '../parts/DeptPage'
 import { DeptActions, DeptContextLine, DeptFacts, DeptRecordLayout, type DeptFact } from '../parts/DeptRecord'
-import { FIELD, type CaseLoading, type ReviewAction, type ShownError, type VisitCase } from './registrationModel'
+import { FIELD, type Availability, type CaseLoading, type ReviewAction, type ShownError, type VisitCase } from './registrationModel'
 import { ErrorBox, UnavailableAction, type FormProblems } from './registrationParts'
+import { VerifyNinForm, VerifyNinNotOffered } from './RegistrationVerifyNin'
+import { VERIFY_NIN, verifyNinOffer } from './verifyNinLater'
 import {
   APPROVE, APPROVE_REASON_LABEL, BACK_TO_LIST, CANDIDATE_LABEL, candidateLine, candidateOption, CANDIDATES_UNAVAILABLE,
   CANDIDATES_UNAVAILABLE_TITLE, candidatesText, caseTitle, caseWhen, COMPLETED, CORRECT_DEMOGRAPHICS, EMAIL_LABEL, ENROLL, ENROLL_NEEDS_NIN,
-  ENROLL_REASON_LABEL, ENROLL_TEXT, ENROLL_TITLE, enrolledText, ENROLLING, findPatientText, GIVE_NEW_HID, LINK, LINK_REASON_LABEL, NEXT_STEPS,
+  ENROLL_REASON_LABEL, ENROLL_TEXT, ENROLL_TITLE, ENROLL_WITHOUT_NIN, enrolledText, ENROLLING, findPatientText, GIVE_NEW_HID, LINK, LINK_REASON_LABEL, NEXT_STEPS,
   NO_ACTIONS, noCandidateNotice, NO_CORRECTION, REFRESH_CASE, REFRESHING, REGISTER_ANOTHER, REVIEW_NOTICE, MORE_DETAILS, NIN_FACT, ninStatusText,
   REFERENCE_HINT, REFERENCE_LABEL, SAVED_RECORD, SAVING, SELECT_CANDIDATE, SENT_FOR_REVIEW_NOTICE, statusLabel, WITHOUT_NIN_REVIEW_NOTICE,
   WITHOUT_NIN_UNLISTED_NOTICE,
 } from './registrationText'
 
-type OpenForm = ReviewAction | 'enroll'
+type OpenForm = ReviewAction | 'enroll' | 'verifyNin'
+
+/** Verify NIN later (hid-system 0138, ID-6): what the record's form needs from the page that sends it. */
+export interface VerifyNinProps {
+  /** Whether NIN checks work (registration-capabilities), as the page last read them. */
+  readonly availability: Availability
+  /** A NIN was added to this case's patient on this visit (or Identity said they hold one): shown as NIN Verified. */
+  readonly added: boolean
+  readonly problems: FormProblems
+  /** Identity named a time to try again: the button is off until then. */
+  readonly held: boolean
+  readonly stillChecking: boolean
+  readonly onInput: (event: FormEvent<HTMLFormElement>) => void
+  readonly onSubmit: (event: FormEvent<HTMLFormElement>) => void
+}
 
 /**
  * The design's next steps from a patient's record (workflows.tsx 589-603), in its words. Each is offered only where it
@@ -62,8 +78,8 @@ function usePatientsHref(): string | null {
  * today's case card shows (Registration.tsx 248-258), and "Available actions" with today's decisions and account
  * enrollment, each as the design's inline action form with today's fields and words.
  */
-export function RegistrationRecord({ visit, canApprove, busy, caseLoading, message, error, reviewProblems, enrollProblems, onBack, onNew, onRefresh, onReview,
-  onEnroll }: {
+export function RegistrationRecord({ visit, canApprove, busy, caseLoading, message, error, reviewProblems, enrollProblems, verify, onBack, onNew,
+  onRefresh, onReview, onEnroll }: {
   readonly visit: VisitCase
   readonly canApprove: boolean
   readonly busy: boolean
@@ -74,6 +90,7 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
   readonly error: ShownError | null
   readonly reviewProblems: FormProblems
   readonly enrollProblems: FormProblems
+  readonly verify: VerifyNinProps
   readonly onBack: () => void
   /** Classic's "Register someone else" (Registration.tsx 291): a new registration, from a completed case. */
   readonly onNew: () => void
@@ -99,6 +116,19 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
   // (0032 identity.enroll_registered_patient), so one without is never offered enrollment, and says why.
   const withoutNin = registration.identityEvidence === 'none'
   const ninChecked = !withoutNin && registration.ninStatus !== 'not_verified'
+  // ID-0 as the page last knows it. Identity reads a case's NIN status from the case's own check, so a NIN added later
+  // (0138) still reads Not Verified on the case: the page keeps what it was told, for this visit.
+  const ninStatus = verify.added ? 'verified' : registration.ninStatus
+  // ID-6 screen notes: "Verify NIN" for the registered patient whose NIN is not verified, while NIN checks are available.
+  // The page opens only with identity.registration.write. Only a registration made here without a NIN that gave the
+  // patient a new Health ID is surely this facility's own (0131: approved_new_identity is registered here; a link to an
+  // existing patient counts only once the patient confirms it, which the case does not say). A case with a NIN is not
+  // offered either: a patient account follows only that case's own NIN check (0032), which a NIN added later is not.
+  const ownRegistration = withoutNin && registration.status === 'approved_new_identity'
+  const ninOffer = verifyNinOffer({
+    ninStatus: registration.patient ? ninStatus : undefined, canRegister: true, ownFacility: ownRegistration,
+    capabilities: verify.availability.capabilities, capabilitiesAnswered: verify.availability.answered,
+  })
   // 0130 identity.review_patient_without_nin: an approver other than the person who started a registration without a
   // NIN sent for review decides it (a new Health ID, or a link to a listed patient). Identity shows the person who
   // started it nobody else's details, so a case started on this visit waits for another approver.
@@ -110,8 +140,10 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
     link: canApprove && registration.status === 'review_required' && candidates.length > 0,
     approve: canApprove && (registration.status === 'pending_new_identity_approval' || decidesWithoutNin),
     enroll: canApprove && completed && !enrollment && ninChecked,
+    verifyNin: ninOffer === 'offer',
   }
   const enrollNeedsNin = canApprove && completed && !enrollment && !ninChecked
+  const verifyNinLine = ninOffer === 'off' || ninOffer === 'unknown' || ninOffer === 'loading'
   const approveLabel = decidesWithoutNin ? GIVE_NEW_HID : APPROVE
   const shownForm = open && offered[open] ? open : null
   // A refusal is said in the form that sent it while that form is open, and otherwise at the top of the record.
@@ -128,7 +160,7 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
     { label: visit.started ? 'Started' : 'Reopened', value: dateText(visit.at) },
     { label: 'Possible matches', value: candidatesText(registration) },
     ...(registration.patient ? [{ label: 'Health ID', value: registration.patient.hid }] : []),
-    ...(registration.ninStatus ? [{ label: NIN_FACT, value: ninStatusText(registration.ninStatus) }] : []),
+    ...(ninStatus ? [{ label: NIN_FACT, value: ninStatusText(ninStatus) }] : []),
   ]
 
   const toggle = (form: OpenForm, label: string) => (
@@ -194,7 +226,9 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
             {offered.link ? toggle('link', LINK) : null}
             {offered.approve ? toggle('approve', approveLabel) : null}
             {offered.enroll ? toggle('enroll', ENROLL_TITLE) : null}
-            {enrollNeedsNin ? <p className="hid-ehr-dept-muted">{ENROLL_NEEDS_NIN}</p> : null}
+            {offered.verifyNin ? toggle('verifyNin', VERIFY_NIN) : null}
+            <VerifyNinNotOffered offer={ninOffer} availability={verify.availability} />
+            {enrollNeedsNin ? <p className="hid-ehr-dept-muted">{withoutNin ? ENROLL_WITHOUT_NIN : ENROLL_NEEDS_NIN}</p> : null}
             <UnavailableAction label={CORRECT_DEMOGRAPHICS} reason={NO_CORRECTION} wide />
             {shownForm === 'link' ? (
               <form id="registration-link-form" className="hid-ehr-dept-action-form" noValidate aria-label={LINK}
@@ -237,7 +271,12 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
                 <EhrButton type="submit" busy={busy}>{busy ? ENROLLING : ENROLL}</EhrButton>
               </form>
             ) : null}
-            {offered.link || offered.approve || offered.enroll || enrollNeedsNin ? null : <p className="hid-ehr-dept-muted">{NO_ACTIONS}</p>}
+            {shownForm === 'verifyNin' ? (
+              <VerifyNinForm id="registration-verifyNin-form" controlId={FIELD.verifyNin} busy={busy} held={verify.held}
+                stillChecking={verify.stillChecking} problems={verify.problems} error={errorIn('verifyNin')} onInput={verify.onInput} onSubmit={verify.onSubmit} />
+            ) : null}
+            {offered.link || offered.approve || offered.enroll || offered.verifyNin || verifyNinLine || enrollNeedsNin
+              ? null : <p className="hid-ehr-dept-muted">{NO_ACTIONS}</p>}
             {handOff || nextHere.length ? (
               <div className="hid-ehr-dept-registration-next">
                 <h3>{NEXT_STEPS}</h3>

@@ -632,6 +632,21 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'REGISTRATION_WITHOUT_NIN_DENIED, REGISTRATION_WITHOUT_NIN_NOT_AVAILABLE; 409 IDEMPOTENCY_KEY_REUSED; 503 '
     + 'REGISTRATION_WITHOUT_NIN_UNAVAILABLE.'),
   r('identity.registrationCase','identity','/api/v1/identity/registration-cases/:caseId',G,false,one('GET','identity.registration.write')),
+  // hid-system 0138 (ID-6, Akos P0-1, Release B): "Verify NIN later", the desk's QoreID check of a NIN added to this
+  // facility's own patient registered without one, docs/INTERFACE_CONTRACT.md ID-6.
+  r('identity.linkPatientNin','identity','/api/v1/identity/patients/:patientId/nin',P,false,one('POST','identity.registration.write'),
+    'X-Facility-ID, healthcare-operations, Idempotency-Key (kept for a retry of the same NIN, new for another). Body exactly '
+    + '{ nin, purpose: healthcare-operations }: the NIN only ever in the body, never the path. This facility\'s own patients '
+    + 'only (0131 own-facility basis); a consent grant does not allow it. Offered while registration-capabilities answers '
+    + 'nin.available true. 200 { patientId, outcome: nin_linked | already_linked, ninStatus: verified, message, replayed }, never '
+    + 'the NIN. 400 VALIDATION_FAILED, IDEMPOTENCY_KEY_REQUIRED, PURPOSE_OF_USE_REQUIRED; 403 PERMISSION_DENIED, '
+    + 'NIN_LINK_NOT_PERMITTED; 404 PATIENT_NOT_FOUND; 409 PATIENT_ALREADY_HAS_NIN, PATIENT_NOT_IDENTIFIED, NIN_LINK_TRY_LATER, '
+    + 'NIN_ON_ANOTHER_RECORD, NIN_CHECK_IN_PROGRESS, NIN_CHECK_HELD (retryAfterSeconds), IDEMPOTENCY_KEY_REUSED; 422 '
+    + 'NIN_VERIFICATION_FAILED (Q117); 429 QOREID_RATE_LIMITED. Every 502, 503 and 504 reaches the browser as the gateway\'s 503 '
+    + 'UPSTREAM_UNAVAILABLE. 409 PATIENT_ALREADY_HAS_NIN carries two answers told apart only by detail, read word for word: '
+    + '"This patient already has a verified NIN." (shown as NIN Verified) and "This patient\'s earlier records hold a different '
+    + 'NIN. Ask Health ID support to review it." (not verified). Any other detail is shown as neither and never as NIN Verified; '
+    + 'Identity rewording either needs this website to change with it, or a code of its own for the second.'),
   r('identity.registrationApprove','identity','/api/v1/identity/registration-cases/:caseId/approve-new',P,false,one('POST','identity.registration.approve')),
   r('identity.registrationEnroll','identity','/api/v1/identity/registration-cases/:caseId/enroll',P,false,one('POST','identity.registration.approve')),
   r('identity.registrationLink','identity','/api/v1/identity/registration-cases/:caseId/link-existing',P,false,one('POST','identity.registration.approve')),
