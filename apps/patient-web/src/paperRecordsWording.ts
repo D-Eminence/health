@@ -1,3 +1,5 @@
+import { ageInYears } from '@hid/ui/display'
+
 /**
  * The paper records rule, word for word as decided (coordinator, Q22, owner 3 Nov 2026 21:10 UTC; widened by the owner
  * on 5 Nov 2026, D-a and D-b): any access the patient gave (an approved request, their Access PIN, or a share of their
@@ -106,11 +108,10 @@ export const STAFF_ACCESS_COVERS_PAPER = 'This access also lets you bring in the
  */
 export const STAFF_PAPER_NEEDS_ACCESS = 'To bring in this patient’s paper records, ask the patient to approve access, share their records with you, or enter their Access PIN.'
 
-/** Whether a date of birth is 18 or more years ago; false when unknown or unreadable. */
-export function isAdult(dateOfBirth: string | null | undefined, now = new Date()): boolean {
-  if (!dateOfBirth) return false
-  const born = new Date(dateOfBirth)
-  if (Number.isNaN(born.getTime())) return false
-  const eighteenth = new Date(Date.UTC(born.getUTCFullYear() + 18, born.getUTCMonth(), born.getUTCDate()))
-  return now.getTime() >= eighteenth.getTime()
+/**
+ * Whether a date of birth is 18 or more years ago on the Lagos day of `now`; false when unknown or unreadable. The
+ * birthday comes at midnight in Lagos, an hour before midnight UTC (ageInYears, Q181 A).
+ */
+export function isAdult(dateOfBirth: string | null | undefined, now: Date = new Date()): boolean {
+  return (ageInYears(dateOfBirth, now) ?? 0) >= 18
 }

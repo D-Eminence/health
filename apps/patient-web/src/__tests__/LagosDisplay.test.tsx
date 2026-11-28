@@ -3,7 +3,7 @@ import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { formatWhen, ageInYears as clinicalAge } from '../ehr-blue/clinical/parts/format'
+import { formatWhen, ageInYears as clinicalAge, formatDate as clinicalDate } from '../ehr-blue/clinical/parts/format'
 import { progressTime } from '../ehr-blue/clinical/consult/orders/progress'
 import { dateText } from '../ehr-blue/departments/parts/format'
 import { clockText } from '../ehr-blue/departments/pharmacy/pharmacyText'
@@ -19,6 +19,7 @@ import { shareDay } from '../shareRecords'
 import { dayLabel } from '../plainLabels'
 import { ninHeldText } from '../ninCheck'
 import { maskPhone } from '../profileParity'
+import { isAdult } from '../paperRecordsWording'
 import { localToday } from '../routes/enrollment/PasswordStep'
 import { lagosToday as deskToday } from '../ehr-blue/departments/registration/withoutNin'
 import { lagosToday as clinicianToday, formatDate as clinicianDate } from '../staff/clinician/copy'
@@ -101,6 +102,16 @@ describe('a device in another zone sees Lagos time (Q181 A)', () => {
     // On the device it is still 18 Nov, but in Lagos the 19th: a patient born on 19 Nov 1990 has turned 36.
     expect(clinicalAge('1990-11-19', new Date(LATE))).toBe(36)
     expect(searchAge('1990-11-19', new Date(LATE))).toBe(36)
+    expect(isAdult('2008-11-19', new Date(LATE))).toBe(true)
+    expect(isAdult('2008-11-20', new Date(LATE))).toBe(false)
+    // A date of birth sent as midnight in Lagos (18 Nov 23:00 UTC is 19 Nov in Lagos) counts from the 19th, as shown.
+    expect(clinicalDate('1990-11-18T23:00:00Z')).toBe('19 Nov 1990')
+    expect(clinicalAge('1990-11-18T23:00:00Z', new Date('2026-11-18T12:00:00Z'))).toBe(35)
+    expect(clinicalAge('1990-11-18T23:00:00Z', new Date(LATE))).toBe(36)
+    expect(isAdult('2008-11-18T23:00:00Z', new Date('2026-11-18T12:00:00Z'))).toBe(false)
+    expect(isAdult('2008-11-18T23:00:00Z', new Date(LATE))).toBe(true)
+    // A time with no zone keeps the day as written, though the device would read it as 18 Nov in Los Angeles.
+    expect(isAdult('2008-11-19T00:00:00', new Date('2026-11-18T12:00:00Z'))).toBe(false)
     expect(localToday()).toMatch(/^\d{4}-\d{2}-\d{2}$/)
   })
 
@@ -120,6 +131,39 @@ describe('phone numbers on screen (Q183 B)', () => {
     expect(maskPhone('+2348031234567')).toBe('0••• ••• 4567')
     expect(maskPhone('08031234567')).toBe('0••• ••• 4567')
     expect(maskPhone('+14155550123')).toBe('+1 •••• 0123')
+  })
+
+  it('shows a Nigerian landline as dialled at home, a foreign number with no short group, and no (0) trunk', () => {
+    expect(phoneText('+23414630643')).toBe('01 463 0643')
+    expect(phoneText('+2342014630643')).toBe('0201 463 0643')
+    expect(phoneText('+23484460643')).toBe('084 460 643')
+    expect(phoneText('+8613800138000')).toBe('+86 138 0013 8000')
+    expect(phoneText('+44 (0)20 7946 0958')).toBe('+44 207 946 0958')
+    expect(phoneText('+234 (0) 803 123 4567')).toBe('0803 123 4567')
+  })
+
+  it('masks every number to its last four digits and nothing more', () => {
+    // A Nigerian number is masked as it is shown at home, so a landline keeps its shape.
+    const cases: [string, string][] = [
+      ['+2348031234567', '0••• ••• 4567'],
+      ['+23414630643', '0• ••• 0643'],
+      ['+2342014630643', '0••• ••• 0643'],
+      ['+23484460643', '0•• ••0 643'],
+      ['+2342084460643', '0•••• ••0 643'],
+      ['014630643', '0• ••• 0643'],
+      ['+234 (0) 803 123 4567', '0••• ••• 4567'],
+      ['+234 (0)1 463 0643', '0• ••• 0643'],
+      ['+44 (0)20 7946 0958', '+44 •••• 0958'],
+      ['+44 (0) 7700 900123', '+44 •••• 0123'],
+      ['+8613800138000', '+86 •••• 8000'],
+      ['+39 (0)6 1234 5678', '+39 •••• 5678'],
+    ]
+    for (const [stored, masked] of cases) {
+      const shown = maskPhone(stored)
+      expect(shown).toBe(masked)
+      // The only digits shown are the last four, after the country code or the home 0.
+      expect(shown.replace(/^(\+\d+|0)/, '').replace(/\D/g, '')).toBe(stored.replace(/\D/g, '').slice(-4))
+    }
   })
 })
 
