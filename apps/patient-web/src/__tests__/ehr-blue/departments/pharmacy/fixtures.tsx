@@ -34,24 +34,24 @@ export const IBUPROFEN = 'Ibuprofen 400 mg tablet'
 
 /** Accepted, not yet dispensed. */
 export const accepted: PharmacyWorkItem = {
-  id: 'a1b2c3d4-work-item-1', patientId: PATIENT_A, version: 3, acceptedAt: '2026-10-08T09:30:00.000Z',
+  id: 'a1b2c3d4-work-item-1', patientId: PATIENT_A, sourceEhrPrescriptionId: 'prescription-1', version: 3, acceptedAt: '2026-10-08T09:30:00.000Z',
   medication: { display: AMOXICILLIN }, doseQuantity: 1, doseUnit: 'capsule', frequency: 'Three times daily', routeCode: 'oral',
   instructions: 'Take with food.\nFinish the course.', dispensing: null,
 }
 /** Dispensed and still in effect. */
 export const dispensed: PharmacyWorkItem = {
-  id: 'b2c3d4e5-work-item-2', patientId: PATIENT_B, version: 7, acceptedAt: '2026-10-07T14:05:00.000Z',
+  id: 'b2c3d4e5-work-item-2', patientId: PATIENT_B, sourceEhrPrescriptionId: 'prescription-2', version: 7, acceptedAt: '2026-10-07T14:05:00.000Z',
   medication: { display: METFORMIN }, doseQuantity: 1, doseUnit: 'tablet', frequency: 'Twice daily with meals',
   dispensing: { id: 'dispensing-2', reversed: false },
 }
 /** Dispensed then reversed; no dose, frequency or route on the order. */
 export const reversed: PharmacyWorkItem = {
-  id: 'c3d4e5f6-work-item-3', patientId: PATIENT_C, version: 9, acceptedAt: '2026-10-06T08:00:00.000Z',
+  id: 'c3d4e5f6-work-item-3', patientId: PATIENT_C, sourceEhrPrescriptionId: 'prescription-3', version: 9, acceptedAt: '2026-10-06T08:00:00.000Z',
   medication: { display: SALBUTAMOL }, doseQuantity: null, doseUnit: null, dispensing: { id: 'dispensing-3', reversed: true },
 }
 /** Accepted at the second facility. */
 export const otherFacilityItem: PharmacyWorkItem = {
-  id: 'd4e5f6a7-work-item-4', patientId: PATIENT_D, version: 2, acceptedAt: '2026-10-08T11:15:00.000Z',
+  id: 'd4e5f6a7-work-item-4', patientId: PATIENT_D, sourceEhrPrescriptionId: 'prescription-4', version: 2, acceptedAt: '2026-10-08T11:15:00.000Z',
   medication: { display: IBUPROFEN }, doseQuantity: 1, doseUnit: 'tablet', frequency: 'Every eight hours as needed', dispensing: null,
 }
 /** The accepted item once its dispensing is recorded. */

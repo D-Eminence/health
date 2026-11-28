@@ -88,6 +88,48 @@ describe('the work list’s steps', () => {
   })
 })
 
+/**
+ * Q132 A (hid-system 0148): a dispensed item's `changedAfterDispensing`, the last field of its row. A safety notice, so
+ * one that can't be read fails the list (502 INVALID_RESPONSE) rather than being dropped in silence; a change code the
+ * page does not know keeps the notice in its general words. Fictional ids only.
+ */
+describe('the work list’s changes after dispensing', () => {
+  const DISPENSED = { ...ITEM, dispensing: { id: 'd0000000-0000-4000-8000-0000000000d1', reversed: false } }
+  const CHANGE = { change: 'cancelled', changedAt: '2026-11-20T08:15:00.000Z', changeCount: 2 }
+  const read = async (changedAfterDispensing: unknown) => listed({ ...DISPENSED, changedAfterDispensing })
+
+  it('reads an item with no field exactly as it came', async () => {
+    const list = await listed(DISPENSED)
+    expect(list.items[0]).toEqual(DISPENSED)
+    expect(list.items[0]).not.toHaveProperty('changedAfterDispensing')
+  })
+
+  it('keeps each known change with its time and count, beside the steps', async () => {
+    for (const change of ['entered_in_error', 'cancelled', 'on_hold', 'edited', 'resumed']) {
+      expect((await read({ ...CHANGE, change })).items[0]).toEqual({ ...DISPENSED, changedAfterDispensing: { ...CHANGE, change } })
+    }
+    const both = await listed({ ...DISPENSED, pharmacyStep: 'dispensed', pharmacistAcceptance: ACCEPTANCE, changedAfterDispensing: CHANGE })
+    expect(both.items[0]).toEqual({ ...DISPENSED, pharmacyStep: 'dispensed', pharmacistAcceptance: ACCEPTANCE, changedAfterDispensing: CHANGE })
+  })
+
+  it('keeps the notice without its change when the change is absent or one it does not know, and drops other fields', async () => {
+    const general = { changedAt: CHANGE.changedAt, changeCount: 2 }
+    expect((await read(general)).items[0]?.changedAfterDispensing).toEqual(general)
+    expect((await read({ ...CHANGE, change: 'paused_by_pharmacy' })).items[0]?.changedAfterDispensing).toEqual(general)
+    expect((await read({ ...CHANGE, version: 4, prescriptionId: 'x' })).items[0]?.changedAfterDispensing).toEqual(CHANGE)
+  })
+
+  it('fails the whole list, as an unreadable answer, for a notice it can’t read', async () => {
+    for (const value of [
+      null, 'cancelled', 1, [CHANGE], {},
+      { ...CHANGE, changedAt: undefined }, { ...CHANGE, changedAt: '' }, { ...CHANGE, changedAt: 'yesterday' }, { ...CHANGE, changedAt: 20 },
+      { ...CHANGE, changeCount: undefined }, { ...CHANGE, changeCount: 0 }, { ...CHANGE, changeCount: -1 }, { ...CHANGE, changeCount: 1.5 },
+      { ...CHANGE, changeCount: '2' }, { ...CHANGE, changeCount: Number.MAX_SAFE_INTEGER + 1 },
+      { ...CHANGE, change: null }, { ...CHANGE, change: 3 },
+    ]) await expect(read(value)).rejects.toMatchObject({ name: 'HidApiError', status: 502, code: 'INVALID_RESPONSE' })
+  })
+})
+
 describe('Accept on the wire', () => {
   it('sends exactly the item’s version, with the facility, direct care and the caller’s key', async () => {
     const { sent, staffApi } = await staffClient({ workItemId: ITEM.id, pharmacyStep: 'accepted', pharmacistAcceptance: ACCEPTANCE, alreadyAccepted: false }, 201)

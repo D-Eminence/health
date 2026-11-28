@@ -5,7 +5,9 @@ import type { PharmacyWorkItem } from '../../../staff/api'
 import { isUrgent, PriorityBadge, QueuePatient } from '../parts/WorkQueue'
 import { DrugTile } from './DrugTile'
 import { drugOf, FORM_WORD } from './drugForm'
-import { DOSE_MISSING, doseText, durationText, isWithdrawn, statusWord, stepText, type PharmacyStatus } from './pharmacyText'
+import {
+  CONTACT_PATIENT, DOSE_MISSING, doseText, durationText, isWithdrawn, statusWord, stepText, type ChangedAfterNotice, type PharmacyStatus,
+} from './pharmacyText'
 
 /*
  * The pharmacy queue as large cards, one per prescription, made for a counter tablet and a phone. Each card leads with
@@ -77,6 +79,20 @@ export function PharmacyCard({ item, buttonId, status, tone, missing, patientFal
       </button>
       {below ? <div className="flex flex-col gap-2 border-t border-line px-4 py-3 @sm:px-5">{below}</div> : null}
     </li>
+  )
+}
+
+/**
+ * Under a dispensed card, a change the prescribing team made afterwards (Q132 A): in amber, as a caution, with when it
+ * was made and the next step. The card keeps its place and its status; there is no Dismiss or Seen.
+ */
+export function ChangedAfterLine({ notice }: { readonly notice: ChangedAfterNotice }) {
+  return (
+    <p className="m-0 flex items-start gap-1.5 text-[13px] text-warn-ink break-words">
+      <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+      <span className="min-w-0"><strong className="font-semibold">{notice.text}</strong>
+        <span className="block text-ink-2">{[notice.when ? `${notice.when}.` : '', CONTACT_PATIENT].filter(Boolean).join(' ')}</span></span>
+    </p>
   )
 }
 

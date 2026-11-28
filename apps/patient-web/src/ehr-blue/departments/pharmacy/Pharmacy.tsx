@@ -26,11 +26,11 @@ import {
   StandaloneWorkNote, useLearnCannotCompleteServed, useLearnLateCorrectionServed, useLearnWrongPatientServed,
   useNotCompletedEndings, useReceiving, useRowSaid, WORK_LIST_CAP, WorkListCap, WorkListSince, type Said,
 } from '../parts/routedWork'
-import { PharmacyCard, PharmacyCards } from './PharmacyQueue'
+import { ChangedAfterLine, PharmacyCard, PharmacyCards } from './PharmacyQueue'
 import { PaperPrescription } from './PaperPrescription'
 import { PharmacyRecord } from './PharmacyRecord'
 import {
-  doseMissing, incomingCountText, inTab, isWithdrawn, matchesItem, PRESCRIPTIONS_EMPTY, PRESCRIPTIONS_LOAD_FAILED, PRESCRIPTIONS_REFRESH,
+  changedAfterOf, doseMissing, incomingCountText, inTab, isWithdrawn, matchesItem, PRESCRIPTIONS_EMPTY, PRESCRIPTIONS_LOAD_FAILED, PRESCRIPTIONS_REFRESH,
   prescriptionsIntro, queueOrder, queueTone, routeAlert, statusOf, WITHDRAWN_WORDS, withdrawnReasonOf, type PharmacyTab,
 } from './pharmacyText'
 import { useStaffNameLookup } from './staffNames'
@@ -292,6 +292,8 @@ function PrescriptionQueue() {
               // Withdrawn by the prescribing team (ORD-2, 0133): who withdrew it and why, said once, under the card.
               const reason = withdrawnReasonOf(item)
               const withdrawn = reason ? WITHDRAWN_WORDS[reason] : null
+              // Changed by the prescribing team after it was dispensed (Q132 A, 0148): said under the card, which keeps its place.
+              const changedAfter = changedAfterOf(item)
               const bill = billOf(item)
               const stock = stockOf(item)
               // Work withdrawn by the prescribing team (0133) is not waiting: no bill, stock or missing dose is said of it.
@@ -303,8 +305,9 @@ function PrescriptionQueue() {
                 </> : undefined}
                 missing={workable && doseMissing(item)} patientFallback={patientLabel(item)} when={dateText(item.acceptedAt)}
                 onOpen={() => open(item)}
-                below={item.orderRoute || alert || withdrawn ? <>
+                below={item.orderRoute || alert || withdrawn || changedAfter ? <>
                   {withdrawn && <small className="hid-ehr-dept-pharmacy-alert">{withdrawn}</small>}
+                  {changedAfter && <ChangedAfterLine notice={changedAfter} />}
                   {text && item.orderRoute && <p id={`pharmacy-${item.id}-said`} className="hid-ehr-dept-pharmacy-said" role="alert" tabIndex={-1}>{text}</p>}
                   {item.orderRoute && <small className="hid-ehr-dept-reference">From {item.orderRoute.orderingFacilityName ?? 'the ordering facility'}</small>}
                   {alert && <small className="hid-ehr-dept-pharmacy-alert">{alert}</small>}
