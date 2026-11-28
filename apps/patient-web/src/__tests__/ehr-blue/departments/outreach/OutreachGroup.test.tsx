@@ -545,6 +545,8 @@ describe('the offline queue', () => {
   const waitingEntry = (n: number, fullName: string, savedAt: string) => ({ localCommandId: `c0000000-0000-4000-8000-00000000001${n}`,
     temporaryPatientId: `tmp_c1${n}`, accountId: 'staff-demo-1', facilityId: GROUP_ID, savedAt, state: 'waiting' as const,
     input: { campaignId: 'campaign-1', fullName, sex: 'female', ageYears: 34 } })
+  /** Saved this many minutes ago. Dated from now: the queue sweeps entries over 14 days old against the real clock. */
+  const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString()
 
   it('says when Health ID isn’t available, rather than “No connection”', async () => {
     api.createOutreachCase.mockRejectedValueOnce(new HidApiError(503, 'x', { code: 'SERVICE_UNAVAILABLE' }))
@@ -577,8 +579,8 @@ describe('the offline queue', () => {
 
   it('“Send now” sends the others when one can’t be sent yet, oldest first, and says what happened', async () => {
     const store = memoryQueueStore()
-    await store.put(waitingEntry(2, 'Bola Ade', '2026-11-14T08:10:00.000Z'))
-    await store.put(waitingEntry(1, 'Amaka Nwosu', '2026-11-14T08:05:00.000Z'))
+    await store.put(waitingEntry(2, 'Bola Ade', minutesAgo(50)))
+    await store.put(waitingEntry(1, 'Amaka Nwosu', minutesAgo(55)))
     setOutreachQueueStore(store)
     // Opened with no signal: nothing is tried until "Send now".
     Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => false })
@@ -602,7 +604,7 @@ describe('the offline queue', () => {
 
   it('takes down what “Send now” said once a later round has changed what waits', async () => {
     const store = memoryQueueStore()
-    await store.put(waitingEntry(1, 'Amaka Nwosu', '2026-11-14T08:05:00.000Z'))
+    await store.put(waitingEntry(1, 'Amaka Nwosu', minutesAgo(55)))
     setOutreachQueueStore(store)
     Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => false })
     renderDept(<Outreach />)

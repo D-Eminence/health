@@ -1,0 +1,118 @@
+/*
+ * Ordered by me (clinical/mine): the few looks departments.css does not have. One card per order, in the design's list
+ * card: what was ordered, its status, priority and progress, then whose it is; on a phone the patient wraps under the
+ * order, so nothing scrolls sideways. Every rule sits under .hid-ehr and names hid-ehr-mine-* classes; values come
+ * from the --ehr-* tokens.
+ */
+
+.hid-ehr .hid-ehr-mine-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hid-ehr .hid-ehr-mine-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--ehr-line);
+  border-radius: var(--ehr-radius-lg);
+  background: var(--ehr-surface);
+}
+
+.hid-ehr .hid-ehr-mine-main,
+.hid-ehr .hid-ehr-mine-patient {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.hid-ehr .hid-ehr-mine-main {
+  flex: 2 1 18rem;
+}
+
+.hid-ehr .hid-ehr-mine-patient {
+  flex: 1 1 14rem;
+}
+
+.hid-ehr .hid-ehr-mine-kind,
+.hid-ehr .hid-ehr-mine-muted,
+.hid-ehr .hid-ehr-mine-identity {
+  margin: 0;
+  color: var(--ehr-muted);
+  font-size: 13px;
+}
+
+.hid-ehr .hid-ehr-mine-name,
+.hid-ehr .hid-ehr-mine-patient-name {
+  margin: 0;
+  color: var(--ehr-ink);
+  font-size: 15px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-mine-identity {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.hid-ehr .hid-ehr-mine-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.hid-ehr .hid-ehr-mine-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 20px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.hid-ehr .hid-ehr-mine-facts > div {
+  display: flex;
+  gap: 6px;
+}
+
+.hid-ehr .hid-ehr-mine-facts dt {
+  color: var(--ehr-muted);
+}
+
+.hid-ehr .hid-ehr-mine-facts dd {
+  margin: 0;
+  color: var(--ehr-ink);
+}
+
+.hid-ehr .hid-ehr-mine-coverage,
+.hid-ehr .hid-ehr-mine-more {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin: 12px 0;
+}
+
+.hid-ehr .hid-ehr-mine-hidden {
+  margin: 12px 0;
+  color: var(--ehr-ink);
+  font-size: 13px;
+}
+
+.hid-ehr .hid-ehr-mine-since {
+  margin: 0 0 12px;
+}
+
+.hid-ehr .hid-ehr-mine-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}

@@ -631,7 +631,35 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'none, ninStatus, replayed, patient? }. 400 PHONE_REQUIRED, NOT_A_CHILD, REGISTRATION_WITHOUT_NIN_INVALID; 403 '
     + 'REGISTRATION_WITHOUT_NIN_DENIED, REGISTRATION_WITHOUT_NIN_NOT_AVAILABLE; 409 IDEMPOTENCY_KEY_REUSED; 503 '
     + 'REGISTRATION_WITHOUT_NIN_UNAVAILABLE.'),
+  // SX-10 (hid-system a30888a6; evidence from 0130): the desk's registrations and, for approvers, the facility's.
+  { ...r('identity.registrationCases','identity','/api/v1/identity/registration-cases',G,false,one('GET','identity.registration.write'),
+    'X-Facility-ID, X-Purpose-Of-Use (direct-care, emergency or healthcare-operations). Query only view (mine, the default, '
+    + 'or facility, which also needs identity.registration.approve), status, evidence (none or nin), limit (1 to 100, 50 by '
+    + 'default) and cursor; any other key is 400 VALIDATION_FAILED. 200 { view, cases: [{ caseId, status, version, '
+    + 'candidateCount, contactRecorded, ninStatus, identityEvidence, patient?, fullName, dateOfBirth, createdAt, updatedAt, '
+    + 'createdByMe, createdByMembershipId, createdByName }], nextCursor }, newest first. createdByName (hid-system #340) is '
+    + 'the starter\'s name by SX-9\'s rule (login display name, else staff full name, trimmed), null once the login is '
+    + 'deleted or neither is set; a name only, no contact, account, role or licence. The page shows it, else "Started by '
+    + 'you" on the member\'s own, and reads an answer without it (an Identity before #340) as no name; it does not read '
+    + 'createdByMembershipId. 400 REGISTRATION_CASE_CURSOR_INVALID; '
+    + '403 REGISTRATION_CASE_LIST_DENIED (view facility without approve).'),
+  forbiddenQuery: { GET: ['hid', 'healthId', 'nin'] } },
   r('identity.registrationCase','identity','/api/v1/identity/registration-cases/:caseId',G,false,one('GET','identity.registration.write')),
+  // hid-system 0138 (ID-6, Akos P0-1, Release B): "Verify NIN later", the desk's QoreID check of a NIN added to this
+  // facility's own patient registered without one, docs/INTERFACE_CONTRACT.md ID-6.
+  r('identity.linkPatientNin','identity','/api/v1/identity/patients/:patientId/nin',P,false,one('POST','identity.registration.write'),
+    'X-Facility-ID, healthcare-operations, Idempotency-Key (kept for a retry of the same NIN, new for another). Body exactly '
+    + '{ nin, purpose: healthcare-operations }: the NIN only ever in the body, never the path. This facility\'s own patients '
+    + 'only (0131 own-facility basis); a consent grant does not allow it. Offered while registration-capabilities answers '
+    + 'nin.available true. 200 { patientId, outcome: nin_linked | already_linked, ninStatus: verified, message, replayed }, never '
+    + 'the NIN. 400 VALIDATION_FAILED, IDEMPOTENCY_KEY_REQUIRED, PURPOSE_OF_USE_REQUIRED; 403 PERMISSION_DENIED, '
+    + 'NIN_LINK_NOT_PERMITTED; 404 PATIENT_NOT_FOUND; 409 PATIENT_ALREADY_HAS_NIN, PATIENT_NOT_IDENTIFIED, NIN_LINK_TRY_LATER, '
+    + 'NIN_ON_ANOTHER_RECORD, NIN_CHECK_IN_PROGRESS, NIN_CHECK_HELD (retryAfterSeconds), IDEMPOTENCY_KEY_REUSED; 422 '
+    + 'NIN_VERIFICATION_FAILED (Q117); 429 QOREID_RATE_LIMITED. Every 502, 503 and 504 reaches the browser as the gateway\'s 503 '
+    + 'UPSTREAM_UNAVAILABLE. 409 PATIENT_ALREADY_HAS_NIN carries two answers told apart only by detail, read word for word: '
+    + '"This patient already has a verified NIN." (shown as NIN Verified) and "This patient\'s earlier records hold a different '
+    + 'NIN. Ask Health ID support to review it." (not verified). Any other detail is shown as neither and never as NIN Verified; '
+    + 'Identity rewording either needs this website to change with it, or a code of its own for the second.'),
   r('identity.registrationApprove','identity','/api/v1/identity/registration-cases/:caseId/approve-new',P,false,one('POST','identity.registration.approve')),
   r('identity.registrationEnroll','identity','/api/v1/identity/registration-cases/:caseId/enroll',P,false,one('POST','identity.registration.approve')),
   r('identity.registrationLink','identity','/api/v1/identity/registration-cases/:caseId/link-existing',P,false,one('POST','identity.registration.approve')),
@@ -986,8 +1014,26 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     one('PATCH','ehr.encounter.read','ehr.encounter.write'),
     `${RELEASE_A} X-Facility-ID, direct-care. Body { expectedRowVersion, stage?, triageLevel? (null clears), `
     + 'assignedMembershipId? (null clears) }. 200 the card; 409 VISIT_QUEUE_ENTRY_CHANGED or VISIT_QUEUE_ENTRY_CLOSED.')),
-  r('ehr.vitals','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals',GP,false,{GET:['ehr.vital.read'],POST:['ehr.vital.write']}),
-  r('ehr.vital','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals/:vitalId',G,false,one('GET','ehr.vital.read')),
+  // "Ordered by me" (hid-system 0143, MY-1; Release B, live with Release C at d519e5d1). Either read permission opens it,
+  // so none is listed here as required (this registry's permissions are all required).
+  r('ehr.myOrders','ehr','/api/v1/ehr/my-orders',G,false,undefined,
+    'MY-1 (hid-system 0143): the signed-in member\'s own lab requests (ehr.lab-request.read) and prescriptions '
+    + '(ehr.prescription.read) at the working facility; kind=all lists only the kinds the member holds, and neither, or a '
+    + 'kind without its permission, is 403 PERMISSION_DENIED. X-Facility-ID, direct-care only (400 PURPOSE_OF_USE_REQUIRED '
+    + 'otherwise). Query, each optional: kind all|lab|prescription, state open|all, since YYYY-MM-DD (at most 2 years '
+    + 'back: 400 MY_ORDERS_SINCE_TOO_OLD), limit 1-50, cursor (400 INVALID_CURSOR). No patient in the path or query. 200 '
+    + '{ items: { kind, orderId, encounterId, patient { patientId, fullName, sex, dateOfBirth, healthIdLast4 }, display, '
+    + 'status, priority, createdAt, updatedAt, ownProgress, orderRoute? }[], hiddenCount, hiddenCountComplete, since, '
+    + 'nextCursor }; a page may hold fewer rows than limit while nextCursor is set. 503 MY_ORDERS_UNAVAILABLE.'),
+  r('ehr.vitals','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals',GP,false,{GET:['ehr.vital.read'],POST:['ehr.vital.write']},
+    'Novu (EHR-C8b, hid-system 0142, Release B): each reading has status recorded | entered_in_error and statusChangedAt. '
+    + 'The list leaves readings entered in error out unless the query includeEnteredInError=true (only true or false, '
+    + 'else 400 VALIDATION_FAILED); a cursor is valid only for the choice it was issued with.'),
+  r('ehr.vital','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals/:vitalId',GPA,false,{GET:['ehr.vital.read'],PATCH:['ehr.vital.write']},
+    'PATCH is EHR-C8b (Novu, hid-system 0142, Release B): direct-care, no Idempotency-Key. Body exactly { expectedRowVersion, '
+    + 'status: entered_in_error, changeReason (3 to 500 characters) }; it cannot be undone. 200 the reading. 400 '
+    + 'CHANGE_REASON_REQUIRED or VALIDATION_FAILED; 403 CONSENT_REQUIRED; 404 VITAL_NOT_FOUND; 409 '
+    + 'VITAL_ALREADY_ENTERED_IN_ERROR (before the version check); 412 VERSION_CONFLICT; 503 VITALS_STATUS_UNAVAILABLE.'),
   r('ehr.vitalCorrections','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals/:vitalId/corrections',GP,false,{GET:['ehr.vital.read'],POST:['ehr.vital.write']}),
   r('ehr.notes','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/clinical-notes',GP,false,{GET:['ehr.note.read'],POST:['ehr.note.write']}),
   r('ehr.note','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/clinical-notes/:noteId',GPA,false,{GET:['ehr.note.read'],PATCH:['ehr.note.write']}),

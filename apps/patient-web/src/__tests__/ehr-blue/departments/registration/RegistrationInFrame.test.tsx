@@ -37,6 +37,12 @@ const enabled = () => json({ nin: { enabled: true, state: 'test-only' }, newPati
 const approved = () => json({ caseId: CASE, status: 'approved_new_identity', version: 2, candidateCount: 0,
   patient: { patientId: 'a0000000-0000-4000-8000-000000000001', hid: 'HID-ZDEMAAA2' } })
 const nav = () => screen.getByRole('navigation', { name: 'Main navigation' })
+// SX-10: the registration list, read as the page opens.
+const LIST = 'GET /api/v1/identity/registration-cases'
+const listed = () => json({ view: 'mine', nextCursor: null, cases: [{ caseId: CASE, status: 'approved_new_identity', version: 2,
+  candidateCount: 0, contactRecorded: true, ninStatus: 'verified', identityEvidence: 'nin',
+  patient: { patientId: 'a0000000-0000-4000-8000-000000000001', hid: 'HID-ZDEMAAA2' }, fullName: 'Patient One', dateOfBirth: '1990-01-02',
+  createdAt: '2026-11-20T09:15:00.000Z', updatedAt: '2026-11-21T10:30:00.000Z', createdByMe: true }] })
 
 describe('Patient registration in the frame', () => {
   it('replaces the stand-in at /provider/registration, listed where it was', async () => {
@@ -55,6 +61,21 @@ describe('Patient registration in the frame', () => {
     expect(link.getAttribute('aria-current')).toBe('page')
     expect(link.getAttribute('href')).toBe('/provider/registration')
     expect(sent.filter(call => call.route === CAPABILITIES).length).toBeGreaterThan(0)
+  })
+
+  it('lists My registrations through the gateway, and opens one by GET :caseId with nothing of it in the address', async () => {
+    const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.registration.write'], ['receptionist'])
+    const sent = serve({ [SESSION]: [sessionAt(demo, [demo])], [CAPABILITIES]: many(enabled), [LIST]: many(listed), [CASE_READ]: [approved] })
+    await openStaffApp('/provider/registration')
+    const table = await screen.findByRole('region', { name: 'My registrations' })
+    const read = sent.find(call => call.route === LIST)
+    expect(read?.headers.get('X-Facility-ID')).toBe(DEMO_HOSPITAL)
+    expect(read?.headers.get('X-Purpose-Of-Use')).toBe('healthcare-operations')
+    expect(within(table).getByText('NIN Verified')).toBeDefined()
+    fireEvent.click(within(table).getByRole('button', { name: 'Patient One' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Registration for Patient One' })).toBeDefined()
+    expect(sent.some(call => call.route === CASE_READ)).toBe(true)
+    expect(where()).toBe('/provider/registration')
   })
 
   it('without identity registration write, refuses at the address in plain words that name no permission, and reads nothing', async () => {

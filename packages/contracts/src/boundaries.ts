@@ -188,9 +188,13 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       // Staff patient search and emergency search, and opening this facility's own patient (Release A, 0131 and 0132).
       'identity.patientSearch', 'identity.patientEmergencySearch', 'identity.ownFacilityAccess',
       'identity.registrationCapabilities', 'identity.resolveNin', 'identity.registrationCase',
+      // SX-10: the registration list (mine, or the facility's for approvers).
+      'identity.registrationCases',
       'identity.registrationApprove', 'identity.registrationEnroll', 'identity.registrationLink',
       // hid-system 0130: registration at the desk without a NIN.
       'identity.registrationWithoutNin',
+      // hid-system 0138 (ID-6): Verify NIN later, for this facility's own patient registered without one.
+      'identity.linkPatientNin',
       'identity.organizationVerifyCac',
       // The in-person check of facility-assisted registration (hid-system #85, ADR-063).
       'identity.assistedVerifications',
@@ -235,7 +239,9 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'ehr.consultations',
       // The waiting list: check-in by a search's matchRef, the list, and each row's stage, triage level and who will see
       // the patient (hid-system 0135, EHR-C7, Release A; a backend before it answers 404).
-      'ehr.visitQueue', 'ehr.visitQueueCheckIn', 'ehr.visitQueueEntry'],
+      'ehr.visitQueue', 'ehr.visitQueueCheckIn', 'ehr.visitQueueEntry',
+      // "Ordered by me": the member's own lab requests and prescriptions here, with their progress (hid-system 0143, MY-1).
+      'ehr.myOrders'],
     // Facility billing (docs/BILLING_SPEC.md; proposed routes) and the price catalogue it shows. Not demo requests.
     commercial: ['commercial.pricing', 'commercial.subscription', 'commercial.subscriptionTrial',
       'commercial.subscriptionCheckout', 'commercial.invoices',

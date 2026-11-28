@@ -167,6 +167,71 @@ export interface RegistrationCase {
   identityEvidence?: 'nin' | 'none'
 }
 
+/** Which registrations GET identity/registration-cases lists (SX-10): the caller's own, or every one at the facility. */
+export type RegistrationCaseView = 'mine' | 'facility'
+
+/**
+ * One registration in GET identity/registration-cases (SX-10): the case as GET :caseId reads it, without its possible
+ * matches, with the patient's name and date of birth as registered, whether the caller started it, and the name of the
+ * member who started it (hid-system #340).
+ */
+export interface RegistrationCaseListItem extends Omit<RegistrationCase, 'candidates'> {
+  fullName: string
+  /** YYYY-MM-DD. */
+  dateOfBirth: string | null
+  createdAt: string
+  updatedAt: string
+  createdByMe: boolean
+  /**
+   * The name of the member who started it (hid-system #340, SX-9's rule: their login's display name, else their staff
+   * record's full name). null when Identity has no name for them (the login was deleted, or neither name is set); absent
+   * from an Identity that does not send it yet. A name only: nothing else of theirs is sent.
+   */
+  createdByName?: string | null
+}
+
+/** A page of the list, newest first, with the opaque cursor of the next page; null on the last. */
+export interface RegistrationCaseList {
+  view: RegistrationCaseView
+  cases: RegistrationCaseListItem[]
+  nextCursor: string | null
+}
+
+/** The list's query: `view` always, each filter only when chosen. Never a Health ID, NIN or name. */
+export interface RegistrationCaseListQuery {
+  view: RegistrationCaseView
+  status?: RegistrationCase['status']
+  /** 'none': registered without a NIN; 'nin': registered with a NIN (hid-system 0130, ID-2). */
+  evidence?: 'none' | 'nin'
+  /** 1 to 100; Identity sends 50 when none is given. */
+  limit?: number
+  cursor?: string
+}
+
+/** A row as the page reads it: the fields every row shows, and the ones it is opened and kept by. */
+function isRegistrationCaseListItem(item: unknown): item is RegistrationCaseListItem {
+  if (!item || typeof item !== 'object') return false
+  const row = item as Partial<Record<keyof RegistrationCaseListItem, unknown>>
+  return typeof row.caseId === 'string' && typeof row.status === 'string' && typeof row.version === 'number'
+    && typeof row.fullName === 'string' && (row.dateOfBirth === null || typeof row.dateOfBirth === 'string')
+    && typeof row.createdAt === 'string' && typeof row.updatedAt === 'string' && typeof row.createdByMe === 'boolean'
+    // Who started it: a name or null, or left out by an Identity that does not send it yet; never anything else.
+    && (row.createdByName === undefined || row.createdByName === null || typeof row.createdByName === 'string')
+}
+
+/**
+ * The list as sent. An answer in another shape, or with any row in another shape, is an ordinary Error, which the page
+ * words with its own fallback, so a half-read list is never shown as the whole of it.
+ */
+export function parseRegistrationCaseList(value: unknown): RegistrationCaseList {
+  const answer = value as Partial<RegistrationCaseList> | null
+  if (!answer || typeof answer !== 'object' || !Array.isArray(answer.cases) || !answer.cases.every(isRegistrationCaseListItem)
+    || (answer.nextCursor !== null && answer.nextCursor !== undefined && typeof answer.nextCursor !== 'string')) {
+    throw new Error('The registration list answered in a shape this page does not read.')
+  }
+  return { view: answer.view === 'facility' ? 'facility' : 'mine', cases: answer.cases, nextCursor: answer.nextCursor ?? null }
+}
+
 /**
  * POST identity/registration-cases/without-nin (hid-system 0130, docs/INTERFACE_CONTRACT.md ID-2). The phone and address
  * go together, and are left out only for a child; the existing Health ID only when the patient says they have one.
@@ -197,6 +262,18 @@ export interface RegisteredWithoutNin {
   ninStatus: 'verified' | 'not_verified'
   replayed: boolean
   patient?: { patientId: string; hid: string }
+}
+
+/**
+ * POST identity/patients/:patientId/nin (hid-system 0138, docs/INTERFACE_CONTRACT.md ID-6 "Verify NIN later"): the answer
+ * when the NIN is on the patient's record. It never carries the NIN or anything from the NIN record.
+ */
+export interface LinkedPatientNin {
+  patientId: string
+  outcome: 'nin_linked' | 'already_linked'
+  ninStatus: 'verified'
+  message?: string
+  replayed: boolean
 }
 
 export interface RegistrationEnrollment {
@@ -403,6 +480,11 @@ export interface Page<T> { items: T[]; nextCursor: string | null }
  * in flight, and one started before the change would answer with the old rows.
  */
 export interface PageRequest { readonly cursor?: string; readonly fresh?: boolean }
+/**
+ * A record list's page. `includeEnteredInError` (vitals on Novu since EHR-C8b, hid-system 0142) also lists the readings
+ * marked entered in error, which the list leaves out by default; a cursor is valid only for the choice it came with.
+ */
+export interface RecordsRequest extends PageRequest { readonly includeEnteredInError?: boolean }
 
 function pageQuery(page: PageRequest) {
   return { query: { limit: 50, ...(page.cursor ? { cursor: page.cursor } : {}) }, ...(page.fresh ? { dedupe: false } : {}) }
@@ -479,6 +561,11 @@ export interface Encounter {
   startedAt: string
   chiefComplaint: string | null
   rowVersion: number | string
+  /**
+   * Novu: true on the visit that holds the patient's imported paper records (EHR-C8a refuses to mark it entered in
+   * error, 409 IMPORTED_VISIT_NOT_ENTERED_IN_ERROR). Absent from an earlier backend.
+   */
+  importedPaperRecords?: boolean
 }
 
 /**
@@ -994,6 +1081,12 @@ export interface PharmacyWorkItem {
   /** How much to hand over, as the prescriber wrote it (proposed 0107). The pharmacist still confirms it. */
   quantityToDispense?: number | null
   quantityUnit?: string | null
+  /**
+   * The prescription this facility's own EHR sent to Pharmacy: on own work only (pharmacy-api leaves it out of work
+   * another facility sent). An id the page never shows; with no `orderRoute` either, the item came from another facility
+   * whose card could not be read (pharmacyText.ts changedAfterOf).
+   */
+  sourceEhrPrescriptionId?: string | null
   /** Novu since P4c, only on work from a prescription another facility sent here. */
   orderRoute?: WorkItemOrderRoute
   /**
@@ -1021,6 +1114,24 @@ export interface PharmacyWorkItem {
    * A code a page branches on, never shown as sent; pharmacy-api leaves it out (or null) for any other value.
    */
   withdrawnReason?: string | null
+  /**
+   * Present only on a dispensed item (reversed or not) whose prescription the prescribing team changed after its first
+   * dispensing (hid-system 0148, Q132 A): put on hold, cancelled, entered in error, edited or resumed. Read through
+   * changedAfterDispensingOf, and said only through pharmacyText.ts changedAfterOf. Absent means nothing to say.
+   */
+  changedAfterDispensing?: PharmacyChangedAfterDispensing
+}
+
+/** hid-system 0148 (Q132 A): the latest change the prescribing team made to a prescription after it was dispensed. */
+export type PharmacyChangeAfterDispensing = 'entered_in_error' | 'cancelled' | 'on_hold' | 'edited' | 'resumed'
+/**
+ * A dispensed item's `changedAfterDispensing` (hid-system 0148): `change` is the latest change, left out when it is one
+ * this page does not know; `changedAt` when it was made; `changeCount` how many changes there have been (1 or more).
+ */
+export interface PharmacyChangedAfterDispensing {
+  change?: PharmacyChangeAfterDispensing
+  changedAt: string
+  changeCount: number
 }
 
 /** hid-system ORD-4: a pharmacy work item's step. */
@@ -1070,6 +1181,28 @@ export function pharmacyStepsOf<T extends object>(answer: T): T {
     pharmacistAcceptance: { acceptedAt, acceptedByMembershipId, acceptedWith: acceptedWith as PharmacistAcceptedWith } }
 }
 
+const CHANGES_AFTER_DISPENSING: ReadonlySet<string> = new Set<PharmacyChangeAfterDispensing>(['entered_in_error', 'cancelled', 'on_hold', 'edited', 'resumed'])
+
+/**
+ * An item's `changedAfterDispensing` by INTERFACE_CONTRACT 0148 (Q132 A), as @hid/api-client reads it. Absent, it is left
+ * out (nothing to say). It is a safety notice, so one that can't be read fails the whole list as an unreadable answer,
+ * never dropped in silence: a value that is not an object (null or an array included), a `changedAt` that is not a time,
+ * a `changeCount` that is not a whole number of 1 or more, or a `change` that is not a string. A `change` this page does
+ * not know (a newer pharmacy-api) is left out and the notice is kept, in its general words; other fields are left out.
+ */
+export function changedAfterDispensingOf<T extends object>(answer: T): T {
+  const { changedAfterDispensing: value, ...rest } = answer as T & { changedAfterDispensing?: unknown }
+  const bare = rest as T
+  if (value === undefined) return bare
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw stepsNotRead()
+  const { change, changedAt, changeCount } = value as Record<string, unknown>
+  if (!filled(changedAt) || Number.isNaN(Date.parse(changedAt))) throw stepsNotRead()
+  if (typeof changeCount !== 'number' || !Number.isSafeInteger(changeCount) || changeCount < 1) throw stepsNotRead()
+  if (change !== undefined && typeof change !== 'string') throw stepsNotRead()
+  const known = typeof change === 'string' && CHANGES_AFTER_DISPENSING.has(change)
+  return { ...bare, changedAfterDispensing: { ...(known ? { change: change as PharmacyChangeAfterDispensing } : {}), changedAt, changeCount } }
+}
+
 /**
  * One member of the working facility, past or present, by membership (hid-system SX-9, GET
  * /identity/facility-staff-names). `name` is null for a member whose login was deleted: the screen then says "Former
@@ -1098,9 +1231,13 @@ export function facilityStaffNamesOf(answer: unknown): FacilityStaffNames {
   return { facilityId: record.facilityId, staff, complete: record.complete }
 }
 
-/** A Pharmacy work list with each item's steps read (pharmacyStepsOf); a list in another shape is left as it came. */
+/**
+ * A Pharmacy work list with each item's steps (pharmacyStepsOf) and changes after dispensing (changedAfterDispensingOf)
+ * read; a list in another shape is left as it came.
+ */
 function pharmacyListOf(list: WorkList<PharmacyWorkItem>): WorkList<PharmacyWorkItem> {
-  return Array.isArray(list?.items) ? { ...list, items: list.items.map(item => item && typeof item === 'object' ? pharmacyStepsOf(item) : item) } : list
+  return Array.isArray(list?.items) ? { ...list, items: list.items.map(item => item && typeof item === 'object'
+    ? changedAfterDispensingOf(pharmacyStepsOf(item)) : item) } : list
 }
 
 /**
@@ -2591,6 +2728,26 @@ export const staffApi = {
     client.post<RegisteredWithoutNin>('/api/v1/identity/registration-cases/without-nin',
       { ...input, purpose: 'healthcare-operations' },
       { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders(idempotencyKey) } }),
+  // hid-system 0138 (ID-6): a NIN checked with QoreID and added to this facility's own patient registered without one. The
+  // NIN goes only in the body; a QoreID check can take longer than the usual 15 s (ninCheck.ts), and is never resent here.
+  linkPatientNin: (facilityId: string, patientId: string, nin: string, idempotencyKey: string) =>
+    client.post<LinkedPatientNin>(`/api/v1/identity/patients/${encodeURIComponent(patientId)}/nin`,
+      { nin, purpose: 'healthcare-operations' },
+      { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders(idempotencyKey) }, timeoutMs: NIN_CHECK_TIMEOUT_MS }),
+  // SX-10: the desk's own registrations (view mine), or every one at the facility for an approver (view facility), a
+  // page at a time, newest first. Only the keys Identity takes are sent (it refuses any other), never a Health ID, NIN
+  // or name. Each page read is audited, so it is read when asked for, never on a timer.
+  listRegistrationCases: async (facilityId: string, query: RegistrationCaseListQuery, signal?: AbortSignal): Promise<RegistrationCaseList> =>
+    parseRegistrationCaseList(await client.get<unknown>('/api/v1/identity/registration-cases', {
+      query: {
+        view: query.view,
+        ...(query.status ? { status: query.status } : {}),
+        ...(query.evidence ? { evidence: query.evidence } : {}),
+        ...(query.limit !== undefined ? { limit: query.limit } : {}),
+        ...(query.cursor ? { cursor: query.cursor } : {}),
+      },
+      headers: facilityHeaders(facilityId, 'healthcare-operations'), signal, dedupe: false,
+    })),
   registrationCase: (facilityId: string, caseId: string) =>
     client.get<RegistrationCase>(`/api/v1/identity/registration-cases/${encodeURIComponent(caseId)}`,
       { headers: facilityHeaders(facilityId, 'healthcare-operations') }),
@@ -2767,12 +2924,16 @@ export const staffApi = {
   // Novu since P4c a lab request or prescription page also says whether orders between facilities are on; with the
   // wrong-patient report (item 3, hid-system 0088) it also answers wrongPatientReports: true, and with the late correction
   // (D17, hid-system 0090) lateCorrection: true (an earlier backend, nothing).
-  records: (facilityId: string, patientId: string, encounterId: string, kind: RecordKind, page: PageRequest = {}) =>
-    client.get<Page<ClinicalRecord> & { crossFacilityOrders?: boolean; wrongPatientReports?: boolean; lateCorrection?: boolean }>(`${encounterPath(patientId, encounterId)}/${kind}`, { ...pageQuery(page), headers: facilityHeaders(facilityId) }),
+  records: (facilityId: string, patientId: string, encounterId: string, kind: RecordKind, page: RecordsRequest = {}) => {
+    const request = pageQuery(page)
+    const query = page.includeEnteredInError ? { ...request.query, includeEnteredInError: 'true' } : request.query
+    return client.get<Page<ClinicalRecord> & { crossFacilityOrders?: boolean; wrongPatientReports?: boolean; lateCorrection?: boolean }>(`${encounterPath(patientId, encounterId)}/${kind}`, { ...request, query, headers: facilityHeaders(facilityId) })
+  },
   createRecord: (facilityId: string, patientId: string, encounterId: string, kind: RecordKind, input: object, idempotencyKey?: string) =>
     client.post<SavedRecord>(`${encounterPath(patientId, encounterId)}/${kind}`, input,
       { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),
-  // A status PATCH: diagnoses have no status field and vitals are corrected, never patched. A prescription's Activate or
+  // A status PATCH: diagnoses have no status field, and vitals are corrected (correctVital) or marked entered in error
+  // (markVitalEnteredInError), never patched here. A prescription's Activate or
   // Resume after an allergy warning (0124) also carries allergyAcknowledgement; leave it out otherwise.
   updateRecord: (facilityId: string, patientId: string, encounterId: string, kind: StatusRecordKind,
     recordId: string, input: { expectedRowVersion: number; changeReason: string; status: string; allergyAcknowledgement?: AllergyAcknowledgement }) =>
@@ -2787,6 +2948,15 @@ export const staffApi = {
   vitalCorrections: (facilityId: string, patientId: string, encounterId: string, vitalId: string) =>
     client.get<VitalCorrection[]>(`${encounterPath(patientId, encounterId)}/vitals/${encodeURIComponent(vitalId)}/corrections`,
       { headers: facilityHeaders(facilityId) }),
+  // EHR-C8b (Novu, hid-system 0142): withdraws one whole reading for good, at the version read, with the reason the
+  // route requires (3 to 500 characters). Its body is exactly these three; no Idempotency-Key (the row version guards
+  // it). 409 VITAL_ALREADY_ENTERED_IN_ERROR, 412 VERSION_CONFLICT, 404 VITAL_NOT_FOUND, 503 VITALS_STATUS_UNAVAILABLE.
+  markVitalEnteredInError: (facilityId: string, patientId: string, encounterId: string, vitalId: string,
+    input: { expectedRowVersion: number; changeReason: string }) =>
+    client.request<ClinicalRecord>({ method: 'PATCH',
+      path: `${encounterPath(patientId, encounterId)}/vitals/${encodeURIComponent(vitalId)}`,
+      body: { expectedRowVersion: input.expectedRowVersion, status: 'entered_in_error', changeReason: input.changeReason },
+      headers: facilityHeaders(facilityId) }),
   correctVital: (facilityId: string, patientId: string, encounterId: string, vitalId: string,
     input: { expectedRowVersion: number; changeReason: string; replacementValues: VitalMeasurements }, idempotencyKey?: string) =>
     client.post<VitalCorrection>(`${encounterPath(patientId, encounterId)}/vitals/${encodeURIComponent(vitalId)}/corrections`, input,
@@ -3316,4 +3486,126 @@ export const visitQueueApi = {
   update: (facilityId: string, entry: Pick<VisitQueueCard, 'entryId' | 'rowVersion'>, change: VisitQueueChange) =>
     client.request<VisitQueueCard>({ method: 'PATCH', path: `/api/v1/ehr/visit-queue/${encodeURIComponent(entry.entryId)}`,
       body: { expectedRowVersion: entry.rowVersion, ...change }, headers: facilityHeaders(facilityId, 'direct-care') }),
+}
+
+/**
+ * "Ordered by me" (hid-system 0143, MY-1, INTERFACE_CONTRACT.md): the lab requests and prescriptions the signed-in
+ * member created at the working facility, newest first, each with its own laboratory or pharmacy progress (ORD-3's
+ * `ownProgress`) and, when it was read, its order route summary. Direct care only. No patient goes in the address or
+ * the query, and no full Health ID comes back: a row's patient card has the last 4 characters only. An order whose
+ * patient the member can no longer open is not listed; it is counted in `hiddenCount` (a lower bound when
+ * `hiddenCountComplete` is false). A page can hold fewer rows than asked for, or none, while `nextCursor` is still set.
+ */
+export type MyOrderKind = 'lab_request' | 'prescription'
+export type MyOrdersKindFilter = 'all' | 'lab' | 'prescription'
+
+export interface MyOrderPatient {
+  patientId: string
+  fullName: string
+  sex: string | null
+  dateOfBirth: string | null
+  healthIdLast4: string | null
+}
+
+export interface MyOrder {
+  kind: MyOrderKind
+  orderId: string
+  encounterId: string
+  patient: MyOrderPatient
+  /** The stored test or medicine name. */
+  display: string
+  status: string
+  priority: string | null
+  createdAt: string
+  updatedAt: string
+  /** ORD-3's shape, read leniently by the page (ehr-blue/clinical/consult/orders/progress.ts). */
+  ownProgress?: unknown
+  /** The order route summary: null when there is none; left out when it could not be read. */
+  orderRoute?: unknown
+}
+
+export interface MyOrdersPage {
+  items: MyOrder[]
+  hiddenCount: number
+  hiddenCountComplete: boolean
+  /** The day the list actually starts from (YYYY-MM-DD, Lagos), or '' when the answer did not say. */
+  since: string
+  nextCursor: string | null
+}
+
+export interface MyOrdersQuery {
+  kind?: MyOrdersKindFilter
+  /** true sends state=open: draft, active and on hold orders only. */
+  openOnly?: boolean
+  /** YYYY-MM-DD, a Lagos day, today or earlier and at most 2 years back. */
+  since?: string
+  limit?: number
+  cursor?: string
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null
+}
+
+/** One row as the page may use it, or null for a row without its ids. */
+function readMyOrder(value: unknown): MyOrder | null {
+  if (!value || typeof value !== 'object') return null
+  const item = value as Record<string, unknown>
+  const patient = item.patient && typeof item.patient === 'object' ? item.patient as Record<string, unknown> : null
+  const orderId = stringOrNull(item.orderId)
+  const encounterId = stringOrNull(item.encounterId)
+  const patientId = stringOrNull(patient?.patientId)
+  if (!orderId || !encounterId || !patient || !patientId) return null
+  if (item.kind !== 'lab_request' && item.kind !== 'prescription') return null
+  const healthIdLast4 = stringOrNull(patient.healthIdLast4)
+  return {
+    kind: item.kind,
+    orderId,
+    encounterId,
+    patient: {
+      patientId,
+      fullName: typeof patient.fullName === 'string' ? patient.fullName : '',
+      sex: stringOrNull(patient.sex),
+      dateOfBirth: stringOrNull(patient.dateOfBirth),
+      // Never more than its last 4 characters, whatever came back.
+      healthIdLast4: healthIdLast4 ? healthIdLast4.slice(-4) : null,
+    },
+    display: typeof item.display === 'string' ? item.display : '',
+    status: typeof item.status === 'string' ? item.status : '',
+    priority: stringOrNull(item.priority),
+    createdAt: typeof item.createdAt === 'string' ? item.createdAt : '',
+    updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : '',
+    ...(Object.hasOwn(item, 'ownProgress') ? { ownProgress: item.ownProgress } : {}),
+    ...(Object.hasOwn(item, 'orderRoute') ? { orderRoute: item.orderRoute } : {}),
+  }
+}
+
+/** The answer read defensively: rows without their ids are dropped, and the hidden count is a whole number from 0. */
+export function readMyOrdersPage(value: unknown): MyOrdersPage {
+  const answer = value && typeof value === 'object' ? value as Record<string, unknown> : {}
+  const items = Array.isArray(answer.items) ? answer.items.map(readMyOrder).filter((item): item is MyOrder => item !== null) : []
+  const hidden = typeof answer.hiddenCount === 'number' && Number.isFinite(answer.hiddenCount) ? Math.max(0, Math.floor(answer.hiddenCount)) : 0
+  return {
+    items,
+    hiddenCount: hidden,
+    // Only an answer that says it is not complete is taken as a lower bound.
+    hiddenCountComplete: answer.hiddenCountComplete !== false,
+    since: typeof answer.since === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(answer.since) ? answer.since : '',
+    nextCursor: stringOrNull(answer.nextCursor),
+  }
+}
+
+export const myOrdersApi = {
+  /** Read on opening the page and on the member's own action only: each read is audited per patient shown. */
+  list: (facilityId: string, request: MyOrdersQuery = {}) => {
+    const query: Record<string, string | number> = {}
+    if (request.kind && request.kind !== 'all') query.kind = request.kind
+    if (request.openOnly) query.state = 'open'
+    if (request.since) query.since = request.since
+    if (request.limit !== undefined) query.limit = request.limit
+    if (request.cursor) query.cursor = request.cursor
+    return client.get<unknown>('/api/v1/ehr/my-orders', {
+      headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false, ...(Object.keys(query).length > 0 ? { query } : {}),
+    }).then(readMyOrdersPage)
+  },
 }

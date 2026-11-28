@@ -28,7 +28,7 @@ import { DrugTile } from './DrugTile'
 import { drugOf, FORM_WORD } from './drugForm'
 import { Breakable } from './PharmacyQueue'
 import {
-  ACCEPT_PERMISSION, acceptable, acceptedText, DOSE_MISSING, doseMissing, doseText, durationText, labelText,
+  ACCEPT_PERMISSION, acceptable, acceptedText, changedAfterOf, CONTACT_PATIENT, DOSE_MISSING, doseMissing, doseText, durationText, labelText,
   notDispensableText, pharmacyRefusalText, prescribedQuantity, queueTone, statusOf, statusWord, stepText,
   withdrawnReasonFrom, withdrawnReasonOf, withdrawnText,
 } from './pharmacyText'
@@ -568,12 +568,19 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
     </div>
   </Card>
 
+  // Changed by the prescribing team after it was dispensed (Q132 A, 0148): said next to the dispensing or its reversal, in
+  // amber, with when and the next step. The status stays Dispensed or Reversed, and there is no Dismiss or Seen.
+  const changedAfter = changedAfterOf(item)
   const handedOver = item.dispensing && !done && <Card>
-    <div className="flex items-center gap-3 p-5">
-      <CircleCheck className={cx('size-6 shrink-0', item.dispensing.reversed ? 'text-ink-3' : 'text-success-ink')} aria-hidden />
-      <p className="m-0 text-body text-ink">{item.dispensing.reversed
-        ? 'This dispensing was reversed. A new prescription is needed to dispense it again.'
-        : 'Already dispensed. Nothing more to do unless it needs reversing.'}</p>
+    <div className="flex flex-col gap-3 p-5">
+      <div className="flex items-center gap-3">
+        <CircleCheck className={cx('size-6 shrink-0', item.dispensing.reversed ? 'text-ink-3' : 'text-success-ink')} aria-hidden />
+        <p className="m-0 text-body text-ink">{item.dispensing.reversed
+          ? 'This dispensing was reversed. A new prescription is needed to dispense it again.'
+          : 'Already dispensed. Nothing more to do unless it needs reversing.'}</p>
+      </div>
+      {changedAfter && <DeptNotice id={`pharmacy-${item.id}-changed`} tone="caution" variant="banner" title={changedAfter.text}>
+        {[changedAfter.when ? `${changedAfter.when}.` : '', CONTACT_PATIENT].filter(Boolean).join(' ')}</DeptNotice>}
     </div>
   </Card>
 

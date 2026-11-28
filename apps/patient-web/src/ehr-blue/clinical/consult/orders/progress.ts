@@ -63,6 +63,15 @@ function at(words: string, value: unknown, now: Date): string {
  * ORD-3), or `not_received` (a draft, never sent; or an order with no work here, whose progress is on its route).
  */
 export function ownProgressText(kind: OrderKind, record: ClinicalRecord, now: Date = new Date()): string | null {
+  return ownProgressWords(kind, { ownProgress: record.ownProgress, orderRoute: record.orderRoute }, now)
+}
+
+/**
+ * The same words from an order's `ownProgress` and `orderRoute` alone, as any read carries them: the visit's order
+ * lists, and "Ordered by me" (MY-1), whose rows carry ORD-3's `ownProgress` in the same shape.
+ */
+export function ownProgressWords(kind: OrderKind, record: { readonly ownProgress?: unknown; readonly orderRoute?: unknown },
+  now: Date = new Date()): string | null {
   const progress = record.ownProgress
   if (progress === undefined || progress === null) return null
   if (typeof progress !== 'object' || Array.isArray(progress)) return PROGRESS_UNAVAILABLE

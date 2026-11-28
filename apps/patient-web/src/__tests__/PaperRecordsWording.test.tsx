@@ -94,4 +94,28 @@ describe('the paper records rule, as the patient reads it', () => {
     expect(isAdult(null, now)).toBe(false)
     expect(isAdult('not a date', now)).toBe(false)
   })
+
+  it('counts the 18th birthday from the Lagos day, which starts an hour before the UTC day', () => {
+    // 23:30 UTC on 26 Nov is 00:30 on 27 Nov in Lagos: the birthday has come.
+    expect(isAdult('2008-11-27', new Date('2026-11-26T23:30:00Z'))).toBe(true)
+    // 22:30 UTC is 23:30 in Lagos, still the eve of the birthday.
+    expect(isAdult('2008-11-27', new Date('2026-11-26T22:30:00Z'))).toBe(false)
+    // A date of birth sent as midnight in Lagos counts from that Lagos day, not the UTC day before it.
+    expect(isAdult('2008-11-26T23:00:00Z', new Date('2026-11-26T23:30:00Z'))).toBe(true)
+    expect(isAdult('2008-11-26T23:00:00Z', new Date('2026-11-26T12:00:00Z'))).toBe(false)
+  })
+
+  it('turns 18 at 00:00 in Lagos on the birthday formatDate shows, including on 29 February', () => {
+    // One minute before midnight in Lagos is still the eve of the birthday.
+    expect(isAdult('2008-11-04', new Date('2026-11-03T22:59:00Z'))).toBe(false)
+    // A date of birth sent as midnight in Lagos (the 4th) turns 18 at 23:00 UTC on the 3rd, not a minute before.
+    expect(isAdult('2008-11-03T23:00:00Z', new Date('2026-11-03T22:59:00Z'))).toBe(false)
+    expect(isAdult('2008-11-03T23:00:00Z', new Date('2026-11-03T23:00:00Z'))).toBe(true)
+    expect(isAdult('2008-11-04T00:00:00+01:00', new Date('2026-11-03T23:00:00Z'))).toBe(true)
+    // Born on 29 February: 18 on 1 March in a year with no 29th.
+    expect(isAdult('2008-02-29', new Date('2026-02-28T12:00:00Z'))).toBe(false)
+    expect(isAdult('2008-02-29', new Date('2026-03-01T12:00:00Z'))).toBe(true)
+    // A date of birth in the future is not an age.
+    expect(isAdult('2030-01-01', new Date('2026-11-03T12:00:00Z'))).toBe(false)
+  })
 })

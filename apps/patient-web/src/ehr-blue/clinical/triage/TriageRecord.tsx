@@ -17,10 +17,11 @@ import {
   NO_COMPLAINT, NO_RECORD_ACCESS, RECORD_SAVED, RELOAD_FAILED, recordedAt, refusedFieldErrors, rowVersion, useFocusAfterChange, useLatest, useVisitRecord,
 } from './records'
 import {
-  CHANGED_SINCE, CLOSE_CORRECTION, CORRECT_LABEL, CORRECTION_FAILED, CORRECTION_HINT, CORRECTION_SAVED, CORRECTION_UNREAD, LOADING_CORRECTION,
-  RELOAD_FIRST, RETRACTED_SINCE, RETRACTED_TEXT, SAVE_CORRECTION, TITLE, VITAL_FIELDS, correctionNumber, currentValues, isRetracted, vitalName,
-  measurementItems, readCorrections, reloadSentence, vitalStatus, type Corrections,
+  CHANGED_SINCE, CLOSE_CORRECTION, CORRECT_LABEL, CORRECTION_FAILED, CORRECTION_HINT, CORRECTION_SAVED, CORRECTION_UNREAD, EIE_ALREADY, EIE_CHANGED,
+  EIE_CLOSE, EIE_DONE, EIE_LABEL, LOADING_CORRECTION, RELOAD_FIRST, RETRACTED_SINCE, RETRACTED_TEXT, SAVE_CORRECTION, TITLE, VITAL_FIELDS, WITHDRAWN_CODES,
+  correctionNumber, currentValues, isRetracted, vitalName, measurementItems, readCorrections, reloadSentence, vitalStatus, type Corrections,
 } from './vitals'
+import { EnteredInErrorForm, canWithdraw, type Withdrawal } from './EnteredInError'
 import { VitalsForm, type VitalsInput } from './VitalsForm'
 
 /** One vitals record's page, or the chart's own state. */
@@ -93,8 +94,9 @@ type Reload = () => Promise<{ readonly items: readonly ClinicalRecord[] } | { re
 
 /**
  * The design's record page for one vitals record: "Saved record" (the current values: the latest correction's, as
- * today), "Available actions" (today's "Correct these vitals", with full replacement values; vitals have no other live
- * action, so there is no "More actions" menu), "Connected hospital history" (the visit, then the
+ * today), "Available actions" (today's "Correct these vitals", with full replacement values, and on Novu EHR-C8b's
+ * "Mark as entered in error", which withdraws the whole reading; two actions, side by side, so there is no "More
+ * actions" menu), "Connected hospital history" (the visit, then the
  * encounter's records in the other workspaces: ConnectedHistory) and "Preserved versions & amendments" (what each
  * correction replaced).
  */
@@ -110,7 +112,9 @@ function VitalRecord({ chart, encounter, vital, reload }: {
   const toVisit = chart.can('ehr.encounter.read') ? href.to('consult', encounter.id) : null
   const [success, setSuccess] = useState(() => (location.state as { saved?: unknown } | null)?.saved === true ? RECORD_SAVED : '')
   const [pageError, setPageError] = useState('')
-  const [open, setOpen] = useState(false)
+  // The action whose form is open: one at a time.
+  const [opened, setOpened] = useState<'correct' | 'withdraw' | null>(null)
+  const open = opened === 'correct'
   const attempt = useRef<{ signature: string; key: string } | null>(null)
   const actionsId = `vital-${vital.id}-actions`
   const focusActions = useFocusAfterChange(actionsId)
@@ -135,11 +139,12 @@ function VitalRecord({ chart, encounter, vital, reload }: {
   const latest = corrections.state === 'shown' ? corrections.latest : null
   // A correction that cannot be read offers no correction (today's rule): nothing is changed from values not seen.
   const canAmend = chart.canWrite && chart.can('ehr.vital.write') && current !== null && !retracted
-  // While they are read again a closed correction does not open: the button says so (aria-disabled), keeps focus, and
-  // a press does nothing. It is greyed out, with no hover look, as today's UNAVAILABLE (staff/focus.ts:13; the action
-  // list's rule in clinical.css), and the card says "Loading records…" while they are read, as today's records card
-  // does (Clinical.tsx:1805). An open one can still be closed.
-  const locked = reloading && !open
+  const withdrawable = canWithdraw(chart, vital)
+  // While they are read again a closed action (a correction, or entered in error) does not open: its button says so
+  // (aria-disabled), keeps focus, and a press does nothing. It is greyed out, with no hover look, as today's
+  // UNAVAILABLE (staff/focus.ts:13; the action list's rule in clinical.css), and the card says "Loading records…" while
+  // they are read, as today's records card does (Clinical.tsx:1805). An open one can still be closed.
+  const locked = (action: 'correct' | 'withdraw') => reloading && opened !== action
 
   const amend = async ({ values, reason }: VitalsInput): Promise<SubmitOutcome> => {
     const expectedRowVersion = rowVersion(vital.rowVersion)
@@ -155,12 +160,13 @@ function VitalRecord({ chart, encounter, vital, reload }: {
     } catch (caught) {
       // Changed since it was loaded (corrected, or marked entered in error): what was shown is read again and the
       // form, built for the old version, goes.
-      if (isHidApiError(caught) && (caught.status === 412 || caught.code === 'VITAL_NOT_AMENDABLE')) {
+      // Novu answers a correction of a withdrawn reading 409 VITAL_ENTERED_IN_ERROR (main, VITAL_NOT_AMENDABLE).
+      if (isHidApiError(caught) && (caught.status === 412 || WITHDRAWN_CODES.has(caught.code))) {
         attempt.current = null
         const reloaded = await readAgain()
-        const nowRetracted = caught.code === 'VITAL_NOT_AMENDABLE'
+        const nowRetracted = WITHDRAWN_CODES.has(caught.code)
           || ('items' in reloaded && reloaded.items.some(item => item.id === vital.id && item.status === 'entered_in_error'))
-        setOpen(false)
+        setOpened(null)
         setPageError(`${nowRetracted ? RETRACTED_SINCE : CHANGED_SINCE}${reloadSentence(reloaded, 'vitals', true)}`)
         focusActions()
         return
@@ -174,12 +180,29 @@ function VitalRecord({ chart, encounter, vital, reload }: {
       }
     }
     attempt.current = null
-    setOpen(false)
+    setOpened(null)
     setSuccess(CORRECTION_SAVED)
     focusActions()
     const reloaded = await readAgain()
     if ('failed' in reloaded) setPageError(`${RELOAD_FAILED} ${reloaded.failed}`.trim())
   }
+
+  /**
+   * After "Mark as entered in error": the reading is read again (with those entered in error, so its page stays), and
+   * the page says what came of it. Marked now or before, it shows withdrawn; changed meanwhile, it shows as it now is
+   * and the user is asked to try again.
+   */
+  const withdrawn = async (outcome: Withdrawal) => {
+    setSuccess('')
+    setPageError('')
+    setOpened(null)
+    if (outcome !== 'changed') setSuccess(outcome === 'done' ? EIE_DONE : EIE_ALREADY)
+    focusActions()
+    const reloaded = await readAgain()
+    if (outcome === 'changed') setPageError(`${EIE_CHANGED}${reloadSentence(reloaded, 'vitals', true)}`)
+    else if ('failed' in reloaded) setPageError(`${RELOAD_FAILED} ${reloaded.failed}`.trim())
+  }
+  const toggle = (action: 'correct' | 'withdraw') => { if (!locked(action)) setOpened(current => current === action ? null : action) }
 
   const saved: KeyValue[] = [
     { label: 'Visit', value: encounterTitle(encounter) },
@@ -207,10 +230,16 @@ function VitalRecord({ chart, encounter, vital, reload }: {
           {corrections.state === 'failed' ? <ErrorBox>{`${CORRECTION_UNREAD} ${corrections.message}`}</ErrorBox> : null}
         </SavedRecord>
         <EhrCard title={<span id={actionsId} className="hid-ehr-clinical-triage-focus" tabIndex={-1}>Available actions</span>}>
-          {canAmend ? (
+          {canAmend || withdrawable ? (
             <ActionList>
-              <EhrButton variant="secondary" aria-expanded={open} aria-disabled={locked || undefined}
-                onClick={() => { if (!locked) setOpen(value => !value) }}>{open ? CLOSE_CORRECTION : CORRECT_LABEL}</EhrButton>
+              {canAmend ? (
+                <EhrButton variant="secondary" aria-expanded={open} aria-disabled={locked('correct') || undefined}
+                  onClick={() => toggle('correct')}>{open ? CLOSE_CORRECTION : CORRECT_LABEL}</EhrButton>
+              ) : null}
+              {withdrawable ? (
+                <EhrButton variant="secondary" aria-expanded={opened === 'withdraw'} aria-disabled={locked('withdraw') || undefined}
+                  onClick={() => toggle('withdraw')}>{opened === 'withdraw' ? EIE_CLOSE : EIE_LABEL}</EhrButton>
+              ) : null}
             </ActionList>
           ) : <NoActions />}
           {reloading ? <p className="hid-ehr-clinical-note" role="status">Loading records…</p> : null}
@@ -224,6 +253,9 @@ function VitalRecord({ chart, encounter, vital, reload }: {
               submitLabel={SAVE_CORRECTION}
               onSubmit={amend}
             />
+          ) : null}
+          {withdrawable && opened === 'withdraw' ? (
+            <EnteredInErrorForm key={`${vital.id}-${String(vital.rowVersion)}`} chart={chart} encounterId={encounter.id} vital={vital} onWithdrawn={withdrawn} />
           ) : null}
         </EhrCard>
       </DetailGrid>

@@ -76,6 +76,27 @@ export const RELOAD_FIRST = 'Reload the vitals before correcting them.'
 export const RETRACTED_SINCE = 'These vitals were marked entered in error since they were loaded, so the correction was not saved.'
 export const CHANGED_SINCE = 'These vitals changed since they were loaded, so the correction was not saved: check them, and correct them again if it is still needed.'
 
+/**
+ * EHR-C8b, marking one whole reading entered in error (Novu, hid-system 0142): the action and the button that closes
+ * its form, what it does (said beside the button that sends it in one press), and each outcome in plain words. The
+ * refusals with their own reason (not found, unavailable, no role, consent, purpose) open "Nothing was changed.", the
+ * route's own sentence following where it is plain (VITALS_STATUS_UNAVAILABLE's); a changed row, a reload and any other
+ * refusal say so in their own words (EIE_CHANGED, EIE_RELOAD_FIRST, EIE_FAILED). No code is ever shown.
+ */
+export const EIE_LABEL = 'Mark as entered in error'
+export const EIE_CLOSE = 'Close entered in error'
+export const EIE_WARNING = 'Use this only for a reading recorded by mistake, for example on the wrong patient. These readings will be withdrawn for good and left out of Latest vitals, and this can’t be undone. To fix a wrong value, use Correct these vitals instead.'
+export const EIE_DONE = 'Vitals marked as entered in error.'
+export const EIE_ALREADY = 'These vitals were already marked as entered in error.'
+export const EIE_CHANGED = 'These vitals changed since they were loaded, so they were not marked as entered in error: check them, and try again if it is still needed.'
+export const EIE_RELOAD_FIRST = 'Reload the vitals before marking them as entered in error.'
+export const EIE_FAILED = 'The vitals could not be marked as entered in error.'
+export const EIE_NOT_FOUND = 'Nothing was changed. These vitals were not found. Go back to the list and open them again.'
+export const EIE_UNAVAILABLE = 'Nothing was changed. This cannot be done right now. Please try again.'
+export const EIE_NO_ROLE = 'Nothing was changed. Your role at this facility can’t change vitals. Ask your facility administrator.'
+/** Said after a correction refused because the reading was withdrawn (409 VITAL_ENTERED_IN_ERROR, or main's VITAL_NOT_AMENDABLE). */
+export const WITHDRAWN_CODES: ReadonlySet<string> = new Set(['VITAL_NOT_AMENDABLE', 'VITAL_ENTERED_IN_ERROR'])
+
 /** Today's sentence after a change, on the list read again: it could not be read, or (the record changed) it was. */
 export function reloadSentence(reload: { readonly failed: string } | { readonly items: readonly unknown[] }, what: string, listChanged: boolean) {
   if ('failed' in reload) return ` The list could not be reloaded; refresh it to see the ${what}.`

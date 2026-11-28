@@ -63,10 +63,39 @@ describe('c4b5445 route registry', () => {
     }
   })
 
+  it('registers "Verify NIN later" (hid-system 0138, ID-6) for staff only, with the NIN in the body and never the path', () => {
+    const path = '/api/v1/identity/patients/:patientId/nin'
+    expect(findEndpoint('identity.linkPatientNin')).toMatchObject({ service: 'identity', path, methods: ['POST'],
+      auth: { kind: 'authenticated' }, permissions: { POST: ['identity.registration.write'] }, status: 'surface-verified' })
+    expect(path).not.toMatch(/:nin\b/)
+    const note = findEndpoint('identity.linkPatientNin')?.note ?? ''
+    for (const term of ['Idempotency-Key', 'healthcare-operations', '{ nin, purpose: healthcare-operations }', 'NIN_VERIFICATION_FAILED',
+      'UPSTREAM_UNAVAILABLE', 'nin.available']) expect(note).toContain(term)
+    const sent = '/api/v1/identity/patients/a0000000-0000-4000-8000-0000000000f1/nin'
+    expect(assertRegisteredBrowserRequest('POST', sent).name).toBe('identity.linkPatientNin')
+    expect(() => assertRegisteredBrowserRequest('GET', sent)).toThrow(BrowserRouteError)
+    expect(() => assertEndpointAllowed('staff-web', 'identity.linkPatientNin')).not.toThrow()
+    for (const app of ['patient-web', 'admin-web', 'public-web'] as const) {
+      expect(() => assertEndpointAllowed(app, 'identity.linkPatientNin'), app).toThrow(BoundaryViolationError)
+    }
+  })
+
   it('records distinct RBAC permissions per EHR method', () => {
     const encounters = findEndpoint('ehr.encounters')
     expect(encounters?.permissions?.GET).toEqual(['ehr.encounter.read'])
     expect(encounters?.permissions?.POST).toEqual(['ehr.encounter.write'])
+  })
+
+  it('lets a vitals writer mark one reading entered in error (EHR-C8b), and no patient application reach it', () => {
+    const path = '/api/v1/ehr/patients/patient-1/encounters/encounter-1/vitals/vital-1'
+    expect(findEndpoint('ehr.vital')).toMatchObject({ methods: ['GET', 'PATCH'], permissions: { GET: ['ehr.vital.read'], PATCH: ['ehr.vital.write'] } })
+    expect(findEndpoint('ehr.vital')?.note).toMatch(/VITAL_ALREADY_ENTERED_IN_ERROR/)
+    expect(findEndpoint('ehr.vitals')?.note).toMatch(/includeEnteredInError=true/)
+    expect(assertRegisteredBrowserRequest('PATCH', path).name).toBe('ehr.vital')
+    expect(() => assertRegisteredBrowserRequest('DELETE', path)).toThrow(BrowserRouteError)
+    expect(() => assertEndpointAllowed('staff-web', 'ehr.vital')).not.toThrow()
+    expect(() => assertEndpointAllowed('ehr-web', 'ehr.vital')).not.toThrow()
+    expect(() => assertEndpointAllowed('patient-web', 'ehr.vital')).toThrow(BoundaryViolationError)
   })
 
   it('routes provider facility audit to the Identity service', () => {
@@ -831,8 +860,9 @@ describe('application boundaries', () => {
     }
     const lookups = { '/api/v1/lab/order-routes': 'lab.orderRoutes', '/api/v1/pharmacy/order-routes': 'pharmacy.orderRoutes',
       '/api/v1/admin/order-routes': 'admin.orderRoutesFind' } as const
+    // And the registration list (SX-10), which refuses a Health ID or NIN in its address too (registration-cases.test.ts).
     expect(HID_ENDPOINTS.filter(endpoint => endpoint.forbiddenQuery).map(endpoint => endpoint.name).sort())
-      .toEqual(Object.values(lookups).sort())
+      .toEqual([...Object.values(lookups), 'identity.registrationCases'].sort())
     for (const [path, name] of Object.entries(lookups)) {
       expect(findEndpoint(name)?.forbiddenQuery, name).toEqual({ GET: ['healthId'] })
       // Refused before transport in every form the backend refuses, alone or beside an allowed key, with a message

@@ -1,8 +1,10 @@
-import { formatTimeOrDateTime } from '@hid/ui/display'
+import { formatDateTime, formatTimeOrDateTime } from '@hid/ui/display'
 import type { EhrBadgeTone } from '@hid/ui/ehr'
 import type { Tone } from '../../../kasuwa/ui'
 import { routeLabel } from '../../../plainLabels'
-import type { Facility, PharmacistAcceptance, PharmacyStep, PharmacyWorkItem, WorkItemOrderRoute } from '../../../staff/api'
+import type {
+  Facility, PharmacistAcceptance, PharmacyChangeAfterDispensing, PharmacyStep, PharmacyWorkItem, WorkItemOrderRoute,
+} from '../../../staff/api'
 import { priorityLabel, routedWorkEndedText } from '../../../staff/orderRoutes'
 import { PHARMACY_WORK, refusedWorkText } from '../../../staff/refusedWork'
 import { matchesSearch } from '../parts/format'
@@ -113,6 +115,62 @@ export function withdrawnText(reason: WithdrawnReason): string {
   return `${WITHDRAWN_WORDS[reason]}. It can no longer be dispensed here.`
 }
 
+/**
+ * Q132 A (hid-system 0148, INTERFACE_CONTRACT "Screen change"): what the prescribing team did to a prescription after it
+ * was dispensed, as it reads after "Changed after dispensing:". Never the code itself.
+ */
+export const CHANGE_WORDS: Readonly<Record<PharmacyChangeAfterDispensing, string>> = {
+  on_hold: 'put on hold', cancelled: 'cancelled', entered_in_error: 'entered in error', edited: 'edited', resumed: 'resumed',
+}
+
+/** The next step after a change to a dispensed prescription (Q132 A). There is no Dismiss or Seen. */
+export const CONTACT_PATIENT = 'Contact the patient.'
+
+/** What the record and the card say of a change after dispensing (Q132 A): the change, when it was made, and what to do. */
+export interface ChangedAfterNotice {
+  /** "Changed after dispensing: cancelled by the prescribing team (changed 2 times)". */
+  readonly text: string
+  /** "Last change: 20 Nov 2026, 09:15", on Lagos time; empty when it is not a time. */
+  readonly when: string
+}
+
+/**
+ * "Last change: 20 Nov 2026, 09:15" on Lagos time, whatever the device's own zone: always with the day, as the contract's
+ * example writes it (a pharmacist reads it days later). Empty when it is not a time.
+ */
+export function lastChangeText(changedAt: string): string {
+  const when = formatDateTime(changedAt)
+  return when ? `Last change: ${when}` : ''
+}
+
+/**
+ * Who changed a dispensed prescription (Q132 A): "the prescribing team" on this facility's own work, which carries the
+ * prescription it came from; on work another facility sent, that facility by name, else "the ordering facility",
+ * including work with neither the prescription nor a route card (sent from another facility, its card not read).
+ */
+function changedByText(item: Pick<PharmacyWorkItem, 'orderRoute' | 'sourceEhrPrescriptionId'>): string {
+  if (item.orderRoute) return item.orderRoute.orderingFacilityName?.trim() || 'the ordering facility'
+  return item.sourceEhrPrescriptionId?.trim() ? 'the prescribing team' : 'the ordering facility'
+}
+
+/**
+ * Q132 A's notice on a dispensed item (reversed or not) whose prescription the prescribing team changed afterwards, or
+ * null: with no `changedAfterDispensing` nothing is said, as before 0148. Who changed it is said by changedByText. A
+ * change this page does not know reads "Changed after dispensing by ...". With more than one change, " (changed n
+ * times)". An item not dispensed never says it; a dispensed item is never withdrawn (withdrawnReasonOf), so the notice
+ * is never hidden by a `withdrawn` sent with it.
+ */
+export function changedAfterOf(
+  item: Pick<PharmacyWorkItem, 'changedAfterDispensing' | 'dispensing' | 'orderRoute' | 'sourceEhrPrescriptionId'>,
+): ChangedAfterNotice | null {
+  const changed = item.changedAfterDispensing
+  if (!changed || !item.dispensing) return null
+  const who = changedByText(item)
+  const what = changed.change && Object.hasOwn(CHANGE_WORDS, changed.change) ? `: ${CHANGE_WORDS[changed.change]}` : ''
+  const times = changed.changeCount > 1 ? ` (changed ${changed.changeCount} times)` : ''
+  return { text: `Changed after dispensing${what} by ${who}${times}`, when: lastChangeText(changed.changedAt) }
+}
+
 /** A withdrawn item (ORD-2) can be neither accepted nor dispensed, whatever else it says. */
 export function isWithdrawn(item: Pick<PharmacyWorkItem, 'withdrawn' | 'withdrawnReason' | 'dispensing'>): boolean {
   return withdrawnReasonOf(item) !== null
@@ -190,11 +248,14 @@ export function routeAlert(route: WorkItemOrderRoute | undefined, late: boolean)
   return route.effectiveState === 'expired' ? 'This order has lapsed: no more work can be recorded on it.' : null
 }
 
-/** Whether a row matches the list's search: its medication, patient, dose, route, priority and the order it came from. */
+/**
+ * Whether a row matches the list's search: its medication, patient, dose, route, priority, the order it came from and a
+ * change after dispensing (so "cancelled" finds it).
+ */
 export function matchesItem(query: string, item: PharmacyWorkItem, status: PharmacyStatus): boolean {
   return matchesSearch(query, [item.medication.display, patientLabel(item), doseLine(item), item.routeCode, routeLabel(item.routeCode), item.instructions,
     status, priorityLabel(item.priority), item.orderRoute?.orderingFacilityName, item.orderRoute?.reference, item.orderRoute?.ordererName,
-    item.id.slice(0, 8)])
+    changedAfterOf(item)?.text, item.id.slice(0, 8)])
 }
 
 /** The "Not dispensable" banner's words: who changed the prescription when another facility sent it. */

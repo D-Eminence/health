@@ -144,7 +144,9 @@ describe('the offline queue', () => {
 describe('sending what waits', () => {
   const ACCOUNT = 'acct-1'
   const FACILITY = 'fac-1'
-  const at = (minutes: number) => new Date(Date.parse('2026-11-14T08:00:00.000Z') + minutes * 60_000).toISOString()
+  // Dated from now, not a fixed day: the queue sweeps entries older than QUEUE_MAX_AGE_MS against the real clock, so a
+  // fixed savedAt made these tests fail once it was 14 days old (28 Nov 2026).
+  const at = (minutes: number) => new Date(Date.now() - 60 * 60_000 + minutes * 60_000).toISOString()
   const entry = (n: number, fullName: string, savedAt: string): PendingRegistration => ({
     localCommandId: `c0000000-0000-4000-8000-00000000000${n}`, temporaryPatientId: `tmp_c${n}`, accountId: ACCOUNT, facilityId: FACILITY,
     savedAt, state: 'waiting', input: { campaignId: 'campaign-1', fullName, sex: 'female', ageYears: 30 } })
