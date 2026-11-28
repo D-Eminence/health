@@ -3,15 +3,15 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "Each service pinned to its live source_commit. All services: production release backend-45657497614-1-9ad293c7963d6f06 (Release E, deployed 2026-11-25 about 17:04 UTC), built from 0cfddcc9 (0152 diagnosis list, 0153 recent diagnoses, ORD-3 batch; all 13 components rebuilt). Re-pin under standing approval Q94 4/5.",
+  "review_reference": "Each service pinned to its live source_commit. identity-api, ehr-api, lab-api, pharmacy-api, ocr-api and outreach-api: production release backend-46161166611-1-1c794bcefd08ab95 (backend release G, deployed 2026-11-28 about 15:56 UTC), built from 75fbc62a (0154 prescription refills, ORD-12; PRESCRIPTION_REFILLS_ENABLED stays off). Every other service (gateway, support-api, notification-api): Release E backend-45657497614-1-9ad293c7963d6f06 (0cfddcc9), unchanged. Re-pin under standing approval Q94 4/5.",
   "backend_commits": {
     "gateway": "0cfddcc9c8df6a00ac05637186b552fb2e12eb5d",
-    "identity-api": "0cfddcc9c8df6a00ac05637186b552fb2e12eb5d",
-    "ehr-api": "0cfddcc9c8df6a00ac05637186b552fb2e12eb5d",
-    "lab-api": "0cfddcc9c8df6a00ac05637186b552fb2e12eb5d",
-    "pharmacy-api": "0cfddcc9c8df6a00ac05637186b552fb2e12eb5d",
-    "ocr-api": "0cfddcc9c8df6a00ac05637186b552fb2e12eb5d",
-    "outreach-api": "0cfddcc9c8df6a00ac05637186b552fb2e12eb5d",
+    "identity-api": "75fbc62ac7a4f5ff6d41f19ea7bb9a2e21afa257",
+    "ehr-api": "75fbc62ac7a4f5ff6d41f19ea7bb9a2e21afa257",
+    "lab-api": "75fbc62ac7a4f5ff6d41f19ea7bb9a2e21afa257",
+    "pharmacy-api": "75fbc62ac7a4f5ff6d41f19ea7bb9a2e21afa257",
+    "ocr-api": "75fbc62ac7a4f5ff6d41f19ea7bb9a2e21afa257",
+    "outreach-api": "75fbc62ac7a4f5ff6d41f19ea7bb9a2e21afa257",
     "support-api": "0cfddcc9c8df6a00ac05637186b552fb2e12eb5d",
     "notification-api": "0cfddcc9c8df6a00ac05637186b552fb2e12eb5d"
   }
