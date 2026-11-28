@@ -82,7 +82,10 @@ function VitalsTable({ chart }: { chart: Chart }) {
     noRecords="No vitals for this encounter." />
 }
 
-/** A row's readings, each with its unit and, outside the adult range, its flag (also the encounter page's Vitals card). */
+/**
+ * A row's readings, each with its unit and, outside the adult range, its flag. A reading entered in error (EHR-C8b) is
+ * not struck through: its row says so in classic's words (its "Entered in error" status and RETRACTED_TEXT).
+ */
 export function Readings({ values }: { values: VitalValues }) {
   return (
     <span className="hid-ehr-clinical-readings">

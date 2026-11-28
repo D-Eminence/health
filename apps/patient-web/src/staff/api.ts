@@ -403,6 +403,11 @@ export interface Page<T> { items: T[]; nextCursor: string | null }
  * in flight, and one started before the change would answer with the old rows.
  */
 export interface PageRequest { readonly cursor?: string; readonly fresh?: boolean }
+/**
+ * A record list's page. `includeEnteredInError` (vitals on Novu since EHR-C8b, hid-system 0142) also lists the readings
+ * marked entered in error, which the list leaves out by default; a cursor is valid only for the choice it came with.
+ */
+export interface RecordsRequest extends PageRequest { readonly includeEnteredInError?: boolean }
 
 function pageQuery(page: PageRequest) {
   return { query: { limit: 50, ...(page.cursor ? { cursor: page.cursor } : {}) }, ...(page.fresh ? { dedupe: false } : {}) }
@@ -479,6 +484,11 @@ export interface Encounter {
   startedAt: string
   chiefComplaint: string | null
   rowVersion: number | string
+  /**
+   * Novu: true on the visit that holds the patient's imported paper records (EHR-C8a refuses to mark it entered in
+   * error, 409 IMPORTED_VISIT_NOT_ENTERED_IN_ERROR). Absent from an earlier backend.
+   */
+  importedPaperRecords?: boolean
 }
 
 /**
@@ -2817,12 +2827,16 @@ export const staffApi = {
   // Novu since P4c a lab request or prescription page also says whether orders between facilities are on; with the
   // wrong-patient report (item 3, hid-system 0088) it also answers wrongPatientReports: true, and with the late correction
   // (D17, hid-system 0090) lateCorrection: true (an earlier backend, nothing).
-  records: (facilityId: string, patientId: string, encounterId: string, kind: RecordKind, page: PageRequest = {}) =>
-    client.get<Page<ClinicalRecord> & { crossFacilityOrders?: boolean; wrongPatientReports?: boolean; lateCorrection?: boolean }>(`${encounterPath(patientId, encounterId)}/${kind}`, { ...pageQuery(page), headers: facilityHeaders(facilityId) }),
+  records: (facilityId: string, patientId: string, encounterId: string, kind: RecordKind, page: RecordsRequest = {}) => {
+    const request = pageQuery(page)
+    const query = page.includeEnteredInError ? { ...request.query, includeEnteredInError: 'true' } : request.query
+    return client.get<Page<ClinicalRecord> & { crossFacilityOrders?: boolean; wrongPatientReports?: boolean; lateCorrection?: boolean }>(`${encounterPath(patientId, encounterId)}/${kind}`, { ...request, query, headers: facilityHeaders(facilityId) })
+  },
   createRecord: (facilityId: string, patientId: string, encounterId: string, kind: RecordKind, input: object, idempotencyKey?: string) =>
     client.post<SavedRecord>(`${encounterPath(patientId, encounterId)}/${kind}`, input,
       { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),
-  // A status PATCH: diagnoses have no status field and vitals are corrected, never patched. A prescription's Activate or
+  // A status PATCH: diagnoses have no status field, and vitals are corrected (correctVital) or marked entered in error
+  // (markVitalEnteredInError), never patched here. A prescription's Activate or
   // Resume after an allergy warning (0124) also carries allergyAcknowledgement; leave it out otherwise.
   updateRecord: (facilityId: string, patientId: string, encounterId: string, kind: StatusRecordKind,
     recordId: string, input: { expectedRowVersion: number; changeReason: string; status: string; allergyAcknowledgement?: AllergyAcknowledgement }) =>
@@ -2837,6 +2851,15 @@ export const staffApi = {
   vitalCorrections: (facilityId: string, patientId: string, encounterId: string, vitalId: string) =>
     client.get<VitalCorrection[]>(`${encounterPath(patientId, encounterId)}/vitals/${encodeURIComponent(vitalId)}/corrections`,
       { headers: facilityHeaders(facilityId) }),
+  // EHR-C8b (Novu, hid-system 0142): withdraws one whole reading for good, at the version read, with the reason the
+  // route requires (3 to 500 characters). Its body is exactly these three; no Idempotency-Key (the row version guards
+  // it). 409 VITAL_ALREADY_ENTERED_IN_ERROR, 412 VERSION_CONFLICT, 404 VITAL_NOT_FOUND, 503 VITALS_STATUS_UNAVAILABLE.
+  markVitalEnteredInError: (facilityId: string, patientId: string, encounterId: string, vitalId: string,
+    input: { expectedRowVersion: number; changeReason: string }) =>
+    client.request<ClinicalRecord>({ method: 'PATCH',
+      path: `${encounterPath(patientId, encounterId)}/vitals/${encodeURIComponent(vitalId)}`,
+      body: { expectedRowVersion: input.expectedRowVersion, status: 'entered_in_error', changeReason: input.changeReason },
+      headers: facilityHeaders(facilityId) }),
   correctVital: (facilityId: string, patientId: string, encounterId: string, vitalId: string,
     input: { expectedRowVersion: number; changeReason: string; replacementValues: VitalMeasurements }, idempotencyKey?: string) =>
     client.post<VitalCorrection>(`${encounterPath(patientId, encounterId)}/vitals/${encodeURIComponent(vitalId)}/corrections`, input,

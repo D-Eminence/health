@@ -997,8 +997,15 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + '{ items: { kind, orderId, encounterId, patient { patientId, fullName, sex, dateOfBirth, healthIdLast4 }, display, '
     + 'status, priority, createdAt, updatedAt, ownProgress, orderRoute? }[], hiddenCount, hiddenCountComplete, since, '
     + 'nextCursor }; a page may hold fewer rows than limit while nextCursor is set. 503 MY_ORDERS_UNAVAILABLE.'),
-  r('ehr.vitals','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals',GP,false,{GET:['ehr.vital.read'],POST:['ehr.vital.write']}),
-  r('ehr.vital','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals/:vitalId',G,false,one('GET','ehr.vital.read')),
+  r('ehr.vitals','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals',GP,false,{GET:['ehr.vital.read'],POST:['ehr.vital.write']},
+    'Novu (EHR-C8b, hid-system 0142, Release B): each reading has status recorded | entered_in_error and statusChangedAt. '
+    + 'The list leaves readings entered in error out unless the query includeEnteredInError=true (only true or false, '
+    + 'else 400 VALIDATION_FAILED); a cursor is valid only for the choice it was issued with.'),
+  r('ehr.vital','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals/:vitalId',GPA,false,{GET:['ehr.vital.read'],PATCH:['ehr.vital.write']},
+    'PATCH is EHR-C8b (Novu, hid-system 0142, Release B): direct-care, no Idempotency-Key. Body exactly { expectedRowVersion, '
+    + 'status: entered_in_error, changeReason (3 to 500 characters) }; it cannot be undone. 200 the reading. 400 '
+    + 'CHANGE_REASON_REQUIRED or VALIDATION_FAILED; 403 CONSENT_REQUIRED; 404 VITAL_NOT_FOUND; 409 '
+    + 'VITAL_ALREADY_ENTERED_IN_ERROR (before the version check); 412 VERSION_CONFLICT; 503 VITALS_STATUS_UNAVAILABLE.'),
   r('ehr.vitalCorrections','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals/:vitalId/corrections',GP,false,{GET:['ehr.vital.read'],POST:['ehr.vital.write']}),
   r('ehr.notes','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/clinical-notes',GP,false,{GET:['ehr.note.read'],POST:['ehr.note.write']}),
   r('ehr.note','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/clinical-notes/:noteId',GPA,false,{GET:['ehr.note.read'],PATCH:['ehr.note.write']}),

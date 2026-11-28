@@ -9,6 +9,7 @@ import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
 import { TONE_OUTLINE } from '../../../kasuwa/ui'
 import { COLLEAGUE, DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, FACILITY_NAME, PATIENT_HID, PATIENT_ID, SIGNED_IN, activePatient, allowedLookup, labelled, patientBanner, renderPage, type SignedIn } from './harness'
 import { consultationLabel } from '../../../plainLabels'
+import { refusalText } from '../../../staff/fieldProblem'
 import { SAID_CHANGED, SAID_FIELDS_REFUSED, SAID_REFUSED, SAID_UNAVAILABLE } from '../../said'
 import { OWN_DOCUMENTS_ONLY, STARTS_WITH_OTHERS } from '../../../scanAccess'
 
@@ -909,6 +910,27 @@ describe('Consultation record', () => {
     expect((actions().getByLabelText(labelled('Reason for change')) as HTMLInputElement).value).toBe('Opened on the wrong patient')
     expect(submitOf(label).getAttribute('aria-busy')).toBeNull()
     expect(menuLabels()).toContain(label)
+  })
+
+  it.each([
+    ['Cancel consultation', 'CONSENT_REQUIRED', 403],
+    ['Complete consultation', 'PURPOSE_OF_USE_REQUIRED', 400],
+    ['Complete consultation', 'CLINICAL_RESOURCE_NOT_FOUND', 404],
+    ['Mark as entered in error', 'CHANGE_REASON_REQUIRED', 400],
+  ])('parity: a refused "%s" (%s) keeps release D’s own words, not those of a completed consultation’s entered in error', async (label, code, status) => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    const refusal = new HidApiError(status, 'Server words that must not be shown', { code })
+    api.updateEncounter.mockRejectedValue(refusal)
+    await openEncounter()
+    chooseMore(label)
+    fireEvent.change(actions().getByLabelText(labelled('Reason for change')), { target: { value: 'Opened on the wrong patient' } })
+    fireEvent.click(submitOf(label))
+    if (label === 'Cancel consultation') fireEvent.click(within(dialog()).getByRole('button', { name: label }))
+    // Release D's status form says every such refusal as the facility's plain refusal, in the form, the reason kept.
+    expect((await actions().findByRole('alert')).textContent).toBe(refusalText(refusal, 'Status could not be changed.'))
+    expect(actions().queryByText('Give a reason of at least 3 characters.')).toBeNull()
+    expect(document.body.textContent).not.toContain('Server words that must not be shown')
+    expect((actions().getByLabelText(labelled('Reason for change')) as HTMLInputElement).value).toBe('Opened on the wrong patient')
   })
 
   it.each([

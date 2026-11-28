@@ -1,13 +1,13 @@
 # HID Interface Contract: EHR sections (copy)
 
-> Source: `docs/INTERFACE_CONTRACT.md` in the backend repository D-Eminence/hid-system, branch `staging-novu-ci-20261005`, commit `092cd248566aaedee897910ded783c7826c79b98` (19 Nov 2026).
+> Source: `docs/INTERFACE_CONTRACT.md` in the backend repository D-Eminence/hid-system, branch `staging-novu-ci-20261005`, commit `092cd248566aaedee897910ded783c7826c79b98` (19 Nov 2026). Section EHR-C8b, and the EHR-C3 rule that names it, are copied from commit `d519e5d1cb40fdae4598251387989879aff415bb` (24 Nov 2026, backend release C), which the website's services are pinned to.
 
 This is a reviewed copy of the live contract sections the EHR screens use, for frontend developers who cannot open the backend repository. The backend repository is the source of truth; see [README.md](README.md).
 
 - Only the sections below are copied: the ones named in the EHR message, plus section 53, which SX-5 cites, and the live sections that [EHR_PLANNED_CONTRACT.md](EHR_PLANNED_CONTRACT.md) cites for behaviour the EHR, laboratory and pharmacy screens call or show (sections 8, 9, 13, 21-24, 29, 43, 44, 46 and 54). They keep their original headings and their order in the source file.
 - Section text is copied exactly. Where the source held backend detail that is not shared outside the backend team, the text reads "[backend detail omitted]".
 - Some paragraphs and subsections are omitted whole and read only "[backend detail omitted]", so a "below" or "above" in the kept text can point at an omitted part. Ask the coordinator if you need to know what it says. Section 8 is also copied without the subsections that serve only the patient portal ("Patient enrollment activation signs the patient in", "Patient emails", "Patient sign-up without NIN") or only the Outreach site ("Outreach registration boundary"); those are left out without a marker, and so is one table row in section 54 (the identity provider's own back-channel logout route, which the browser never calls).
-- Other sections of the source are not copied here, for example "Current browser and notification boundary" (patient portal and notifications; the planned contract cites its subsection "Patient sessions and self service" only for the line it quotes, "Staff and platform sessions keep 8 hours"), section 19 (the platform administration console), sections 40, 48 and 49 (the Outreach site) and section 52 (the sealed QA tenant). The planned contract also names a section 56 and a section 0136; neither is in the live contract at the source commit. Labels such as ID-2, ID-4, EHR-C7 or 0132 are Release A sections, which reach the live contract once signed. Labels such as EHR-C6, EHR-C8b, SX-6 or SX-7 are in [EHR_PLANNED_CONTRACT.md](EHR_PLANNED_CONTRACT.md). For anything not here, ask the coordinator.
+- Other sections of the source are not copied here, for example "Current browser and notification boundary" (patient portal and notifications; the planned contract cites its subsection "Patient sessions and self service" only for the line it quotes, "Staff and platform sessions keep 8 hours"), section 19 (the platform administration console), sections 40, 48 and 49 (the Outreach site) and section 52 (the sealed QA tenant). The planned contract also names a section 56 and a section 0136; neither is in the live contract at the source commit. Labels such as ID-2, ID-4, EHR-C7 or 0132 are Release A sections, which reach the live contract once signed. Labels such as EHR-C6, SX-6 or SX-7 are in [EHR_PLANNED_CONTRACT.md](EHR_PLANNED_CONTRACT.md); EHR-C8b is there as the plan and [here](#ehr-c8b-vitals-marked-entered-in-error-release-b-migration-0142-not-live-until-signed) as built. For anything not here, ask the coordinator.
 - File paths such as `services/...` or `docs/codes/hid-lab-codes.json` are paths in the backend repository. The HID-LAB code list is copied in this folder as [codes/hid-lab-codes.json](codes/hid-lab-codes.json).
 
 ## Where each reference in the EHR message points
@@ -20,6 +20,7 @@ This is a reviewed copy of the live contract sections the EHR screens use, for f
 | [EHR-C1] | [EHR-C1. The open visit today, and starting a visit without a duplicate (wave 1, no migration)](#ehr-c1-the-open-visit-today-and-starting-a-visit-without-a-duplicate-wave-1-no-migration) |
 | [EHR-C3] | [EHR-C3. Latest vitals for a patient (wave 1, no migration)](#ehr-c3-latest-vitals-for-a-patient-wave-1-no-migration) |
 | [EHR-C8a] | [EHR-C8a. A completed visit entered in error (wave 1, no migration)](#ehr-c8a-a-completed-visit-entered-in-error-wave-1-no-migration) |
+| (the vitals screens) EHR-C8b | [EHR-C8b. Vitals marked entered in error (Release B, migration 0142; not live until signed)](#ehr-c8b-vitals-marked-entered-in-error-release-b-migration-0142-not-live-until-signed) |
 | [SX-10, SX-5, SX-9] | [SX-10. Registration-case list for the desk and approvers (Akos wave 1, no migration)](#sx-10-registration-case-list-for-the-desk-and-approvers-akos-wave-1-no-migration)<br>[SX-5. My staff profile, read only (no migration)](#sx-5-my-staff-profile-read-only-no-migration)<br>[SX-9. Saved lists: this facility's OCR jobs and staff names (no migration)](#sx-9-saved-lists-this-facilitys-ocr-jobs-and-staff-names-no-migration) |
 | [ORD-3] | [ORD-3. Own pharmacy and laboratory progress on prescriptions and lab requests (wave 1, no migration)](#ord-3-own-pharmacy-and-laboratory-progress-on-prescriptions-and-lab-requests-wave-1-no-migration) |
 | [ORD-10 phase 1] | [ORD-10 phase 1. Same-medicine warning when prescribing (wave 1, no migration)](#ord-10-phase-1-same-medicine-warning-when-prescribing-wave-1-no-migration) |
@@ -1747,8 +1748,9 @@ Rules:
   `bloodPressure`, true when the correction set either half of the pair).
 - Blood pressure is one measure and is always the systolic and diastolic
   pair from the same reading; it is never mixed across readings.
-- Vitals of a visit entered in error are left out. (A single vital entered
-  in error waits for EHR-C8b, migration 0142.)
+- Vitals of a visit entered in error are left out, and so is a single
+  reading marked entered in error (EHR-C8b, migration 0142): the next newest
+  reading is used.
 - Values are JSON numbers (the per-visit vitals list still returns numeric
   columns as strings, unchanged).
 
@@ -3021,3 +3023,81 @@ Read `actor.facility.modules` (or the chosen facility's entry in
 `actor.facilities`) and hide each menu item and home tile whose key is
 `false`; P1-5 hides Facility settings when `admin` is `false`. Treat a
 missing `modules` (an older backend) as today: show what is shown now.
+
+## EHR-C8b. Vitals marked entered in error (Release B, migration 0142; not live until signed)
+
+Akos P1-14 and the QA question "mark the QA test vitals record entered in
+error". The planned contract's "EHR-C8b" is the spec; this section is what is
+built. One vitals reading can be withdrawn for good, without entering the
+whole visit in error (EHR-C8a). It cannot be undone: to fix a mistake, record
+the vitals again.
+
+### `PATCH /api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals/:vitalId`
+
+`X-Facility-Id`, `X-Purpose-Of-Use: direct-care`, permission `ehr.vital.write`
+and the patient's `write_records` consent, as a correction. UUIDs only. No
+Idempotency-Key: the row version protects it. Body, exactly these fields:
+
+```json
+{ "expectedRowVersion": 2, "status": "entered_in_error", "changeReason": "Recorded on the wrong patient" }
+```
+
+- `expectedRowVersion`: whole number, 1 or more (the reading's `rowVersion`).
+- `status`: only `entered_in_error`.
+- `changeReason`: required, trimmed, 3 to 500 characters.
+
+[backend detail omitted] `200`: the reading as
+`GET .../vitals/:vitalId` answers it, with `status: "entered_in_error"`,
+`statusChangedAt` and the new `rowVersion`.
+
+[backend detail omitted] A reading of another visit, patient or facility (or
+none) [backend detail omitted], as a correction does, and answers 404
+`VITAL_NOT_FOUND`.
+
+### `status` on every vitals answer
+
+Every answer that returns a reading (the list, the read, a create and its
+replay, the one-call consultation's vitals, this PATCH) carries `status`
+(`recorded` or `entered_in_error`) and `statusChangedAt` (null while
+recorded). A correction answers the correction, as today: it can only be made
+on a recorded reading.
+
+| Read | Readings entered in error |
+|---|---|
+| `GET .../encounters/:encounterId/vitals` | Left out by default. `?includeEnteredInError=true` lists them with their status (`true` or `false` only; a cursor is valid only for the choice it was issued with). |
+| `GET .../vitals/:vitalId` | Still answered, with `status`. |
+| `GET .../vitals/:vitalId/corrections` | Still answered, as today (no `status`: read it on `GET .../vitals/:vitalId`). |
+| `GET /ehr/patients/:patientId/vitals/latest` (EHR-C3) and the chart summary (EHR-C4) | Left out: the next newest reading is used. |
+| The patient's own record and patient chat; staff record evidence and staff chat | Left out. [backend detail omitted] |
+| `POST .../vitals/:vitalId/corrections` | Refused: 409 `VITAL_ENTERED_IN_ERROR`. |
+
+On a database without 0142 every reading reads as `recorded`, and the PATCH
+answers 503 `VITALS_STATUS_UNAVAILABLE`.
+
+### Errors
+
+| HTTP | Code | Message |
+|---|---|---|
+| 400 | `VALIDATION_FAILED` | One or more request fields are invalid. (another status, a reason under 3 or over 500 characters or of only spaces, an unknown field) |
+| 400 | `CHANGE_REASON_REQUIRED` | Please say why you are changing this. (no `changeReason`) |
+| 400 | `PURPOSE_OF_USE_REQUIRED` | as today |
+| 403 | `CONSENT_REQUIRED`, `PERMISSION_DENIED` | as today |
+| 404 | `VITAL_NOT_FOUND` | These vitals were not found. |
+| 409 | `VITAL_ALREADY_ENTERED_IN_ERROR` | These vitals are already marked as entered in error. |
+| 409 | `VITAL_ENTERED_IN_ERROR` | These vitals were marked as entered in error. Record new vitals instead. (on a correction) |
+| 412 | `VERSION_CONFLICT` | Someone else changed these vitals. Reload them and try again. (also on a correction) |
+| 503 | `VITALS_STATUS_UNAVAILABLE` | This cannot be done right now. Please try again. |
+
+### Database (0142)
+
+[backend detail omitted]
+
+### Screen notes
+
+- Offer "Entered in error" on each vitals row of a visit. Ask for the reason
+  (required), send `expectedRowVersion`, then read the list and "Latest
+  vitals" again.
+- History may show withdrawn readings struck through, labelled "Entered in
+  error", with `includeEnteredInError=true`.
+- On `VITAL_ALREADY_ENTERED_IN_ERROR`, treat it as done. On
+  `VERSION_CONFLICT`, reload and ask again.

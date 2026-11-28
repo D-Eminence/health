@@ -1,6 +1,7 @@
 import { isHidApiError, plainErrorText } from '@hid/http'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { staffApi, type ClinicalRecord, type Encounter, type Page, type RecordKind } from '../../../staff/api'
+import { staffApi, type ClinicalRecord, type Encounter, type Page, type RecordKind, type RecordsRequest } from '../../../staff/api'
+import { usesNovuBackend } from '../../../backendContract'
 import { refusalSentences, refusalText, refusedFields } from '../../../staff/fieldProblem'
 import type { Chart } from '../parts/chart'
 import { visitClassLabel, visitStatusLabel } from '../../../plainLabels'
@@ -49,6 +50,23 @@ export async function readPage<P extends Page<unknown>>(read: (cursor: string | 
     if (cursors.length < 2 || !isHidApiError(caught) || caught.code !== 'INVALID_CURSOR') throw caught
     return { page: await read(undefined, true), cursors: FIRST_PAGE, restarted: true }
   }
+}
+
+/**
+ * How a record list is read here: Novu's vitals list leaves readings marked entered in error out unless asked
+ * (EHR-C8b), and the blue pages show them as EHR answers them, with classic's "Entered in error" words, so a reading
+ * just withdrawn stays on its page and in its list. Other kinds, and an earlier backend, are read as before.
+ */
+export function listRead(kind: RecordKind): Pick<RecordsRequest, 'includeEnteredInError'> {
+  return kind === 'vitals' && usesNovuBackend() ? { includeEnteredInError: true } : {}
+}
+
+/** One page of a visit's records of a kind (listRead), with `page` (a cursor, fresh): today's call when neither applies. */
+export function readRecords(chart: Pick<Chart, 'facilityId' | 'patientId'>, encounterId: string, kind: RecordKind, page: RecordsRequest = {}) {
+  const request = { ...page, ...listRead(kind) }
+  return Object.keys(request).length > 0
+    ? staffApi.records(chart.facilityId, chart.patientId, encounterId, kind, request)
+    : staffApi.records(chart.facilityId, chart.patientId, encounterId, kind)
 }
 
 /** A row version as EHR sends it (a number or text), or null when it cannot be sent back. */
@@ -176,9 +194,7 @@ export function usePatientRecords(chart: Chart, kind: RecordKind | null, keep: (
       let more = false
       // With no kind, only the encounters are wanted (a create page's "Visit").
       const lists = kind === null ? [] : await Promise.all(visits.map(encounter => {
-        const read = request.fresh
-          ? staffApi.records(facilityId, patientId, encounter.id, kind, { fresh: true })
-          : staffApi.records(facilityId, patientId, encounter.id, kind)
+        const read = readRecords({ facilityId, patientId }, encounter.id, kind, request.fresh ? { fresh: true } : {})
         return read.then(
           page => {
             if (page.nextCursor) more = true
@@ -223,9 +239,7 @@ export async function readVisitRecords(chart: Pick<Chart, 'facilityId' | 'patien
   const items: ClinicalRecord[] = []
   let cursor: string | undefined
   for (let page = 0; page < 20; page += 1) {
-    const read = cursor
-      ? await staffApi.records(facilityId, patientId, encounterId, kind, { cursor, fresh })
-      : fresh ? await staffApi.records(facilityId, patientId, encounterId, kind, { fresh: true }) : await staffApi.records(facilityId, patientId, encounterId, kind)
+    const read = await readRecords({ facilityId, patientId }, encounterId, kind, cursor ? { cursor, fresh } : fresh ? { fresh: true } : {})
     items.push(...read.items.filter(record => record.patientId === patientId && record.encounterId === encounterId))
     if (!read.nextCursor) break
     cursor = read.nextCursor
