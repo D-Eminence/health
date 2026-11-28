@@ -22,10 +22,13 @@ const newLine = (): LineDraft => ({ key: crypto.randomUUID(), item: null, batch:
 function checkLine(line: LineDraft, today: string): LineErrors {
   const errors: LineErrors = {}
   if (!line.item) errors.item = 'Choose the item from the price list.'
+  // Stock is counted only for a drug with stock settings (BILL-1 §7): refused STOCK_NOT_KEPT otherwise.
+  else if (line.item.stockKept === false) errors.item = 'Stock is not counted for this item yet. Set its unit in Stock (Count stock for an item) first.'
   if (!line.batch.trim()) errors.batch = 'Type the batch number on the pack.'
+  else if (line.batch.trim().length > 60) errors.batch = 'A batch number is at most 60 characters.'
   if (!line.expires) errors.expires = 'Type the expiry date on the pack.'
   else if (line.expires <= today) errors.expires = 'This batch has expired. Don’t put it on the shelf.'
-  if (!/^\d+$/.test(line.quantity.trim()) || Number(line.quantity) <= 0) errors.quantity = 'Type how many, as a whole number.'
+  if (!/^\d+$/.test(line.quantity.trim()) || Number(line.quantity) <= 0 || Number(line.quantity) > 1_000_000) errors.quantity = 'Type how many, as a whole number up to 1,000,000.'
   if (line.cost.trim() && parseNaira(line.cost) === null) errors.cost = 'Type an amount like 1,250 or 1250.00.'
   return errors
 }
@@ -38,7 +41,7 @@ function checkLine(line: LineDraft, today: string): LineErrors {
 export function ReceiveStock() {
   const { facilityId, permissions } = useDeptAccess()
   if (!facilityId || !permissions.includes('pharmacy.stock.manage')) return <FormPage title="Receive stock" back={BACK}>
-    <EmptyState icon={PackagePlus} title="You can’t receive stock here" description="Your role needs permission to manage the pharmacy’s stock." />
+    <EmptyState icon={PackagePlus} title="You can’t receive stock here" description="Your role here does not include managing the pharmacy’s stock." />
   </FormPage>
   return <ReceiveForm key={facilityId} facilityId={facilityId} />
 }
@@ -90,6 +93,8 @@ function ReceiveForm({ facilityId }: { readonly facilityId: string }) {
     setError(result.error)
   }
   function again() {
+    // Another delivery is a new one, even if it is typed exactly like this one: its own Idempotency-Key.
+    keyFor.next()
     setSupplier(''); setInvoice(''); setLines([newLine()]); setErrors({}); setSaved(null)
     focus('receive-supplier')
   }
@@ -152,7 +157,7 @@ function ReceiveLine({ n, facilityId, line, errors, today, onChange, onRemove }:
     <ItemChooser id={id} facilityId={facilityId} item={line.item} error={errors.item} onChoose={item => onChange({ item })} />
     <div className="grid gap-3 @md:grid-cols-2">
       <Field label="Batch number" htmlFor={`${id}-batch`} error={errors.batch} errorId={`${id}-batch-error`}>
-        <Input id={`${id}-batch`} {...described('batch')} value={line.batch} maxLength={80} autoComplete="off" className="h-11" onChange={event => onChange({ batch: event.target.value })} />
+        <Input id={`${id}-batch`} {...described('batch')} value={line.batch} maxLength={60} autoComplete="off" className="h-11" onChange={event => onChange({ batch: event.target.value })} />
       </Field>
       <Field label="Expiry date" htmlFor={`${id}-expires`} error={errors.expires} errorId={`${id}-expires-error`}>
         <Input id={`${id}-expires`} {...described('expires')} type="date" min={today} value={line.expires} className="h-11" onChange={event => onChange({ expires: event.target.value })} />
@@ -182,6 +187,7 @@ function ItemChooser({ id, facilityId, item, error, onChoose }: {
       {item.strength || item.packSize ? <p className="m-0 text-[13px] text-ink-2">{[item.strength, item.packSize].filter(Boolean).join(' · ')}</p> : null}
     </div>
     <Button variant="ghost" aria-label={`Change item: ${item.name}`} onClick={() => onChoose(null)}>Change</Button>
+    {error ? <p id={`${id}-item-error`} role="alert" className="m-0 basis-full text-xs font-medium text-danger-ink">{error}</p> : null}
   </div>
   return <Field label="Item" htmlFor={`${id}-search`} error={error} errorId={`${id}-item-error`}>
     <div className="relative">

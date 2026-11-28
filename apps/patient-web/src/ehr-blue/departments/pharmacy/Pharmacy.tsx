@@ -35,7 +35,7 @@ import {
 } from './pharmacyText'
 import { useStaffNameLookup } from './staffNames'
 import { BillBadge } from '../commerce/BillBadge'
-import { pointOfCareOpen } from '../commerce/served'
+import { walkInQueueOpen } from '../commerce/served'
 import { StockLine } from './pointOfCare'
 import { billOf, stockOf } from './pocFields'
 
@@ -57,9 +57,9 @@ export function Prescriptions() {
   const { facilityId } = useDeptAccess()
   const { pathname } = useLocation()
   if (openedOf(pathname) !== 'paper') return <PrescriptionQueue />
-  // A paper prescription is sent on point-of-care routes Health ID does not serve yet (commerce/served.ts): anywhere but
-  // the demo facilities its address is the list, so nothing is typed in only to be refused.
-  return pointOfCareOpen(facilityId) ? <PaperPrescription /> : <Navigate replace to={PRESCRIPTIONS} />
+  // Queuing a paper prescription is not served yet (BILL-13, commerce/served.ts walkInQueueOpen): anywhere but the demo
+  // facilities its address is the list, so nothing is typed in only to be refused.
+  return walkInQueueOpen(facilityId) ? <PaperPrescription /> : <Navigate replace to={PRESCRIPTIONS} />
 }
 /** The name earlier code knew this page by. */
 export { Prescriptions as Pharmacy }
@@ -232,7 +232,7 @@ function PrescriptionQueue() {
       : <span id={HEADING} tabIndex={-1}>Prescriptions</span>}
       description={selected ? undefined : prescriptionsIntro(holds)}
       onBack={selected ? back : undefined} backLabel={cameFrom(location.state)?.label ?? "Back to prescriptions"} backUnavailable={selected ? recording : undefined}
-      primaryAction={!selected && pointOfCareOpen(facilityId) && permissions.includes('pharmacy.walk-in.create')
+      primaryAction={!selected && walkInQueueOpen(facilityId) && permissions.includes('pharmacy.walk-in.create')
         ? <Button variant="primary" icon={FileText} to={`${PRESCRIPTIONS}/paper`}>Paper prescription</Button> : undefined}
       secondaryActions={selected ? undefined : refresh}>
       {/* Classic's list says its failure alone (Operations.tsx ListState), with no title (parity 3.3-69, Q143 B). */}

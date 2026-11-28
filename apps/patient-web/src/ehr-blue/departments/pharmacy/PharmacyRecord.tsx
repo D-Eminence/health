@@ -34,7 +34,7 @@ import {
 } from './pharmacyText'
 import { useAcceptorName, type StaffNameLookup } from './staffNames'
 import { useAttemptKey } from './walkIn'
-import type { PaymentSettings, WorkItemBill } from '../commerce/api'
+import { BILLING_WORDS, type PaymentSettings, type WorkItemBill } from '../commerce/api'
 import { BillBadge } from '../commerce/BillBadge'
 import { pointOfCareOpen } from '../commerce/served'
 import { PaidLine, PaymentStep, StockLine } from './pointOfCare'
@@ -48,8 +48,11 @@ import { billOf, billOwing, paysFirst, stockOf } from './pocFields'
  * own sentences and the words every page shares.
  */
 function failureOf(caught: unknown): string {
+  // A dispensing refused by stock or by pay-before (hid-system BILL-1, 0167): its own words, as the screen shows them.
+  if (isHidApiError(caught) && DISPENSING_REFUSALS.includes(caught.code)) return BILLING_WORDS[caught.code]!
   return errorText(caught, ACTION_FAILED)
 }
+const DISPENSING_REFUSALS: readonly string[] = ['OUT_OF_STOCK', 'STOCK_UNIT_MISMATCH', 'PAYMENT_REQUIRED', 'PAYMENT_PENDING_CHECK']
 
 /** Accept's words when Pharmacy may have recorded it before the wait ran out: the list says so before anything is pressed again. */
 const ACCEPT_TIMED_OUT = 'Health ID took too long to answer, so this may already be recorded. Go back to Prescriptions '
@@ -273,7 +276,7 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
     try {
       confirmed = await ask(reverse
         ? { subject: banner, effect: `Reverse the dispensing of ${item.medication.display} for ${name}?`, confirmLabel: 'Reverse dispensing',
-          undo: 'The dispensing is marked reversed in the record. It can’t be dispensed again on this prescription.' }
+          undo: 'The dispensing is marked reversed in the record. It can’t be dispensed again on this prescription. The stock count does not change: if the medicine came back to the shelf, correct the count on the Stock page.' }
         : { subject: banner, effect: `Dispense ${String(quantity).replace(/^\./, '0.')} ${unit} of ${item.medication.display} to ${name}?`, confirmLabel: 'Dispense',
           undo: 'If this was a mistake, you can reverse the dispensing afterwards.' })
     } finally { asking.current = false }

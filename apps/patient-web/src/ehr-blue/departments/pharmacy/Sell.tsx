@@ -1,11 +1,11 @@
-import { lagosDay } from '@hid/ui/display'
+import { formatDate, lagosDay } from '@hid/ui/display'
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { ArrowRight, Check, CircleCheck, FileText, PackageCheck, Pencil, Plus, Printer, Search, ShoppingBag, Trash2, UserRound, Wallet, X } from 'lucide-react'
+import { Check, CircleCheck, FileText, PackageCheck, Pencil, Plus, Printer, Search, ShoppingBag, Trash2, UserRound, Wallet, X } from 'lucide-react'
 import { Modal } from '../../../kasuwa/interactive'
 import { FormActions, PageState } from '../../../kasuwa/parts'
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, Field, Input, PageHeader } from '../../../kasuwa/ui'
 import { useFocusById } from '../../../staff/focus'
-import { commerce, type Bill, type CatalogueItem, type ListPage, type PaymentSettings, type ReceiptData, type StockLine as StockRow, type WalkInOrder } from '../commerce/api'
+import { billName, commerce, type Bill, type CatalogueItem, type ListPage, type PaymentSettings, type ReceiptData, type StockLine as StockRow, type WalkInOrder } from '../commerce/api'
 import { naira } from '../commerce/money'
 import { NOT_SET_UP_UNSAVED, NotSwitchedOn } from '../commerce/NotSwitchedOn'
 import { useOrderPhotoUpload } from '../commerce/orderPhoto'
@@ -15,8 +15,8 @@ import { useCommerceRead } from '../commerce/useCommerceRead'
 import { useDeptAccess } from '../parts/access'
 import { ItemCover, PaymentStep, usePaymentSettings } from './pointOfCare'
 import { Breakable } from './PharmacyQueue'
-import { drugFormFromCatalogue, paysFirst, summaryOf } from './pocFields'
-import { canGiveHealthId, GiveHealthId } from './saleAfter'
+import { drugFormFromCatalogue, summaryOf } from './pocFields'
+import { canGiveHealthId, GiveHealthId, SALE_CHANGED } from './saleAfter'
 import {
   checkOutside, EMPTY_OUTSIDE, normalizeHealthId, normalizePhone, OutsideFields, outsideOrder, PickCard, Stepper, useAttemptKey,
   type OutsideDraft, type OutsideErrors, type PickItem,
@@ -55,7 +55,7 @@ export function Sell() {
   const { facilityId, permissions } = useDeptAccess()
   if (!facilityId || !permissions.includes('pharmacy.walk-in.create')) return <div className="flex flex-col gap-6">
     <PageHeader title="Sell" />
-    <EmptyState icon={ShoppingBag} title="You can’t sell here" description="Your role needs permission to sell at the counter. Ask the pharmacist in charge." />
+    <EmptyState icon={ShoppingBag} title="You can’t sell here" description="Your role here does not include selling at the counter. Ask the pharmacist in charge." />
   </div>
   return <Counter key={facilityId} facilityId={facilityId} permissions={permissions} />
 }
@@ -182,13 +182,16 @@ function Counter({ facilityId, permissions }: { readonly facilityId: string; rea
       return
     }
     setSale(result.data.bill)
-    const cleared = result.data.bill.status === 'paid' || result.data.bill.status === 'deferred'
+    // A counter sale is always paid first (BILL-1 §8): handed over once it is paid.
+    const cleared = result.data.bill.status === 'paid'
     setStage(cleared ? 'handover' : 'pay')
     if (!cleared && !cashier) setPaying(true)
     focus(cleared ? 'sell-handover-title' : 'sell-pay-title')
   }
 
   function startAgain() {
+    // The next sale is a new one, even if it is typed exactly like this one: its own Idempotency-Key.
+    keyFor.next()
     if (prescription) photoUpload.release(prescription.photo)
     setLines([]); setCustomer(NO_CUSTOMER); setCustomerOpen('none'); setHidError(''); setPrescription(null); setSale(null)
     setStage('basket'); setSendError(''); setOff(false); setQuery(''); setSaid('')
@@ -199,7 +202,7 @@ function Counter({ facilityId, permissions }: { readonly facilityId: string; rea
     paying={paying} onPayingChange={setPaying} onSale={setSale} onStartAgain={startAgain}
     onCleared={() => { setStage('handover'); focus('sell-handover-title') }} />
   if (sale && stage === 'handover') return <HandOverStage facilityId={facilityId} sale={sale} lines={lines} permissions={permissions}
-    onHandedOver={bill => { setSale(bill); setStage('done'); focus('sell-done-title') }} />
+    onSale={setSale} onHandedOver={bill => { setSale(bill); setStage('done'); focus('sell-done-title') }} />
   if (sale && stage === 'done') return <DoneStage facilityId={facilityId} sale={sale} settings={settings} permissions={permissions}
     onSale={setSale} onNext={startAgain} />
 
@@ -242,7 +245,7 @@ function Counter({ facilityId, permissions }: { readonly facilityId: string; rea
             </ul>}
           {prescription ? <div className="flex items-start justify-between gap-3 border-t border-line px-5 py-3">
             <p className="m-0 min-w-0 text-[14px] text-ink-2 [overflow-wrap:anywhere]"><FileText className="mr-1.5 inline size-4 align-[-3px] text-ink-3" aria-hidden />
-              Prescription: <span className="font-medium text-ink">{[prescription.prescriberName, prescription.facilityName, prescription.writtenOn].filter(Boolean).join(' · ')}</span></p>
+              Prescription: <span className="font-medium text-ink">{[prescription.prescriberName, prescription.facilityName, formatDate(prescription.writtenOn)].filter(Boolean).join(' · ')}</span></p>
             <Button variant="ghost" size="sm" icon={Pencil} aria-label="Change the prescription" className="max-sm:size-11 max-sm:px-0" onClick={() => setAsking({ entry: null })} />
           </div> : null}
           <CustomerPart customer={customer} open={customerOpen} hidError={hidError}
@@ -349,7 +352,7 @@ function CustomerPart({ customer, open, hidError, onOpen, onChange }: {
 
 /**
  * The doctor's prescription, asked for as a prescription-only drug is added: who wrote it (needed), the hospital or
- * clinic, the date, and a photo of the paper (uploaded as chosen). Kept for the whole sale.
+ * clinic and the date. No photo of the paper until the order-photo upload ships (BILL-1). Kept for the whole sale.
  */
 function PrescriptionSheet({ open, drug, start, photoUpload, onClose, onSave }: {
   readonly open: boolean; readonly drug: string | null; readonly start: OutsideDraft
@@ -379,28 +382,31 @@ function PrescriptionForm({ drug, start, photoUpload, onClose, onSave }: {
     description={drug ? `${drug} needs a prescription.` : undefined}
     footer={<><Button onClick={onClose}>Cancel</Button>
       <Button variant="primary" icon={drug ? Plus : Check} aria-disabled={photoUpload.uploading || undefined} onClick={save}>{drug ? 'Add to basket' : 'Save'}</Button></>}>
-    <OutsideFields idBase="sell-rx" outside={draft} errors={errors} contact={false} paper="prescription" photoUpload={photoUpload}
+    <OutsideFields idBase="sell-rx" outside={draft} errors={errors} contact={false} paper="prescription" photoUpload={photoUpload} photo={false}
       onPhoto={photo => { setDraft(current => ({ ...current, photo })); setErrors({}) }}
       onChange={next => { setDraft(next); setErrors({}) }} />
   </Modal>
 }
 
-/** Pay: the bill, and the payment step (Take payment, Send to cashier, Bill follows, by the payment setup). */
+/**
+ * Pay: the bill, and the payment step (Take payment, Send to cashier, Bill follows, by the payment setup). However it
+ * was paid (this drawer, the payment step's own, or at the cashier and then Check again), the sale as paid is kept: the
+ * hand-over sends its version.
+ */
 function PayStage({ facilityId, sale, settings, permissions, paying, onPayingChange, onSale, onCleared, onStartAgain }: {
   readonly facilityId: string; readonly sale: Bill; readonly settings: PaymentSettings | null; readonly permissions: readonly string[]
   readonly paying: boolean; readonly onPayingChange: (open: boolean) => void; readonly onSale: (bill: Bill) => void
   readonly onCleared: () => void; readonly onStartAgain: () => void
 }) {
   const paid = useRef<Bill | null>(null)
-  const cleared = (bill: Bill) => bill.status === 'paid' || bill.status === 'deferred'
+  const cleared = (bill: Bill) => bill.status === 'paid'
   return <div data-layout="column" className="mx-auto flex w-full max-w-2xl flex-col gap-4">
-    <PageHeader title={<span id="sell-pay-title" tabIndex={-1} className="outline-none">Pay</span>} description={`${sale.patient?.displayName ?? 'Walk-in'} · Bill ${sale.number}`} />
+    <PageHeader title={<span id="sell-pay-title" tabIndex={-1} className="outline-none">Pay</span>} description={`${billName(sale)} · Bill ${sale.number}`} />
     <BillSummary bill={sale} />
     {settings ? <PaymentStep key={sale.version} facilityId={facilityId} summary={summaryOf(sale)} settings={settings} permissions={permissions}
-      subject={null} verb="hand over" headingId="sell-payment" onCleared={() => onCleared()} />
+      subject={null} verb="hand over" headingId="sell-payment" onCleared={(_summary, bill) => { onSale(bill); onCleared() }} counterSale />
       : <NotSwitchedOn />}
     <FormActions sticky={false} align="start">
-      {settings && !paysFirst(settings, 'pharmacy') ? <Button iconRight={ArrowRight} onClick={onCleared}>Hand over first</Button> : null}
       <Button variant="ghost" onClick={onStartAgain}>Start again</Button>
     </FormActions>
     {/* Opened at once when the counter takes payment: the quickest way through. */}
@@ -409,28 +415,37 @@ function PayStage({ facilityId, sale, settings, permissions, paying, onPayingCha
   </div>
 }
 
-/** Hand over: what goes across the counter, then one press records it (stock comes off the shelf). */
-function HandOverStage({ facilityId, sale, lines, permissions, onHandedOver }: {
+/**
+ * Hand over: what goes across the counter, then one press records it (stock comes off the shelf), with the version of the
+ * sale as paid. Refused because the sale changed meanwhile (nothing was recorded), it is read again and the next press
+ * is a new request; one someone else already handed over is finished.
+ */
+function HandOverStage({ facilityId, sale, lines, permissions, onSale, onHandedOver }: {
   readonly facilityId: string; readonly sale: Bill; readonly lines: readonly Line[]; readonly permissions: readonly string[]
-  readonly onHandedOver: (bill: Bill) => void
+  readonly onSale: (bill: Bill) => void; readonly onHandedOver: (bill: Bill) => void
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [off, setOff] = useState(false)
-  const [key] = useState(() => crypto.randomUUID())
+  const [key, setKey] = useState(() => crypto.randomUUID())
   const may = permissions.includes('pharmacy.dispensing.create')
   async function handOver() {
     if (busy) return
     setBusy(true); setError(''); setOff(false)
-    const result = await commerce.handOverSale(facilityId, sale.id, key)
+    const result = await commerce.handOverSale(facilityId, sale.id, key, sale.version)
+    if (result.ok) { setBusy(false); onHandedOver(result.data.bill); return }
+    if (result.notAvailable) { setBusy(false); setOff(true); return }
+    if (result.code !== 'VERSION_CONFLICT' && result.code !== 'PRECONDITION_FAILED') { setBusy(false); setError(result.error); return }
+    setKey(crypto.randomUUID())
+    const fresh = await commerce.bill(facilityId, sale.id)
     setBusy(false)
-    if (result.ok) { onHandedOver(result.data.bill); return }
-    if (result.notAvailable) setOff(true)
-    else setError(result.error)
+    if (!fresh.ok) { setError(result.error); return }
+    if (fresh.data.handedOverAt) { onHandedOver(fresh.data); return }
+    onSale(fresh.data); setError(SALE_CHANGED)
   }
   return <div data-layout="column" className="mx-auto flex w-full max-w-2xl flex-col gap-4">
     <PageHeader title={<span id="sell-handover-title" tabIndex={-1} className="outline-none">Hand over</span>}
-      description={`${sale.patient?.displayName ?? 'Walk-in'} · Bill ${sale.number}`} />
+      description={`${billName(sale)} · Bill ${sale.number}`} />
     <Card>
       <ul className="m-0 flex list-none flex-col divide-y divide-line p-0">
         {sale.lines.map(billLine => {

@@ -20,6 +20,10 @@ const ROLE_LABELS: Readonly<Record<string, string>> = {
   records_officer: 'Records officer',
   billing: 'Billing officer',
   outreach_officer: 'Outreach officer',
+  // Patient billing's two roles (hid-system BILL-1, 0162; BILL-5, approved in principle): given and removed on the Staff
+  // page like any other role (SX-4). The design's Cashier and Billing Officer.
+  cashier: 'Cashier',
+  billing_officer: 'Billing officer',
 }
 
 /*

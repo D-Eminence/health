@@ -6,6 +6,8 @@ import { cx } from '../../../kasuwa/ui'
  * is said only once the staff member acts; a list that answers 404 shows its normal empty state instead.
  */
 export const NOT_SWITCHED_ON = 'This isn’t set up for your facility. Contact support.'
+/** What a billing page says when its own read answers 404 (BILLING_NOT_AVAILABLE, or a backend without BILL-1). */
+export const BILLING_OFF = 'Billing is not switched on at this facility yet.'
 /** The same, after a write: nothing was saved. */
 export const NOT_SET_UP_UNSAVED = 'This isn’t set up for your facility, so nothing was saved. Contact support.'
 

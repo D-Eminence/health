@@ -7,7 +7,7 @@ describe('the role a refusal names', () => {
   /** Every NamedRole, once: the type lists them, so leaving one out here, or adding one there only, fails to build. */
   const NAMED: Readonly<Record<NamedRole, true>> = {
     doctor: true, clinician: true, nurse: true, lab: true, pharmacist: true, receptionist: true, records_officer: true, billing: true,
-    outreach_officer: true,
+    outreach_officer: true, cashier: true, billing_officer: true,
   }
 
   // A code with no words reads "Staff" and "a staff member" (staffAccess.ts), never itself: so those are what to rule out.

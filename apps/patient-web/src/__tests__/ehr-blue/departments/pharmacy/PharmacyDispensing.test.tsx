@@ -547,6 +547,8 @@ describe('Reverse dispensing', () => {
     const form = reverse('  Medication returned unopened by the patient  ')
     const sheet = await screen.findByRole('dialog', { name: 'Confirm the patient' })
     expect(within(sheet).getByText(`Reverse the dispensing of ${METFORMIN} for Patient (name not shown)?`)).toBeTruthy()
+    // A reversal corrects the record only: no stock goes back unless the pharmacist counts it back.
+    expect(within(sheet).getByText(/The stock count does not change: if the medicine came back to the shelf, correct the count on the Stock page\./)).toBeTruthy()
     expect(api.dispensing).not.toHaveBeenCalled()
     await confirmPatient('Reverse dispensing')
     await waitFor(() => expect(api.reverseDispensing).toHaveBeenCalledTimes(1))

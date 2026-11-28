@@ -2,27 +2,31 @@ import { formatDateTime, formatPhone } from '@hid/ui/display'
 import { CircleCheck, Printer } from 'lucide-react'
 import { Badge, Button, cx } from '../../../kasuwa/ui'
 import { FormActions } from '../../../kasuwa/parts'
-import { BILL_STATUS_LABEL, METHOD_LABEL, SOURCE_LABEL, type Bill, type Hmo, type Payment, type ReceiptData } from './api'
+import { BILL_STATUS_LABEL, METHOD_LABEL, SOURCE_LABEL, billName, type Bill, type Hmo, type HmoCover, type Payment, type ReceiptData } from './api'
 import { naira } from './money'
 import { PrintHeader } from '../../frame/PrintHeader'
 import './commerce.css'
 import { printReceipt } from '../../../print/printPaper'
 
+/** "18 Nov 2026, 14:05", Lagos time (Q181 A, Q182 A). */
 const when = (iso: string) => formatDateTime(iso)
 
-/** One payment in words: "POS · RRN 402911", "HMO · Hygeia · code AX-221", "Transfer · ref 0091 · Waiting for check". */
-export function paymentLine(payment: Payment, hmos: readonly Hmo[] = []): string {
-  const parts: string[] = [METHOD_LABEL[payment.method]]
-  if (payment.method === 'hmo') {
-    const hmo = hmos.find(entry => entry.id === payment.hmoId)
-    if (hmo) parts.push(hmo.name)
-    if (payment.reference) parts.push(`code ${payment.reference}`)
-  } else if (payment.method === 'pos' && payment.reference) parts.push(`RRN ${payment.reference}`)
+/** One payment in words: "POS · RRN 402911", "Transfer · ref 0091 · Waiting for check", "Waiver · reason". */
+export function paymentLine(payment: Payment, _hmos: readonly Hmo[] = []): string {
+  const parts: string[] = [METHOD_LABEL[payment.method] ?? 'Payment']
+  if (payment.method === 'pos' && payment.reference) parts.push(`RRN ${payment.reference}`)
   else if (payment.method === 'transfer' && payment.reference) parts.push(`ref ${payment.reference}`)
   else if (payment.method === 'waiver' && payment.reason) parts.push(payment.reason)
   if (payment.method === 'transfer' && payment.status === 'pending_check') parts.push('Waiting for check')
+  if (payment.paperReceiptNumber) parts.push(`paper receipt ${payment.paperReceiptNumber}`)
   if (payment.voided) parts.push('Cancelled')
   return parts.join(' · ')
+}
+
+/** HMO cover in words (BILL-8): "HMO to pay · Hygeia HMO · code AX-221". Owed by the HMO, never money received. */
+export function coverLine(cover: HmoCover): string {
+  return ['HMO to pay', cover.hmoName, cover.approvalCode ? `code ${cover.approvalCode}` : null, cover.status === 'cancelled' ? 'Cancelled' : null]
+    .filter(Boolean).join(' · ')
 }
 
 /**
@@ -44,8 +48,13 @@ export function Receipt({ bill, receipt, facilityName, hmos = [], footer, onDone
   const number = receipt?.receiptNumber ?? shown.receiptNumber ?? null
   const facility = receipt?.facility.name ?? facilityName ?? null
   const issuedAt = receipt?.issuedAt ?? shown.payments.at(-1)?.receivedAt ?? shown.createdAt
-  const payments = shown.payments.filter(payment => !payment.voided)
+  const payments = shown.payments.filter(payment => !payment.voided && payment.method !== 'waiver')
+  const waivers = shown.payments.filter(payment => !payment.voided && payment.method === 'waiver')
+  const covers = (shown.hmoCovers ?? []).filter(cover => cover.status !== 'cancelled')
   const closing = receipt?.footer ?? footer ?? null
+  // A voided payment's receipt keeps its number and says "Cancelled" (BILL-16); the paper book's number when there is one.
+  const cancelled = receipt?.cancelled === true
+  const paperNumber = receipt?.paperReceiptNumber ?? receipt?.payment?.paperReceiptNumber ?? null
   return (
     <div className={cx('flex flex-col gap-4', className)}>
       <section data-receipt-print="" aria-label={number ? `Receipt ${number}` : `Bill ${shown.number}`}
@@ -58,17 +67,20 @@ export function Receipt({ bill, receipt, facilityName, hmos = [], footer, onDone
           {receipt?.facility.phone ? <p className="m-0 text-caption text-ink-3">{formatPhone(receipt.facility.phone)}</p> : null}
           <p className="m-0 mt-2 text-[13px] font-semibold tracking-[.06em] text-ink-2 uppercase">{number ? 'Receipt' : 'Bill'}</p>
           <p className="m-0 text-title-2 text-ink tabular">{number ?? shown.number}</p>
-          <p className="m-0 text-caption text-ink-3">{when(issuedAt)}{number ? ` · Bill ${shown.number}` : ''} · {SOURCE_LABEL[shown.source]}</p>
+          <p className="m-0 text-caption text-ink-3">{when(issuedAt)}{number ? ` · Bill ${shown.number}` : ''} · {SOURCE_LABEL[shown.source] ?? 'Bill'}</p>
+          {paperNumber ? <p className="m-0 text-caption text-ink-2">Paper receipt {paperNumber}</p> : null}
+          {cancelled ? <p className="m-0 mt-1 rounded-md px-2 py-0.5 text-[13px] font-semibold tracking-[.06em] text-danger-ink uppercase ring-1 ring-inset ring-danger/40">Cancelled</p> : null}
         </header>
 
         <dl className="m-0 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 border-t border-line pt-3 text-[13px]">
           <dt className="text-ink-3">Patient</dt>
-          <dd className="m-0 text-right text-ink">{shown.patient ? shown.patient.displayName : 'Walk-in (no name)'}</dd>
-          {shown.patient?.healthId ? <><dt className="text-ink-3">Health ID</dt><dd className="m-0 text-right font-medium tracking-[.04em] text-ink">{shown.patient.healthId}</dd></> : null}
+          <dd className="m-0 text-right text-ink">{billName(shown)}</dd>
+          {/* The last four characters only: a receipt never prints a whole Health ID. */}
+          {shown.patient?.healthIdLast4 ? <><dt className="text-ink-3">Health ID</dt><dd className="m-0 text-right font-medium tracking-[.04em] text-ink">ending {shown.patient.healthIdLast4}</dd></> : null}
         </dl>
 
         <ul className="m-0 flex list-none flex-col gap-2 border-t border-line p-0 pt-3">
-          {shown.lines.map(line => (
+          {shown.lines.filter(line => !line.cancelled).map(line => (
             <li key={line.id} className="flex items-baseline justify-between gap-3 text-sm">
               <span className="min-w-0 text-ink">{line.name}<span className="block text-caption text-ink-3 tabular">{line.quantity} × {naira(line.unitKobo)}</span></span>
               <span className="shrink-0 text-ink tabular">{naira(line.totalKobo)}</span>
@@ -82,6 +94,8 @@ export function Receipt({ bill, receipt, facilityName, hmos = [], footer, onDone
             <PaymentRow key={payment.id} payment={payment} hmos={hmos} />
           ))}
           <dt className="text-ink-2">Paid</dt><dd className="m-0 text-right text-ink tabular">{naira(shown.paidKobo)}</dd>
+          {waivers.map(payment => <PaymentRow key={payment.id} payment={payment} hmos={hmos} />)}
+          {covers.map(cover => <CoverRow key={cover.id} cover={cover} />)}
           {shown.dueKobo > 0 ? <><dt className="font-semibold text-ink">{shown.status === 'deferred' ? 'Bill follows' : 'Still to pay'}</dt>
             <dd className="m-0 text-right font-semibold text-ink tabular">{naira(shown.dueKobo)}</dd></> : null}
         </dl>
@@ -110,5 +124,13 @@ function PaymentRow({ payment, hmos }: { readonly payment: Payment; readonly hmo
   return <>
     <dt className="text-ink-2">{paymentLine(payment, hmos)}</dt>
     <dd className="m-0 text-right text-ink tabular">{naira(payment.amountKobo)}</dd>
+  </>
+}
+
+/** HMO cover on a receipt: what the HMO is to pay, apart from what was paid (BILL-8). */
+function CoverRow({ cover }: { readonly cover: HmoCover }) {
+  return <>
+    <dt className="text-ink-2">{coverLine(cover)}</dt>
+    <dd className="m-0 text-right text-ink tabular">{naira(cover.amountKobo)}</dd>
   </>
 }

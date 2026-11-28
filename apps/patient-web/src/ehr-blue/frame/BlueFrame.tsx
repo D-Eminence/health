@@ -24,6 +24,7 @@ import { facilityRefusal } from './ChooseWorkspace'
 import { ConnectionStatus } from './ConnectionStatus'
 import { DeniedPage, LivePage, PageUnavailable } from './LivePages'
 import { useListedChanges } from './listedChanges'
+import { useBillingProbe } from '../departments/commerce/served'
 import { NotFoundPage } from './NotFoundPage'
 import { PageGuideButton } from './PageGuide'
 import { PrintHeader } from './PrintHeader'
@@ -249,8 +250,11 @@ function BlueFrameBody({ drawer, closed }: { drawer: RouteDrawerState | null; cl
   const session = state.status === 'ready' ? state.session : null
   const facility = session?.actor.facility
   const permissions = useMemo(() => facility?.permissions ?? [], [facility])
+  // Whether patient billing answers at this facility (hid-system BILL-1): asked once per facility, and the pages are
+  // worked out again when it is learned (departments/commerce/served.ts).
+  const billingLearned = useBillingProbe(session)
   // A sample page opens to the design roles of the person, or of the demo role whose Home is being viewed.
-  const allowed = useMemo(() => BLUE_PAGES.filter(page => pageAllowed(page, session, viewing)), [session, viewing])
+  const allowed = useMemo(() => BLUE_PAGES.filter(page => pageAllowed(page, session, viewing)), [session, viewing, billingLearned])
   // What the sidebar and search offer: the allowed pages this session lists.
   // Only working screens are offered (the owner's decision of 2026-10-31): sample modules with fictional figures stay in
   // the code for demos but are not listed in the sidebar or search.

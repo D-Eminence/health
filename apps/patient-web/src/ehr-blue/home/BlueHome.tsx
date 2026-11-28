@@ -25,7 +25,8 @@ import { LoadingRows } from '../../kasuwa/parts'
 import { RoleDashboard } from './RoleDashboard'
 import { scanAccess } from '../../scanAccess'
 import { fromHere } from '../clinical/parts/cameFrom'
-import { HomeBillingCard, HomePeopleCard } from './adminCards'
+import { HomeBillingCard, HomeBillingTodayCard, HomePeopleCard } from './adminCards'
+import { usePointOfCareOpen } from '../departments/commerce/served'
 
 const ACTIVITY = ['patients', 'appointments', 'journey', 'triage'] as const
 const MAX_SHORTCUTS = 6
@@ -101,6 +102,7 @@ export function BlueHome() {
   // sidebar does, so a shortcut leaves Home when its page stops being listed and comes back when it is listed again.
   useListedChanges(pages, session)
   const demo = isDemoFacility(facility?.id)
+  const billingHere = usePointOfCareOpen(facility?.id)
   // Home offers this workspace's pages only, as the frame's menu and search do (product.ts). In a single product (a lab
   // or an outreach team on its own) Home opens when the product's own page is not open to this session, and it offers
   // none of the hospital's pages there: patient registration stays in the EHR. A hospital's EHR has them all.
@@ -130,6 +132,7 @@ export function BlueHome() {
   // A link from Home leads only to a page this site opens: the frame sends any other back here (product.ts). So
   // Incoming orders offers only this product's own work. In a hospital's EHR every page opens.
   const opens = (path: string) => opensInProduct(product, path)
+  const liveBilling = billingHere && permissions.includes('billing.bill.read') && opens('payments')
   // The open patient is classic's "Current patient" card (Dashboard.tsx), only where this site opens the clinical
   // record, as classic showed it only where the site offered it (parity report 3.3-55): a single product, which has no
   // Consultation, shows no card.
@@ -264,8 +267,11 @@ export function BlueHome() {
 
         {facility && permissions.includes('workforce.manage') ? <HomePeopleCard facility={facility} /> : null}
 
-        {/* A facility administrator's Home shows Patient billing where a clinician's shows Activity. */}
-        {demo && facility?.roles.includes('org_admin') ? <HomeBillingCard /> : demo ? <Card aria-label="Activity in period">
+        {/* Patient billing today, live, for whoever reads bills where billing answers (hid-system BILL-1). */}
+        {liveBilling && facility ? <HomeBillingTodayCard facilityId={facility.id} /> : null}
+        {/* A facility administrator's Home shows Patient billing where a clinician's shows Activity: the sample only where
+            the live card is not shown. */}
+        {liveBilling ? null : demo && facility?.roles.includes('org_admin') ? <HomeBillingCard /> : demo ? <Card aria-label="Activity in period">
           <CardHeader as="h2" title="Activity" description="Sample records created" icon={Activity}
             actions={<Select controlSize="sm" aria-label="Reporting period" value={period} onChange={event => setPeriod(event.target.value)}>
               <option value="7">Last 7 days</option><option value="30">Last 30 days</option></Select>} />
