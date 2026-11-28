@@ -1,8 +1,8 @@
-import { HidApiError } from '@hid/http'
+import { HidApiError, PLAIN } from '@hid/http'
 import type { RegistrationCase } from '../../../staff/api'
 import type { RefusedWork } from '../../../staff/refusedWork'
 import { registrationErrorText } from '../../../staff/registrationFlow'
-import { dateText } from '../parts/format'
+import { birthDateText, dateText } from '../parts/format'
 
 /*
  * The classic Patient registration page (staff/routes/Registration.tsx as it is on main now), its rules and every word
@@ -192,8 +192,8 @@ export function withoutNinErrorText(caught: unknown): string {
 // ---- Continue a registration (Registration.tsx 104-121, 219-226) -----------------------------------------------
 
 /**
- * Health ID keeps no list of registrations to search, so one started on an earlier visit is continued by its
- * Registration ID, which each registration shows under "More details".
+ * A registration the lists do not show (one another member started, for someone who does not approve them) is
+ * continued by its Registration ID, which each registration shows under "More details".
  */
 export const CASE_ID_LABEL = 'Registration ID'
 export const CASE_ID_HINT = 'Shown on the registration when it was started.'
@@ -310,10 +310,88 @@ export const DISTINCT_PERSON = 'Register reviewed duplicate as distinct person'
 export const CORRECT_DEMOGRAPHICS = 'Correct demographics'
 export const NO_CORRECTION = 'Health ID does not take demographic corrections on a registration case yet.'
 /**
- * Registration.tsx 221: classic's "Continue a registration", the card's title. Today has no case list, so the card also
- * lists what this visit found or made.
+ * Registration.tsx 221: classic's "Continue a registration", the card's title. It opens a registration by its
+ * Registration ID (one another member noted down, say), and lists the registrations opened on this visit that the list
+ * above does not show.
  */
 export const CONTINUE_TITLE = 'Continue a registration'
-export const VISIT_CAPTION = 'Registration cases'
-export const NO_VISIT_TITLE = 'No registration cases opened yet'
-export const NO_VISIT_MESSAGE = 'Registrations you start or reopen here are listed until you leave this page.'
+export const VISIT_CAPTION = 'Opened on this visit'
+
+// ---- The registration list (SX-10, docs/INTERFACE_CONTRACT.md SX-10 "Screen change") ------------------------------
+
+/** The contract's two lists: the desk's own (view mine), and every one at the facility for approvers (view facility). */
+export const MINE_TITLE = 'My registrations'
+export const ALL_TITLE = 'All registrations'
+/** The list's heading where both lists are offered, and the name of the choice between them. */
+export const LIST_TITLE = 'Registrations'
+export const LIST_CHOICE = 'Show registrations'
+export const STATUS_FILTER = 'Status'
+export const ALL_STATUSES = 'All statuses'
+/** The order the statuses are offered in: those that need someone first, then those decided. */
+export const STATUS_CHOICES: ReadonlyArray<RegistrationCase['status']> = [
+  'pending_new_identity_approval', 'review_required', 'approved_new_identity', 'linked_existing', 'resolved_existing_identity',
+  'rejected', 'cancelled',
+]
+/** ID-2 (hid-system 0130): every registration without a NIN may be someone already registered, for an approver to check. */
+export const EVIDENCE_FILTER = 'NIN'
+export const EVIDENCE_CHOICES: ReadonlyArray<readonly ['' | 'none' | 'nin', string]> = [
+  ['', 'With or without a NIN'], ['none', 'Registered without a NIN'], ['nin', 'Registered with a NIN'],
+]
+export const LIST_LOADING = 'Loading registrations…'
+export const LIST_EMPTY_TITLE = 'No registrations yet'
+export const MINE_EMPTY = 'Patients you register at this facility are listed here.'
+export const ALL_EMPTY = 'Patients registered at this facility are listed here.'
+export const FILTERED_EMPTY_TITLE = 'No matching registrations'
+export const FILTERED_EMPTY = 'Change the filters to see more registrations.'
+/** The contract's "Load more", while there is a next page. */
+export const LOAD_MORE = 'Load more'
+export const LOADING_MORE = 'Loading…'
+export const MORE_ADDED = 'More registrations added below.'
+export const ALL_LOADED = 'Every registration in this list is shown.'
+export const LIST_FAILED = 'We couldn’t load registrations. Try again.'
+export const MORE_FAILED = 'We couldn’t load more registrations. Try again.'
+/**
+ * Who started a registration, on its row (hid-system #340): by name where Identity sends one; with no name, "Started by
+ * you" on the member's own, and nothing on anyone else's.
+ */
+export const STARTED_BY_YOU = 'Started by you'
+export function startedByText(item: { readonly createdByMe: boolean; readonly createdByName?: string | null }) {
+  const name = item.createdByName?.trim()
+  if (name) return `Started by ${name}`
+  return item.createdByMe ? STARTED_BY_YOU : null
+}
+export const NO_HID_YET = 'No Health ID yet'
+export const bornText = (dateOfBirth: string | null) => {
+  const day = birthDateText(dateOfBirth)
+  return day ? `Born ${day}` : 'Date of birth not given'
+}
+export const UPDATED = 'Updated'
+/** A row whose registration is being read to open it. */
+export const OPENING = 'Opening…'
+
+/** 403 REGISTRATION_CASE_LIST_DENIED: all registrations asked for without approving them. The list goes back to the member's own. */
+export const LIST_DENIED = 'Only staff who approve registrations can see every registration at this facility. Showing your registrations instead.'
+/** 400 REGISTRATION_CASE_CURSOR_INVALID: a next page Identity did not issue. The list is read again from its first page. */
+export const LIST_RESTARTED = 'The next page could not be loaded, so the list was loaded again from the first page.'
+const LIST_NO_ACCESS = 'You can’t see the registrations at this facility. Ask your facility administrator if you need to.'
+/** Every refusal the list can answer, by code, in plain words: never Identity's own text or the code. */
+const LIST_REFUSALS: Readonly<Record<string, string>> = {
+  REGISTRATION_CASE_LIST_DENIED: LIST_DENIED,
+  REGISTRATION_CASE_CURSOR_INVALID: LIST_RESTARTED,
+  VALIDATION_FAILED: LIST_FAILED,
+  PURPOSE_OF_USE_REQUIRED: LIST_FAILED,
+  FACILITY_REQUIRED: LIST_FAILED,
+  AUTHENTICATION_REQUIRED: PLAIN.signedOut,
+  FACILITY_ACCESS_DENIED: LIST_NO_ACCESS,
+  PATIENT_SCOPE_DENIED: LIST_NO_ACCESS,
+  NO_ACTIVE_FACILITY_MEMBERSHIP: LIST_NO_ACCESS,
+  PERMISSION_DENIED: LIST_NO_ACCESS,
+}
+
+/** A list read's refusal in plain words, or `fallback` (a failed connection, Health ID unavailable: the shared words). */
+export function listErrorText(caught: unknown, fallback: string): string {
+  if (caught instanceof HidApiError && Object.prototype.hasOwnProperty.call(LIST_REFUSALS, caught.code)) {
+    return LIST_REFUSALS[caught.code]!
+  }
+  return safeError(caught, fallback)
+}

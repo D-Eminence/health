@@ -167,6 +167,71 @@ export interface RegistrationCase {
   identityEvidence?: 'nin' | 'none'
 }
 
+/** Which registrations GET identity/registration-cases lists (SX-10): the caller's own, or every one at the facility. */
+export type RegistrationCaseView = 'mine' | 'facility'
+
+/**
+ * One registration in GET identity/registration-cases (SX-10): the case as GET :caseId reads it, without its possible
+ * matches, with the patient's name and date of birth as registered, whether the caller started it, and the name of the
+ * member who started it (hid-system #340).
+ */
+export interface RegistrationCaseListItem extends Omit<RegistrationCase, 'candidates'> {
+  fullName: string
+  /** YYYY-MM-DD. */
+  dateOfBirth: string | null
+  createdAt: string
+  updatedAt: string
+  createdByMe: boolean
+  /**
+   * The name of the member who started it (hid-system #340, SX-9's rule: their login's display name, else their staff
+   * record's full name). null when Identity has no name for them (the login was deleted, or neither name is set); absent
+   * from an Identity that does not send it yet. A name only: nothing else of theirs is sent.
+   */
+  createdByName?: string | null
+}
+
+/** A page of the list, newest first, with the opaque cursor of the next page; null on the last. */
+export interface RegistrationCaseList {
+  view: RegistrationCaseView
+  cases: RegistrationCaseListItem[]
+  nextCursor: string | null
+}
+
+/** The list's query: `view` always, each filter only when chosen. Never a Health ID, NIN or name. */
+export interface RegistrationCaseListQuery {
+  view: RegistrationCaseView
+  status?: RegistrationCase['status']
+  /** 'none': registered without a NIN; 'nin': registered with a NIN (hid-system 0130, ID-2). */
+  evidence?: 'none' | 'nin'
+  /** 1 to 100; Identity sends 50 when none is given. */
+  limit?: number
+  cursor?: string
+}
+
+/** A row as the page reads it: the fields every row shows, and the ones it is opened and kept by. */
+function isRegistrationCaseListItem(item: unknown): item is RegistrationCaseListItem {
+  if (!item || typeof item !== 'object') return false
+  const row = item as Partial<Record<keyof RegistrationCaseListItem, unknown>>
+  return typeof row.caseId === 'string' && typeof row.status === 'string' && typeof row.version === 'number'
+    && typeof row.fullName === 'string' && (row.dateOfBirth === null || typeof row.dateOfBirth === 'string')
+    && typeof row.createdAt === 'string' && typeof row.updatedAt === 'string' && typeof row.createdByMe === 'boolean'
+    // Who started it: a name or null, or left out by an Identity that does not send it yet; never anything else.
+    && (row.createdByName === undefined || row.createdByName === null || typeof row.createdByName === 'string')
+}
+
+/**
+ * The list as sent. An answer in another shape, or with any row in another shape, is an ordinary Error, which the page
+ * words with its own fallback, so a half-read list is never shown as the whole of it.
+ */
+export function parseRegistrationCaseList(value: unknown): RegistrationCaseList {
+  const answer = value as Partial<RegistrationCaseList> | null
+  if (!answer || typeof answer !== 'object' || !Array.isArray(answer.cases) || !answer.cases.every(isRegistrationCaseListItem)
+    || (answer.nextCursor !== null && answer.nextCursor !== undefined && typeof answer.nextCursor !== 'string')) {
+    throw new Error('The registration list answered in a shape this page does not read.')
+  }
+  return { view: answer.view === 'facility' ? 'facility' : 'mine', cases: answer.cases, nextCursor: answer.nextCursor ?? null }
+}
+
 /**
  * POST identity/registration-cases/without-nin (hid-system 0130, docs/INTERFACE_CONTRACT.md ID-2). The phone and address
  * go together, and are left out only for a child; the existing Health ID only when the patient says they have one.
@@ -2669,6 +2734,20 @@ export const staffApi = {
     client.post<LinkedPatientNin>(`/api/v1/identity/patients/${encodeURIComponent(patientId)}/nin`,
       { nin, purpose: 'healthcare-operations' },
       { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders(idempotencyKey) }, timeoutMs: NIN_CHECK_TIMEOUT_MS }),
+  // SX-10: the desk's own registrations (view mine), or every one at the facility for an approver (view facility), a
+  // page at a time, newest first. Only the keys Identity takes are sent (it refuses any other), never a Health ID, NIN
+  // or name. Each page read is audited, so it is read when asked for, never on a timer.
+  listRegistrationCases: async (facilityId: string, query: RegistrationCaseListQuery, signal?: AbortSignal): Promise<RegistrationCaseList> =>
+    parseRegistrationCaseList(await client.get<unknown>('/api/v1/identity/registration-cases', {
+      query: {
+        view: query.view,
+        ...(query.status ? { status: query.status } : {}),
+        ...(query.evidence ? { evidence: query.evidence } : {}),
+        ...(query.limit !== undefined ? { limit: query.limit } : {}),
+        ...(query.cursor ? { cursor: query.cursor } : {}),
+      },
+      headers: facilityHeaders(facilityId, 'healthcare-operations'), signal, dedupe: false,
+    })),
   registrationCase: (facilityId: string, caseId: string) =>
     client.get<RegistrationCase>(`/api/v1/identity/registration-cases/${encodeURIComponent(caseId)}`,
       { headers: facilityHeaders(facilityId, 'healthcare-operations') }),

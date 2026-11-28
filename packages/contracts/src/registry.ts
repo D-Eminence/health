@@ -631,6 +631,19 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'none, ninStatus, replayed, patient? }. 400 PHONE_REQUIRED, NOT_A_CHILD, REGISTRATION_WITHOUT_NIN_INVALID; 403 '
     + 'REGISTRATION_WITHOUT_NIN_DENIED, REGISTRATION_WITHOUT_NIN_NOT_AVAILABLE; 409 IDEMPOTENCY_KEY_REUSED; 503 '
     + 'REGISTRATION_WITHOUT_NIN_UNAVAILABLE.'),
+  // SX-10 (hid-system a30888a6; evidence from 0130): the desk's registrations and, for approvers, the facility's.
+  { ...r('identity.registrationCases','identity','/api/v1/identity/registration-cases',G,false,one('GET','identity.registration.write'),
+    'X-Facility-ID, X-Purpose-Of-Use (direct-care, emergency or healthcare-operations). Query only view (mine, the default, '
+    + 'or facility, which also needs identity.registration.approve), status, evidence (none or nin), limit (1 to 100, 50 by '
+    + 'default) and cursor; any other key is 400 VALIDATION_FAILED. 200 { view, cases: [{ caseId, status, version, '
+    + 'candidateCount, contactRecorded, ninStatus, identityEvidence, patient?, fullName, dateOfBirth, createdAt, updatedAt, '
+    + 'createdByMe, createdByMembershipId, createdByName }], nextCursor }, newest first. createdByName (hid-system #340) is '
+    + 'the starter\'s name by SX-9\'s rule (login display name, else staff full name, trimmed), null once the login is '
+    + 'deleted or neither is set; a name only, no contact, account, role or licence. The page shows it, else "Started by '
+    + 'you" on the member\'s own, and reads an answer without it (an Identity before #340) as no name; it does not read '
+    + 'createdByMembershipId. 400 REGISTRATION_CASE_CURSOR_INVALID; '
+    + '403 REGISTRATION_CASE_LIST_DENIED (view facility without approve).'),
+  forbiddenQuery: { GET: ['hid', 'healthId', 'nin'] } },
   r('identity.registrationCase','identity','/api/v1/identity/registration-cases/:caseId',G,false,one('GET','identity.registration.write')),
   // hid-system 0138 (ID-6, Akos P0-1, Release B): "Verify NIN later", the desk's QoreID check of a NIN added to this
   // facility's own patient registered without one, docs/INTERFACE_CONTRACT.md ID-6.

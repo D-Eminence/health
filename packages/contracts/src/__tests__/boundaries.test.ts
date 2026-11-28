@@ -860,8 +860,9 @@ describe('application boundaries', () => {
     }
     const lookups = { '/api/v1/lab/order-routes': 'lab.orderRoutes', '/api/v1/pharmacy/order-routes': 'pharmacy.orderRoutes',
       '/api/v1/admin/order-routes': 'admin.orderRoutesFind' } as const
+    // And the registration list (SX-10), which refuses a Health ID or NIN in its address too (registration-cases.test.ts).
     expect(HID_ENDPOINTS.filter(endpoint => endpoint.forbiddenQuery).map(endpoint => endpoint.name).sort())
-      .toEqual(Object.values(lookups).sort())
+      .toEqual([...Object.values(lookups), 'identity.registrationCases'].sort())
     for (const [path, name] of Object.entries(lookups)) {
       expect(findEndpoint(name)?.forbiddenQuery, name).toEqual({ GET: ['healthId'] })
       // Refused before transport in every form the backend refuses, alone or beside an allowed key, with a message

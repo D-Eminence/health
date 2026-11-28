@@ -36,7 +36,7 @@ vi.mock('../../../../staff/App', async () => {
 })
 
 const api = vi.hoisted(() => ({
-  registrationCapabilities: vi.fn(), registrationCase: vi.fn(), resolveNin: vi.fn(), linkExistingRegistration: vi.fn(),
+  registrationCapabilities: vi.fn(), listRegistrationCases: vi.fn(), registrationCase: vi.fn(), resolveNin: vi.fn(), linkExistingRegistration: vi.fn(),
   approveNewRegistration: vi.fn(), enrollRegistration: vi.fn(),
 }))
 // Every staff API member the page reaches for that today's page does not use.
@@ -75,6 +75,7 @@ beforeEach(() => {
   session.selfService = undefined
   session.roles = ['records_officer']
   api.registrationCapabilities.mockResolvedValue(ENABLED)
+  api.listRegistrationCases.mockResolvedValue({ view: 'mine', cases: [], nextCursor: null })
   setItem = vi.spyOn(Storage.prototype, 'setItem')
 })
 
@@ -321,8 +322,10 @@ describe('the list view', () => {
     // Classic's "Continue a registration" field, hint and button.
     expect(described(caseIdField())).toBe('Shown on the registration when it was started.')
     expect(openButton().textContent).toBe('Open')
-    expect(screen.getByText('No registration cases opened yet')).toBeTruthy()
-    expect(screen.getByText('Registrations you start or reopen here are listed until you leave this page.')).toBeTruthy()
+    // The registration list (SX-10) is empty, and nothing was opened on this visit.
+    expect(await screen.findByText('No registrations yet')).toBeTruthy()
+    expect(screen.getByText('Patients you register at this facility are listed here.')).toBeTruthy()
+    expect(screen.queryByRole('region', { name: 'Opened on this visit' })).toBeNull()
   })
 
   it('says NIN checks are off in classic\'s words', async () => {
@@ -581,7 +584,7 @@ describe('the new record form', () => {
     await waitFor(() => expect(api.registrationCase).toHaveBeenCalledTimes(2))
     expect(heading().textContent).toBe('Registration for Amaka Obi')
     fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
-    const table = await screen.findByRole('region', { name: 'Registration cases' })
+    const table = await screen.findByRole('region', { name: 'Opened on this visit' })
     const open = within(table).getByRole('button', { name: 'Registration for Amaka Obi' })
     expect(within(open.closest('tr') as HTMLElement).getByText(/^Started /)).toBeTruthy()
     expect(within(table).queryByText(new RegExp(CASE.slice(0, 8)))).toBeNull()
@@ -699,7 +702,7 @@ describe('Continue a registration', () => {
     expect(first.value).toBe('Patient')
     expect(document.activeElement).toBe(first)
     fireEvent.click(screen.getByRole('button', { name: 'Close' }))
-    const table = await screen.findByRole('region', { name: 'Registration cases' })
+    const table = await screen.findByRole('region', { name: 'Opened on this visit' })
     // Listed by when it was reopened, never by its ID.
     expect(within(table).getByRole('button', { name: 'Earlier registration' })).toBeTruthy()
     expect(within(table).queryByText(CASE)).toBeNull()
@@ -732,7 +735,7 @@ describe('Continue a registration', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
     await waitFor(() => expect(screen.getAllByText('New Health ID').length).toBeGreaterThan(0))
     fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
-    const table = await screen.findByRole('region', { name: 'Registration cases' })
+    const table = await screen.findByRole('region', { name: 'Opened on this visit' })
     const open = within(table).getByRole('button', { name: 'Earlier registration' })
     expect(document.activeElement).toBe(open)
     const row = open.closest('tr') as HTMLElement
@@ -746,7 +749,7 @@ describe('Continue a registration', () => {
     fireEvent.click(openButton())
     await screen.findByRole('heading', { level: 1, name: 'Earlier registration' })
     fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
-    const rows = within(await screen.findByRole('region', { name: 'Registration cases' })).getAllByRole('row').slice(1)
+    const rows = within(await screen.findByRole('region', { name: 'Opened on this visit' })).getAllByRole('row').slice(1)
     expect(rows.map(item => item.querySelector('.hid-ehr-dept-reference')?.textContent?.startsWith('Reopened '))).toEqual([true, true])
     expect(within(rows[0]!).getByText('No possible existing patients reported.')).toBeTruthy()
     expect(within(rows[1]!).getByText('Health ID: HID-ZDEMAAA2')).toBeTruthy()
@@ -1095,7 +1098,9 @@ describe('what the page keeps', () => {
     view.rerender(<MemoryRouter><div className="hid-ehr"><PatientRegistration /></div></MemoryRouter>)
     expect(heading().textContent).toBe('Patient registration')
     await waitFor(() => expect(api.registrationCapabilities).toHaveBeenLastCalledWith('98d00002-0000-4000-8000-000000000004'))
-    expect(screen.getByText('No registration cases opened yet')).toBeTruthy()
+    // That facility's own list is read, and nothing opened at the last one is listed.
+    await waitFor(() => expect(api.listRegistrationCases).toHaveBeenLastCalledWith('98d00002-0000-4000-8000-000000000004', { view: 'mine' }))
+    expect(screen.queryByRole('region', { name: 'Opened on this visit' })).toBeNull()
     expect(caseIdField().value).toBe('')
   })
 

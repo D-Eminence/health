@@ -1,45 +1,69 @@
-import { EhrBadge, EhrButton, EhrDataTable, EhrEmptyState, EhrField, EhrInput, type EhrDataTableColumn } from '@hid/ui/ehr'
+import { useState } from 'react'
+import { EhrBadge, EhrButton, EhrDataTable, EhrEmptyState, EhrField, EhrInput, EhrSelect, type EhrDataTableColumn } from '@hid/ui/ehr'
+import type { RegistrationCaseListItem } from '../../../staff/api'
+import { FilterTabs } from '../../../kasuwa/ui'
+import { useFocusById } from '../../../staff/focus'
 import { DeptNotice } from '../parts/DeptNotice'
 import { DeptPage, DeptSection } from '../parts/DeptPage'
 import { DeptLinkButton, DeptRecordName } from '../parts/DeptRecord'
-import { FIELD, type Availability, type CaseLoading, type VisitCase } from './registrationModel'
+import { dateText } from '../parts/format'
+import { FIELD, visitWhen, type Availability, type CaseLoading, type VisitCase } from './registrationModel'
+import type { CaseFilter, RegistrationCases } from './registrationCases'
 import { ErrorBox, type FormProblems } from './registrationParts'
 import { offersWithoutNin } from './withoutNin'
 import {
-  candidatesText, CAPABILITY_FAILED_TITLE, CAPABILITY_LOADING, CASE_ID_HINT, CASE_ID_LABEL, caseTitle, caseWhen, CHECK_AGAIN, CHECKING,
-  COMPLETED, CONTINUE_TITLE, CREATE_RECORD, DESCRIPTION, EYEBROW, LOAD_CASE, LOADING, NIN_NOT_ENABLED, NIN_OFF_TITLE, NIN_OFF_WITHOUT_NIN,
-  NO_VISIT_MESSAGE, NO_VISIT_TITLE, statusLabel, TITLE, TRY_AGAIN, VISIT_CAPTION,
+  ALL_EMPTY, ALL_LOADED, ALL_STATUSES, ALL_TITLE, bornText, candidatesText, CAPABILITY_FAILED_TITLE, CAPABILITY_LOADING, CASE_ID_HINT,
+  CASE_ID_LABEL, caseTitle, caseWhen, CHECK_AGAIN, CHECKING, COMPLETED, CONTINUE_TITLE, CREATE_RECORD, DESCRIPTION, ERROR_TITLE,
+  EVIDENCE_CHOICES, EVIDENCE_FILTER, EYEBROW, FILTERED_EMPTY, FILTERED_EMPTY_TITLE, LIST_CHOICE, LIST_EMPTY_TITLE, LIST_LOADING, LIST_TITLE,
+  LOAD_CASE, LOAD_MORE, LOADING, LOADING_MORE, MINE_EMPTY, MINE_TITLE, MORE_ADDED, NIN_FACT, NIN_NOT_ENABLED, NIN_OFF_TITLE,
+  NIN_OFF_WITHOUT_NIN, NO_HID_YET, ninStatusText, OPENING, startedByText, STATUS_CHOICES, STATUS_FILTER, statusLabel, TITLE, TRY_AGAIN,
+  UPDATED, VISIT_CAPTION,
 } from './registrationText'
+
+/** The id of a list row's name button, by its place in the list (never its case ID): focus returns here from the record. */
+export const listRowId = (index: number) => `registration-case-${index}-open`
+const LIST_END_ID = 'registration-list-end'
+const LIST_NOTICE_ID = 'registration-list-notice'
+/** The id of a this-visit row's name button. */
+export const visitRowId = (seq: number) => `registration-visit-${seq}-open`
 
 /**
  * The design's list view (patients-1-list) on today's page: its heading with "Create record", classic's notice when NIN
- * checks are not working, and classic's "Continue a registration" in place of the design's search card. Today has no case list
- * (Registration.tsx 241: Identity does not provide one), so the card reopens a case by its reference and lists the
- * cases found or made during this visit, from memory, by the person's name and when.
+ * checks are not working, the registration list (SX-10: "My registrations", and "All registrations" for approvers) in
+ * the design's table, and classic's "Continue a registration" under it, which opens a registration by its Registration
+ * ID and lists the ones opened on this visit that the list does not show.
  */
-export function RegistrationList({ availability, caseIdInput, onCaseIdInput, caseLoading, busy, problems, error, message, visits, onFind, onNew, onOpen }: {
+export function RegistrationList({ availability, cases, caseIdInput, onCaseIdInput, caseLoading, busy, problems, error, listError, message, visits,
+  onFind, onNew, onOpen, onOpenListed }: {
   readonly availability: Availability
+  readonly cases: RegistrationCases
   readonly caseIdInput: string
   readonly onCaseIdInput: (value: string) => void
-  /** The case read running, if any: Load case says "Loading…" for its own. */
+  /** The case read running, if any: Load case says "Loading…" for its own, a list row for its own. */
   readonly caseLoading: CaseLoading
   readonly busy: boolean
   readonly problems: FormProblems
   /** What the last load's refusal said. */
   readonly error: string
+  /** What the last opening of a list row's refusal said. */
+  readonly listError: string
   /** What the last step said, shown here too (the page's status region says it once). */
   readonly message: string
   readonly visits: readonly VisitCase[]
   readonly onFind: () => void
   readonly onNew: () => void
   readonly onOpen: (visit: VisitCase) => void
+  readonly onOpenListed: (item: RegistrationCaseListItem) => void
 }) {
+  const listed = cases.list.kind === 'ready' ? new Set(cases.list.items.map(item => item.caseId)) : new Set<string>()
+  // A registration opened here that the list shows is listed there only.
+  const others = visits.filter(visit => !listed.has(visit.item.caseId))
   const columns: EhrDataTableColumn<VisitCase>[] = [
     {
-      id: 'record', header: 'Record', cell: visit => (
-        <DeptRecordName id={`registration-visit-${visit.seq}-open`} name={caseTitle(visit.name)}
-          reference={caseWhen(visit.started, visit.at)} onOpen={() => onOpen(visit)} />
-      ),
+      id: 'record', header: 'Record', cell: visit => {
+        const when = visitWhen(visit)
+        return <DeptRecordName id={visitRowId(visit.seq)} name={caseTitle(visit.name)} reference={caseWhen(when.started, when.at)} onOpen={() => onOpen(visit)} />
+      },
     },
     {
       id: 'context', header: 'Patient / context', cell: visit => visit.item.patient
@@ -54,7 +78,7 @@ export function RegistrationList({ availability, caseIdInput, onCaseIdInput, cas
     {
       id: 'actions', header: <span className="hid-ehr-sr-only">Actions</span>, cell: visit => (
         <div className="hid-ehr-dept-table-actions">
-          <DeptLinkButton describedBy={`registration-visit-${visit.seq}-open`} onClick={() => onOpen(visit)}>Open <span aria-hidden="true">→</span></DeptLinkButton>
+          <DeptLinkButton describedBy={visitRowId(visit.seq)} onClick={() => onOpen(visit)}>Open <span aria-hidden="true">→</span></DeptLinkButton>
         </div>
       ),
     },
@@ -65,6 +89,7 @@ export function RegistrationList({ availability, caseIdInput, onCaseIdInput, cas
       primaryAction={<EhrButton onClick={onNew}>{CREATE_RECORD}</EhrButton>}>
       <AvailabilityNotice availability={availability} />
       {message ? <DeptNotice tone="positive">{message}</DeptNotice> : null}
+      <CaseList cases={cases} caseLoading={caseLoading} busy={busy} error={listError} onOpen={onOpenListed} />
       <DeptSection title={CONTINUE_TITLE} className="hid-ehr-dept-list-card">
         {/* Registration.tsx 219-226: classic's "Continue a registration", its field, hint, button and words. */}
         <form className="hid-ehr-dept-registration-find" noValidate onSubmit={event => { event.preventDefault(); onFind() }}>
@@ -80,11 +105,130 @@ export function RegistrationList({ availability, caseIdInput, onCaseIdInput, cas
           </EhrField>
         </form>
         <ErrorBox message={error} />
-        {visits.length === 0
-          ? <EhrEmptyState title={NO_VISIT_TITLE} message={NO_VISIT_MESSAGE} />
-          : <EhrDataTable caption={VISIT_CAPTION} captionHidden columns={columns} rows={visits} rowKey={visit => String(visit.seq)} />}
+        {others.length > 0
+          ? <EhrDataTable caption={VISIT_CAPTION} columns={columns} rows={others} rowKey={visit => String(visit.seq)} />
+          : null}
       </DeptSection>
     </DeptPage>
+  )
+}
+
+/**
+ * The registration list (SX-10): which list (approvers only), its filters, the rows in the design's table, and "Load
+ * more" while Identity sends a next page. A row's name and its Open both open the registration (GET :caseId).
+ */
+function CaseList({ cases, caseLoading, busy, error, onOpen }: {
+  readonly cases: RegistrationCases
+  readonly caseLoading: CaseLoading
+  readonly busy: boolean
+  readonly error: string
+  readonly onOpen: (item: RegistrationCaseListItem) => void
+}) {
+  const { filter, list, notice, canSeeAll, choose, reload } = cases
+  // What "Load more" added, announced. After the last page, focus goes to the line that says every one is shown; after
+  // a page link Identity did not issue, to the notice that says the list was read again (the button is gone either way).
+  const [said, setSaid] = useState('')
+  const focus = useFocusById()
+  const all = filter.view === 'facility'
+  const filtered = filter.status !== '' || filter.evidence !== ''
+  const items = list.kind === 'ready' ? list.items : []
+  const opening = caseLoading !== null && typeof caseLoading === 'object' ? caseLoading.caseId : null
+  const open = (item: RegistrationCaseListItem) => { if (caseLoading === null && !busy) onOpen(item) }
+
+  async function loadMore() {
+    setSaid('')
+    const answer = await cases.loadMore()
+    if (answer === 'more') setSaid(MORE_ADDED)
+    else if (answer === 'end') focus(LIST_END_ID)
+    else if (answer === 'restarted') focus(LIST_NOTICE_ID)
+  }
+
+  const columns: EhrDataTableColumn<{ readonly item: RegistrationCaseListItem; readonly row: number }>[] = [
+    {
+      id: 'patient', header: 'Patient', cell: ({ item, row }) => (
+        <DeptRecordName id={listRowId(row)} name={item.fullName} onOpen={() => open(item)}
+          // Who started it, by name; with no name, "Started by you" on the member's own.
+          reference={[bornText(item.dateOfBirth), startedByText(item)].filter(Boolean).join(' · ')} />
+      ),
+    },
+    { id: 'hid', header: 'Health ID', cell: ({ item }) => item.patient?.hid ?? <span className="hid-ehr-dept-muted">{NO_HID_YET}</span> },
+    { id: 'nin', header: NIN_FACT, cell: ({ item }) => (item.ninStatus ? ninStatusText(item.ninStatus) : null) },
+    {
+      id: 'status', header: 'Status', cell: ({ item }) => (
+        <EhrBadge tone={COMPLETED.has(item.status) ? 'positive' : 'brand'}>{statusLabel(item.status)}</EhrBadge>
+      ),
+    },
+    { id: 'updated', header: UPDATED, cell: ({ item }) => dateText(item.updatedAt) },
+    {
+      id: 'actions', header: <span className="hid-ehr-sr-only">Actions</span>, cell: ({ item, row }) => (
+        <div className="hid-ehr-dept-table-actions">
+          <DeptLinkButton describedBy={listRowId(row)} onClick={() => open(item)}>
+            {opening === item.caseId ? OPENING : <>Open <span aria-hidden="true">→</span></>}
+          </DeptLinkButton>
+        </div>
+      ),
+    },
+  ]
+
+  return (
+    <DeptSection title={canSeeAll ? LIST_TITLE : MINE_TITLE}
+      className="hid-ehr-dept-list-card hid-ehr-dept-registration-list">
+      {canSeeAll ? (
+        <FilterTabs label={LIST_CHOICE} value={filter.view} onChange={view => choose({ view })}
+          options={[{ value: 'mine', label: MINE_TITLE }, { value: 'facility', label: ALL_TITLE }]} />
+      ) : null}
+      {notice ? <DeptNotice id={LIST_NOTICE_ID} tabIndex={-1} tone="caution">{notice}</DeptNotice> : null}
+      <div className="hid-ehr-dept-registration-filters">
+        <EhrField label={STATUS_FILTER} controlId="registration-list-status">
+          <EhrSelect value={filter.status} onChange={event => choose({ status: event.target.value as CaseFilter['status'] })}>
+            <option value="">{ALL_STATUSES}</option>
+            {STATUS_CHOICES.map(status => <option key={status} value={status}>{statusLabel(status)}</option>)}
+          </EhrSelect>
+        </EhrField>
+        {canSeeAll ? (
+          <EhrField label={EVIDENCE_FILTER} controlId="registration-list-evidence">
+            <EhrSelect value={filter.evidence} onChange={event => choose({ evidence: event.target.value as CaseFilter['evidence'] })}>
+              {EVIDENCE_CHOICES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </EhrSelect>
+          </EhrField>
+        ) : null}
+      </div>
+      <ErrorBox message={error} />
+      {list.kind === 'loading' ? <p className="hid-ehr-dept-muted" role="status">{LIST_LOADING}</p> : null}
+      {list.kind === 'error' ? (
+        // Every refusal after a read carries classic's title (Registration.tsx 301).
+        <DeptNotice role="alert" tone="critical" title={ERROR_TITLE}>
+          <div className="hid-ehr-dept-registration-availability-row">
+            <p>{list.text}</p>
+            <EhrButton variant="secondary" size="sm" onClick={reload}>{TRY_AGAIN}</EhrButton>
+          </div>
+        </DeptNotice>
+      ) : null}
+      {list.kind === 'ready' && items.length === 0 ? (
+        <EhrEmptyState title={filtered ? FILTERED_EMPTY_TITLE : LIST_EMPTY_TITLE} message={filtered ? FILTERED_EMPTY : all ? ALL_EMPTY : MINE_EMPTY} />
+      ) : null}
+      {items.length > 0 ? (
+        <EhrDataTable caption={all ? ALL_TITLE : MINE_TITLE} captionHidden columns={columns}
+          rows={items.map((item, row) => ({ item, row }))} rowKey={({ item }) => item.caseId} />
+      ) : null}
+      {list.kind === 'ready' && (list.nextCursor || list.moreError) ? (
+        <div className="hid-ehr-dept-registration-more-rows">
+          <ErrorBox message={list.moreError} />
+          {list.nextCursor ? (
+            // Unavailable while it reads, not disabled, so it keeps its focus as each page is added.
+            <EhrButton variant="secondary" busy={list.moreLoading} className="hid-ehr-dept-registration-unavailable"
+              aria-disabled={list.moreLoading || undefined} onClick={() => { if (!list.moreLoading) void loadMore() }}>
+              {list.moreLoading ? LOADING_MORE : LOAD_MORE}
+            </EhrButton>
+          ) : null}
+        </div>
+      ) : null}
+      {list.kind === 'ready' && list.ended && items.length > 0
+        ? <p id={LIST_END_ID} tabIndex={-1} className="hid-ehr-dept-muted hid-ehr-dept-registration-end">{ALL_LOADED}</p>
+        : null}
+      {/* Mounted throughout, so what "Load more" added is announced. */}
+      <p role="status" className="hid-ehr-sr-only">{said}</p>
+    </DeptSection>
   )
 }
 

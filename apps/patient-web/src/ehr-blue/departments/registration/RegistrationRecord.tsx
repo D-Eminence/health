@@ -10,7 +10,7 @@ import { DeptNotice } from '../parts/DeptNotice'
 import { dateText } from '../parts/format'
 import { DeptPage, DeptSection } from '../parts/DeptPage'
 import { DeptActions, DeptContextLine, DeptFacts, DeptRecordLayout, type DeptFact } from '../parts/DeptRecord'
-import { FIELD, type Availability, type CaseLoading, type ReviewAction, type ShownError, type VisitCase } from './registrationModel'
+import { FIELD, startedByMe, visitWhen, type Availability, type CaseLoading, type ReviewAction, type ShownError, type VisitCase } from './registrationModel'
 import { ErrorBox, UnavailableAction, type FormProblems } from './registrationParts'
 import { VerifyNinForm, VerifyNinNotOffered } from './RegistrationVerifyNin'
 import { VERIFY_NIN, verifyNinOffer } from './verifyNinLater'
@@ -131,9 +131,10 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
   })
   // 0130 identity.review_patient_without_nin: an approver other than the person who started a registration without a
   // NIN sent for review decides it (a new Health ID, or a link to a listed patient). Identity shows the person who
-  // started it nobody else's details, so a case started on this visit waits for another approver.
+  // started it nobody else's details, so a case this member started (on this visit, or as the list says) waits for
+  // another approver.
   const reviewWithoutNin = withoutNin && registration.status === 'review_required'
-  const decidesWithoutNin = canApprove && reviewWithoutNin && !visit.started
+  const decidesWithoutNin = canApprove && reviewWithoutNin && !startedByMe(visit)
   const waitsForApprover = reviewWithoutNin && !decidesWithoutNin
   // Registration.tsx 253, 255, 256: who may decide, and what this state of the case allows.
   const offered: Record<OpenForm, boolean> = {
@@ -147,7 +148,7 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
   const approveLabel = decidesWithoutNin ? GIVE_NEW_HID : APPROVE
   const shownForm = open && offered[open] ? open : null
   // A refusal is said in the form that sent it while that form is open, and otherwise at the top of the record.
-  const errorHere = error && error.at !== 'find' && error.at !== 'resolve' && error.at !== 'without' && error.at !== shownForm ? error.text : ''
+  const errorHere = error && error.at !== 'find' && error.at !== 'list' && error.at !== 'resolve' && error.at !== 'without' && error.at !== shownForm ? error.text : ''
   const reviewNotice = waitsForApprover ? SENT_FOR_REVIEW_NOTICE
     : decidesWithoutNin ? (candidates.length ? WITHOUT_NIN_REVIEW_NOTICE : WITHOUT_NIN_UNLISTED_NOTICE) : REVIEW_NOTICE
   const errorIn = (form: OpenForm) => (error?.at === form ? error.text : '')
@@ -155,9 +156,10 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
   // Back is unavailable while a step or this case's refresh runs, so its answer is not lost.
   const unavailable = busy || refreshing
 
+  const when = visitWhen(visit)
   const facts: DeptFact[] = [
     { label: 'Status', value: statusLabel(registration.status) },
-    { label: visit.started ? 'Started' : 'Reopened', value: dateText(visit.at) },
+    { label: when.started ? 'Started' : 'Reopened', value: dateText(when.at) },
     { label: 'Possible matches', value: candidatesText(registration) },
     ...(registration.patient ? [{ label: 'Health ID', value: registration.patient.hid }] : []),
     ...(ninStatus ? [{ label: NIN_FACT, value: ninStatusText(ninStatus) }] : []),
@@ -183,7 +185,7 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
           onClick={() => { if (!unavailable) onBack() }}>{BACK_TO_LIST}</EhrButton>
       )}>
       <DeptContextLine status={statusLabel(registration.status)} tone={completed ? 'positive' : 'brand'}
-        items={[caseWhen(visit.started, visit.at), registration.patient ? `Health ID ${registration.patient.hid}` : null]} />
+        items={[caseWhen(when.started, when.at), registration.patient ? `Health ID ${registration.patient.hid}` : null]} />
       {message ? <DeptNotice tone="positive">{message}</DeptNotice> : null}
       <ErrorBox message={errorHere} />
       {registration.status === 'review_required' ? <DeptNotice tone="caution">{reviewNotice}</DeptNotice> : null}
@@ -210,8 +212,8 @@ export function RegistrationRecord({ visit, canApprove, busy, caseLoading, messa
                 <DeptNotice tone="caution" title={CANDIDATES_UNAVAILABLE_TITLE}>{CANDIDATES_UNAVAILABLE}</DeptNotice>
               )
             ) : null}
-            {/* The case's reference, out of the way: Health ID keeps no list of registrations, so it is how this one is
-                reopened on a later visit ("Continue a registration"). */}
+            {/* The case's reference, out of the way: a registration the lists do not show is reopened by it on a later
+                visit ("Continue a registration"). */}
             <details className="hid-ehr-dept-registration-more">
               <summary>{MORE_DETAILS}</summary>
               <DeptFacts facts={[{ label: REFERENCE_LABEL, value: registration.caseId }]} />
