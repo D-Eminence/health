@@ -8,10 +8,13 @@ import type { ReactElement, ReactNode } from 'react'
  *   at `${path}/*`: the page routes its own list, `new` and `:recordId` with relative routes.
  * - `group` and `label`: the sidebar group and item, as the design's screenshots name them.
  * - `permission`: shown only to an actor with this permission at the facility (the one today's page checks).
+ * - `orPermissions`: other permissions, any one of which opens the page as `permission` does (only with `permission`).
  * - `status`: `live`, fully on today's Health ID API; `partial`, some parts on today's API and the rest sample;
  *   `sample`, no backend yet (in memory only, fictional, nothing saved).
  * - `refusal`: what the page's address shows when the permission turns the page down, in today's words; it stands in
  *   for the page, so it reads nothing. Left out, the frame sends the person Home with its own notice.
+ * - `listed`: where given, the sidebar, search and Home shortcuts offer the page only when it answers true for the
+ *   signed-in session (the frame's own `listed`, read here through the one field it needs).
  */
 export type EhrBluePageStatus = 'live' | 'partial' | 'sample'
 
@@ -21,7 +24,9 @@ export type EhrBluePage = {
   label: string
   icon?: ReactNode
   permission?: string
+  orPermissions?: readonly string[]
   status: 'live' | 'partial' | 'sample'
   element: ReactElement
   refusal?: ReactElement
+  listed?: (session: { readonly actor: { readonly facility?: { readonly permissions: readonly string[] } } }) => boolean
 }

@@ -986,6 +986,17 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     one('PATCH','ehr.encounter.read','ehr.encounter.write'),
     `${RELEASE_A} X-Facility-ID, direct-care. Body { expectedRowVersion, stage?, triageLevel? (null clears), `
     + 'assignedMembershipId? (null clears) }. 200 the card; 409 VISIT_QUEUE_ENTRY_CHANGED or VISIT_QUEUE_ENTRY_CLOSED.')),
+  // "Ordered by me" (hid-system 0143, MY-1; Release B, live with Release C at d519e5d1). Either read permission opens it,
+  // so none is listed here as required (this registry's permissions are all required).
+  r('ehr.myOrders','ehr','/api/v1/ehr/my-orders',G,false,undefined,
+    'MY-1 (hid-system 0143): the signed-in member\'s own lab requests (ehr.lab-request.read) and prescriptions '
+    + '(ehr.prescription.read) at the working facility; kind=all lists only the kinds the member holds, and neither, or a '
+    + 'kind without its permission, is 403 PERMISSION_DENIED. X-Facility-ID, direct-care only (400 PURPOSE_OF_USE_REQUIRED '
+    + 'otherwise). Query, each optional: kind all|lab|prescription, state open|all, since YYYY-MM-DD (at most 2 years '
+    + 'back: 400 MY_ORDERS_SINCE_TOO_OLD), limit 1-50, cursor (400 INVALID_CURSOR). No patient in the path or query. 200 '
+    + '{ items: { kind, orderId, encounterId, patient { patientId, fullName, sex, dateOfBirth, healthIdLast4 }, display, '
+    + 'status, priority, createdAt, updatedAt, ownProgress, orderRoute? }[], hiddenCount, hiddenCountComplete, since, '
+    + 'nextCursor }; a page may hold fewer rows than limit while nextCursor is set. 503 MY_ORDERS_UNAVAILABLE.'),
   r('ehr.vitals','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals',GP,false,{GET:['ehr.vital.read'],POST:['ehr.vital.write']}),
   r('ehr.vital','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals/:vitalId',G,false,one('GET','ehr.vital.read')),
   r('ehr.vitalCorrections','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/vitals/:vitalId/corrections',GP,false,{GET:['ehr.vital.read'],POST:['ehr.vital.write']}),
